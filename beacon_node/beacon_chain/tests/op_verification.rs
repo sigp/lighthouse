@@ -7,7 +7,7 @@ extern crate lazy_static;
 
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, BlockingMigratorDiskHarnessType,
 };
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
@@ -28,7 +28,7 @@ lazy_static! {
 }
 
 type E = MinimalEthSpec;
-type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
+type TestHarness = BeaconChainHarness<BlockingMigratorDiskHarnessType<E>>;
 type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
@@ -57,8 +57,8 @@ fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
 fn voluntary_exit() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), VALIDATOR_COUNT);
-    let spec = &harness.chain.spec;
+    let mut harness = get_harness(store.clone(), VALIDATOR_COUNT);
+    let spec = &harness.chain.spec.clone();
 
     harness.extend_chain(
         (E::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
