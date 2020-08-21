@@ -1,8 +1,5 @@
 #[macro_use]
-mod macros;
-#[macro_use]
 extern crate lazy_static;
-#[macro_use]
 mod router;
 extern crate network as client_network;
 
@@ -65,14 +62,14 @@ pub fn start_server<T: BeaconChainTypes>(
     let context = Arc::new(Context {
         executor: executor.clone(),
         config: config.clone(),
-        beacon_chain: beacon_chain.clone(),
+        beacon_chain,
         network_globals: network_info.network_globals.clone(),
-        network_chan: network_info.network_chan.clone(),
-        eth2_config: eth2_config.clone(),
+        network_chan: network_info.network_chan,
+        eth2_config,
         log: log.clone(),
-        db_path: db_path.clone(),
-        freezer_db_path: freezer_db_path.clone(),
-        events: events.clone(),
+        db_path,
+        freezer_db_path,
+        events,
     });
 
     // Define the function that will build the request handler.

@@ -1,13 +1,13 @@
 use crate::helpers::*;
 use crate::validator::get_state_for_epoch;
 use crate::Context;
-use crate::{ApiError, ApiResult, UrlQuery};
+use crate::{ApiError, UrlQuery};
 use beacon_chain::{
     observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
 use futures::executor::block_on;
 use hyper::body::Bytes;
-use hyper::{Body, Request, Response};
+use hyper::{Body, Request};
 use rest_types::{
     BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
     ValidatorRequest, ValidatorResponse,

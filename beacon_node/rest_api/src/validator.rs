@@ -456,7 +456,7 @@ pub fn publish_attestations<T: BeaconChainTypes>(
         //
         // Note: this will only provide info about the _first_ failure, not all failures.
         .and_then(|processing_results| processing_results.into_iter().try_for_each(|result| result))
-        .and_then(|_| Ok(()))
+        .map(|_| ())
 }
 
 /// Processes an unaggregrated attestation that was included in a list of attestations with the
