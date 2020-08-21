@@ -81,7 +81,7 @@ pub fn start_server<T: BeaconChainTypes>(
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
-                router::route(req, ctx.clone())
+                router::on_http_request(req, ctx.clone())
             }))
         }
     });
