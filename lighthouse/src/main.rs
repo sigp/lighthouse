@@ -189,13 +189,16 @@ fn run<E: EthSpec>(
 
     // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
     // else, use the default
-    let mut optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
+    let mut optional_testnet_config = None;
     if matches.is_present("testnet") {
         optional_testnet_config = clap_utils::parse_hardcoded_network(matches, "testnet")?;
     };
     if matches.is_present("testnet-dir") {
         optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
     };
+    if optional_testnet_config.is_none() {
+        optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
+    }
 
     let builder = if let Some(log_path) = matches.value_of("logfile") {
         let path = log_path
