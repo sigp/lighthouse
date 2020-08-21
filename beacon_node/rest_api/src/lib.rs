@@ -24,7 +24,7 @@ use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server};
 use parking_lot::Mutex;
-use rest_types::{ApiError, ApiResult};
+use rest_types::ApiError;
 use slog::{info, warn};
 use std::net::SocketAddr;
 use std::path::PathBuf;
