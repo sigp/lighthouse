@@ -102,7 +102,6 @@ pub enum SyncMessage<T: EthSpec> {
     BatchProcessed {
         chain_id: ChainId,
         epoch: Epoch,
-        downloaded_blocks: Vec<SignedBeaconBlock<T>>,
         result: BatchProcessResult,
     },
 
@@ -119,12 +118,10 @@ pub enum SyncMessage<T: EthSpec> {
 // TODO: When correct batch error handling occurs, we will include an error type.
 #[derive(Debug)]
 pub enum BatchProcessResult {
-    /// The batch was completed successfully.
-    Success,
-    /// The batch processing failed.
-    Failed,
-    /// The batch processing failed but managed to import at least one block.
-    Partial,
+    /// The batch was completed successfully. It carries whether the processing imported any block.
+    Success(bool),
+    /// The batch processing failed. It carries whether the processing imported any block.
+    Failed(bool),
 }
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
@@ -900,14 +897,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     SyncMessage::BatchProcessed {
                         chain_id,
                         epoch,
-                        downloaded_blocks,
                         result,
                     } => {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
                             chain_id,
                             epoch,
-                            downloaded_blocks,
                             result,
                         );
                     }

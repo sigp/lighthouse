@@ -44,23 +44,17 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
             let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                 (_, Ok(_)) => {
                     debug!(log, "Batch processed"; "batch_epoch" => epoch , "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service"=> "sync");
-                    BatchProcessResult::Success
+                    BatchProcessResult::Success(!downloaded_blocks.is_empty())
                 }
-                (imported_blocks, Err(e)) if imported_blocks > 0 => {
-                    debug!(log, "Batch processing failed but imported some blocks";
-                        "batch_epoch" => epoch, "error" => e, "imported_blocks"=> imported_blocks, "service" => "sync");
-                    BatchProcessResult::Partial
-                }
-                (_, Err(e)) => {
-                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "error" => e, "service" => "sync");
-                    BatchProcessResult::Failed
+                (imported_blocks, Err(e)) => {
+                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "error" => e, "imported_blocks" => imported_blocks, "service" => "sync");
+                    BatchProcessResult::Failed(imported_blocks > 0)
                 }
             };
 
             let msg = SyncMessage::BatchProcessed {
                 chain_id,
                 epoch,
-                downloaded_blocks,
                 result,
             };
             sync_send.send(msg).unwrap_or_else(|_| {
