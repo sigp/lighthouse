@@ -44,7 +44,6 @@ pub async fn on_http_request<T: BeaconChainTypes>(
     let log = ctx.log.clone();
     let allow_origin = ctx.config.allow_origin.clone();
 
-
     match route(req, ctx).await {
         Ok(mut response) => {
             metrics::inc_counter_vec(&metrics::BEACON_HTTP_API_SUCCESS_TOTAL, &[&path]);
