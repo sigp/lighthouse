@@ -64,7 +64,6 @@ pub async fn on_http_request<T: BeaconChainTypes>(
                 "path" => path,
                 "duration_ms" => Instant::now().duration_since(received_instant).as_millis()
             );
-            metrics::inc_counter(&metrics::SUCCESS_COUNT);
             Ok(response)
         }
 
