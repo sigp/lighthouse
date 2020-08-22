@@ -35,17 +35,20 @@ pub async fn on_http_request<T: BeaconChainTypes>(
     req: Request<Body>,
     ctx: Arc<Context<T>>,
 ) -> Result<Response<Body>, ApiError> {
-    metrics::inc_counter(&metrics::REQUEST_COUNT);
+    let path = req.uri().path().to_string();
+
+    let _timer = metrics::start_timer_vec(&metrics::BEACON_HTTP_API_TIMES_TOTAL, &[&path]);
+    metrics::inc_counter_vec(&metrics::BEACON_HTTP_API_REQUESTS_TOTAL, &[&path]);
+
     let received_instant = Instant::now();
     let log = ctx.log.clone();
     let allow_origin = ctx.config.allow_origin.clone();
 
-    let path = req.uri().path().to_string();
-
-    let request_processing_duration = Instant::now().duration_since(received_instant);
 
     match route(req, ctx).await {
         Ok(mut response) => {
+            metrics::inc_counter_vec(&metrics::BEACON_HTTP_API_SUCCESS_TOTAL, &[&path]);
+
             if allow_origin != "" {
                 let headers = response.headers_mut();
                 headers.insert(
@@ -59,18 +62,20 @@ pub async fn on_http_request<T: BeaconChainTypes>(
                 log,
                 "HTTP API request successful";
                 "path" => path,
-                "duration_ms" => request_processing_duration.as_millis()
+                "duration_ms" => Instant::now().duration_since(received_instant).as_millis()
             );
             metrics::inc_counter(&metrics::SUCCESS_COUNT);
             Ok(response)
         }
 
         Err(error) => {
+            metrics::inc_counter_vec(&metrics::BEACON_HTTP_API_ERROR_TOTAL, &[&path]);
+
             debug!(
                 log,
                 "HTTP API request failure";
                 "path" => path,
-                "duration_ms" => request_processing_duration.as_millis()
+                "duration_ms" => Instant::now().duration_since(received_instant).as_millis()
             );
             Ok(error.into())
         }
@@ -81,11 +86,10 @@ async fn route<T: BeaconChainTypes>(
     req: Request<Body>,
     ctx: Arc<Context<T>>,
 ) -> Result<Response<Body>, ApiError> {
-    let _timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
+    let path = req.uri().path().to_string();
     let ctx = ctx.clone();
     let method = req.method().clone();
     let executor = ctx.executor.clone();
-    let path = req.uri().path().to_string();
     let handler = Handler::new(req, ctx, executor)?;
 
     match (method, path.as_ref()) {

@@ -7,33 +7,32 @@ use std::sync::Arc;
 pub use lighthouse_metrics::*;
 
 lazy_static! {
+    pub static ref BEACON_HTTP_API_REQUESTS_TOTAL: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "beacon_http_api_requests_total",
+            "Count of HTTP requests received",
+            &["endpoint"]
+        );
+    pub static ref BEACON_HTTP_API_SUCCESS_TOTAL: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "beacon_http_api_success_total",
+            "Count of HTTP requests that returned 200 OK",
+            &["endpoint"]
+        );
+    pub static ref BEACON_HTTP_API_ERROR_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "beacon_http_api_error_total",
+        "Count of HTTP that did not return 200 OK",
+        &["endpoint"]
+    );
+    pub static ref BEACON_HTTP_API_TIMES_TOTAL: Result<HistogramVec> = try_create_histogram_vec(
+        "beacon_http_api_times_total",
+        "Duration to process HTTP requests",
+        &["endpoint"]
+    );
     pub static ref REQUEST_RESPONSE_TIME: Result<Histogram> = try_create_histogram(
         "http_server_request_duration_seconds",
         "Time taken to build a response to a HTTP request"
     );
-    pub static ref REQUEST_COUNT: Result<IntCounter> = try_create_int_counter(
-        "http_server_request_total",
-        "Total count of HTTP requests received"
-    );
-    pub static ref SUCCESS_COUNT: Result<IntCounter> = try_create_int_counter(
-        "http_server_success_total",
-        "Total count of HTTP 200 responses sent"
-    );
-    pub static ref VALIDATOR_GET_BLOCK_REQUEST_RESPONSE_TIME: Result<Histogram> =
-        try_create_histogram(
-            "http_server_validator_block_get_request_duration_seconds",
-            "Time taken to respond to GET /validator/block"
-        );
-    pub static ref VALIDATOR_GET_ATTESTATION_REQUEST_RESPONSE_TIME: Result<Histogram> =
-        try_create_histogram(
-            "http_server_validator_attestation_get_request_duration_seconds",
-            "Time taken to respond to GET /validator/attestation"
-        );
-    pub static ref VALIDATOR_GET_DUTIES_REQUEST_RESPONSE_TIME: Result<Histogram> =
-        try_create_histogram(
-            "http_server_validator_duties_get_request_duration_seconds",
-            "Time taken to respond to GET /validator/duties"
-        );
     pub static ref PROCESS_NUM_THREADS: Result<IntGauge> = try_create_int_gauge(
         "process_num_threads",
         "Number of threads used by the current process"
