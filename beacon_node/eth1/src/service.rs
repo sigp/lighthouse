@@ -2,7 +2,9 @@ use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
-    http::{get_block, get_block_number, get_deposit_logs_in_range, Eth1NetworkId, Log},
+    http::{
+        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, Eth1NetworkId, Log,
+    },
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
@@ -353,6 +355,28 @@ impl Service {
     }
 
     async fn do_update(&self, update_interval: Duration) -> Result<(), ()> {
+        let endpoint = self.config().endpoint.clone();
+        let result =
+            get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+        match result {
+            Ok(network_id) => {
+                if network_id != DEFAULT_NETWORK_ID {
+                    error!(
+                        self.log,
+                        "Failed to update eth1 cache";
+                        "reason" => "Invalid eth1 network id",
+                        "expected" => format!("{:?}",DEFAULT_NETWORK_ID),
+                        "got" => format!("{:?}",network_id),
+                    );
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                error!(self.log, "Failed to get eth1 network id"; "error" => e);
+                return Ok(());
+            }
+        }
+
         let update_result = self.update().await;
         match update_result {
             Err(e) => error!(
