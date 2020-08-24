@@ -100,7 +100,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 "endpoint" => &client_config.eth1.endpoint,
                 "method" => "json rpc via http"
             );
-            builder.caching_eth1_backend(client_config.eth1.clone())?
+            builder
+                .caching_eth1_backend(client_config.eth1.clone())
+                .await?
         } else if client_config.dummy_eth1_backend {
             warn!(
                 log,

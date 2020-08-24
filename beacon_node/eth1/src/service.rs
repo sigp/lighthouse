@@ -2,7 +2,7 @@ use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
-    http::{get_block, get_block_number, get_deposit_logs_in_range, Log},
+    http::{get_block, get_block_number, get_deposit_logs_in_range, Eth1NetworkId, Log},
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
@@ -15,6 +15,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{interval_at, Duration, Instant};
 use types::ChainSpec;
+
+/// Indicates the default eth1 network we use for the deposit contract.
+pub const DEFAULT_NETWORK_ID: Eth1NetworkId = Eth1NetworkId::Goerli;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
