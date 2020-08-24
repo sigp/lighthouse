@@ -1,5 +1,6 @@
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
+use eth1::http::Eth1NetworkId;
 use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
@@ -73,6 +74,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         let ganache_eth1_instance = GanacheEth1Instance::new().await?;
         let deposit_contract = ganache_eth1_instance.deposit_contract;
+        let network_id = ganache_eth1_instance.ganache.network_id();
         let ganache = ganache_eth1_instance.ganache;
         let eth1_endpoint = ganache.endpoint();
         let deposit_contract_address = deposit_contract.address();
@@ -105,6 +107,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.eth1.follow_distance = 1;
         beacon_config.dummy_eth1_backend = false;
         beacon_config.sync_eth1_chain = true;
+        beacon_config.eth1.network_id = Eth1NetworkId::Custom(network_id);
 
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 

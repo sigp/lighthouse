@@ -34,8 +34,9 @@ pub const DEPOSIT_ROOT_BYTES: usize = 32;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Eth1NetworkId {
-    Goerli = 5,
-    Mainnet = 1,
+    Goerli,
+    Mainnet,
+    Custom(u64),
 }
 
 impl FromStr for Eth1NetworkId {
@@ -45,7 +46,11 @@ impl FromStr for Eth1NetworkId {
         match s {
             "1" => Ok(Eth1NetworkId::Mainnet),
             "5" => Ok(Eth1NetworkId::Goerli),
-            _ => Err("Invalid eth1 network id".to_string()),
+            custom => {
+                let network_id = u64::from_str_radix(custom, 10)
+                    .map_err(|e| format!("Failed to parse eth1 network id {}", e))?;
+                Ok(Eth1NetworkId::Custom(network_id))
+            }
         }
     }
 }
