@@ -8,7 +8,6 @@ use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
 use hyper::Request;
 use network::NetworkMessage;
-use rayon::prelude::*;
 use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscription};
 use slog::{error, info, trace, warn, Logger};
 use std::sync::Arc;
@@ -437,7 +436,7 @@ pub fn publish_attestations<T: BeaconChainTypes>(
         .map(
             move |attestations: Vec<(Attestation<T::EthSpec>, SubnetId)>| {
                 attestations
-                    .into_par_iter()
+                    .into_iter()
                     .enumerate()
                     .map(|(i, (attestation, subnet_id))| {
                         process_unaggregated_attestation(
@@ -546,7 +545,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
         .map(
             move |signed_aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>| {
                 signed_aggregates
-                    .into_par_iter()
+                    .into_iter()
                     .enumerate()
                     .map(|(i, signed_aggregate)| {
                         process_aggregated_attestation(
