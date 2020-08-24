@@ -621,12 +621,20 @@ where
         }
     }
 
+    fn set_current_slot(&self, slot: Slot) {
+        let current_slot = self.chain.slot().unwrap();
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(E::slots_per_epoch());
+        assert!(epoch >= current_epoch, "Jumping backwards to an earlier epoch isn't well defined.  Please generate test blocks epoch-by-epoch instead.");
+        self.chain.slot_clock.set_slot(slot.into());
+    }
+
     pub fn add_block_at_slot(
         &mut self,
         slot: Slot,
         state: BeaconState<E>,
     ) -> (SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>) {
-        self.chain.slot_clock.set_slot(slot.into());
+        self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot);
         let block_hash = self.process_block(slot, block.clone());
         (block_hash, block, new_state)
