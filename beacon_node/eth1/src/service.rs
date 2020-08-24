@@ -81,6 +81,8 @@ pub struct Config {
     pub endpoint: String,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
+    /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
+    pub network_id: Eth1NetworkId,
     /// Defines the first block that the `DepositCache` will start searching for deposit logs.
     ///
     /// Setting too high can result in missed logs. Setting too low will result in unnecessary
@@ -110,6 +112,7 @@ impl Default for Config {
         Self {
             endpoint: "http://localhost:8545".into(),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
+            network_id: DEFAULT_NETWORK_ID,
             deposit_contract_deploy_block: 1,
             lowest_cached_block_number: 1,
             follow_distance: 128,
@@ -356,11 +359,12 @@ impl Service {
 
     async fn do_update(&self, update_interval: Duration) -> Result<(), ()> {
         let endpoint = self.config().endpoint.clone();
+        let config_network = self.config().network_id.clone();
         let result =
             get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
         match result {
             Ok(network_id) => {
-                if network_id != DEFAULT_NETWORK_ID {
+                if network_id != config_network {
                     error!(
                         self.log,
                         "Failed to update eth1 cache";

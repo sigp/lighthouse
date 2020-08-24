@@ -600,12 +600,12 @@ where
 
         // Check if the eth1 endpoint we connect to is on the correct network id.
         let network_id =
-            eth1::get_network_id(&config.endpoint, Duration::from_millis(15_000)).await?;
-        if network_id != eth1::DEFAULT_NETWORK_ID {
+            eth1::http::get_network_id(&config.endpoint, Duration::from_millis(15_000)).await?;
+
+        if network_id != config.network_id {
             return Err(format!(
                 "Invalid eth1 network id. Expected {:?}, got {:?}",
-                eth1::DEFAULT_NETWORK_ID,
-                network_id
+                config.network_id, network_id
             ));
         }
 

@@ -12,8 +12,5 @@ mod service;
 pub use block_cache::{BlockCache, Eth1Block};
 pub use deposit_cache::DepositCache;
 pub use deposit_log::DepositLog;
-pub use http::get_network_id;
 pub use inner::SszEth1Cache;
-pub use service::{
-    BlockCacheUpdateOutcome, Config, DepositCacheUpdateOutcome, Error, Service, DEFAULT_NETWORK_ID,
-};
+pub use service::{BlockCacheUpdateOutcome, Config, DepositCacheUpdateOutcome, Error, Service};

@@ -12,6 +12,7 @@
 
 use futures::future::TryFutureExt;
 use reqwest::{header::CONTENT_TYPE, ClientBuilder, StatusCode};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::ops::Range;
 use std::str::FromStr;
@@ -31,7 +32,7 @@ pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
 /// Number of bytes in deposit contract deposit root (value only).
 pub const DEPOSIT_ROOT_BYTES: usize = 32;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Eth1NetworkId {
     Goerli = 5,
     Mainnet = 1,
