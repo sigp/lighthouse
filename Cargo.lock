@@ -4308,15 +4308,22 @@ dependencies = [
 name = "rest_types"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "bls",
+ "environment",
  "eth2_hashing",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "hyper 0.13.7",
  "procinfo",
  "psutil",
  "rayon",
  "serde",
+ "serde_json",
+ "serde_yaml",
  "state_processing",
+ "store",
+ "tokio 0.2.22",
  "tree_hash",
  "types",
 ]
