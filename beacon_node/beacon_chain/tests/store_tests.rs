@@ -356,16 +356,21 @@ fn epoch_boundary_state_attestation_processing() {
 fn delete_blocks_and_states() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let mut harness =
+        BeaconChainHarness::new_with_disk_store(MinimalEthSpec, store.clone(), validators_keypairs);
 
     let unforked_blocks = 4 * E::slots_per_epoch();
 
     // Finalize an initial portion of the chain.
-    harness.extend_chain(
-        unforked_blocks as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    let initial_slots: Vec<Slot> = (1..=unforked_blocks).map(Into::into).collect();
+    let state = harness.get_current_state();
+    let all_validators = harness.get_all_validators();
+    harness.add_attested_blocks_at_slots(state, &initial_slots, &all_validators);
+
+    let mut honest_head = harness.chain.head().unwrap().beacon_block_root;
+    let mut faulty_head = honest_head;
 
     // Create a fork post-finalization.
     let two_thirds = (LOW_VALIDATOR_COUNT / 3) * 2;
@@ -374,12 +379,61 @@ fn delete_blocks_and_states() {
 
     let fork_blocks = 2 * E::slots_per_epoch();
 
-    let (honest_head, faulty_head) = harness.generate_two_forks_by_skipping_a_block(
-        &honest_validators,
-        &faulty_validators,
-        fork_blocks as usize,
-        fork_blocks as usize,
-    );
+    let mut slot = harness.get_current_slot() + 1;
+    let slot_u64: u64 = slot.into();
+
+    let fork1_slots: Vec<Slot> = (slot_u64..(slot_u64 + fork_blocks))
+        .map(Into::into)
+        .collect();
+    let fork2_slots: Vec<Slot> = (slot_u64 + 1..(slot_u64 + 1 + fork_blocks))
+        .map(Into::into)
+        .collect();
+
+    let mut fork1_state = harness.get_current_state();
+    let mut fork2_state = fork1_state.clone();
+
+    loop {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch_start_slot: u64 = epoch.start_slot(E::slots_per_epoch()).into();
+        let epoch_end_slot: u64 = epoch.end_slot(E::slots_per_epoch()).into();
+        let this_epoch_slots: HashSet<Slot> =
+            (epoch_start_slot..epoch_end_slot).map(Into::into).collect();
+
+        let this_epoch_fork1_slots: Vec<Slot> = fork1_slots
+            .iter()
+            .filter(|slot| this_epoch_slots.contains(slot))
+            .copied()
+            .collect();
+        let this_epoch_fork2_slots: Vec<Slot> = fork2_slots
+            .iter()
+            .filter(|slot| this_epoch_slots.contains(slot))
+            .copied()
+            .collect();
+
+        if this_epoch_fork1_slots.is_empty() && this_epoch_fork2_slots.is_empty() {
+            break;
+        }
+
+        let (_, _, honest_head_, fork1_state_) = harness.add_attested_blocks_at_slots(
+            fork1_state,
+            &this_epoch_fork1_slots,
+            &honest_validators,
+        );
+        honest_head = honest_head_.into();
+        fork1_state = fork1_state_;
+
+        let (_, _, faulty_head_, fork2_state_) = harness.add_attested_blocks_at_slots(
+            fork2_state,
+            &this_epoch_fork2_slots,
+            &faulty_validators,
+        );
+        faulty_head = faulty_head_.into();
+        fork2_state = fork2_state_;
+
+        slot = epoch.end_slot(E::slots_per_epoch()) + 1;
+    }
+
+    harness.chain.dump_dot_file("my.dot");
 
     assert_ne!(honest_head, faulty_head, "forks should be distinct");
     let head_info = harness.chain.head_info().expect("should get head");
@@ -446,7 +500,7 @@ fn delete_blocks_and_states() {
     }
 
     // After all that, the chain dump should still be OK
-    check_chain_dump(&harness, unforked_blocks + fork_blocks + 1);
+    check_chain_dump(&harness, unforked_blocks + fork_blocks - 1);
 }
 
 // Check that we never produce invalid blocks when there is deep forking that changes the shuffling.
