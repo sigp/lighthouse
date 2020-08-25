@@ -18,16 +18,16 @@ jobs:
         run: |
             echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
 
-      -  name: Set up Docker Buildx
-         id: buildx
-         uses: crazy-max/ghaction-docker-buildx@v1
-         with:
-           version: latest
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: crazy-max/ghaction-docker-buildx@v1
+        with:
+          buildx-version: latest
 
-      -  name: Build dockerfile (with push)
-         run: |
+      - name: Build dockerfile (with push)
+        run: |
             docker buildx build \
                 --platform=linux/amd64,linux/arm/v7,linux/arm64 \
                 --output "type=image,push=true" \
                 --file ./Dockerfile . \
-                --tag $(echo "${DOCKER_USERNAME}" | tr '[:upper:]' '[:lower:]')/lighthouse:latest
+                --tag seananderson33/lighthouse:latest
