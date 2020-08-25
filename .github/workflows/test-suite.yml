@@ -123,6 +123,8 @@ jobs:
     - uses: actions/checkout@v1
     - name: Lint code for quality and style with Clippy
       run: make lint
+    - name: Certify Cargo.lock freshness
+      run: git diff --exit-code Cargo.lock
   arbitrary-check:
     name: arbitrary-check
     runs-on: ubuntu-latest
