@@ -482,6 +482,8 @@ fn multi_epoch_fork_valid_blocks_test(
     let fork1_validators: Vec<usize> = (0..num_fork1_validators).collect();
     let fork2_validators: Vec<usize> = (num_fork1_validators..LOW_VALIDATOR_COUNT).collect();
 
+    let mut first_fork_epoch = true;
+
     let mut slot = harness.get_current_slot() + 1;
     let mut fork1_state = harness.get_current_state();
     let mut fork2_state = fork1_state.clone();
@@ -489,7 +491,7 @@ fn multi_epoch_fork_valid_blocks_test(
         let epoch = slot.epoch(E::slots_per_epoch());
         let slots_left_in_this_epoch = epoch.end_slot(E::slots_per_epoch()) - slot + 1;
 
-        let slot_u64: u64 = slot.into();
+        let mut slot_u64: u64 = slot.into();
 
         let fork1_blocks_in_this_epoch: u64 =
             std::cmp::min(num_fork1_blocks as u64, slots_left_in_this_epoch.into());
@@ -506,8 +508,15 @@ fn multi_epoch_fork_valid_blocks_test(
             fork1_state = fork1_state_;
             num_fork1_blocks -= fork1_blocks_in_this_epoch;
         }
-        let fork2_blocks_in_this_epoch: u64 =
+
+        let mut fork2_blocks_in_this_epoch: u64 =
             std::cmp::min(num_fork2_blocks, slots_left_in_this_epoch.into());
+        if first_fork_epoch {
+            fork2_blocks_in_this_epoch -= 1;
+            slot_u64 += 1;
+            first_fork_epoch = false;
+        }
+
         if fork2_blocks_in_this_epoch > 0 {
             let epoch_fork2_slots: Vec<Slot> = (slot_u64..(slot_u64 + fork2_blocks_in_this_epoch))
                 .map(Into::into)
