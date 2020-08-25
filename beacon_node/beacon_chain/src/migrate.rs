@@ -283,7 +283,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
         if let Err(e) = Self::prune_abandoned_forks(
             self.db.clone(),
             head_tracker,
-            finalized_state_root.into(),
+            finalized_state_root,
             &new_finalized_state,
             old_finalized_checkpoint,
             new_finalized_checkpoint,
