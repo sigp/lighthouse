@@ -17,6 +17,7 @@ use maplit::hashset;
 use rand::Rng;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::sync::Arc;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
@@ -452,33 +453,77 @@ fn delete_blocks_and_states() {
 // See https://github.com/sigp/lighthouse/issues/845
 fn multi_epoch_fork_valid_blocks_test(
     initial_blocks: usize,
-    num_fork1_blocks: usize,
-    num_fork2_blocks: usize,
+    num_fork1_blocks_: usize,
+    num_fork2_blocks_: usize,
     num_fork1_validators: usize,
 ) -> (TempDir, TestHarness, Hash256, Hash256) {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let mut harness =
+        BeaconChainHarness::new_with_disk_store(MinimalEthSpec, store, validators_keypairs);
+
+    let mut num_fork1_blocks: u64 = num_fork1_blocks_.try_into().unwrap();
+    let mut num_fork2_blocks: u64 = num_fork2_blocks_.try_into().unwrap();
 
     // Create the initial portion of the chain
     if initial_blocks > 0 {
-        harness.extend_chain(
-            initial_blocks,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
+        let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
+        let state = harness.get_current_state();
+        let all_validators = harness.get_all_validators();
+        harness.add_attested_blocks_at_slots(state, &initial_slots, &all_validators);
     }
+
+    let mut head1 = harness.chain.head().unwrap().beacon_block_root;
+    let mut head2 = head1;
 
     assert!(num_fork1_validators <= LOW_VALIDATOR_COUNT);
     let fork1_validators: Vec<usize> = (0..num_fork1_validators).collect();
     let fork2_validators: Vec<usize> = (num_fork1_validators..LOW_VALIDATOR_COUNT).collect();
 
-    let (head1, head2) = harness.generate_two_forks_by_skipping_a_block(
-        &fork1_validators,
-        &fork2_validators,
-        num_fork1_blocks,
-        num_fork2_blocks,
-    );
+    let mut slot = harness.get_current_slot() + 1;
+    let mut fork1_state = harness.get_current_state();
+    let mut fork2_state = fork1_state.clone();
+    while num_fork1_blocks > 0 || num_fork2_blocks > 0 {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let slots_left_in_this_epoch = epoch.end_slot(E::slots_per_epoch()) - slot + 1;
+
+        let slot_u64: u64 = slot.into();
+
+        let fork1_blocks_in_this_epoch: u64 =
+            std::cmp::min(num_fork1_blocks as u64, slots_left_in_this_epoch.into());
+        if fork1_blocks_in_this_epoch > 0 {
+            let epoch_fork1_slots: Vec<Slot> = (slot_u64..(slot_u64 + fork1_blocks_in_this_epoch))
+                .map(Into::into)
+                .collect();
+            let (_, _, head1_, fork1_state_) = harness.add_attested_blocks_at_slots(
+                fork1_state,
+                &epoch_fork1_slots,
+                &fork1_validators,
+            );
+            head1 = head1_.into();
+            fork1_state = fork1_state_;
+            num_fork1_blocks -= fork1_blocks_in_this_epoch;
+        }
+        let fork2_blocks_in_this_epoch: u64 =
+            std::cmp::min(num_fork2_blocks, slots_left_in_this_epoch.into());
+        if fork2_blocks_in_this_epoch > 0 {
+            let epoch_fork2_slots: Vec<Slot> = (slot_u64..(slot_u64 + fork2_blocks_in_this_epoch))
+                .map(Into::into)
+                .collect();
+            let (_, _, head2_, fork2_state_) = harness.add_attested_blocks_at_slots(
+                fork2_state,
+                &epoch_fork2_slots,
+                &fork2_validators,
+            );
+            head2 = head2_.into();
+            fork2_state = fork2_state_;
+            num_fork2_blocks -= fork2_blocks_in_this_epoch;
+        }
+
+        slot = epoch.end_slot(E::slots_per_epoch()) + 1;
+    }
 
     (db_path, harness, head1, head2)
 }
