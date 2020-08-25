@@ -28,3 +28,29 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: 'ap-southeast-2'
           SOURCE_DIR: 'book/book'
+
+  build-arm-docker-image:
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Dockerhub login
+        env:
+            DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+            DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+           echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+
+      -  name: Set up Docker Buildx
+         id: buildx
+         uses: crazy-max/ghaction-docker-buildx@v1
+         with:
+         version: latest
+
+      -  name: Build dockerfile (with push)
+         run: |
+             docker buildx build \
+                 --platform=linux/arm/v7,linux/arm64 \
+                 --output "type=image,push=true" \
+                 --file ./Dockerfile . \
+                 --tag $(echo "${DOCKER_USERNAME}" | tr '[:upper:]' '[:lower:]')/lighthouse:latest
