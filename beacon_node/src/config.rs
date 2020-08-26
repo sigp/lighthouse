@@ -348,6 +348,15 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
+    if cli_args.is_present("slasher") {
+        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
+            PathBuf::from(slasher_dir)
+        } else {
+            client_config.data_dir.join("slasher_db")
+        };
+        client_config.slasher = Some(slasher::Config::new(slasher_dir));
+    }
+
     Ok(client_config)
 }
 

@@ -319,6 +319,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
                 .default_value("700")
+                )
+        /*
+         * Slasher.
+         */
+        .arg(
+            Arg::with_name("slasher")
+                .long("slasher")
+                .help(
+                    "Run a slasher alongside the beacon node [EXPERIMENTAL]."
+                )
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("slasher-dir")
+                .long("slasher-dir")
+                .help(
+                    "Set the slasher's database directory."
+                )
+                .value_name("DIR")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("wss-checkpoint")

@@ -21,6 +21,7 @@ use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use slasher::Slasher;
 use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
@@ -118,6 +119,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     disabled_forks: Vec<String>,
     log: Option<Logger>,
     graffiti: Graffiti,
+    slasher: Option<Arc<Slasher<T::EthSpec>>>,
 }
 
 impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
@@ -166,6 +168,7 @@ where
             chain_config: ChainConfig::default(),
             log: None,
             graffiti: Graffiti::default(),
+            slasher: None,
         }
     }
 
@@ -198,6 +201,12 @@ where
     /// Sets the store migrator.
     pub fn store_migrator(mut self, store_migrator: TStoreMigrator) -> Self {
         self.store_migrator = Some(store_migrator);
+        self
+    }
+
+    /// Sets the slasher.
+    pub fn slasher(mut self, slasher: Arc<Slasher<TEthSpec>>) -> Self {
+        self.slasher = Some(slasher);
         self
     }
 
@@ -595,6 +604,7 @@ where
                 .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
             log: log.clone(),
             graffiti: self.graffiti,
+            slasher: self.slasher.clone(),
         };
 
         let head = beacon_chain

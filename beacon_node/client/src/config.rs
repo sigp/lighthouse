@@ -67,6 +67,7 @@ pub struct Config {
     pub eth1: eth1::Config,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
+    pub slasher: Option<slasher::Config>,
 }
 
 impl Default for Config {
@@ -89,6 +90,7 @@ impl Default for Config {
             graffiti: Graffiti::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            slasher: None,
         }
     }
 }

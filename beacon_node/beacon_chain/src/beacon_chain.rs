@@ -32,12 +32,14 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation, per_block_processing,
-    per_block_processing::errors::AttestationValidationError, per_slot_processing,
-    BlockSignatureStrategy, SigVerifiedOp,
+    per_block_processing::errors::AttestationValidationError,
+    per_block_processing::verify_attester_slashing, per_slot_processing, BlockSignatureStrategy,
+    SigVerifiedOp, VerifySignatures,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -232,6 +234,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
     pub(crate) graffiti: Graffiti,
+    /// Optional slasher.
+    pub(crate) slasher: Option<Arc<Slasher<T::EthSpec>>>,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
@@ -1084,6 +1088,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(signed_aggregate)
     }
 
+    fn ingest_slashings_to_op_pool(&self, state: &BeaconState<T::EthSpec>) {
+        if let Some(slasher) = self.slasher.as_ref() {
+            let slashings = slasher.get_attester_slashings();
+            debug!(self.log, "Ingesting {} slashings", slashings.len());
+            for slashing in slashings {
+                if let Err(e) =
+                    verify_attester_slashing(state, &slashing, VerifySignatures::True, &self.spec)
+                {
+                    error!(
+                        self.log,
+                        "Slashing from slasher failed verification";
+                        "error" => format!("{:?}", e),
+                        "slashing" => format!("{:?}", slashing),
+                    );
+                    continue;
+                }
+
+                // FIXME(sproul): remove `trust_me`
+                if let Err(e) =
+                    self.import_attester_slashing(SigVerifiedOp::trust_me(slashing.clone()))
+                {
+                    error!(
+                        self.log,
+                        "Slashing from slasher is invalid";
+                        "error" => format!("{:?}", e),
+                        "slashing" => format!("{:?}", slashing),
+                    );
+                }
+            }
+        }
+    }
+
     /// Check that the shuffling at `block_root` is equal to one of the shufflings of `state`.
     ///
     /// The `target_epoch` argument determines which shuffling to check compatibility with, it
@@ -1730,6 +1766,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
+        self.ingest_slashings_to_op_pool(&state);
         let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;

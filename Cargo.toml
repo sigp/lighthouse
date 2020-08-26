@@ -63,6 +63,8 @@ members = [
     "lighthouse",
     "lighthouse/environment",
 
+    "slasher",
+
     "testing/simulator",
     "testing/ef_tests",
     "testing/eth1_test_rig",

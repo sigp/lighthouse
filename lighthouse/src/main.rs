@@ -142,16 +142,10 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    macro_rules! run_with_spec {
-        ($env_builder: expr) => {
-            run($env_builder, &matches)
-        };
-    }
-
     let result = match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
+        Some("minimal") => run(EnvironmentBuilder::minimal(), &matches),
+        Some("mainnet") => run(EnvironmentBuilder::mainnet(), &matches),
+        Some("interop") => run(EnvironmentBuilder::interop(), &matches),
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);

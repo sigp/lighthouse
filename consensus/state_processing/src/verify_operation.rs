@@ -17,6 +17,10 @@ use types::{
 pub struct SigVerifiedOp<T>(T);
 
 impl<T> SigVerifiedOp<T> {
+    pub fn trust_me(t: T) -> Self {
+        SigVerifiedOp(t)
+    }
+
     pub fn into_inner(self) -> T {
         self.0
     }
