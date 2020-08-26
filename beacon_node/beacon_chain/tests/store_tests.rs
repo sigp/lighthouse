@@ -1633,7 +1633,7 @@ fn pruning_test(
             faulty_validators,
         ),
     ]);
-    let (canonical_blocks, _, _, canonical_state) = chains.remove(0);
+    let (_, _, _, canonical_state) = chains.remove(0);
     let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
 
     let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks - 1;
