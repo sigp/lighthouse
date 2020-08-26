@@ -20,7 +20,7 @@ use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 pub type E = MainnetEthSpec;
 
-pub const VALIDATOR_COUNT: usize = 16;
+pub const VALIDATOR_COUNT: usize = 32;
 
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
@@ -121,10 +121,11 @@ impl ForkChoiceTest {
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
     {
-        let mut slot = self.harness.get_current_slot();
+        self.harness.advance_slot();
         let mut state = self.harness.get_current_state();
         let validators = self.harness.get_all_validators();
         loop {
+            let slot = self.harness.get_current_slot();
             let (block, state_) = self.harness.make_block(state, slot);
             state = state_;
             if !predicate(&block.message, &state) {
@@ -133,7 +134,7 @@ impl ForkChoiceTest {
             let block_hash = self.harness.process_block(slot, block.clone());
             self.harness
                 .attest_block(&state, block_hash, &block, &validators);
-            slot += 1;
+            self.harness.advance_slot();
         }
 
         self
