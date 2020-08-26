@@ -363,7 +363,7 @@ where
     }
 
     pub fn is_skipped_slot(&self, state: &BeaconState<E>, slot: Slot) -> bool {
-        state.get_block_root(slot) == state.get_block_root(slot - 1)
+        state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
     pub fn make_block(
@@ -371,6 +371,7 @@ where
         mut state: BeaconState<E>,
         slot: Slot,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot);
 
         while state.slot < slot {
@@ -625,7 +626,11 @@ where
         let current_slot = self.chain.slot().unwrap();
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let epoch = slot.epoch(E::slots_per_epoch());
-        assert!(epoch >= current_epoch, "Jumping backwards to an earlier epoch isn't well defined.  Please generate test blocks epoch-by-epoch instead.");
+        assert!(
+            epoch >= current_epoch,
+            "Jumping backwards to an earlier epoch isn't well defined. \
+             Please generate test blocks epoch-by-epoch instead."
+        );
         self.chain.slot_clock.set_slot(slot.into());
     }
 
