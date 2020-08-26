@@ -298,7 +298,7 @@ where
         let mut head_block_root = None;
 
         loop {
-            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+            let (block, new_state) = self.build_block(state.clone(), slot);
 
             if !predicate(&block, &new_state) {
                 break;
@@ -339,7 +339,7 @@ where
 
         let slot = self.chain.slot().unwrap();
 
-        self.build_block(state, slot, BlockStrategy::OnCanonicalHead)
+        self.build_block(state, slot)
     }
 
     /// A simple method to produce and process all attestation at the current slot. Always uses
@@ -368,12 +368,9 @@ where
         self.chain.head().unwrap().beacon_state
     }
 
-    /// Adds a single block (synchronously) onto either the canonical chain (block_strategy ==
-    /// OnCanonicalHead) or a fork (block_strategy == ForkCanonicalChainAt).
     pub fn add_block(
         &self,
         state: &BeaconState<E>,
-        block_strategy: BlockStrategy,
         slot: Slot,
         validators: &[usize],
     ) -> (SignedBeaconBlockHash, BeaconState<E>) {
@@ -381,7 +378,7 @@ where
             self.advance_slot();
         }
 
-        let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+        let (block, new_state) = self.build_block(state.clone(), slot);
 
         let block_root = self
             .chain
@@ -395,15 +392,14 @@ where
         (block_root.into(), new_state)
     }
 
-    #[allow(clippy::type_complexity)]
     /// `add_block()` repeated `num_blocks` times.
+    #[allow(clippy::type_complexity)]
     pub fn add_blocks(
         &self,
         mut state: BeaconState<E>,
         mut slot: Slot,
         num_blocks: usize,
         attesting_validators: &[usize],
-        block_strategy: BlockStrategy,
     ) -> (
         HashMap<Slot, SignedBeaconBlockHash>,
         HashMap<Slot, BeaconStateHash>,
@@ -414,8 +410,7 @@ where
         let mut blocks: HashMap<Slot, SignedBeaconBlockHash> = HashMap::with_capacity(num_blocks);
         let mut states: HashMap<Slot, BeaconStateHash> = HashMap::with_capacity(num_blocks);
         for _ in 0..num_blocks {
-            let (new_root_hash, new_state) =
-                self.add_block(&state, block_strategy, slot, attesting_validators);
+            let (new_root_hash, new_state) = self.add_block(&state, slot, attesting_validators);
             blocks.insert(slot, new_root_hash);
             states.insert(slot, new_state.tree_hash_root().into());
             state = new_state;
@@ -426,7 +421,6 @@ where
     }
 
     #[allow(clippy::type_complexity)]
-    /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
     pub fn add_canonical_chain_blocks(
         &self,
         state: BeaconState<E>,
@@ -440,18 +434,10 @@ where
         SignedBeaconBlockHash,
         BeaconState<E>,
     ) {
-        let block_strategy = BlockStrategy::OnCanonicalHead;
-        self.add_blocks(
-            state,
-            slot,
-            num_blocks,
-            attesting_validators,
-            block_strategy,
-        )
+        self.add_blocks(state, slot, num_blocks, attesting_validators)
     }
 
     #[allow(clippy::type_complexity)]
-    /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
     pub fn add_stray_blocks(
         &self,
         state: BeaconState<E>,
@@ -465,17 +451,7 @@ where
         SignedBeaconBlockHash,
         BeaconState<E>,
     ) {
-        let block_strategy = BlockStrategy::ForkCanonicalChainAt {
-            previous_slot: slot,
-            first_slot: slot + 2,
-        };
-        self.add_blocks(
-            state,
-            slot + 2,
-            num_blocks,
-            attesting_validators,
-            block_strategy,
-        )
+        self.add_blocks(state, slot + 2, num_blocks, attesting_validators)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -483,8 +459,8 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-        block_strategy: BlockStrategy,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        assert_ne!(slot, 0);
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
         }
@@ -498,15 +474,9 @@ where
             .build_all_caches(&self.spec)
             .expect("should build caches");
 
-        let proposer_index = match block_strategy {
-            BlockStrategy::OnCanonicalHead => self
-                .chain
-                .block_proposer(slot)
-                .expect("should get block proposer from chain"),
-            _ => state
-                .get_beacon_proposer_index(slot, &self.spec)
-                .expect("should get block proposer from state"),
-        };
+        let proposer_index = state
+            .get_beacon_proposer_index(slot, &self.spec)
+            .expect("should get block proposer from state");
 
         let sk = &self.keypairs[proposer_index].sk;
         let fork = &state.fork;

@@ -426,6 +426,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(iter)
     }
 
+    /// As for `rev_iter_state_roots` but starting from an arbitrary `BeaconState`.
+    pub fn rev_iter_state_roots_from<'a>(
+        &self,
+        state_root: Hash256,
+        state: &'a BeaconState<T::EthSpec>,
+    ) -> impl Iterator<Item = Result<(Hash256, Slot), Error>> + 'a {
+        std::iter::once(Ok((state_root, state.slot)))
+            .chain(StateRootsIterator::new(self.store.clone(), state))
+            .map(|result| result.map_err(Into::into))
+    }
+
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
     ///
     /// ## Errors
@@ -479,30 +490,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
     pub fn head(&self) -> Result<BeaconSnapshot<T::EthSpec>, Error> {
-        self.canonical_head
+        self.with_head(|head| Ok(head.clone_with_only_committee_caches()))
+    }
+
+    /// Apply a function to the canonical head without cloning it.
+    pub fn with_head<U>(
+        &self,
+        f: impl FnOnce(&BeaconSnapshot<T::EthSpec>) -> Result<U, Error>,
+    ) -> Result<U, Error> {
+        let head_lock = self
+            .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)
-            .map(|v| v.clone_with_only_committee_caches())
+            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
+        f(&head_lock)
     }
 
     /// Returns info representing the head block and state.
     ///
     /// A summarized version of `Self::head` that involves less cloning.
     pub fn head_info(&self) -> Result<HeadInfo, Error> {
-        let head = self
-            .canonical_head
-            .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
-
-        Ok(HeadInfo {
-            slot: head.beacon_block.slot(),
-            block_root: head.beacon_block_root,
-            state_root: head.beacon_state_root,
-            current_justified_checkpoint: head.beacon_state.current_justified_checkpoint,
-            finalized_checkpoint: head.beacon_state.finalized_checkpoint,
-            fork: head.beacon_state.fork,
-            genesis_time: head.beacon_state.genesis_time,
-            genesis_validators_root: head.beacon_state.genesis_validators_root,
+        self.with_head(|head| {
+            Ok(HeadInfo {
+                slot: head.beacon_block.slot(),
+                block_root: head.beacon_block_root,
+                state_root: head.beacon_state_root,
+                current_justified_checkpoint: head.beacon_state.current_justified_checkpoint,
+                finalized_checkpoint: head.beacon_state.finalized_checkpoint,
+                fork: head.beacon_state.fork,
+                genesis_time: head.beacon_state.genesis_time,
+                genesis_validators_root: head.beacon_state.genesis_validators_root,
+            })
         })
     }
 
@@ -1746,7 +1763,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root = self.fork_choice.write().get_head(self.slot()?)?;
 
         let current_head = self.head_info()?;
-        let old_finalized_root = current_head.finalized_checkpoint.root;
+        let old_finalized_checkpoint = current_head.finalized_checkpoint;
 
         if beacon_block_root == current_head.block_root {
             return Ok(());
@@ -1826,15 +1843,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         };
 
-        let old_finalized_epoch = current_head.finalized_checkpoint.epoch;
-        let new_finalized_epoch = new_head.beacon_state.finalized_checkpoint.epoch;
-        let finalized_root = new_head.beacon_state.finalized_checkpoint.root;
+        let new_finalized_checkpoint = new_head.beacon_state.finalized_checkpoint;
+        // State root of the finalized state on the epoch boundary, NOT the state
+        // of the finalized block. We need to use an iterator in case the state is beyond
+        // the reach of the new head's `state_roots` array.
+        let new_finalized_slot = new_finalized_checkpoint
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+        let new_finalized_state_root = process_results(
+            StateRootsIterator::new(self.store.clone(), &new_head.beacon_state),
+            |mut iter| {
+                iter.find_map(|(state_root, slot)| {
+                    if slot == new_finalized_slot {
+                        Some(state_root)
+                    } else {
+                        None
+                    }
+                })
+            },
+        )?
+        .ok_or_else(|| Error::MissingFinalizedStateRoot(new_finalized_slot))?;
 
         // It is an error to try to update to a head with a lesser finalized epoch.
-        if new_finalized_epoch < old_finalized_epoch {
+        if new_finalized_checkpoint.epoch < old_finalized_checkpoint.epoch {
             return Err(Error::RevertedFinalizedEpoch {
-                previous_epoch: old_finalized_epoch,
-                new_epoch: new_finalized_epoch,
+                previous_epoch: old_finalized_checkpoint.epoch,
+                new_epoch: new_finalized_checkpoint.epoch,
             });
         }
 
@@ -1873,11 +1907,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             });
 
-        if new_finalized_epoch != old_finalized_epoch {
+        if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
             self.after_finalization(
-                old_finalized_epoch,
-                finalized_root,
-                old_finalized_root.into(),
+                old_finalized_checkpoint,
+                new_finalized_checkpoint,
+                new_finalized_state_root,
             )?;
         }
 
@@ -1905,68 +1939,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Performs pruning and finality-based optimizations.
     fn after_finalization(
         &self,
-        old_finalized_epoch: Epoch,
-        finalized_block_root: Hash256,
-        old_finalized_root: SignedBeaconBlockHash,
+        old_finalized_checkpoint: Checkpoint,
+        new_finalized_checkpoint: Checkpoint,
+        new_finalized_state_root: Hash256,
     ) -> Result<(), Error> {
-        let finalized_block = self
-            .store
-            .get_block(&finalized_block_root)?
-            .ok_or_else(|| Error::MissingBeaconBlock(finalized_block_root))?
-            .message;
+        self.fork_choice.write().prune()?;
 
-        let new_finalized_epoch = finalized_block.slot.epoch(T::EthSpec::slots_per_epoch());
+        self.observed_block_producers.prune(
+            new_finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
 
-        if new_finalized_epoch < old_finalized_epoch {
-            Err(Error::RevertedFinalizedEpoch {
-                previous_epoch: old_finalized_epoch,
-                new_epoch: new_finalized_epoch,
+        self.snapshot_cache
+            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .map(|mut snapshot_cache| {
+                snapshot_cache.prune(new_finalized_checkpoint.epoch);
             })
-        } else {
-            self.fork_choice.write().prune()?;
-
-            self.observed_block_producers
-                .prune(new_finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()));
-
-            self.snapshot_cache
-                .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .map(|mut snapshot_cache| {
-                    snapshot_cache.prune(new_finalized_epoch);
-                })
-                .unwrap_or_else(|| {
-                    error!(
-                        self.log,
-                        "Failed to obtain cache write lock";
-                        "lock" => "snapshot_cache",
-                        "task" => "prune"
-                    );
-                });
-
-            let finalized_state = self
-                .get_state(&finalized_block.state_root, Some(finalized_block.slot))?
-                .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
-
-            self.op_pool
-                .prune_all(&finalized_state, self.head_info()?.fork);
-
-            // TODO: configurable max finality distance
-            let max_finality_distance = 0;
-            self.store_migrator.process_finalization(
-                finalized_block.state_root,
-                finalized_state,
-                max_finality_distance,
-                Arc::clone(&self.head_tracker),
-                old_finalized_root,
-                finalized_block_root.into(),
-            );
-
-            let _ = self.event_handler.register(EventKind::BeaconFinalization {
-                epoch: new_finalized_epoch,
-                root: finalized_block_root,
+            .unwrap_or_else(|| {
+                error!(
+                    self.log,
+                    "Failed to obtain cache write lock";
+                    "lock" => "snapshot_cache",
+                    "task" => "prune"
+                );
             });
 
-            Ok(())
-        }
+        let finalized_state = self
+            .get_state(&new_finalized_state_root, None)?
+            .ok_or_else(|| Error::MissingBeaconState(new_finalized_state_root))?;
+
+        self.op_pool
+            .prune_all(&finalized_state, self.head_info()?.fork);
+
+        self.store_migrator.process_finalization(
+            new_finalized_state_root.into(),
+            finalized_state,
+            self.head_tracker.clone(),
+            old_finalized_checkpoint,
+            new_finalized_checkpoint,
+        );
+
+        let _ = self.event_handler.register(EventKind::BeaconFinalization {
+            epoch: new_finalized_checkpoint.epoch,
+            root: new_finalized_checkpoint.root,
+        });
+
+        Ok(())
     }
 
     /// Returns `true` if the given block root has not been processed.
