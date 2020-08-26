@@ -25,6 +25,10 @@ jobs:
           buildx-version: latest
 
       - uses: satackey/action-docker-layer-caching@v0.0.8
+        with:
+          key: lighthouse-docker-cache-{hash}
+          restore-keys: |
+            lighthouse-docker-cache-
 
       - name: Build dockerfile (with push)
         run: |
