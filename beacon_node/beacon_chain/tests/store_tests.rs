@@ -361,16 +361,13 @@ fn delete_blocks_and_states() {
     let mut harness =
         BeaconChainHarness::new_with_disk_store(MinimalEthSpec, store.clone(), validators_keypairs);
 
-    let unforked_blocks = 4 * E::slots_per_epoch();
+    let unforked_blocks: u64 = 4 * E::slots_per_epoch();
 
     // Finalize an initial portion of the chain.
     let initial_slots: Vec<Slot> = (1..=unforked_blocks).map(Into::into).collect();
     let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     harness.add_attested_blocks_at_slots(state, &initial_slots, &all_validators);
-
-    let mut honest_head = harness.chain.head().unwrap().beacon_block_root;
-    let mut faulty_head = honest_head;
 
     // Create a fork post-finalization.
     let two_thirds = (LOW_VALIDATOR_COUNT / 3) * 2;
@@ -379,8 +376,7 @@ fn delete_blocks_and_states() {
 
     let fork_blocks = 2 * E::slots_per_epoch();
 
-    let mut slot = harness.get_current_slot() + 1;
-    let slot_u64: u64 = slot.into();
+    let slot_u64: u64 = harness.get_current_slot().as_u64() + 1;
 
     let fork1_slots: Vec<Slot> = (slot_u64..(slot_u64 + fork_blocks))
         .map(Into::into)
@@ -389,61 +385,28 @@ fn delete_blocks_and_states() {
         .map(Into::into)
         .collect();
 
-    let mut fork1_state = harness.get_current_state();
-    let mut fork2_state = fork1_state.clone();
+    let fork1_state = harness.get_current_state();
+    let fork2_state = fork1_state.clone();
+    let results = harness.add_blocks_on_multiple_chains(vec![
+        (fork1_state, fork1_slots, honest_validators),
+        (fork2_state, fork2_slots, faulty_validators),
+    ]);
 
-    loop {
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let epoch_start_slot: u64 = epoch.start_slot(E::slots_per_epoch()).into();
-        let epoch_end_slot: u64 = epoch.end_slot(E::slots_per_epoch()).into();
-        let this_epoch_slots: HashSet<Slot> =
-            (epoch_start_slot..epoch_end_slot).map(Into::into).collect();
-
-        let this_epoch_fork1_slots: Vec<Slot> = fork1_slots
-            .iter()
-            .filter(|slot| this_epoch_slots.contains(slot))
-            .copied()
-            .collect();
-        let this_epoch_fork2_slots: Vec<Slot> = fork2_slots
-            .iter()
-            .filter(|slot| this_epoch_slots.contains(slot))
-            .copied()
-            .collect();
-
-        if this_epoch_fork1_slots.is_empty() && this_epoch_fork2_slots.is_empty() {
-            break;
-        }
-
-        let (_, _, honest_head_, fork1_state_) = harness.add_attested_blocks_at_slots(
-            fork1_state,
-            &this_epoch_fork1_slots,
-            &honest_validators,
-        );
-        honest_head = honest_head_.into();
-        fork1_state = fork1_state_;
-
-        let (_, _, faulty_head_, fork2_state_) = harness.add_attested_blocks_at_slots(
-            fork2_state,
-            &this_epoch_fork2_slots,
-            &faulty_validators,
-        );
-        faulty_head = faulty_head_.into();
-        fork2_state = fork2_state_;
-
-        slot = epoch.end_slot(E::slots_per_epoch()) + 1;
-    }
+    let honest_head = results[0].2;
+    let faulty_head = results[1].2;
 
     assert_ne!(honest_head, faulty_head, "forks should be distinct");
     let head_info = harness.chain.head_info().expect("should get head");
     assert_eq!(head_info.slot, unforked_blocks + fork_blocks);
 
     assert_eq!(
-        head_info.block_root, honest_head,
+        head_info.block_root,
+        honest_head.into(),
         "the honest chain should be the canonical chain",
     );
 
     let faulty_head_block = store
-        .get_block(&faulty_head)
+        .get_block(&faulty_head.into())
         .expect("no errors")
         .expect("faulty head block exists");
 
@@ -455,31 +418,35 @@ fn delete_blocks_and_states() {
         .expect("no db error")
         .expect("faulty head state exists");
 
-    let states_to_delete = StateRootsIterator::new(store.clone(), &faulty_head_state)
-        .map(Result::unwrap)
-        .take_while(|(_, slot)| *slot > unforked_blocks)
-        .collect::<Vec<_>>();
-
     // Delete faulty fork
     // Attempting to load those states should find them unavailable
-    for (state_root, slot) in &states_to_delete {
-        store.delete_state(state_root, *slot).unwrap();
-        assert_eq!(store.get_state(state_root, Some(*slot)).unwrap(), None);
+    for (state_root, slot) in
+        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+    {
+        if slot <= unforked_blocks {
+            break;
+        }
+        store.delete_state(&state_root, slot).unwrap();
+        assert_eq!(store.get_state(&state_root, Some(slot)).unwrap(), None);
     }
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
-    for (state_root, slot) in &states_to_delete {
-        store.delete_state(state_root, *slot).unwrap();
+    for (state_root, slot) in
+        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+    {
+        if slot <= unforked_blocks {
+            break;
+        }
+        store.delete_state(&state_root, slot).unwrap();
     }
 
     // Deleting the blocks from the fork should remove them completely
-    let blocks_to_delete = BlockRootsIterator::new(store.clone(), &faulty_head_state)
-        .map(Result::unwrap)
-        // Extra +1 here accounts for the skipped slot that started this fork
-        .take_while(|(_, slot)| *slot > unforked_blocks + 1)
-        .collect::<Vec<_>>();
-
-    for (block_root, _) in blocks_to_delete {
+    for (block_root, slot) in
+        BlockRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+    {
+        if slot <= unforked_blocks + 1 {
+            break;
+        }
         store.delete_block(&block_root).unwrap();
         assert_eq!(store.get_block(&block_root).unwrap(), None);
     }
@@ -490,15 +457,16 @@ fn delete_blocks_and_states() {
         .chain
         .rev_iter_state_roots()
         .expect("rev iter ok")
-        .map(Result::unwrap)
-        .filter(|(_, slot)| *slot < split_slot);
+        .map(Result::unwrap);
 
     for (state_root, slot) in finalized_states {
-        store.delete_state(&state_root, slot).unwrap();
+        if slot < split_slot {
+            store.delete_state(&state_root, slot).unwrap();
+        }
     }
 
     // After all that, the chain dump should still be OK
-    check_chain_dump(&harness, unforked_blocks + fork_blocks - 1);
+    check_chain_dump(&harness, unforked_blocks + fork_blocks + 1);
 }
 
 // Check that we never produce invalid blocks when there is deep forking that changes the shuffling.

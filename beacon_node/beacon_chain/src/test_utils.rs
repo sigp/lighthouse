@@ -809,7 +809,8 @@ where
             .collect()
     }
 
-    /// Deprecated: Do not modify slot clock manually; rely on add_attested_blocks_at_slots() instead
+    /// Deprecated: Do not modify the slot clock manually; rely on add_attested_blocks_at_slots()
+    ///             instead
     ///
     /// Advance the slot of the `BeaconChain`.
     ///
