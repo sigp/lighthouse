@@ -29,7 +29,7 @@ mod executor;
 mod metrics;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
-const LOG_CHANNEL_SIZE: usize = 256;
+const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {

@@ -9,7 +9,7 @@ mod server;
 pub use cli::cli_app;
 use config::BootNodeConfig;
 
-const LOG_CHANNEL_SIZE: usize = 256;
+const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
