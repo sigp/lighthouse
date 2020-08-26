@@ -1532,7 +1532,7 @@ fn prune_single_block_long_skip() {
     pruning_test(
         2 * slots_per_epoch,
         1,
-        slots_per_epoch,
+        2 * slots_per_epoch,
         2 * slots_per_epoch as u64,
         1,
     );
@@ -1616,23 +1616,27 @@ fn pruning_test(
         &honest_validators,
     );
 
-    // FIXME(sproul): allow empty slots?
-    let (_, _, _, canonical_state) = harness.add_attested_blocks_at_slots(
-        divergence_state.clone(),
-        &slots(
-            divergence_slot + num_canonical_skips,
-            num_canonical_middle_blocks,
-        )[..],
-        &honest_validators,
-    );
+    let mut chains = harness.add_blocks_on_multiple_chains(vec![
+        // Canonical chain
+        (
+            divergence_state.clone(),
+            slots(
+                divergence_slot + num_canonical_skips,
+                num_canonical_middle_blocks,
+            ),
+            honest_validators.clone(),
+        ),
+        // Fork chain
+        (
+            divergence_state.clone(),
+            slots(divergence_slot + num_fork_skips, num_fork_blocks),
+            faulty_validators,
+        ),
+    ]);
+    let (canonical_blocks, _, _, canonical_state) = chains.remove(0);
+    let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
 
-    let (stray_blocks, stray_states, _, stray_head_state) = harness.add_attested_blocks_at_slots(
-        divergence_state.clone(),
-        &slots(divergence_slot + num_fork_skips, num_fork_blocks)[..],
-        &faulty_validators,
-    );
-
-    let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks;
+    let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks - 1;
     let stray_head_state_root = stray_states[&stray_head_slot];
     let stray_states = harness
         .chain
@@ -1652,10 +1656,8 @@ fn pruning_test(
 
     // Trigger finalization
     let num_finalization_blocks = 4 * E::slots_per_epoch();
-    // Slot of the head now.
     let canonical_slot = divergence_slot + num_canonical_skips + num_canonical_middle_blocks;
-    assert_eq!(harness.get_current_state().slot, canonical_slot);
-    let (_, _, _, _) = harness.add_attested_blocks_at_slots(
+    harness.add_attested_blocks_at_slots(
         canonical_state,
         &slots(canonical_slot, num_finalization_blocks),
         &honest_validators,

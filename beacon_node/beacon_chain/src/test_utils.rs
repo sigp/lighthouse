@@ -59,6 +59,13 @@ pub type BlockingMigratorEphemeralHarnessType<E> = BaseHarnessType<
     MemoryStore<E>,
 >;
 
+pub type AddBlocksResult<E> = (
+    HashMap<Slot, SignedBeaconBlockHash>,
+    HashMap<Slot, BeaconStateHash>,
+    SignedBeaconBlockHash,
+    BeaconState<E>,
+);
+
 /// Deprecated: Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
 pub enum BlockStrategy {
@@ -186,7 +193,8 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
 
         let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
         let drain = slog_term::FullFormat::new(decorator).build();
-        let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+        let debug_level = slog::LevelFilter::new(drain, slog::Level::Debug);
+        let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
 
         let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
@@ -230,7 +238,8 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
 
         let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
         let drain = slog_term::FullFormat::new(decorator).build();
-        let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+        let debug_level = slog::LevelFilter::new(drain, slog::Level::Debug);
+        let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -670,23 +679,27 @@ where
 
     pub fn add_attested_blocks_at_slots(
         &mut self,
+        state: BeaconState<E>,
+        slots: &[Slot],
+        validators: &[usize],
+    ) -> AddBlocksResult<E> {
+        assert!(!slots.is_empty());
+        self.add_attested_blocks_at_slots_given_lbh(state, slots, validators, None)
+    }
+
+    fn add_attested_blocks_at_slots_given_lbh(
+        &mut self,
         mut state: BeaconState<E>,
         slots: &[Slot],
         validators: &[usize],
-    ) -> (
-        HashMap<Slot, SignedBeaconBlockHash>,
-        HashMap<Slot, BeaconStateHash>,
-        SignedBeaconBlockHash,
-        BeaconState<E>,
-    ) {
-        assert!(!slots.is_empty());
+        mut latest_block_hash: Option<SignedBeaconBlockHash>,
+    ) -> AddBlocksResult<E> {
         assert!(
             slots.windows(2).all(|w| w[0] <= w[1]),
             "Slots have to be sorted"
         ); // slice.is_sorted() isn't stabilized at the moment of writing this
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
-        let mut latest_block_hash: Option<SignedBeaconBlockHash> = None;
         for slot in slots {
             let (block_hash, new_state) = self.add_attested_block_at_slot(*slot, state, validators);
             state = new_state;
@@ -700,6 +713,90 @@ where
             latest_block_hash.unwrap(),
             state,
         )
+    }
+
+    /// A monstrosity of great usefulness.
+    ///
+    /// Calls `add_attested_blocks_at_slots` for each of the chains in `chains`,
+    /// taking care to batch blocks by epoch so that the slot clock gets advanced one
+    /// epoch at a time.
+    ///
+    /// Chains is a vec of `(state, slots, validators)` tuples.
+    pub fn add_blocks_on_multiple_chains(
+        &mut self,
+        chains: Vec<(BeaconState<E>, Vec<Slot>, Vec<usize>)>,
+    ) -> Vec<AddBlocksResult<E>> {
+        let slots_per_epoch = E::slots_per_epoch();
+
+        let min_epoch = chains
+            .iter()
+            .map(|(_, slots, _)| slots.iter().min().unwrap())
+            .min()
+            .unwrap()
+            .epoch(slots_per_epoch);
+        let max_epoch = chains
+            .iter()
+            .map(|(_, slots, _)| slots.iter().max().unwrap())
+            .max()
+            .unwrap()
+            .epoch(slots_per_epoch);
+
+        let mut chains = chains
+            .into_iter()
+            .map(|(state, slots, validators)| {
+                (
+                    state,
+                    slots,
+                    validators,
+                    HashMap::new(),
+                    HashMap::new(),
+                    SignedBeaconBlockHash::from(Hash256::zero()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for epoch in min_epoch.as_u64()..=max_epoch.as_u64() {
+            let mut new_chains = vec![];
+
+            for (head_state, slots, validators, mut block_hashes, mut state_hashes, head_block) in
+                chains
+            {
+                let epoch_slots = slots
+                    .iter()
+                    .filter(|s| s.epoch(slots_per_epoch).as_u64() == epoch)
+                    .copied()
+                    .collect::<Vec<_>>();
+
+                let (new_block_hashes, new_state_hashes, new_head_block, new_head_state) = self
+                    .add_attested_blocks_at_slots_given_lbh(
+                        head_state,
+                        &epoch_slots,
+                        &validators,
+                        Some(head_block),
+                    );
+
+                block_hashes.extend(new_block_hashes);
+                state_hashes.extend(new_state_hashes);
+
+                new_chains.push((
+                    new_head_state,
+                    slots,
+                    validators,
+                    block_hashes,
+                    state_hashes,
+                    new_head_block,
+                ));
+            }
+
+            chains = new_chains;
+        }
+
+        chains
+            .into_iter()
+            .map(|(state, _, _, block_hashes, state_hashes, head_block)| {
+                (block_hashes, state_hashes, head_block, state)
+            })
+            .collect()
     }
 
     pub fn get_finalized_checkpoints(&self) -> HashSet<SignedBeaconBlockHash> {
