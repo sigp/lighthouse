@@ -24,11 +24,11 @@ jobs:
         with:
           buildx-version: latest
 
-      - uses: satackey/action-docker-layer-caching@v0.0.8
+      - uses: whoan/docker-build-with-cache-action@v5
         with:
-          key: lighthouse-docker-cache-{hash}
-          restore-keys: |
-            lighthouse-docker-cache-
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          image_name: seananderson33/lighthouse
 
       - name: Build dockerfile (with push)
         run: |
