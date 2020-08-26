@@ -6,7 +6,7 @@ on:
       - master
 
 jobs:
-  build-arm-docker-image:
+  build-docker-image:
     runs-on: ubuntu-18.04
     steps:
       - uses: actions/checkout@master
@@ -23,6 +23,8 @@ jobs:
         uses: crazy-max/ghaction-docker-buildx@v1
         with:
           buildx-version: latest
+
+      - uses: satackey/action-docker-layer-caching@v0.0.8
 
       - name: Build dockerfile (with push)
         run: |
