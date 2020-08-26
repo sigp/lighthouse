@@ -11,6 +11,7 @@ participation_metrics = []  # Exposes validator participation metrics to Prometh
 
 [dev-dependencies]
 int_to_bytes = { path = "../../consensus/int_to_bytes" }
+maplit = "1.0.2"
 
 [dependencies]
 eth2_config = { path = "../../common/eth2_config" }
@@ -45,6 +46,7 @@ futures = "0.3.5"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1.3"
 rand = "0.7.3"
+rand_core = "0.5.1"
 proto_array = { path = "../../consensus/proto_array" }
 lru = "0.5.1"
 tempfile = "3.1.0"

@@ -1978,7 +1978,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.head_tracker.clone(),
             old_finalized_checkpoint,
             new_finalized_checkpoint,
-        );
+        )?;
 
         let _ = self.event_handler.register(EventKind::BeaconFinalization {
             epoch: new_finalized_checkpoint.epoch,
@@ -2070,10 +2070,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_block_root;
         let mut visited: HashSet<Hash256> = HashSet::new();
         let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
+        let mut justified_blocks: HashSet<Hash256> = HashSet::new();
 
         let genesis_block_hash = Hash256::zero();
         writeln!(output, "digraph beacon {{").unwrap();
-        writeln!(output, "\t_{:?}[label=\"genesis\"];", genesis_block_hash).unwrap();
+        writeln!(output, "\t_{:?}[label=\"zero\"];", genesis_block_hash).unwrap();
 
         // Canonical head needs to be processed first as otherwise finalized blocks aren't detected
         // properly.
@@ -2104,6 +2105,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .unwrap()
                         .unwrap();
                     finalized_blocks.insert(state.finalized_checkpoint.root);
+                    justified_blocks.insert(state.current_justified_checkpoint.root);
+                    justified_blocks.insert(state.previous_justified_checkpoint.root);
                 }
 
                 if block_hash == canonical_head_hash {
@@ -2119,6 +2122,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     writeln!(
                         output,
                         "\t_{:?}[label=\"{} ({})\" shape=Msquare];",
+                        block_hash,
+                        block_hash,
+                        signed_beacon_block.slot()
+                    )
+                    .unwrap();
+                } else if justified_blocks.contains(&block_hash) {
+                    writeln!(
+                        output,
+                        "\t_{:?}[label=\"{} ({})\" shape=cds];",
                         block_hash,
                         block_hash,
                         signed_beacon_block.slot()
@@ -2152,6 +2164,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn dump_dot_file(&self, file_name: &str) {
         let mut file = std::fs::File::create(file_name).unwrap();
         self.dump_as_dot(&mut file);
+    }
+
+    // Should be used in tests only
+    pub fn set_graffiti(&mut self, graffiti: Graffiti) {
+        self.graffiti = graffiti;
     }
 }
 

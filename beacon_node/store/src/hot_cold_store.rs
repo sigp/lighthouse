@@ -825,7 +825,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
-pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: Arc<HotColdDB<E, Hot, Cold>>,
     frozen_head_root: Hash256,
     frozen_head: &BeaconState<E>,

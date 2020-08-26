@@ -1,13 +1,13 @@
 use crate::errors::BeaconChainError;
 use crate::head_tracker::HeadTracker;
 use parking_lot::Mutex;
-use slog::{debug, error, warn, Logger};
+use slog::{debug, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
-use store::hot_cold_store::{process_finalization, HotColdDBError};
+use store::hot_cold_store::{migrate_database, HotColdDBError};
 use store::iter::RootsIterator;
 use store::{Error, ItemStore, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
@@ -43,7 +43,8 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
         _head_tracker: Arc<HeadTracker>,
         _old_finalized_checkpoint: Checkpoint,
         _new_finalized_checkpoint: Checkpoint,
-    ) {
+    ) -> Result<(), BeaconChainError> {
+        Ok(())
     }
 
     /// Traverses live heads and prunes blocks and states of chains that we know can't be built
@@ -237,6 +238,7 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
                     .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash, slot)),
             )
             .collect();
+
         store.do_atomically(batch)?;
         for head_hash in abandoned_heads.into_iter() {
             head_tracker.remove_head(head_hash);
@@ -252,6 +254,17 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
 pub struct NullMigrator;
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold> for NullMigrator {
+    fn process_finalization(
+        &self,
+        _finalized_state_root: BeaconStateHash,
+        _new_finalized_state: BeaconState<E>,
+        _head_tracker: Arc<HeadTracker>,
+        _old_finalized_checkpoint: Checkpoint,
+        _new_finalized_checkpoint: Checkpoint,
+    ) -> Result<(), BeaconChainError> {
+        Ok(())
+    }
+
     fn new(_: Arc<HotColdDB<E, Hot, Cold>>, _: Logger) -> Self {
         NullMigrator
     }
@@ -279,8 +292,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
         head_tracker: Arc<HeadTracker>,
         old_finalized_checkpoint: Checkpoint,
         new_finalized_checkpoint: Checkpoint,
-    ) {
-        if let Err(e) = Self::prune_abandoned_forks(
+    ) -> Result<(), BeaconChainError> {
+        Self::prune_abandoned_forks(
             self.db.clone(),
             head_tracker,
             finalized_state_root,
@@ -288,16 +301,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
             old_finalized_checkpoint,
             new_finalized_checkpoint,
             &self.log,
-        ) {
-            error!(&self.log, "Pruning error"; "error" => format!("{:?}", e));
-        }
+        )?;
 
-        if let Err(e) = process_finalization(
+        match migrate_database(
             self.db.clone(),
             finalized_state_root.into(),
             &new_finalized_state,
         ) {
-            error!(&self.log, "Migration error"; "error" => format!("{:?}", e));
+            Ok(()) => Ok(()),
+            Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
+                debug!(
+                    self.log,
+                    "Database migration postponed, unaligned finalized block";
+                    "slot" => slot.as_u64()
+                );
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
         }
     }
 }
@@ -332,7 +352,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
         head_tracker: Arc<HeadTracker>,
         old_finalized_checkpoint: Checkpoint,
         new_finalized_checkpoint: Checkpoint,
-    ) {
+    ) -> Result<(), BeaconChainError> {
         let (ref mut tx, ref mut thread) = *self.tx_thread.lock();
 
         if let Err(tx_err) = tx.send((
@@ -360,6 +380,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
             // Retry at most once, we could recurse but that would risk overflowing the stack.
             let _ = tx.send(tx_err.0);
         }
+
+        Ok(())
     }
 }
 
@@ -394,7 +416,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     Err(e) => warn!(log, "Block pruning failed: {:?}", e),
                 }
 
-                match process_finalization(db.clone(), state_root.into(), &state) {
+                match migrate_database(db.clone(), state_root.into(), &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                         debug!(
