@@ -130,7 +130,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             match format.to_uppercase().as_str() {
                 "JSON" => {
                     let drain = slog_json::Json::default(std::io::stdout()).fuse();
-                    slog_async::Async::new(drain).chan_size(LOG_CHANNEL_SIZE).build()
+                    slog_async::Async::new(drain)
+                        .chan_size(LOG_CHANNEL_SIZE)
+                        .build()
                 }
                 _ => return Err("Logging format provided is not supported".to_string()),
             }
@@ -139,7 +141,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             let decorator =
                 logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
             let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            slog_async::Async::new(drain).chan_size(LOG_CHANNEL_SIZE).build()
+            slog_async::Async::new(drain)
+                .chan_size(LOG_CHANNEL_SIZE)
+                .build()
         };
 
         let drain = match debug_level {
@@ -193,7 +197,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             match format.to_uppercase().as_str() {
                 "JSON" => {
                     let drain = slog_json::Json::default(file).fuse();
-                    slog_async::Async::new(drain).chan_size(LOG_CHANNEL_SIZE).build()
+                    slog_async::Async::new(drain)
+                        .chan_size(LOG_CHANNEL_SIZE)
+                        .build()
                 }
                 _ => return Err("Logging format provided is not supported".to_string()),
             }
@@ -202,7 +208,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             let decorator =
                 logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
             let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            slog_async::Async::new(drain).chan_size(LOG_CHANNEL_SIZE).build()
+            slog_async::Async::new(drain)
+                .chan_size(LOG_CHANNEL_SIZE)
+                .build()
         };
 
         let drain = match debug_level {

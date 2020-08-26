@@ -28,7 +28,9 @@ pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
         let decorator = slog_term::TermDecorator::new().build();
         let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
         let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        slog_async::Async::new(drain).chan_size(LOG_CHANNEL_SIZE).build()
+        slog_async::Async::new(drain)
+            .chan_size(LOG_CHANNEL_SIZE)
+            .build()
     };
 
     let drain = match debug_level {
