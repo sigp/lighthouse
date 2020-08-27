@@ -5,7 +5,6 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-slot_clock = { path = "../common/slot_clock" }
 bincode = "1.3.1"
 blake2b_simd = "0.5.10"
 byte-slice-cast = "0.3.5"
@@ -18,14 +17,16 @@ safe_arith = { path = "../consensus/safe_arith" }
 serde = "1.0"
 serde_derive = "1.0"
 slog = "2.5.2"
+slot_clock = { path = "../common/slot_clock" }
 tokio = { version = "0.2.21", features = ["full"] }
 tree_hash = { path = "../consensus/tree_hash" }
 types = { path = "../consensus/types" }
 
 [dev-dependencies]
 criterion = "0.3"
-tempdir = "0.3.7"
+rayon = "1.3.0"
 slog-term = "2.6.0"
+tempdir = "0.3.7"
 
 [[bench]]
 name = "blake2b"

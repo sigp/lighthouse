@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use slasher::{config::DEFAULT_CHUNK_SIZE, Config, Slasher};
 use slog::{o, Drain, Logger};
 use tempdir::TempDir;
@@ -118,6 +119,17 @@ fn no_double_vote_distinct_vals() {
 }
 
 #[test]
+fn no_double_vote_repeated() {
+    let v = vec![0, 1, 2, 3, 4];
+    let att1 = indexed_att(&v, 0, 1, 0);
+    let att2 = att1.clone();
+    let attestations = vec![att1, att2];
+    slasher_test_indiv(&attestations, &[], 1);
+    slasher_test_batch(&attestations, &[], 1);
+    parallel_slasher_test(&attestations, vec![], 1);
+}
+
+#[test]
 fn surrounds_existing_single_val_single_chunk() {
     let v = vec![0];
     let att1 = indexed_att(&v, 1, 2, 0);
@@ -199,6 +211,15 @@ fn slasher_test_indiv(
     slasher_test(attestations, expected, current_epoch, |_| true);
 }
 
+// Process all attestations in one batch.
+fn slasher_test_batch(
+    attestations: &[IndexedAttestation<E>],
+    expected: &[AttesterSlashing<E>],
+    current_epoch: u64,
+) {
+    slasher_test(attestations, expected, current_epoch, |_| false);
+}
+
 // FIXME(sproul): move this somewhere else
 fn logger() -> Logger {
     let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
@@ -233,4 +254,24 @@ fn slasher_test(
     }
 
     assert_eq!(expected, &slashings[..]);
+}
+
+fn parallel_slasher_test(
+    attestations: &[IndexedAttestation<E>],
+    // TODO(sproul): check slashed validators
+    _slashed_validators: Vec<u64>,
+    current_epoch: u64,
+) {
+    let tempdir = TempDir::new("slasher").unwrap();
+    let config = Config::new(tempdir.path().into());
+    let slasher = Slasher::open(config, logger()).unwrap();
+    let current_epoch = Epoch::new(current_epoch);
+
+    attestations
+        .into_par_iter()
+        .try_for_each(|attestation| {
+            slasher.accept_attestation(attestation.clone());
+            slasher.process_attestations(current_epoch)
+        })
+        .expect("parallel processing shouldn't race");
 }
