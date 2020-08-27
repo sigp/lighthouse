@@ -365,6 +365,7 @@ pub fn get_chunk_for_update<'a, E: EthSpec, T: TargetArrayChunk>(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
     db: &SlasherDB<E>,
     txn: &mut RwTransaction<'_>,

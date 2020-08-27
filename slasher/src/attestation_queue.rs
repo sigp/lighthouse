@@ -21,18 +21,12 @@ pub struct AttestationQueueSnapshot<E: EthSpec> {
 }
 
 /// A queue of attestations for a range of validator indices.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SubQueue<E: EthSpec> {
     pub attestations: Vec<Arc<IndexedAttestation<E>>>,
 }
 
 impl<E: EthSpec> SubQueue<E> {
-    pub fn new() -> Self {
-        SubQueue {
-            attestations: vec![],
-        }
-    }
-
     /// Empty the queue.
     pub fn take(&mut self) -> Self {
         SubQueue {
@@ -74,7 +68,7 @@ impl<E: EthSpec> AttestationQueue<E> {
             if *max_subqueue_id >= snapshot.subqueues.len() {
                 snapshot
                     .subqueues
-                    .resize_with(max_subqueue_id + 1, SubQueue::new);
+                    .resize_with(max_subqueue_id + 1, SubQueue::default);
             }
         }
 

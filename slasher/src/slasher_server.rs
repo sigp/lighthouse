@@ -11,7 +11,7 @@ use types::EthSpec;
 pub struct SlasherServer;
 
 impl SlasherServer {
-    pub fn new<E: EthSpec, C: SlotClock + 'static>(
+    pub fn run<E: EthSpec, C: SlotClock + 'static>(
         slasher: Arc<Slasher<E>>,
         slot_clock: C,
         executor: &TaskExecutor,
