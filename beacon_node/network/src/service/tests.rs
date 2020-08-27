@@ -23,7 +23,7 @@ mod tests {
         let log = get_logger();
 
         let beacon_chain = Arc::new(
-            BeaconChainHarness::new(
+            BeaconChainHarness::new_with_store_config(
                 MinimalEthSpec,
                 generate_deterministic_keypairs(8),
                 StoreConfig::default(),
