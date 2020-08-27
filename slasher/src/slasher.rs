@@ -48,18 +48,17 @@ impl<E: EthSpec> Slasher<E> {
 
     /// Apply queued attestations to the on-disk database.
     pub fn process_attestations(&self, current_epoch: Epoch) -> Result<(), Error> {
+        let snapshot = self.attestation_queue.get_snapshot();
         let mut txn = self.db.begin_rw_txn()?;
 
         // Insert attestations into database.
-        for attestation in self.attestation_queue.get_attestations_to_store() {
+        for attestation in snapshot.attestations_to_store {
             self.db.store_indexed_attestation(&mut txn, &attestation)?;
         }
 
         // Dequeue attestations in batches and process them.
-        let subqueues_lock = self.attestation_queue.subqueues.read();
-        for (subqueue_id, subqueue) in subqueues_lock.iter().enumerate() {
-            let batch = subqueue.take();
-            self.process_batch(&mut txn, subqueue_id, batch, current_epoch);
+        for (subqueue_id, subqueue) in snapshot.subqueues.into_iter().enumerate() {
+            self.process_batch(&mut txn, subqueue_id, subqueue.attestations, current_epoch);
         }
         txn.commit()?;
         Ok(())
