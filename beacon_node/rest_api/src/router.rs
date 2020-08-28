@@ -1,241 +1,322 @@
 use crate::{
-    advanced, beacon, config::Config, consensus, error::ApiError, helpers, lighthouse, metrics,
-    network, node, spec, validator, NetworkChannel,
+    beacon, config::Config, consensus, lighthouse, metrics, node, validator, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bus::Bus;
+use environment::TaskExecutor;
 use eth2_config::Eth2Config;
-use eth2_libp2p::NetworkGlobals;
+use eth2_libp2p::{NetworkGlobals, PeerId};
 use hyper::header::HeaderValue;
 use hyper::{Body, Method, Request, Response};
+use lighthouse_version::version_with_platform;
+use operation_pool::PersistedOperationPool;
 use parking_lot::Mutex;
+use rest_types::{ApiError, Handler, Health};
 use slog::debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use types::{SignedBeaconBlockHash, Slot};
+use types::{EthSpec, SignedBeaconBlockHash};
 
-// Allowing more than 7 arguments.
-#[allow(clippy::too_many_arguments)]
-pub async fn route<T: BeaconChainTypes>(
+pub struct Context<T: BeaconChainTypes> {
+    pub executor: TaskExecutor,
+    pub config: Config,
+    pub beacon_chain: Arc<BeaconChain<T>>,
+    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    pub network_chan: NetworkChannel<T::EthSpec>,
+    pub eth2_config: Arc<Eth2Config>,
+    pub log: slog::Logger,
+    pub db_path: PathBuf,
+    pub freezer_db_path: PathBuf,
+    pub events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
+}
+
+pub async fn on_http_request<T: BeaconChainTypes>(
     req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    network_channel: NetworkChannel<T::EthSpec>,
-    rest_api_config: Arc<Config>,
-    eth2_config: Arc<Eth2Config>,
-    local_log: slog::Logger,
-    db_path: PathBuf,
-    freezer_db_path: PathBuf,
-    events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
+    ctx: Arc<Context<T>>,
 ) -> Result<Response<Body>, ApiError> {
-    metrics::inc_counter(&metrics::REQUEST_COUNT);
-    let received_instant = Instant::now();
-
     let path = req.uri().path().to_string();
 
-    let log = local_log.clone();
-    let result = {
-        let _timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
+    let _timer = metrics::start_timer_vec(&metrics::BEACON_HTTP_API_TIMES_TOTAL, &[&path]);
+    metrics::inc_counter_vec(&metrics::BEACON_HTTP_API_REQUESTS_TOTAL, &[&path]);
 
-        match (req.method(), path.as_ref()) {
-            // Methods for Client
-            (&Method::GET, "/node/health") => node::get_health(req),
-            (&Method::GET, "/node/version") => node::get_version(req),
-            (&Method::GET, "/node/syncing") => {
-                // inform the current slot, or set to 0
-                let current_slot = beacon_chain
-                    .head_info()
-                    .map(|info| info.slot)
-                    .unwrap_or_else(|_| Slot::from(0u64));
+    let received_instant = Instant::now();
+    let log = ctx.log.clone();
+    let allow_origin = ctx.config.allow_origin.clone();
 
-                node::syncing::<T::EthSpec>(req, network_globals, current_slot)
-            }
-
-            // Methods for Network
-            (&Method::GET, "/network/enr") => network::get_enr::<T>(req, network_globals),
-            (&Method::GET, "/network/peer_count") => {
-                network::get_peer_count::<T>(req, network_globals)
-            }
-            (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req, network_globals),
-            (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req, network_globals),
-            (&Method::GET, "/network/listen_port") => {
-                network::get_listen_port::<T>(req, network_globals)
-            }
-            (&Method::GET, "/network/listen_addresses") => {
-                network::get_listen_addresses::<T>(req, network_globals)
-            }
-
-            // Methods for Beacon Node
-            (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/heads") => beacon::get_heads::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/fork") => beacon::get_fork::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/fork/stream") => {
-                let reader = events.lock().add_rx();
-                beacon::stream_forks::<T>(log, reader)
-            }
-            (&Method::GET, "/beacon/genesis_time") => {
-                beacon::get_genesis_time::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/genesis_validators_root") => {
-                beacon::get_genesis_validators_root::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/validators") => beacon::get_validators::<T>(req, beacon_chain),
-            (&Method::POST, "/beacon/validators") => {
-                beacon::post_validators::<T>(req, beacon_chain).await
-            }
-            (&Method::GET, "/beacon/validators/all") => {
-                beacon::get_all_validators::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/validators/active") => {
-                beacon::get_active_validators::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/state/genesis") => {
-                beacon::get_genesis_state::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/committees") => beacon::get_committees::<T>(req, beacon_chain),
-            (&Method::POST, "/beacon/proposer_slashing") => {
-                beacon::proposer_slashing::<T>(req, beacon_chain).await
-            }
-            (&Method::POST, "/beacon/attester_slashing") => {
-                beacon::attester_slashing::<T>(req, beacon_chain).await
-            }
-
-            // Methods for Validator
-            (&Method::POST, "/validator/duties") => {
-                let timer =
-                    metrics::start_timer(&metrics::VALIDATOR_GET_DUTIES_REQUEST_RESPONSE_TIME);
-                let response = validator::post_validator_duties::<T>(req, beacon_chain);
-                drop(timer);
-                response.await
-            }
-            (&Method::POST, "/validator/subscribe") => {
-                validator::post_validator_subscriptions::<T>(req, network_channel).await
-            }
-            (&Method::GET, "/validator/duties/all") => {
-                validator::get_all_validator_duties::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/validator/duties/active") => {
-                validator::get_active_validator_duties::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/validator/block") => {
-                let timer =
-                    metrics::start_timer(&metrics::VALIDATOR_GET_BLOCK_REQUEST_RESPONSE_TIME);
-                let response = validator::get_new_beacon_block::<T>(req, beacon_chain, log);
-                drop(timer);
-                response
-            }
-            (&Method::POST, "/validator/block") => {
-                validator::publish_beacon_block::<T>(req, beacon_chain, network_channel, log).await
-            }
-            (&Method::GET, "/validator/attestation") => {
-                let timer =
-                    metrics::start_timer(&metrics::VALIDATOR_GET_ATTESTATION_REQUEST_RESPONSE_TIME);
-                let response = validator::get_new_attestation::<T>(req, beacon_chain);
-                drop(timer);
-                response
-            }
-            (&Method::GET, "/validator/aggregate_attestation") => {
-                validator::get_aggregate_attestation::<T>(req, beacon_chain)
-            }
-            (&Method::POST, "/validator/attestations") => {
-                validator::publish_attestations::<T>(req, beacon_chain, network_channel, log).await
-            }
-            (&Method::POST, "/validator/aggregate_and_proofs") => {
-                validator::publish_aggregate_and_proofs::<T>(
-                    req,
-                    beacon_chain,
-                    network_channel,
-                    log,
-                )
-                .await
-            }
-
-            // Methods for consensus
-            (&Method::GET, "/consensus/global_votes") => {
-                consensus::get_vote_count::<T>(req, beacon_chain)
-            }
-            (&Method::POST, "/consensus/individual_votes") => {
-                consensus::post_individual_votes::<T>(req, beacon_chain).await
-            }
-
-            // Methods for bootstrap and checking configuration
-            (&Method::GET, "/spec") => spec::get_spec::<T>(req, beacon_chain),
-            (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
-            (&Method::GET, "/spec/deposit_contract") => {
-                helpers::implementation_pending_response(req)
-            }
-            (&Method::GET, "/spec/eth2_config") => spec::get_eth2_config::<T>(req, eth2_config),
-
-            // Methods for advanced parameters
-            (&Method::GET, "/advanced/fork_choice") => {
-                advanced::get_fork_choice::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/advanced/operation_pool") => {
-                advanced::get_operation_pool::<T>(req, beacon_chain)
-            }
-
-            (&Method::GET, "/metrics") => {
-                metrics::get_prometheus::<T>(req, beacon_chain, db_path, freezer_db_path)
-            }
-
-            // Lighthouse specific
-            (&Method::GET, "/lighthouse/syncing") => {
-                lighthouse::syncing::<T::EthSpec>(req, network_globals)
-            }
-
-            (&Method::GET, "/lighthouse/peers") => {
-                lighthouse::peers::<T::EthSpec>(req, network_globals)
-            }
-
-            (&Method::GET, "/lighthouse/connected_peers") => {
-                lighthouse::connected_peers::<T::EthSpec>(req, network_globals)
-            }
-            _ => Err(ApiError::NotFound(
-                "Request path and/or method not found.".to_owned(),
-            )),
-        }
-    };
-
-    let request_processing_duration = Instant::now().duration_since(received_instant);
-
-    // Map the Rust-friendly `Result` in to a http-friendly response. In effect, this ensures that
-    // any `Err` returned from our response handlers becomes a valid http response to the client
-    // (e.g., a response with a 404 or 500 status).
-
-    match result {
+    match route(req, ctx).await {
         Ok(mut response) => {
-            if rest_api_config.allow_origin != "" {
+            metrics::inc_counter_vec(&metrics::BEACON_HTTP_API_SUCCESS_TOTAL, &[&path]);
+
+            if allow_origin != "" {
                 let headers = response.headers_mut();
                 headers.insert(
                     hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-                    HeaderValue::from_str(&rest_api_config.allow_origin)?,
+                    HeaderValue::from_str(&allow_origin)?,
                 );
                 headers.insert(hyper::header::VARY, HeaderValue::from_static("Origin"));
             }
 
             debug!(
-                local_log,
+                log,
                 "HTTP API request successful";
                 "path" => path,
-                "duration_ms" => request_processing_duration.as_millis()
+                "duration_ms" => Instant::now().duration_since(received_instant).as_millis()
             );
-            metrics::inc_counter(&metrics::SUCCESS_COUNT);
             Ok(response)
         }
 
         Err(error) => {
+            metrics::inc_counter_vec(&metrics::BEACON_HTTP_API_ERROR_TOTAL, &[&path]);
+
             debug!(
-                local_log,
+                log,
                 "HTTP API request failure";
                 "path" => path,
-                "duration_ms" => request_processing_duration.as_millis()
+                "duration_ms" => Instant::now().duration_since(received_instant).as_millis()
             );
             Ok(error.into())
         }
+    }
+}
+
+async fn route<T: BeaconChainTypes>(
+    req: Request<Body>,
+    ctx: Arc<Context<T>>,
+) -> Result<Response<Body>, ApiError> {
+    let path = req.uri().path().to_string();
+    let ctx = ctx.clone();
+    let method = req.method().clone();
+    let executor = ctx.executor.clone();
+    let handler = Handler::new(req, ctx, executor)?;
+
+    match (method, path.as_ref()) {
+        (Method::GET, "/node/version") => handler
+            .static_value(version_with_platform())
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/node/health") => handler
+            .static_value(Health::observe().map_err(ApiError::ServerError)?)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/node/syncing") => handler
+            .allow_body()
+            .in_blocking_task(|_, ctx| node::syncing(ctx))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/network/enr") => handler
+            .in_core_task(|_, ctx| Ok(ctx.network_globals.local_enr().to_base64()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/network/peer_count") => handler
+            .in_core_task(|_, ctx| Ok(ctx.network_globals.connected_peers()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/network/peer_id") => handler
+            .in_core_task(|_, ctx| Ok(ctx.network_globals.local_peer_id().to_base58()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/network/peers") => handler
+            .in_blocking_task(|_, ctx| {
+                Ok(ctx
+                    .network_globals
+                    .peers
+                    .read()
+                    .connected_peer_ids()
+                    .map(PeerId::to_string)
+                    .collect::<Vec<_>>())
+            })
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/network/listen_port") => handler
+            .in_core_task(|_, ctx| Ok(ctx.network_globals.listen_port_tcp()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/network/listen_addresses") => handler
+            .in_blocking_task(|_, ctx| Ok(ctx.network_globals.listen_multiaddrs()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/beacon/head") => handler
+            .in_blocking_task(|_, ctx| beacon::get_head(ctx))
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/heads") => handler
+            .in_blocking_task(|_, ctx| Ok(beacon::get_heads(ctx)))
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/block") => handler
+            .in_blocking_task(beacon::get_block)
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/block_root") => handler
+            .in_blocking_task(beacon::get_block_root)
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/fork") => handler
+            .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.head_info()?.fork))
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/fork/stream") => {
+            handler.sse_stream(|_, ctx| beacon::stream_forks(ctx)).await
+        }
+        (Method::GET, "/beacon/genesis_time") => handler
+            .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.head_info()?.genesis_time))
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/genesis_validators_root") => handler
+            .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.head_info()?.genesis_validators_root))
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/validators") => handler
+            .in_blocking_task(beacon::get_validators)
+            .await?
+            .all_encodings(),
+        (Method::POST, "/beacon/validators") => handler
+            .allow_body()
+            .in_blocking_task(beacon::post_validators)
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/validators/all") => handler
+            .in_blocking_task(beacon::get_all_validators)
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/validators/active") => handler
+            .in_blocking_task(beacon::get_active_validators)
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/state") => handler
+            .in_blocking_task(beacon::get_state)
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/state_root") => handler
+            .in_blocking_task(beacon::get_state_root)
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/state/genesis") => handler
+            .in_blocking_task(|_, ctx| beacon::get_genesis_state(ctx))
+            .await?
+            .all_encodings(),
+        (Method::GET, "/beacon/committees") => handler
+            .in_blocking_task(beacon::get_committees)
+            .await?
+            .all_encodings(),
+        (Method::POST, "/beacon/proposer_slashing") => handler
+            .allow_body()
+            .in_blocking_task(beacon::proposer_slashing)
+            .await?
+            .serde_encodings(),
+        (Method::POST, "/beacon/attester_slashing") => handler
+            .allow_body()
+            .in_blocking_task(beacon::attester_slashing)
+            .await?
+            .serde_encodings(),
+        (Method::POST, "/validator/duties") => handler
+            .allow_body()
+            .in_blocking_task(validator::post_validator_duties)
+            .await?
+            .serde_encodings(),
+        (Method::POST, "/validator/subscribe") => handler
+            .allow_body()
+            .in_blocking_task(validator::post_validator_subscriptions)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/validator/duties/all") => handler
+            .in_blocking_task(validator::get_all_validator_duties)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/validator/duties/active") => handler
+            .in_blocking_task(validator::get_active_validator_duties)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/validator/block") => handler
+            .in_blocking_task(validator::get_new_beacon_block)
+            .await?
+            .serde_encodings(),
+        (Method::POST, "/validator/block") => handler
+            .allow_body()
+            .in_blocking_task(validator::publish_beacon_block)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/validator/attestation") => handler
+            .in_blocking_task(validator::get_new_attestation)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/validator/aggregate_attestation") => handler
+            .in_blocking_task(validator::get_aggregate_attestation)
+            .await?
+            .serde_encodings(),
+        (Method::POST, "/validator/attestations") => handler
+            .allow_body()
+            .in_blocking_task(validator::publish_attestations)
+            .await?
+            .serde_encodings(),
+        (Method::POST, "/validator/aggregate_and_proofs") => handler
+            .allow_body()
+            .in_blocking_task(validator::publish_aggregate_and_proofs)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/consensus/global_votes") => handler
+            .allow_body()
+            .in_blocking_task(consensus::get_vote_count)
+            .await?
+            .serde_encodings(),
+        (Method::POST, "/consensus/individual_votes") => handler
+            .allow_body()
+            .in_blocking_task(consensus::post_individual_votes)
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/spec") => handler
+            // TODO: this clone is not ideal.
+            .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.spec.clone()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/spec/slots_per_epoch") => handler
+            .static_value(T::EthSpec::slots_per_epoch())
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/spec/eth2_config") => handler
+            // TODO: this clone is not ideal.
+            .in_blocking_task(|_, ctx| Ok(ctx.eth2_config.as_ref().clone()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/advanced/fork_choice") => handler
+            .in_blocking_task(|_, ctx| {
+                Ok(ctx
+                    .beacon_chain
+                    .fork_choice
+                    .read()
+                    .proto_array()
+                    .core_proto_array()
+                    .clone())
+            })
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/advanced/operation_pool") => handler
+            .in_blocking_task(|_, ctx| {
+                Ok(PersistedOperationPool::from_operation_pool(
+                    &ctx.beacon_chain.op_pool,
+                ))
+            })
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/metrics") => handler
+            .in_blocking_task(|_, ctx| metrics::get_prometheus(ctx))
+            .await?
+            .text_encoding(),
+        (Method::GET, "/lighthouse/syncing") => handler
+            .in_blocking_task(|_, ctx| Ok(ctx.network_globals.sync_state()))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/lighthouse/peers") => handler
+            .in_blocking_task(|_, ctx| lighthouse::peers(ctx))
+            .await?
+            .serde_encodings(),
+        (Method::GET, "/lighthouse/connected_peers") => handler
+            .in_blocking_task(|_, ctx| lighthouse::connected_peers(ctx))
+            .await?
+            .serde_encodings(),
+        _ => Err(ApiError::NotFound(
+            "Request path and/or method not found.".to_owned(),
+        )),
     }
 }

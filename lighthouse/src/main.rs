@@ -63,7 +63,7 @@ fn main() {
                 .long("logfile")
                 .value_name("FILE")
                 .help(
-                    "File path where output will be written. Default file logging format is JSON.",
+                    "File path where output will be written.",
                 )
                 .takes_value(true),
         )
@@ -189,28 +189,32 @@ fn run<E: EthSpec>(
 
     // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
     // else, use the default
-    let mut optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
+    let mut optional_testnet_config = None;
     if matches.is_present("testnet") {
         optional_testnet_config = clap_utils::parse_hardcoded_network(matches, "testnet")?;
     };
     if matches.is_present("testnet-dir") {
         optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
     };
+    if optional_testnet_config.is_none() {
+        optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
+    }
 
-    let mut environment = environment_builder
-        .async_logger(debug_level, log_format)?
+    let builder = if let Some(log_path) = matches.value_of("logfile") {
+        let path = log_path
+            .parse::<PathBuf>()
+            .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
+        environment_builder.log_to_file(path, debug_level, log_format)?
+    } else {
+        environment_builder.async_logger(debug_level, log_format)?
+    };
+
+    let mut environment = builder
         .multi_threaded_tokio_runtime()?
         .optional_eth2_testnet_config(optional_testnet_config)?
         .build()?;
 
     let log = environment.core_context().log().clone();
-
-    if let Some(log_path) = matches.value_of("logfile") {
-        let path = log_path
-            .parse::<PathBuf>()
-            .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
-        environment.log_to_json_file(path, debug_level, log_format)?;
-    }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.
@@ -299,8 +303,8 @@ fn run<E: EthSpec>(
         return Err("No subcommand supplied.".into());
     }
 
-    // Block this thread until Crtl+C is pressed.
-    environment.block_until_ctrl_c()?;
+    // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
+    environment.block_until_shutdown_requested()?;
     info!(log, "Shutting down..");
 
     environment.fire_signal();

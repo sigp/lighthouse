@@ -17,12 +17,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing validators_per_node default");
     let speed_up_factor =
         value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
-    let end_after_checks = !matches.is_present("end_after_checks");
+    let continue_after_checks = matches.is_present("continue_after_checks");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}", node_count);
     println!(" validators_per_node:{}", validators_per_node);
-    println!(" end_after_checks:{}", end_after_checks);
+    println!(" continue_after_checks:{}", continue_after_checks);
 
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..node_count)
@@ -174,9 +174,9 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         onboarding?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
-        // of `end_after_checks`.
+        // of `continue_after_checks`.
 
-        if !end_after_checks {
+        if continue_after_checks {
             future::pending::<()>().await;
         }
         /*

@@ -804,7 +804,7 @@ fn get_version() {
     let version = env
         .runtime()
         .block_on(remote_node.http.node().get_version())
-        .expect("should fetch eth2 config from http api");
+        .expect("should fetch version from http api");
 
     assert_eq!(
         lighthouse_version::version_with_platform(),

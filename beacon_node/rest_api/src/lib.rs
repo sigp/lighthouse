@@ -1,22 +1,15 @@
 #[macro_use]
-mod macros;
-#[macro_use]
 extern crate lazy_static;
+mod router;
 extern crate network as client_network;
 
-mod advanced;
 mod beacon;
 pub mod config;
 mod consensus;
-mod error;
 mod helpers;
 mod lighthouse;
 mod metrics;
-mod network;
 mod node;
-mod response_builder;
-mod router;
-mod spec;
 mod url_query;
 mod validator;
 
@@ -24,7 +17,6 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bus::Bus;
 use client_network::NetworkMessage;
 pub use config::ApiEncodingFormat;
-use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
 use futures::future::TryFutureExt;
@@ -32,6 +24,7 @@ use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server};
 use parking_lot::Mutex;
+use rest_types::ApiError;
 use slog::{info, warn};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -42,6 +35,7 @@ use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
 pub use config::Config;
+pub use router::Context;
 
 pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
@@ -63,36 +57,28 @@ pub fn start_server<T: BeaconChainTypes>(
     events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
 ) -> Result<SocketAddr, hyper::Error> {
     let log = executor.log();
-    let inner_log = log.clone();
-    let rest_api_config = Arc::new(config.clone());
     let eth2_config = Arc::new(eth2_config);
+
+    let context = Arc::new(Context {
+        executor: executor.clone(),
+        config: config.clone(),
+        beacon_chain,
+        network_globals: network_info.network_globals.clone(),
+        network_chan: network_info.network_chan,
+        eth2_config,
+        log: log.clone(),
+        db_path,
+        freezer_db_path,
+        events,
+    });
 
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
-        let beacon_chain = beacon_chain.clone();
-        let log = inner_log.clone();
-        let rest_api_config = rest_api_config.clone();
-        let eth2_config = eth2_config.clone();
-        let network_globals = network_info.network_globals.clone();
-        let network_channel = network_info.network_chan.clone();
-        let db_path = db_path.clone();
-        let freezer_db_path = freezer_db_path.clone();
-        let events = events.clone();
+        let ctx = context.clone();
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
-                router::route(
-                    req,
-                    beacon_chain.clone(),
-                    network_globals.clone(),
-                    network_channel.clone(),
-                    rest_api_config.clone(),
-                    eth2_config.clone(),
-                    log.clone(),
-                    db_path.clone(),
-                    freezer_db_path.clone(),
-                    events.clone(),
-                )
+                router::on_http_request(req, ctx.clone())
             }))
         }
     });

@@ -81,7 +81,7 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.enr_tcp_port = Some(port);
     config.enr_udp_port = Some(port);
     config.enr_address = Some("127.0.0.1".parse().unwrap());
-    config.boot_nodes.append(&mut boot_nodes);
+    config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
     // Reduce gossipsub heartbeat parameters
     config.gs_config = GossipsubConfigBuilder::from(config.gs_config)
@@ -92,16 +92,22 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config
 }
 
-pub fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> Libp2pInstance {
+pub async fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> Libp2pInstance {
     let port = unused_port("tcp").unwrap();
     let config = build_config(port, boot_nodes);
     // launch libp2p service
 
     let (signal, exit) = exit_future::signal();
-    let executor =
-        environment::TaskExecutor::new(tokio::runtime::Handle::current(), exit, log.clone());
+    let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+    let executor = environment::TaskExecutor::new(
+        tokio::runtime::Handle::current(),
+        exit,
+        log.clone(),
+        shutdown_tx,
+    );
     Libp2pInstance(
         LibP2PService::new(executor, &config, EnrForkId::default(), &log)
+            .await
             .expect("should build libp2p instance")
             .1,
         signal,
@@ -116,10 +122,11 @@ pub fn get_enr(node: &LibP2PService<E>) -> Enr {
 
 // Returns `n` libp2p peers in fully connected topology.
 #[allow(dead_code)]
-pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
-    let mut nodes: Vec<_> = (0..n)
-        .map(|_| build_libp2p_instance(vec![], log.clone()))
-        .collect();
+pub async fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
+    let mut nodes = Vec::with_capacity(n);
+    for _ in 0..n {
+        nodes.push(build_libp2p_instance(vec![], log.clone()).await);
+    }
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
         .map(|x| get_enr(&x).multiaddr()[1].clone())
@@ -145,8 +152,8 @@ pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInsta
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
-    let mut sender = build_libp2p_instance(vec![], sender_log);
-    let mut receiver = build_libp2p_instance(vec![], receiver_log);
+    let mut sender = build_libp2p_instance(vec![], sender_log).await;
+    let mut receiver = build_libp2p_instance(vec![], receiver_log).await;
 
     let receiver_multiaddr = receiver.swarm.local_enr().multiaddr()[1].clone();
 
@@ -185,10 +192,12 @@ pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInsta
 
 // Returns `n` peers in a linear topology
 #[allow(dead_code)]
-pub fn build_linear(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
-    let mut nodes: Vec<_> = (0..n)
-        .map(|_| build_libp2p_instance(vec![], log.clone()))
-        .collect();
+pub async fn build_linear(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
+    let mut nodes = Vec::with_capacity(n);
+    for _ in 0..n {
+        nodes.push(build_libp2p_instance(vec![], log.clone()).await);
+    }
+
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
         .map(|x| get_enr(&x).multiaddr()[1].clone())

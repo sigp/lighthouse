@@ -198,6 +198,27 @@ impl ProtoArrayForkChoice {
         })
     }
 
+    /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
+    /// returns `false` if either input roots are unknown.
+    ///
+    /// ## Notes
+    ///
+    /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
+        self.proto_array
+            .indices
+            .get(&ancestor_root)
+            .and_then(|ancestor_index| self.proto_array.nodes.get(*ancestor_index))
+            .and_then(|ancestor| {
+                self.proto_array
+                    .iter_block_roots(&descendant_root)
+                    .take_while(|(_root, slot)| *slot >= ancestor.slot)
+                    .find(|(_root, slot)| *slot == ancestor.slot)
+                    .map(|(root, _slot)| root == ancestor_root)
+            })
+            .unwrap_or(false)
+    }
+
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
         if validator_index < self.votes.0.len() {
             let vote = &self.votes.0[validator_index];
@@ -307,6 +328,73 @@ mod test_compute_deltas {
     /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
     fn hash_from_index(i: usize) -> Hash256 {
         Hash256::from_low_u64_be(i as u64 + 1)
+    }
+
+    #[test]
+    fn finalized_descendant() {
+        let genesis_slot = Slot::new(0);
+        let genesis_epoch = Epoch::new(0);
+
+        let state_root = Hash256::from_low_u64_be(0);
+        let finalized_root = Hash256::from_low_u64_be(1);
+        let finalized_desc = Hash256::from_low_u64_be(2);
+        let not_finalized_desc = Hash256::from_low_u64_be(3);
+        let unknown = Hash256::from_low_u64_be(4);
+
+        let mut fc = ProtoArrayForkChoice::new(
+            genesis_slot,
+            state_root,
+            genesis_epoch,
+            genesis_epoch,
+            finalized_root,
+        )
+        .unwrap();
+
+        // Add block that is a finalized descendant.
+        fc.proto_array
+            .on_block(Block {
+                slot: genesis_slot + 1,
+                root: finalized_desc,
+                parent_root: Some(finalized_root),
+                state_root,
+                target_root: finalized_root,
+                justified_epoch: genesis_epoch,
+                finalized_epoch: genesis_epoch,
+            })
+            .unwrap();
+
+        // Add block that is *not* a finalized descendant.
+        fc.proto_array
+            .on_block(Block {
+                slot: genesis_slot + 1,
+                root: not_finalized_desc,
+                parent_root: None,
+                state_root,
+                target_root: finalized_root,
+                justified_epoch: genesis_epoch,
+                finalized_epoch: genesis_epoch,
+            })
+            .unwrap();
+
+        assert!(!fc.is_descendant(unknown, unknown));
+        assert!(!fc.is_descendant(unknown, finalized_root));
+        assert!(!fc.is_descendant(unknown, finalized_desc));
+        assert!(!fc.is_descendant(unknown, not_finalized_desc));
+
+        assert!(fc.is_descendant(finalized_root, finalized_root));
+        assert!(fc.is_descendant(finalized_root, finalized_desc));
+        assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
+        assert!(!fc.is_descendant(finalized_root, unknown));
+
+        assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
+        assert!(fc.is_descendant(finalized_desc, finalized_desc));
+        assert!(!fc.is_descendant(finalized_desc, finalized_root));
+        assert!(!fc.is_descendant(finalized_desc, unknown));
+
+        assert!(fc.is_descendant(not_finalized_desc, not_finalized_desc));
+        assert!(!fc.is_descendant(not_finalized_desc, finalized_desc));
+        assert!(!fc.is_descendant(not_finalized_desc, finalized_root));
+        assert!(!fc.is_descendant(not_finalized_desc, unknown));
     }
 
     #[test]

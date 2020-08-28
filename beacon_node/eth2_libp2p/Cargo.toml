@@ -41,9 +41,9 @@ rand = "0.7.3"
 [dependencies.libp2p]
 #version = "0.23.0"
 git = "https://github.com/sigp/rust-libp2p"
-rev = "69cc78408d97c6f7d104779121d5a34210bb4e99"
+rev = "618334a9cf63e34feb047ebe59d4bd01657712cb"
 default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
+features = ["websocket", "identify", "mplex", "noise", "gossipsub", "dns", "tcp-tokio"]
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["full"] }

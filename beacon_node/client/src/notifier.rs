@@ -122,14 +122,28 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_distance.as_u64(),
                     slot_distance_pretty(head_distance, slot_duration)
                 );
-                info!(
-                    log,
-                    "Syncing";
-                    "peers" => peer_count_pretty(connected_peer_count),
-                    "distance" => distance,
-                    "speed" => sync_speed_pretty(speedo.slots_per_second()),
-                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
-                );
+
+                let speed = speedo.slots_per_second();
+                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+
+                if display_speed {
+                    info!(
+                        log,
+                        "Syncing";
+                        "peers" => peer_count_pretty(connected_peer_count),
+                        "distance" => distance,
+                        "speed" => sync_speed_pretty(speed),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    );
+                } else {
+                    info!(
+                        log,
+                        "Syncing";
+                        "peers" => peer_count_pretty(connected_peer_count),
+                        "distance" => distance,
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    );
+                }
             } else if sync_state.is_synced() {
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
@@ -220,14 +234,37 @@ fn seconds_pretty(secs: f64) -> String {
     let hours = d.whole_hours();
     let minutes = d.whole_minutes();
 
+    let week_string = if weeks == 1 { "week" } else { "weeks" };
+    let day_string = if days == 1 { "day" } else { "days" };
+    let hour_string = if hours == 1 { "hr" } else { "hrs" };
+    let min_string = if minutes == 1 { "min" } else { "mins" };
+
     if weeks > 0 {
-        format!("{:.0} weeks {:.0} days", weeks, days % DAYS_PER_WEEK)
+        format!(
+            "{:.0} {} {:.0} {}",
+            weeks,
+            week_string,
+            days % DAYS_PER_WEEK,
+            day_string
+        )
     } else if days > 0 {
-        format!("{:.0} days {:.0} hrs", days, hours % HOURS_PER_DAY)
+        format!(
+            "{:.0} {} {:.0} {}",
+            days,
+            day_string,
+            hours % HOURS_PER_DAY,
+            hour_string
+        )
     } else if hours > 0 {
-        format!("{:.0} hrs {:.0} mins", hours, minutes % MINUTES_PER_HOUR)
+        format!(
+            "{:.0} {} {:.0} {}",
+            hours,
+            hour_string,
+            minutes % MINUTES_PER_HOUR,
+            min_string
+        )
     } else {
-        format!("{:.0} mins", minutes)
+        format!("{:.0} {}", minutes, min_string)
     }
 }
 

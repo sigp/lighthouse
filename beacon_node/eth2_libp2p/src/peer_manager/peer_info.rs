@@ -7,6 +7,7 @@ use serde::{
     ser::{SerializeStructVariant, Serializer},
     Serialize,
 };
+use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
@@ -104,6 +105,8 @@ pub enum PeerConnectionStatus {
     Banned {
         /// moment when the peer was banned.
         since: Instant,
+        /// ip addresses this peer had a the moment of the ban
+        ip_addresses: Vec<IpAddr>,
     },
     /// We are currently dialing this peer.
     Dialing {
@@ -129,7 +132,7 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("since", &since.elapsed().as_secs())?;
                 s.end()
             }
-            Banned { since } => {
+            Banned { since, .. } => {
                 let mut s = serializer.serialize_struct_variant("", 2, "Banned", 1)?;
                 s.serialize_field("since", &since.elapsed().as_secs())?;
                 s.end()
@@ -218,15 +221,16 @@ impl PeerConnectionStatus {
     }
 
     /// Modifies the status to Banned
-    pub fn ban(&mut self) {
+    pub fn ban(&mut self, ip_addresses: Vec<IpAddr>) {
         *self = Banned {
             since: Instant::now(),
+            ip_addresses,
         };
     }
 
     /// The score system has unbanned the peer. Update the connection status
     pub fn unban(&mut self) {
-        if let PeerConnectionStatus::Banned { since } = self {
+        if let PeerConnectionStatus::Banned { since, .. } = self {
             *self = PeerConnectionStatus::Disconnected { since: *since }
         }
     }

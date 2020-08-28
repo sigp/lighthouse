@@ -28,6 +28,7 @@ members = [
     "common/lighthouse_metrics",
     "common/lighthouse_version",
     "common/logging",
+    "common/lru_cache",
     "common/remote_beacon_node",
     "common/rest_types",
     "common/slot_clock",

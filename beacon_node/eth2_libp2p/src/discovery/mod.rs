@@ -3,19 +3,19 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-pub use enr::{build_enr, CombinedKey, Eth2Enr};
+pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::Keypair;
 
 use crate::metrics;
-use crate::{error, Enr, NetworkConfig, NetworkGlobals};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::PeerId;
 use lru::LruCache;
-use slog::{crit, debug, info, warn};
+use slog::{crit, debug, error, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
@@ -163,7 +163,7 @@ pub struct Discovery<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> Discovery<TSpec> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
-    pub fn new(
+    pub async fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -189,21 +189,23 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
-        for bootnode_enr in config.boot_nodes.clone() {
+        for bootnode_enr in config.boot_nodes_enr.clone() {
             debug!(
                 log,
                 "Adding node to routing table";
-                "node_id" => format!("{}", bootnode_enr.node_id()),
-                "peer_id" => format!("{}", bootnode_enr.peer_id()),
+                "node_id" => bootnode_enr.node_id().to_string(),
+                "peer_id" => bootnode_enr.peer_id().to_string(),
                 "ip" => format!("{:?}", bootnode_enr.ip()),
                 "udp" => format!("{:?}", bootnode_enr.udp()),
                 "tcp" => format!("{:?}", bootnode_enr.tcp())
             );
+            let repr = bootnode_enr.to_string();
             let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
-                debug!(
+                error!(
                     log,
                     "Could not add peer to the local routing table";
-                    "error" => e.to_string()
+                    "addr" => repr,
+                    "error" => e.to_string(),
                 )
             });
         }
@@ -217,7 +219,54 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             EventStream::InActive
         };
 
-        // Obtain the event stream
+        if !config.boot_nodes_multiaddr.is_empty() {
+            info!(log, "Contacting Multiaddr boot-nodes for their ENR");
+        }
+
+        // get futures for requesting the Enrs associated to these multiaddr and wait for their
+        // completion
+        let mut fut_coll = config
+            .boot_nodes_multiaddr
+            .iter()
+            .map(|addr| addr.to_string())
+            // request the ENR for this multiaddr and keep the original for logging
+            .map(|addr| {
+                futures::future::join(
+                    discv5.request_enr(addr.clone()),
+                    futures::future::ready(addr),
+                )
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        while let Some((result, original_addr)) = fut_coll.next().await {
+            match result {
+                Ok(Some(enr)) => {
+                    debug!(
+                        log,
+                        "Adding node to routing table";
+                        "node_id" => enr.node_id().to_string(),
+                        "peer_id" => enr.peer_id().to_string(),
+                        "ip" => format!("{:?}", enr.ip()),
+                        "udp" => format!("{:?}", enr.udp()),
+                        "tcp" => format!("{:?}", enr.tcp())
+                    );
+                    let _ = discv5.add_enr(enr).map_err(|e| {
+                        error!(
+                            log,
+                            "Could not add peer to the local routing table";
+                            "addr" => original_addr.to_string(),
+                            "error" => e.to_string(),
+                        )
+                    });
+                }
+                Ok(None) => {
+                    error!(log, "No ENR found for MultiAddr"; "addr" => original_addr.to_string())
+                }
+                Err(e) => {
+                    error!(log, "Error getting mapping to ENR"; "multiaddr" => original_addr.to_string(), "error" => e.to_string())
+                }
+            }
+        }
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
@@ -256,12 +305,19 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Processes a request to search for more peers on a subnet.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
         // If the discv5 service isn't running, ignore queries
         if !self.started {
             return;
         }
-        self.add_subnet_query(subnet_id, min_ttl, 0);
+        debug!(
+            self.log,
+            "Making discovery query for subnets";
+            "subnets" => format!("{:?}", subnets_to_discover.iter().map(|s| s.subnet_id).collect::<Vec<_>>())
+        );
+        for subnet in subnets_to_discover {
+            self.add_subnet_query(subnet.subnet_id, subnet.min_ttl, 0);
+        }
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.
@@ -335,6 +391,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
+
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
     }
 
@@ -367,6 +426,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // replace the global version with discovery version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
+
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
     }
 
     /* Internal Functions */
@@ -459,6 +521,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         // This query is for searching for peers of a particular subnet
                         // Drain subnet_queries so we can re-use it as we continue to process the queue
                         let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
+                        debug!(
+                            self.log,
+                            "Starting grouped subnet query";
+                            "subnets" => format!("{:?}", grouped_queries.iter().map(|q| q.subnet_id).collect::<Vec<_>>()),
+                        );
                         self.start_subnet_query(grouped_queries);
                     }
                 }
@@ -733,8 +800,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             if enr.eth2() == self.local_enr().eth2() {
                                 trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             } else {
-                                // this is temporary warning for debugging the DHT
-                                warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                            // this is temporary warning for debugging the DHT
+                            warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             }
                             */
                         }

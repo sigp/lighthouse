@@ -1,9 +1,7 @@
-use crate::{ApiError, ApiResult, NetworkChannel};
+use crate::{ApiError, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
-use http::header;
-use hyper::{Body, Request};
 use itertools::process_results;
 use network::NetworkMessage;
 use ssz::Decode;
@@ -39,21 +37,6 @@ pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
     string
         .parse::<CommitteeIndex>()
         .map_err(|e| ApiError::BadRequest(format!("Unable to parse committee index: {:?}", e)))
-}
-
-/// Checks the provided request to ensure that the `content-type` header.
-///
-/// The content-type header should either be omitted, in which case JSON is assumed, or it should
-/// explicitly specify `application/json`. If anything else is provided, an error is returned.
-pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
-    match req.headers().get(header::CONTENT_TYPE) {
-        Some(h) if h == "application/json" => Ok(()),
-        Some(h) => Err(ApiError::BadRequest(format!(
-            "The provided content-type {:?} is not available, this endpoint only supports json.",
-            h
-        ))),
-        _ => Ok(()),
-    }
 }
 
 /// Parse an SSZ object from some hex-encoded bytes.
@@ -228,14 +211,8 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
     }
 }
 
-pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
-    Err(ApiError::NotImplemented(
-        "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
-    ))
-}
-
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    chan: NetworkChannel<T::EthSpec>,
+    chan: &NetworkChannel<T::EthSpec>,
     block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // send the block via SSZ encoding

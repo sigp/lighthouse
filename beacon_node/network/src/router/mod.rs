@@ -8,17 +8,15 @@
 pub mod processor;
 
 use crate::error;
-use crate::router::processor::VerificationResult;
 use crate::service::NetworkMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RequestId},
-    MessageAcceptance, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request,
-    Response,
+    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use futures::prelude::*;
 use processor::Processor;
-use slog::{debug, info, o, trace, warn};
+use slog::{debug, o, trace};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -28,8 +26,6 @@ use types::EthSpec;
 /// passing them to the internal message processor. The message processor spawns a syncing thread
 /// which manages which blocks need to be requested and processed.
 pub struct Router<T: BeaconChainTypes> {
-    /// A channel to the network service to allow for gossip propagation.
-    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     /// Access to the peer db for logging.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// Processes validated and decoded messages from the network. Has direct access to the
@@ -91,13 +87,12 @@ impl<T: BeaconChainTypes> Router<T> {
             executor.clone(),
             beacon_chain,
             network_globals.clone(),
-            network_send.clone(),
+            network_send,
             &log,
         );
 
         // generate the Message handler
         let mut handler = Router {
-            network_send,
             network_globals,
             processor,
             log: message_handler_log,
@@ -217,98 +212,24 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
-                match self
-                    .processor
-                    .verify_aggregated_attestation_for_gossip(peer_id.clone(), *aggregate_and_proof)
-                {
-                    VerificationResult::Accept(gossip_verified) => {
-                        self.propagate_validation_result(
-                            id,
-                            peer_id.clone(),
-                            MessageAcceptance::Accept,
-                        );
-                        self.processor
-                            .import_aggregated_attestation(peer_id, gossip_verified);
-                    }
-                    v => self.propagate_validation_result(id, peer_id, v.into()),
-                }
+                self.processor
+                    .on_aggregated_attestation_gossip(id, peer_id, *aggregate_and_proof);
             }
             PubsubMessage::Attestation(subnet_attestation) => {
-                match self.processor.verify_unaggregated_attestation_for_gossip(
-                    peer_id.clone(),
+                self.processor.on_unaggregated_attestation_gossip(
+                    id,
+                    peer_id,
                     subnet_attestation.1.clone(),
                     subnet_attestation.0,
-                ) {
-                    VerificationResult::Accept(gossip_verified) => {
-                        self.propagate_validation_result(
-                            id,
-                            peer_id.clone(),
-                            MessageAcceptance::Accept,
-                        );
-                        if should_process {
-                            self.processor
-                                .import_unaggregated_attestation(peer_id, gossip_verified);
-                        }
-                    }
-                    v => self.propagate_validation_result(id, peer_id, v.into()),
-                }
+                    should_process,
+                );
             }
-            PubsubMessage::BeaconBlock(block) => match self.processor.should_forward_block(block) {
-                Ok(verified_block) => {
-                    info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
-                    self.propagate_validation_result(
-                        id,
-                        peer_id.clone(),
-                        MessageAcceptance::Accept,
-                    );
-                    self.processor.on_block_gossip(peer_id, verified_block);
-                }
-                Err(BlockError::ParentUnknown(block)) => {
-                    self.propagate_validation_result(
-                        id,
-                        peer_id.clone(),
-                        MessageAcceptance::Ignore,
-                    );
-                    self.processor.on_unknown_parent(peer_id, block);
-                }
-
-                Err(e @ BlockError::FutureSlot { .. })
-                | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-                | Err(e @ BlockError::BlockIsAlreadyKnown)
-                | Err(e @ BlockError::RepeatProposal { .. })
-                | Err(e @ BlockError::BeaconChainError(_)) => {
-                    warn!(self.log, "Could not verify block for gossip, ignoring the block";
-                            "error" => e.to_string());
-                    self.propagate_validation_result(id, peer_id, MessageAcceptance::Ignore);
-                }
-                Err(e @ BlockError::StateRootMismatch { .. })
-                | Err(e @ BlockError::IncorrectBlockProposer { .. })
-                | Err(e @ BlockError::BlockSlotLimitReached)
-                | Err(e @ BlockError::ProposalSignatureInvalid)
-                | Err(e @ BlockError::NonLinearSlots)
-                | Err(e @ BlockError::UnknownValidator(_))
-                | Err(e @ BlockError::PerBlockProcessingError(_))
-                | Err(e @ BlockError::NonLinearParentRoots)
-                | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
-                | Err(e @ BlockError::InvalidSignature)
-                | Err(e @ BlockError::GenesisBlock) => {
-                    warn!(self.log, "Could not verify block for gossip, rejecting the block";
-                            "error" => e.to_string());
-                    self.propagate_validation_result(id, peer_id, MessageAcceptance::Reject);
-                }
-            },
+            PubsubMessage::BeaconBlock(block) => {
+                self.processor.on_block_gossip(id, peer_id, block);
+            }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id));
-                match self
-                    .processor
-                    .verify_voluntary_exit_for_gossip(&peer_id, *exit)
-                {
-                    VerificationResult::Accept(verified_exit) => {
-                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Accept);
-                        self.processor.import_verified_voluntary_exit(verified_exit);
-                    }
-                    v => self.propagate_validation_result(id, peer_id, v.into()),
-                }
+                self.processor.on_voluntary_exit_gossip(id, peer_id, exit);
             }
             PubsubMessage::ProposerSlashing(proposer_slashing) => {
                 debug!(
@@ -316,17 +237,8 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received a proposer slashing";
                     "peer_id" => format!("{}", peer_id)
                 );
-                match self
-                    .processor
-                    .verify_proposer_slashing_for_gossip(&peer_id, *proposer_slashing)
-                {
-                    VerificationResult::Accept(verified_proposer_slashing) => {
-                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Accept);
-                        self.processor
-                            .import_verified_proposer_slashing(verified_proposer_slashing);
-                    }
-                    v => self.propagate_validation_result(id, peer_id, v.into()),
-                }
+                self.processor
+                    .on_proposer_slashing_gossip(id, peer_id, proposer_slashing);
             }
             PubsubMessage::AttesterSlashing(attester_slashing) => {
                 debug!(
@@ -334,40 +246,9 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received a attester slashing";
                     "peer_id" => format!("{}", peer_id)
                 );
-                match self
-                    .processor
-                    .verify_attester_slashing_for_gossip(&peer_id, *attester_slashing)
-                {
-                    VerificationResult::Accept(verified_attester_slashing) => {
-                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Accept);
-                        self.processor
-                            .import_verified_attester_slashing(verified_attester_slashing);
-                    }
-                    v => self.propagate_validation_result(id, peer_id, v.into()),
-                }
+                self.processor
+                    .on_attester_slashing_gossip(id, peer_id, attester_slashing);
             }
         }
-    }
-
-    /// Propagates the result of the validation fot the given message to the network. If the result
-    /// is valid the message gets forwarded to other peers.
-    fn propagate_validation_result(
-        &mut self,
-        message_id: MessageId,
-        propagation_source: PeerId,
-        validation_result: MessageAcceptance,
-    ) {
-        self.network_send
-            .send(NetworkMessage::ValidationResult {
-                propagation_source,
-                message_id,
-                validation_result,
-            })
-            .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send propagation request to the network service"
-                )
-            });
     }
 }

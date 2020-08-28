@@ -1,8 +1,10 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ForkChoiceError,
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
+    },
+    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ForkChoiceError, StateSkipConfig,
 };
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
@@ -18,7 +20,7 @@ use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 pub type E = MainnetEthSpec;
 
-pub const VALIDATOR_COUNT: usize = 16;
+pub const VALIDATOR_COUNT: usize = 32;
 
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
@@ -30,7 +32,7 @@ pub enum MutationDelay {
 
 /// A helper struct to make testing fork choice more ergonomic and less repetitive.
 struct ForkChoiceTest {
-    harness: BeaconChainHarness<HarnessType<E>>,
+    harness: BeaconChainHarness<NullMigratorEphemeralHarnessType<E>>,
 }
 
 impl ForkChoiceTest {
@@ -115,22 +117,31 @@ impl ForkChoiceTest {
     }
 
     /// Build the chain whilst `predicate` returns `true`.
-    pub fn apply_blocks_while<F>(self, mut predicate: F) -> Self
+    pub fn apply_blocks_while<F>(mut self, mut predicate: F) -> Self
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
     {
         self.harness.advance_slot();
-        self.harness.extend_chain_while(
-            |block, state| predicate(&block.message, state),
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
+        let mut state = self.harness.get_current_state();
+        let validators = self.harness.get_all_validators();
+        loop {
+            let slot = self.harness.get_current_slot();
+            let (block, state_) = self.harness.make_block(state, slot);
+            state = state_;
+            if !predicate(&block.message, &state) {
+                break;
+            }
+            let block_hash = self.harness.process_block(slot, block.clone());
+            self.harness
+                .attest_block(&state, block_hash, &block, &validators);
+            self.harness.advance_slot();
+        }
 
         self
     }
 
     /// Apply `count` blocks to the chain (with attestations).
-    pub fn apply_blocks(self, count: usize) -> Self {
+    pub fn apply_blocks(mut self, count: usize) -> Self {
         self.harness.advance_slot();
         self.harness.extend_chain(
             count,
@@ -142,7 +153,7 @@ impl ForkChoiceTest {
     }
 
     /// Apply `count` blocks to the chain (without attestations).
-    pub fn apply_blocks_without_new_attestations(self, count: usize) -> Self {
+    pub fn apply_blocks_without_new_attestations(mut self, count: usize) -> Self {
         self.harness.advance_slot();
         self.harness.extend_chain(
             count,
@@ -181,13 +192,22 @@ impl ForkChoiceTest {
     /// Applies a block directly to fork choice, bypassing the beacon chain.
     ///
     /// Asserts the block was applied successfully.
-    pub fn apply_block_directly_to_fork_choice<F>(self, mut func: F) -> Self
+    pub fn apply_block_directly_to_fork_choice<F>(mut self, mut func: F) -> Self
     where
         F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
     {
-        let (mut block, mut state) = self.harness.get_block();
+        let state = self
+            .harness
+            .chain
+            .state_at_slot(
+                self.harness.get_current_slot() - 1,
+                StateSkipConfig::WithStateRoots,
+            )
+            .unwrap();
+        let slot = self.harness.get_current_slot();
+        let (mut block, mut state) = self.harness.make_block(state, slot);
         func(&mut block.message, &mut state);
-        let current_slot = self.harness.chain.slot().unwrap();
+        let current_slot = self.harness.get_current_slot();
         self.harness
             .chain
             .fork_choice
@@ -201,7 +221,7 @@ impl ForkChoiceTest {
     ///
     /// Asserts that an error occurred and allows inspecting it via `comparison_func`.
     pub fn apply_invalid_block_directly_to_fork_choice<F, G>(
-        self,
+        mut self,
         mut mutation_func: F,
         mut comparison_func: G,
     ) -> Self
@@ -209,9 +229,18 @@ impl ForkChoiceTest {
         F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
         G: FnMut(ForkChoiceError),
     {
-        let (mut block, mut state) = self.harness.get_block();
+        let state = self
+            .harness
+            .chain
+            .state_at_slot(
+                self.harness.get_current_slot() - 1,
+                StateSkipConfig::WithStateRoots,
+            )
+            .unwrap();
+        let slot = self.harness.get_current_slot();
+        let (mut block, mut state) = self.harness.make_block(state, slot);
         mutation_func(&mut block.message, &mut state);
-        let current_slot = self.harness.chain.slot().unwrap();
+        let current_slot = self.harness.get_current_slot();
         let err = self
             .harness
             .chain
@@ -267,20 +296,21 @@ impl ForkChoiceTest {
     ///
     /// Also returns some info about who created it.
     fn apply_attestation_to_chain<F, G>(
-        self,
+        mut self,
         delay: MutationDelay,
         mut mutation_func: F,
         mut comparison_func: G,
     ) -> Self
     where
-        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<HarnessType<E>>),
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<NullMigratorEphemeralHarnessType<E>>),
         G: FnMut(Result<(), BeaconChainError>),
     {
-        let chain = &self.harness.chain;
-        let head = chain.head().expect("should get head");
-        let current_slot = chain.slot().expect("should get slot");
+        let head = self.harness.chain.head().expect("should get head");
+        let current_slot = self.harness.chain.slot().expect("should get slot");
 
-        let mut attestation = chain
+        let mut attestation = self
+            .harness
+            .chain
             .produce_unaggregated_attestation(current_slot, 0)
             .expect("should not error while producing attestation");
 
@@ -298,9 +328,13 @@ impl ForkChoiceTest {
             .get_committee_count_at_slot(current_slot)
             .expect("should not error while getting committee count");
 
-        let subnet_id =
-            SubnetId::compute_subnet::<E>(current_slot, 0, committee_count, &chain.spec)
-                .expect("should compute subnet id");
+        let subnet_id = SubnetId::compute_subnet::<E>(
+            current_slot,
+            0,
+            committee_count,
+            &self.harness.chain.spec,
+        )
+        .expect("should compute subnet id");
 
         let validator_sk = generate_deterministic_keypair(validator_index).sk;
 
@@ -309,12 +343,14 @@ impl ForkChoiceTest {
                 &validator_sk,
                 validator_committee_index,
                 &head.beacon_state.fork,
-                chain.genesis_validators_root,
-                &chain.spec,
+                self.harness.chain.genesis_validators_root,
+                &self.harness.chain.spec,
             )
             .expect("should sign attestation");
 
-        let mut verified_attestation = chain
+        let mut verified_attestation = self
+            .harness
+            .chain
             .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
             .expect("precondition: should gossip verify attestation");
 
@@ -327,9 +363,15 @@ impl ForkChoiceTest {
             );
         }
 
-        mutation_func(verified_attestation.__indexed_attestation_mut(), chain);
+        mutation_func(
+            verified_attestation.__indexed_attestation_mut(),
+            &self.harness.chain,
+        );
 
-        let result = chain.apply_attestation_to_fork_choice(&verified_attestation);
+        let result = self
+            .harness
+            .chain
+            .apply_attestation_to_fork_choice(&verified_attestation);
 
         comparison_func(result);
 
