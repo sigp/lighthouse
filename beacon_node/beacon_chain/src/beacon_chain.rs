@@ -1319,7 +1319,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let slot = block.message.slot;
-        let graffiti_string = String::from_utf8_lossy(&block.message.body.graffiti[..block.message.body.graffiti.len()-1]).to_string();
+        let graffiti_string = String::from_utf8_lossy(
+            &block.message.body.graffiti[..block.message.body.graffiti.len() - 1],
+        )
+        .to_string();
 
         match GossipVerifiedBlock::new(block, self) {
             Ok(verified) => {
