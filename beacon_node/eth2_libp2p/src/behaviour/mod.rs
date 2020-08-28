@@ -97,16 +97,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let meta_data = load_or_build_metadata(&net_conf.network_dir, &log);
 
-        // TODO: Until other clients support no author, we will use a 0 peer_id as our author.
-        let message_author = PeerId::from_bytes(vec![0, 1, 0]).expect("Valid peer id");
+        let gossipsub = Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
+            .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
-        let gossipsub = Gossipsub::new(
-            MessageAuthenticity::Author(message_author),
-            net_conf.gs_config.clone(),
-        )
-        .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
-
-        // Temporarily disable scoring until parmeters are tested.
+        // Temporarily disable scoring until parameters are tested.
         /*
         gossipsub
             .with_peer_score(PeerScoreParams::default(), PeerScoreThresholds::default())
