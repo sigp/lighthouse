@@ -51,6 +51,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 self.handle_attestation_verification_failure(
                     peer_id,
+                    message_id,
                     beacon_block_root,
                     "unaggregated",
                     e,
@@ -127,6 +128,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Report the failure to gossipsub
                 self.handle_attestation_verification_failure(
                     peer_id,
+                    message_id,
                     beacon_block_root,
                     "aggregated",
                     e,
@@ -509,6 +511,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub fn handle_attestation_verification_failure(
         &self,
         peer_id: PeerId,
+        message_id: MessageId,
         beacon_block_root: Hash256,
         attestation_type: &str,
         error: AttnError,
@@ -525,6 +528,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {
                 /*
@@ -532,6 +540,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::EmptyAggregationBitfield => {
                 /*
@@ -540,10 +553,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * Whilst we don't gossip this attestation, this act is **not** a clear
                  * violation of the spec nor indication of fault.
                  *
-                 * This may change soon. Reference:
-                 *
-                 * https://github.com/ethereum/eth2.0-specs/pull/1732
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AggregatorPubkeyUnknown(_) => {
                 /*
@@ -559,6 +574,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AggregatorNotInCommittee { .. } => {
                 /*
@@ -574,6 +594,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AttestationAlreadyKnown { .. } => {
                 /*
@@ -588,6 +613,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => peer_id.to_string(),
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
+                );
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
                 );
                 return;
             }
@@ -605,6 +635,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
                 );
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
+                );
                 return;
             }
             AttnError::PriorAttestationKnown { .. } => {
@@ -620,6 +655,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
                 );
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
+                );
                 return;
             }
             AttnError::ValidatorIndexTooHigh(_) => {
@@ -629,6 +669,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 // Note: its a little bit unclear as to whether or not this block is unknown or
@@ -645,7 +690,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // we don't know the block, get the sync manager to handle the block lookup
                 self.sync_tx
-                    .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                    .send(SyncMessage::UnknownBlockHash(
+                        peer_id.clone(),
+                        *beacon_block_root,
+                    ))
                     .unwrap_or_else(|_| {
                         warn!(
                             self.log,
@@ -653,6 +701,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "msg" => "UnknownBlockHash"
                         )
                     });
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
+                );
                 return;
             }
             AttnError::UnknownTargetRoot(_) => {
@@ -672,6 +725,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::BadTargetEpoch => {
                 /*
@@ -680,6 +738,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::NoCommitteeForSlotAndIndex { .. } => {
                 /*
@@ -687,6 +750,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::NotExactlyOneAggregationBitSet(_) => {
                 /*
@@ -694,6 +762,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AttestsToFutureBlock { .. } => {
                 /*
@@ -701,6 +774,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
 
             AttnError::InvalidSubnetId { received, expected } => {
@@ -712,7 +790,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Received attestation on incorrect subnet";
                     "expected" => format!("{:?}", expected),
                     "received" => format!("{:?}", received),
-                )
+                );
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::Invalid(_) => {
                 /*
@@ -720,6 +803,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::TooManySkippedSlots {
                 head_block_slot,
@@ -735,7 +823,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Rejected long skip slot attestation";
                     "head_block_slot" => head_block_slot,
                     "attestation_slot" => attestation_slot,
-                )
+                );
+                // In this case we wish to penalize gossipsub peers that do this to avoid future
+                // attestations that have too many skip slots.
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::BeaconChainError(e) => {
                 /*
@@ -750,6 +845,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Unable to validate aggregate";
                     "peer_id" => peer_id.to_string(),
                     "error" => format!("{:?}", e),
+                );
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
                 );
             }
         }
