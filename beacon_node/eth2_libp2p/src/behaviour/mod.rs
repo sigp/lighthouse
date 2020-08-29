@@ -211,7 +211,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         match self.gossipsub.subscribe(&topic) {
             Err(_) => {
                 warn!(self.log, "Failed to subscribe to topic"; "topic" => topic.to_string());
-                return false;
+                false
             }
             Ok(v) => {
                 debug!(self.log, "Subscribed to topic"; "topic" => topic.to_string());
@@ -234,7 +234,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         match self.gossipsub.unsubscribe(&topic) {
             Err(_) => {
                 warn!(self.log, "Failed to unsubscribe from topic"; "topic" => topic.to_string());
-                return false;
+                false
             }
             Ok(v) => {
                 debug!(self.log, "Unsubscribed to topic"; "topic" => topic.to_string());

@@ -325,7 +325,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
                     protocol: protocol
                         .map_upgrade(EitherUpgrade::A)
-                        .map_info(|info| EitherOutput::First(info)),
+                        .map_info(EitherOutput::First),
                 });
             }
             Poll::Pending => (),
