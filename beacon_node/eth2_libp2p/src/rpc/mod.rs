@@ -169,9 +169,12 @@ where
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         RPCHandler::new(
-            SubstreamProtocol::new(RPCProtocol {
-                phantom: PhantomData,
-            }),
+            SubstreamProtocol::new(
+                RPCProtocol {
+                    phantom: PhantomData,
+                },
+                (),
+            ),
             &self.log,
         )
     }

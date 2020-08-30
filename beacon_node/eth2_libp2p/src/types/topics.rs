@@ -1,4 +1,4 @@
-use libp2p::gossipsub::Topic;
+use libp2p::gossipsub::IdentTopic as Topic;
 use serde_derive::{Deserialize, Serialize};
 use types::SubnetId;
 
@@ -139,7 +139,7 @@ impl GossipTopic {
 
 impl Into<Topic> for GossipTopic {
     fn into(self) -> Topic {
-        Topic::new(self.into())
+        Topic::new(self)
     }
 }
 

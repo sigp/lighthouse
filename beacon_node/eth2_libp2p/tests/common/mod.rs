@@ -10,6 +10,7 @@ use std::time::Duration;
 use types::{EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
+use libp2p::gossipsub::GossipsubConfigBuilder;
 use tempdir::TempDir;
 
 pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);
@@ -83,8 +84,11 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
     // Reduce gossipsub heartbeat parameters
-    config.gs_config.heartbeat_initial_delay = Duration::from_millis(500);
-    config.gs_config.heartbeat_interval = Duration::from_millis(500);
+    config.gs_config = GossipsubConfigBuilder::from(config.gs_config)
+        .heartbeat_initial_delay(Duration::from_millis(500))
+        .heartbeat_interval(Duration::from_millis(500))
+        .build()
+        .unwrap();
     config
 }
 

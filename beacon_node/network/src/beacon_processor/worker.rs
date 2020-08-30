@@ -7,7 +7,7 @@ use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
-use eth2_libp2p::{MessageId, PeerId};
+use eth2_libp2p::{MessageAcceptance, MessageId, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use ssz::Encode;
 use std::sync::Arc;
@@ -51,6 +51,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 self.handle_attestation_verification_failure(
                     peer_id,
+                    message_id,
                     beacon_block_root,
                     "unaggregated",
                     e,
@@ -61,7 +62,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
-        self.propagate_gossip_message(message_id, peer_id.clone());
+        self.propagate_validation_result(message_id, peer_id.clone(), MessageAcceptance::Accept);
 
         if !should_import {
             return;
@@ -124,8 +125,10 @@ impl<T: BeaconChainTypes> Worker<T> {
         {
             Ok(aggregate) => aggregate,
             Err(e) => {
+                // Report the failure to gossipsub
                 self.handle_attestation_verification_failure(
                     peer_id,
+                    message_id,
                     beacon_block_root,
                     "aggregated",
                     e,
@@ -136,7 +139,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
-        self.propagate_gossip_message(message_id, peer_id.clone());
+        self.propagate_validation_result(message_id, peer_id.clone(), MessageAcceptance::Accept);
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL);
 
@@ -195,26 +198,43 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "slot" => verified_block.block.slot(),
                     "hash" => verified_block.block_root.to_string()
                 );
-                self.propagate_gossip_message(message_id, peer_id.clone());
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Accept,
+                );
                 verified_block
             }
             Err(BlockError::ParentUnknown(block)) => {
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
                 return;
             }
-            Err(BlockError::BlockIsAlreadyKnown) => {
-                debug!(
-                    self.log,
-                    "Gossip block is already known";
-                );
+            Err(e @ BlockError::FutureSlot { .. })
+            | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
+            | Err(e @ BlockError::BlockIsAlreadyKnown)
+            | Err(e @ BlockError::RepeatProposal { .. })
+            | Err(e @ BlockError::NotFinalizedDescendant { .. })
+            | Err(e @ BlockError::BeaconChainError(_)) => {
+                warn!(self.log, "Could not verify block for gossip, ignoring the block";
+                            "error" => e.to_string());
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
-            Err(e) => {
-                warn!(
-                    self.log,
-                    "Could not verify block for gossip";
-                    "error" => format!("{:?}", e)
-                );
+            Err(e @ BlockError::StateRootMismatch { .. })
+            | Err(e @ BlockError::IncorrectBlockProposer { .. })
+            | Err(e @ BlockError::BlockSlotLimitReached)
+            | Err(e @ BlockError::ProposalSignatureInvalid)
+            | Err(e @ BlockError::NonLinearSlots)
+            | Err(e @ BlockError::UnknownValidator(_))
+            | Err(e @ BlockError::PerBlockProcessingError(_))
+            | Err(e @ BlockError::NonLinearParentRoots)
+            | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
+            | Err(e @ BlockError::InvalidSignature)
+            | Err(e @ BlockError::TooManySkippedSlots { .. })
+            | Err(e @ BlockError::GenesisBlock) => {
+                warn!(self.log, "Could not verify block for gossip, rejecting the block";
+                            "error" => e.to_string());
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 return;
             }
         };
@@ -290,6 +310,11 @@ impl<T: BeaconChainTypes> Worker<T> {
         let exit = match self.chain.verify_voluntary_exit_for_gossip(voluntary_exit) {
             Ok(ObservationOutcome::New(exit)) => exit,
             Ok(ObservationOutcome::AlreadyKnown) => {
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
+                );
                 debug!(
                     self.log,
                     "Dropping exit for already exiting validator";
@@ -306,13 +331,16 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
+                // These errors occur due to a fault in the beacon chain. It is not necessarily
+                // the fault on the peer.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL);
 
-        self.propagate_gossip_message(message_id, peer_id);
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
         self.chain.import_voluntary_exit(exit);
         debug!(self.log, "Successfully imported voluntary exit");
@@ -341,9 +369,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "validator_index" => validator_index,
                     "peer" => peer_id.to_string()
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             Err(e) => {
+                // This is likely a fault with the beacon chain and not necessarily a
+                // malicious message from the peer.
                 debug!(
                     self.log,
                     "Dropping invalid proposer slashing";
@@ -351,13 +382,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
 
-        self.propagate_gossip_message(message_id, peer_id);
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
         self.chain.import_proposer_slashing(slashing);
         debug!(self.log, "Successfully imported proposer slashing");
@@ -383,6 +415,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "reason" => "Slashings already known for all slashed validators",
                     "peer" => peer_id.to_string()
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             Err(e) => {
@@ -392,13 +425,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
 
-        self.propagate_gossip_message(message_id, peer_id);
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
             debug!(self.log, "Error importing attester slashing"; "error" => format!("{:?}", e));
@@ -441,11 +475,19 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// the gossip network.
     ///
     /// Creates a log if there is an interal error.
-    fn propagate_gossip_message(&self, message_id: MessageId, peer_id: PeerId) {
+    /// Propagates the result of the validation fot the given message to the network. If the result
+    /// is valid the message gets forwarded to other peers.
+    fn propagate_validation_result(
+        &self,
+        message_id: MessageId,
+        propagation_source: PeerId,
+        validation_result: MessageAcceptance,
+    ) {
         self.network_tx
-            .send(NetworkMessage::Validate {
-                propagation_source: peer_id,
+            .send(NetworkMessage::ValidationResult {
+                propagation_source,
                 message_id,
+                validation_result,
             })
             .unwrap_or_else(|_| {
                 warn!(
@@ -469,6 +511,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub fn handle_attestation_verification_failure(
         &self,
         peer_id: PeerId,
+        message_id: MessageId,
         beacon_block_root: Hash256,
         attestation_type: &str,
         error: AttnError,
@@ -485,6 +528,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {
                 /*
@@ -492,6 +540,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::EmptyAggregationBitfield => {
                 /*
@@ -500,10 +553,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * Whilst we don't gossip this attestation, this act is **not** a clear
                  * violation of the spec nor indication of fault.
                  *
-                 * This may change soon. Reference:
-                 *
-                 * https://github.com/ethereum/eth2.0-specs/pull/1732
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AggregatorPubkeyUnknown(_) => {
                 /*
@@ -519,6 +574,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AggregatorNotInCommittee { .. } => {
                 /*
@@ -534,6 +594,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AttestationAlreadyKnown { .. } => {
                 /*
@@ -549,6 +614,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             AttnError::AggregatorAlreadyKnown(_) => {
@@ -565,6 +631,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             AttnError::PriorAttestationKnown { .. } => {
@@ -580,6 +647,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             AttnError::ValidatorIndexTooHigh(_) => {
@@ -589,6 +657,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 // Note: its a little bit unclear as to whether or not this block is unknown or
@@ -605,7 +678,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // we don't know the block, get the sync manager to handle the block lookup
                 self.sync_tx
-                    .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                    .send(SyncMessage::UnknownBlockHash(
+                        peer_id.clone(),
+                        *beacon_block_root,
+                    ))
                     .unwrap_or_else(|_| {
                         warn!(
                             self.log,
@@ -613,6 +689,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "msg" => "UnknownBlockHash"
                         )
                     });
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             AttnError::UnknownTargetRoot(_) => {
@@ -632,6 +709,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::BadTargetEpoch => {
                 /*
@@ -640,6 +722,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::NoCommitteeForSlotAndIndex { .. } => {
                 /*
@@ -647,6 +734,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::NotExactlyOneAggregationBitSet(_) => {
                 /*
@@ -654,6 +746,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::AttestsToFutureBlock { .. } => {
                 /*
@@ -661,6 +758,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
 
             AttnError::InvalidSubnetId { received, expected } => {
@@ -672,7 +774,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Received attestation on incorrect subnet";
                     "expected" => format!("{:?}", expected),
                     "received" => format!("{:?}", received),
-                )
+                );
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::Invalid(_) => {
                 /*
@@ -680,6 +787,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::TooManySkippedSlots {
                 head_block_slot,
@@ -695,7 +807,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Rejected long skip slot attestation";
                     "head_block_slot" => head_block_slot,
                     "attestation_slot" => attestation_slot,
-                )
+                );
+                // In this case we wish to penalize gossipsub peers that do this to avoid future
+                // attestations that have too many skip slots.
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
             }
             AttnError::BeaconChainError(e) => {
                 /*
@@ -710,6 +829,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Unable to validate aggregate";
                     "peer_id" => peer_id.to_string(),
                     "error" => format!("{:?}", e),
+                );
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
                 );
             }
         }

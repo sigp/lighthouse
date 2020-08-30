@@ -1,5 +1,6 @@
 use crate::beacon_chain::ForkChoiceError;
 use crate::eth1_chain::Error as Eth1ChainError;
+use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_attestations::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
@@ -61,6 +62,7 @@ pub enum BeaconChainError {
         requested_slot: Slot,
         max_task_runtime: Duration,
     },
+    MissingFinalizedStateRoot(Slot),
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
     SszTypesError(SszTypesError),
@@ -79,6 +81,7 @@ pub enum BeaconChainError {
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
+    PruningError(PruningError),
     ArithError(ArithError),
 }
 
@@ -94,6 +97,7 @@ easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
+easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 
 #[derive(Debug)]
