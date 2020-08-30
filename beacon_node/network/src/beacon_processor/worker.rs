@@ -614,11 +614,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
                 );
-                self.propagate_validation_result(
-                    message_id,
-                    peer_id.clone(),
-                    MessageAcceptance::Ignore,
-                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             AttnError::AggregatorAlreadyKnown(_) => {
