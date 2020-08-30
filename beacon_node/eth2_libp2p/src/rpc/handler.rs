@@ -81,7 +81,7 @@ where
     TSpec: EthSpec,
 {
     /// The upgrade for inbound substreams.
-    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>,
+    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
 
     /// Errors occurring on outbound and inbound connections queued for reporting back.
     pending_errors: Vec<HandlerErr>,
@@ -225,7 +225,10 @@ impl<TSpec> RPCHandler<TSpec>
 where
     TSpec: EthSpec,
 {
-    pub fn new(listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>, log: &slog::Logger) -> Self {
+    pub fn new(
+        listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+        log: &slog::Logger,
+    ) -> Self {
         RPCHandler {
             listen_protocol,
             pending_errors: Vec::new(),
@@ -249,7 +252,7 @@ where
     ///
     /// > **Note**: If you modify the protocol, modifications will only applies to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol<TSpec>> {
+    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol<TSpec>, ()> {
         &self.listen_protocol
     }
 
@@ -257,7 +260,7 @@ where
     ///
     /// > **Note**: If you modify the protocol, modifications will only apply to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol<TSpec>> {
+    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol<TSpec>, ()> {
         &mut self.listen_protocol
     }
 
@@ -344,14 +347,16 @@ where
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RPCRequest<TSpec>;
     type OutboundOpenInfo = (RequestId, RPCRequest<TSpec>); // Keep track of the id and the request
+    type InboundOpenInfo = ();
 
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
+    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         self.listen_protocol.clone()
     }
 
     fn inject_fully_negotiated_inbound(
         &mut self,
         substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
+        _info: Self::InboundOpenInfo,
     ) {
         // only accept new peer requests when active
         if !matches!(self.state, HandlerState::Active) {
@@ -863,8 +868,7 @@ where
             let (id, req) = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
             return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(req.clone()),
-                info: (id, req),
+                protocol: SubstreamProtocol::new(req.clone(), ()).map_info(|()| (id, req)),
             });
         }
         Poll::Pending

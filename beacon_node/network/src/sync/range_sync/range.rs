@@ -172,7 +172,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 } else {
                     // there is no finalized chain that matches this peer's last finalized target
                     // create a new finalized chain
-                    debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_epoch" => local_finalized_slot, "end_slot" => remote_finalized_slot, "finalized_root" => format!("{}", remote_info.finalized_root));
+                    debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_slot" => local_finalized_slot, "end_slot" => remote_finalized_slot, "finalized_root" => format!("{}", remote_info.finalized_root));
 
                     self.chains.new_finalized_chain(
                         local_info.finalized_epoch,

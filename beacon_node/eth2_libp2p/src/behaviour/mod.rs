@@ -11,7 +11,10 @@ use libp2p::{
         identity::Keypair,
         Multiaddr,
     },
-    gossipsub::{Gossipsub, GossipsubEvent, MessageAuthenticity, MessageId},
+    gossipsub::{
+        Gossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity,
+        MessageId,
+    },
     identify::{Identify, IdentifyEvent},
     swarm::{
         NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters,
@@ -94,15 +97,19 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let meta_data = load_or_build_metadata(&net_conf.network_dir, &log);
 
-        // TODO: Until other clients support no author, we will use a 0 peer_id as our author.
-        let message_author = PeerId::from_bytes(vec![0, 1, 0]).expect("Valid peer id");
+        let gossipsub = Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
+            .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+
+        // Temporarily disable scoring until parameters are tested.
+        /*
+        gossipsub
+            .with_peer_score(PeerScoreParams::default(), PeerScoreThresholds::default())
+            .expect("Valid score params and thresholds");
+        */
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
-            gossipsub: Gossipsub::new(
-                MessageAuthenticity::Author(message_author),
-                net_conf.gs_config.clone(),
-            ),
+            gossipsub,
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
                 .await?,
@@ -147,6 +154,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
+
+        // TODO: Implement scoring
+        // let topic: Topic = gossip_topic.into();
+        // self.gossipsub.set_topic_params(t.hash(), TopicScoreParams::default());
         self.subscribe(gossip_topic)
     }
 
@@ -168,6 +179,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
+        // TODO: Implement scoring
+        /*
+        let t: Topic = topic.clone().into();
+        self.gossipsub
+            .set_topic_params(t.hash(), TopicScoreParams::default());
+        */
         self.subscribe(topic)
     }
 
@@ -189,9 +206,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .write()
             .insert(topic.clone());
 
-        let topic_str: String = topic.clone().into();
-        debug!(self.log, "Subscribed to topic"; "topic" => topic_str);
-        self.gossipsub.subscribe(topic.into())
+        let topic: Topic = topic.into();
+
+        match self.gossipsub.subscribe(&topic) {
+            Err(_) => {
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => topic.to_string());
+                false
+            }
+            Ok(v) => {
+                debug!(self.log, "Subscribed to topic"; "topic" => topic.to_string());
+                v
+            }
+        }
     }
 
     /// Unsubscribe from a gossipsub topic.
@@ -201,8 +227,20 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .gossipsub_subscriptions
             .write()
             .remove(&topic);
+
         // unsubscribe from the topic
-        self.gossipsub.unsubscribe(topic.into())
+        let topic: Topic = topic.into();
+
+        match self.gossipsub.unsubscribe(&topic) {
+            Err(_) => {
+                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => topic.to_string());
+                false
+            }
+            Ok(v) => {
+                debug!(self.log, "Unsubscribed to topic"; "topic" => topic.to_string());
+                v
+            }
+        }
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
@@ -211,7 +249,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(&topic.into(), message_data) {
+                        if let Err(e) = self.gossipsub.publish(topic.into(), message_data) {
                             slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
                         }
                     }
@@ -221,11 +259,21 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
-    /// Forwards a message that is waiting in gossipsub's mcache. Messages are only propagated
-    /// once validated by the beacon chain.
-    pub fn validate_message(&mut self, propagation_source: &PeerId, message_id: MessageId) {
-        self.gossipsub
-            .validate_message(&message_id, propagation_source);
+    /// Informs the gossipsub about the result of a message validation.
+    /// If the message is valid it will get propagated by gossipsub.
+    pub fn report_message_validation_result(
+        &mut self,
+        propagation_source: &PeerId,
+        message_id: MessageId,
+        validation_result: MessageAcceptance,
+    ) {
+        if let Err(e) = self.gossipsub.report_message_validation_result(
+            &message_id,
+            propagation_source,
+            validation_result,
+        ) {
+            warn!(self.log, "Failed to report message validation"; "message_id" => message_id.to_string(), "peer_id" => propagation_source.to_string(), "error" => format!("{:?}", e));
+        }
     }
 
     /* Eth2 RPC behaviour functions */
@@ -392,11 +440,25 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     fn on_gossip_event(&mut self, event: GossipsubEvent) {
         match event {
-            GossipsubEvent::Message(propagation_source, id, gs_msg) => {
+            GossipsubEvent::Message {
+                propagation_source,
+                message_id: id,
+                message: gs_msg,
+            } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
                 match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
-                    Err(e) => debug!(self.log, "Could not decode gossipsub message"; "error" => e),
+                    Err(e) => {
+                        debug!(self.log, "Could not decode gossipsub message"; "error" => e);
+                        //reject the message
+                        if let Err(e) = self.gossipsub.report_message_validation_result(
+                            &id,
+                            &propagation_source,
+                            MessageAcceptance::Reject,
+                        ) {
+                            warn!(self.log, "Failed to report message validation"; "message_id" => id.to_string(), "peer_id" => propagation_source.to_string(), "error" => format!("{:?}", e));
+                        }
+                    }
                     Ok(msg) => {
                         // Notify the network
                         self.add_event(BehaviourEvent::PubsubMessage {
