@@ -18,8 +18,6 @@ use types::{
     SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
 };
 
-//TODO: Rate limit requests
-
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
