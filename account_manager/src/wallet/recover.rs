@@ -1,21 +1,16 @@
 use clap::{App, Arg, ArgMatches};
 use std::path::PathBuf;
-use account_utils::{strip_off_newlines, read_mnemonic_from_user};
-use std::fs;
-use crate::wallet::create::{HD_TYPE, PASSPHRASE_FLAG, NAME_FLAG, TYPE_FLAG};
+
 use crate::wallet::create::create_wallet_from_mnemonic;
-use eth2_wallet::bip39::{Mnemonic, Language};
-use std::thread::sleep;
-use std::time::Duration;
+use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSPHRASE_FLAG, TYPE_FLAG};
+
 use crate::common::{read_mnemonic_from_cli, MNEMONIC_FLAG, STDIN_PASSWORD_FLAG};
 
 pub const CMD: &str = "recover";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about(
-            "Recovers an EIP-2386 wallet from a given a 12-word BIP-39 mnemonic phrase.",
-        )
+        .about("Recovers an EIP-2386 wallet from a given a 12-word BIP-39 mnemonic phrase.")
         .arg(
             Arg::with_name(NAME_FLAG)
                 .long(NAME_FLAG)
@@ -31,11 +26,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(PASSPHRASE_FLAG)
                 .long(PASSPHRASE_FLAG)
                 .value_name("PASSPHRASE_FILE_PATH")
-                .help("This will be the new passphrase for your recovered wallet. \
+                .help(
+                    "This will be the new passphrase for your recovered wallet. \
                     A path to a file containing the password which will unlock the wallet. \
                     If the file does not exist, a random password will be generated and \
                     saved at that path. To avoid confusion, if the file does not already \
-                    exist it must include a '.pass' suffix.")
+                    exist it must include a '.pass' suffix.",
+                )
                 .takes_value(true)
                 .required(true),
         )
@@ -43,10 +40,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
-                .help(
-                    "If present, the mnemonic will be read in from this file.",
-                )
-                .takes_value(true)
+                .help("If present, the mnemonic will be read in from this file.")
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(TYPE_FLAG)
@@ -67,19 +62,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run(
-    matches: &ArgMatches,
-    wallet_base_dir: PathBuf,
-) -> Result<(), String> {
-
+pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
     let mnemonic = read_mnemonic_from_cli(matches)?;
 
     let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir, &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
-//TODO: how to explicitly avoid double voting
-    println!("WARNING: If these keys have been run on another client, you risk");
-    println!("committing a slashable offense by double-voting.");
     println!("Your wallet has been successfully recovered.");
     println!();
     println!("Your wallet's UUID is:");

@@ -5,7 +5,7 @@ use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
 };
-use eth2_wallet_manager::{WalletManager, WalletType, LockedWallet};
+use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::prelude::*;
@@ -108,7 +108,11 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-pub fn create_wallet_from_mnemonic(matches: &ArgMatches, base_dir: &PathBuf, mnemonic: &Mnemonic) -> Result<LockedWallet, String> {
+pub fn create_wallet_from_mnemonic(
+    matches: &ArgMatches,
+    base_dir: &PathBuf,
+    mnemonic: &Mnemonic,
+) -> Result<LockedWallet, String> {
     let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
     let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSPHRASE_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;

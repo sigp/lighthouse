@@ -1,18 +1,14 @@
-use clap::{App, Arg, ArgMatches};
-use crate::{VALIDATOR_DIR_FLAG, SECRETS_DIR_FLAG};
-use std::path::PathBuf;
-use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
-use crate::validator::create::{COUNT_FLAG};
-use account_utils::{strip_off_newlines, read_mnemonic_from_user, random_password};
-use std::fs;
-use crate::wallet::create::HD_TYPE;
-use eth2_wallet::bip39::{Mnemonic, Language, Seed};
-use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
-use std::thread::sleep;
-use std::time::Duration;
-use validator_dir::Builder as ValidatorDirBuilder;
 use crate::common::{read_mnemonic_from_cli, MNEMONIC_FLAG, STDIN_PASSWORD_FLAG};
-
+use crate::validator::create::COUNT_FLAG;
+use crate::wallet::create::HD_TYPE;
+use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
+use account_utils::random_password;
+use clap::{App, Arg, ArgMatches};
+use eth2_wallet::bip39::Seed;
+use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
+use std::path::PathBuf;
+use validator_dir::Builder as ValidatorDirBuilder;
 pub const CMD: &str = "recover";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const TYPE_FLAG: &str = "type";
@@ -98,9 +94,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run(
-    matches: &ArgMatches,
-) -> Result<(), String> {
+pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
         VALIDATOR_DIR_FLAG,
@@ -152,11 +146,6 @@ pub fn cli_run(
 
         println!("{}/{}\t0x{}", index + 1, count, voting_pubkey);
     }
-
-
-    //TODO: how to explicitly avoid double voting
-    println!("WARNING: If these keys have been run on another client, you risk");
-    println!("committing a slashable offence by double-voting.");
 
     Ok(())
 }

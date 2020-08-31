@@ -1,3 +1,4 @@
+use crate::common::STDIN_PASSWORD_FLAG;
 use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
 use account_utils::{
     eth2_keystore::Keystore,
@@ -12,7 +13,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
-use crate::common::STDIN_PASSWORD_FLAG;
 
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";

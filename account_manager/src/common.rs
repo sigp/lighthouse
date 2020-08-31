@@ -1,9 +1,9 @@
+use account_utils::{read_mnemonic_from_user, strip_off_newlines};
 use clap::ArgMatches;
+use eth2_wallet::bip39::{Language, Mnemonic};
+use std::fs;
 use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
-use std::fs;
-use eth2_wallet::bip39::{Mnemonic, Language};
-use account_utils::{strip_off_newlines, read_mnemonic_from_user};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -30,21 +30,26 @@ pub fn base_wallet_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBu
 }
 
 pub fn read_mnemonic_from_cli(matches: &ArgMatches) -> Result<Mnemonic, String> {
+
+    println!("WARNING: If these keys have been run on another client, you risk");
+    println!("committing a slashable offense by double-voting.");
+
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
     let mnemonic = match mnemonic_path {
-        Some(path) => {
-            fs::read(&path)
-                .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-                .map(|bytes|
-                    {
-                        let bytes_no_newlines = strip_off_newlines(bytes);
-                        let phrase = std::str::from_utf8(&bytes_no_newlines)
-                            .map_err(|e| format!("Unable to derive mnemonic: {:?}", e))?;
-                        Mnemonic::from_phrase(phrase, Language::English)
-                            .map_err(|e| format!("Unable to derive mnemonic from string {:?}: {:?}", phrase, e))
-                    })??
-        }
+        Some(path) => fs::read(&path)
+            .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
+            .map(|bytes| {
+                let bytes_no_newlines = strip_off_newlines(bytes);
+                let phrase = std::str::from_utf8(&bytes_no_newlines)
+                    .map_err(|e| format!("Unable to derive mnemonic: {:?}", e))?;
+                Mnemonic::from_phrase(phrase, Language::English).map_err(|e| {
+                    format!(
+                        "Unable to derive mnemonic from string {:?}: {:?}",
+                        phrase, e
+                    )
+                })
+            })??,
         None => {
             let mnemonic = loop {
                 eprintln!("");
