@@ -584,7 +584,7 @@ where
     /// Specifies that the `BeaconChain` should cache eth1 blocks/logs from a remote eth1 node
     /// (e.g., Parity/Geth) and refer to that cache when collecting deposits or eth1 votes during
     /// block production.
-    pub fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
+    pub async fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -597,6 +597,17 @@ where
             .chain_spec
             .clone()
             .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
+
+        // Check if the eth1 endpoint we connect to is on the correct network id.
+        let network_id =
+            eth1::http::get_network_id(&config.endpoint, Duration::from_millis(15_000)).await?;
+
+        if network_id != config.network_id {
+            return Err(format!(
+                "Invalid eth1 network id. Expected {:?}, got {:?}",
+                config.network_id, network_id
+            ));
+        }
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;

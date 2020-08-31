@@ -4782,6 +4782,7 @@ version = "0.2.0"
 dependencies = [
  "clap",
  "env_logger",
+ "eth1",
  "eth1_test_rig",
  "futures 0.3.5",
  "node_test_rig",
