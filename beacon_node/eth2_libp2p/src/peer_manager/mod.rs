@@ -239,6 +239,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
+        // Decrement the PEERS_PER_CLIENT metric
+        if let Some(kind) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|peer_info| peer_info.client.kind.clone())
+        {
+            metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                .map(|v| v.dec());
+        }
+
         self.network_globals.peers.write().disconnect(peer_id);
 
         // remove the ping and status timer for the peer
@@ -296,8 +308,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            let previous_kind = peer_info.client.kind.clone();
             peer_info.client = client::Client::from_identify_info(info);
             peer_info.listening_addresses = info.listen_addrs.clone();
+
+            if previous_kind != peer_info.client.kind {
+                // update the peer client kind metric
+                metrics::get_int_gauge(
+                    &metrics::PEERS_PER_CLIENT,
+                    &[&peer_info.client.kind.to_string()],
+                )
+                .map(|v| v.inc());
+                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&previous_kind.to_string()])
+                    .map(|v| v.dec());
+            }
         } else {
             crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
         }
@@ -567,6 +591,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             &metrics::PEERS_CONNECTED,
             self.network_globals.connected_peers() as i64,
         );
+
+        // Increment the PEERS_PER_CLIENT metric
+        if let Some(kind) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|peer_info| peer_info.client.kind.clone())
+        {
+            metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                .map(|v| v.inc());
+        }
 
         true
     }

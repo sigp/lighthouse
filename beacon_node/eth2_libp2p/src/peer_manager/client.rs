@@ -20,7 +20,7 @@ pub struct Client {
     pub agent_string: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum ClientKind {
     /// A lighthouse node (the best kind).
     Lighthouse,
@@ -95,6 +95,12 @@ impl std::fmt::Display for Client {
                 }
             }
         }
+    }
+}
+
+impl std::fmt::Display for ClientKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 

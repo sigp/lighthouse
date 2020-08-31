@@ -34,10 +34,10 @@ lazy_static! {
         "Unsolicited discovery requests per ip per second",
         &["Addresses"]
     );
-    pub static ref GOSSIPSUB_SUBSCRIBED_PEERS_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "gossipsub_peers_per_topic_count",
-        "Peers subscribed per topic",
-        &["topic_hash"]
+    pub static ref PEERS_PER_CLIENT: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "peers_per_client",
+        "The connected peers via client implementation",
+        &["Client"]
     );
 }
 
