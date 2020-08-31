@@ -18,17 +18,17 @@ jobs:
         run: |
             echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
 
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: crazy-max/ghaction-docker-buildx@v1
-        with:
-          buildx-version: latest
+      - name: Clone Docker Buildx
+        run: |
+            git clone git://github.com/docker/buildx && cd buildx
+
+      - name: Build Docker Buildx
+        run: |
+            make install
 
       - name: Build dockerfile (with push)
         run: |
             docker buildx build \
-                --cache-from seananderson33/lighthouse \
-                --build-arg BUILDKIT_INLINE_CACHE=1 \
                 --platform=linux/amd64,linux/arm64 \
                 --output "type=image,push=true" \
                 --file ./Dockerfile . \
