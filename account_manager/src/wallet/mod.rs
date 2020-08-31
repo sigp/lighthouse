@@ -1,5 +1,6 @@
 pub mod create;
 pub mod list;
+pub mod recover;
 
 use crate::{
     common::{base_wallet_dir, ensure_dir_exists},
@@ -21,6 +22,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .subcommand(create::cli_app())
         .subcommand(list::cli_app())
+        .subcommand(recover::cli_app())
 }
 
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
@@ -30,6 +32,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run(matches, base_dir),
         (list::CMD, Some(_)) => list::cli_run(base_dir),
+        (recover::CMD, Some(matches)) => recover::cli_run(matches, base_dir),
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown

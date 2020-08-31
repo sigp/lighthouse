@@ -285,3 +285,16 @@ pub fn recover_validator_secret(
 
     Ok((destination.secret().to_vec().into(), path))
 }
+
+pub fn recover_validator_secret_from_mnemonic(
+    secret: &[u8],
+    index: u32,
+    key_type: KeyType,
+) -> Result<(PlainText, ValidatorPath), Error> {
+    let path = ValidatorPath::new(index, key_type);
+    let master = DerivedKey::from_seed(secret).map_err(|()| Error::EmptyPassword)?;
+
+    let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
+
+    Ok((destination.secret().to_vec().into(), path))
+}

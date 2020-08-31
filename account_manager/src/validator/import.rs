@@ -12,11 +12,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
+use crate::common::STDIN_PASSWORD_FLAG;
 
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
-pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter to omit it:";
 pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
