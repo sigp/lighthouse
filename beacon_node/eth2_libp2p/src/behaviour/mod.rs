@@ -249,8 +249,26 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(topic.into(), message_data) {
+                        if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
                             slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
+
+                            // add to metrics
+                            match topic.kind() {
+                                GossipKind::Attestation(subnet_id) => {
+                                    metrics::get_int_gauge(
+                                        &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
+                                        &[&subnet_id.to_string()],
+                                    )
+                                    .map(|v| v.inc());
+                                }
+                                kind => {
+                                    metrics::get_int_gauge(
+                                        &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                                        &[&format!("{:?}", kind)],
+                                    )
+                                    .map(|v| v.inc());
+                                }
+                            }
                         }
                     }
                     Err(e) => crit!(self.log, "Could not publish message"; "error" => e),

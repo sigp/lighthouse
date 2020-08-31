@@ -2,6 +2,60 @@ use beacon_chain::attestation_verification::Error as AttnError;
 pub use lighthouse_metrics::*;
 
 lazy_static! {
+
+    /*
+     * Gossip subnets and scoring
+     */
+    pub static ref PEERS_PER_PROTOCOL: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "peers_per_protocol",
+        "Peers via supported protocol",
+        &["protocol"]
+    );
+
+    pub static ref GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "subscribed_subnets",
+        "Subnets currently subscribed to",
+        &["subnet"]
+    );
+
+    pub static ref GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_peers_per_subnet_topic_count",
+        "Peers subscribed per subnet topic",
+        &["subnet"]
+    );
+
+    pub static ref MESH_PEERS_PER_MAIN_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "mesh_peers_per_main_topic",
+        "Mesh peers per main topic",
+        &["topic_hash"]
+    );
+
+    pub static ref MESH_PEERS_PER_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "mesh_peers_per_subnet_topic",
+        "Mesh peers per subnet topic",
+        &["subnet"]
+    );
+
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "avg_peer_score_per_topic",
+        "Average peer's score per topic",
+        &["topic_hash"]
+    );
+
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "avg_peer_score_per_topic",
+        "Average peer's score per topic",
+        &["subnet"]
+    );
+
+    pub static ref ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT: Result<IntCounterVec> = try_create_int_counter_vec(
+        "failed_attestation_published_per_subnet_per_slot",
+        "Failed attestation publishes per subnet",
+        &["subnet"]
+    );
+}
+
+lazy_static! {
     /*
      * Gossip Rx
      */
@@ -17,6 +71,7 @@ lazy_static! {
         "network_gossip_aggregated_attestations_rx_total",
         "Count of gossip aggregated attestations received"
     );
+
 
     /*
      * Gossip Tx

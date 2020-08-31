@@ -39,6 +39,17 @@ lazy_static! {
         "The connected peers via client implementation",
         &["Client"]
     );
+    pub static ref FAILED_ATTESTATION_PUBLISHES_PER_SUBNET: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "failed_attestation_published_per_subnet",
+            "Failed attestation publishes per subnet",
+            &["subnet"]
+        );
+    pub static ref FAILED_PUBLISHES_PER_MAIN_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "failed_gossip_publishes_per_main_topic",
+        "Failed gossip publishes",
+        &["topic_hash"]
+    );
 }
 
 pub fn scrape_discovery_metrics() {
