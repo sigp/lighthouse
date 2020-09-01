@@ -589,7 +589,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
 
             match connection {
-                ConnectingType::Dialing => peerdb.dialing_peer(peer_id),
+                ConnectingType::Dialing => {
+                    peerdb.dialing_peer(peer_id);
+                    return true;
+                }
                 ConnectingType::IngoingConnected => peerdb.connect_outgoing(peer_id),
                 ConnectingType::OutgoingConnected => peerdb.connect_ingoing(peer_id),
             }
