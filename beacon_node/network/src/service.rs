@@ -186,6 +186,7 @@ fn spawn_service<T: BeaconChainTypes>(
     // spawn on the current executor
     executor.spawn_without_exit(async move {
 
+        let mut metric_update_counter = 0;
         loop {
             // build the futures to check simultaneously
             tokio::select! {
@@ -216,6 +217,13 @@ fn spawn_service<T: BeaconChainTypes>(
                 }
                 _ = service.metrics_update.next() => {
                     // update various network metrics
+                    metric_update_counter +=1;
+                    if metric_update_counter* 1000 % T::EthSpec::default_spec().milliseconds_per_slot == 0 { 
+                        // if a slot has occurred, reset the metrics
+                        let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT 
+                            .as_ref()
+                            .map(|gauge| gauge.reset());
+                    }
                     update_gossip_metrics::<T::EthSpec>(&service.libp2p.swarm.gs());
                 }
                 // handle a message sent to the network
@@ -491,6 +499,7 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
     let _ = metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC
         .as_ref()
         .map(|gauge| gauge.reset());
+
 
     // Subnet topics subscribed to
     for topic_hash in gossipsub.topics() {
