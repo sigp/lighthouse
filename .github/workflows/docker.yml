@@ -24,7 +24,7 @@ jobs:
 
       - name: Create Docker Builder
         run: |
-            docker buildx create --use --name build --node build --driver-opt network=host
+            docker buildx create --use --name build --node build
 
       - name: Create Docker Builder
         run: |
