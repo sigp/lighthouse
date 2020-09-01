@@ -4,7 +4,9 @@
 extern crate lazy_static;
 
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
+    },
     BeaconSnapshot, BlockError,
 };
 use store::config::StoreConfig;
@@ -31,7 +33,7 @@ lazy_static! {
 }
 
 fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let mut harness = get_harness(VALIDATOR_COUNT);
 
     harness.extend_chain(
         CHAIN_SEGMENT_LENGTH,
@@ -48,8 +50,8 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
         .collect()
 }
 
-fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
-    let harness = BeaconChainHarness::new(
+fn get_harness(validator_count: usize) -> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
+    let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
@@ -81,7 +83,7 @@ fn junk_aggregate_signature() -> AggregateSignature {
 
 fn update_proposal_signatures(
     snapshots: &mut [BeaconSnapshot<E>],
-    harness: &BeaconChainHarness<HarnessType<E>>,
+    harness: &BeaconChainHarness<NullMigratorEphemeralHarnessType<E>>,
 ) {
     for snapshot in snapshots {
         let spec = &harness.chain.spec;
@@ -91,7 +93,7 @@ fn update_proposal_signatures(
             .get_beacon_proposer_index(slot, spec)
             .expect("should find proposer index");
         let keypair = harness
-            .keypairs
+            .validators_keypairs
             .get(proposer_index)
             .expect("proposer keypair should be available");
 
@@ -274,7 +276,7 @@ fn chain_segment_non_linear_slots() {
 }
 
 fn assert_invalid_signature(
-    harness: &BeaconChainHarness<HarnessType<E>>,
+    harness: &BeaconChainHarness<NullMigratorEphemeralHarnessType<E>>,
     block_index: usize,
     snapshots: &[BeaconSnapshot<E>],
     item: &str,
@@ -325,7 +327,7 @@ fn assert_invalid_signature(
     // slot) tuple.
 }
 
-fn get_invalid_sigs_harness() -> BeaconChainHarness<HarnessType<E>> {
+fn get_invalid_sigs_harness() -> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
     let harness = get_harness(VALIDATOR_COUNT);
     harness
         .chain
