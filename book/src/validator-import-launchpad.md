@@ -11,7 +11,8 @@ programs are designed to work with each other.
 
 This guide will show the user how to import their keys into Lighthouse so they
 can perform their duties as a validator. The guide assumes the user has already
-[installed Lighthouse](./installation.md).
+[installed Lighthouse](./installation.md) and currently has an active beacon node
+running and synced.
 
 ## Instructions
 
