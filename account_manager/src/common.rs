@@ -31,9 +31,11 @@ pub fn base_wallet_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBu
 
 pub fn read_mnemonic_from_cli(matches: &ArgMatches) -> Result<Mnemonic, String> {
 
-    println!("WARNING: If these keys have been run on another client, you risk");
-    println!("committing a slashable offense by double-voting.");
 
+    //TODO: EXPLICIT DIRECTIONS ON HOW TO AVOID SLASHING
+    eprintln!("");
+    println!("WARNING: IF YOU HAVE RUN THESE KEYS ON ANOTHER CLIENT, YOU RISK BEING SLASHED.");
+    eprintln!("");
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
     let mnemonic = match mnemonic_path {
