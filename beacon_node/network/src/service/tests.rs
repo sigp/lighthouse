@@ -23,7 +23,7 @@ mod tests {
         let log = get_logger();
 
         let beacon_chain = Arc::new(
-            BeaconChainHarness::new(
+            BeaconChainHarness::new_with_store_config(
                 MinimalEthSpec,
                 generate_deterministic_keypairs(8),
                 StoreConfig::default(),
@@ -40,7 +40,13 @@ mod tests {
         let runtime = Runtime::new().unwrap();
 
         let (signal, exit) = exit_future::signal();
-        let executor = environment::TaskExecutor::new(runtime.handle().clone(), exit, log.clone());
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = environment::TaskExecutor::new(
+            runtime.handle().clone(),
+            exit,
+            log.clone(),
+            shutdown_tx,
+        );
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;

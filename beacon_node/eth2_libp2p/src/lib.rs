@@ -14,16 +14,16 @@ pub mod rpc;
 mod service;
 pub mod types;
 
-pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage};
+pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage, SubnetDiscovery};
 pub use behaviour::{BehaviourEvent, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;
-pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
+pub use libp2p::gossipsub::{MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use metrics::scrape_discovery_metrics;
 pub use peer_manager::{
     client::Client, score::PeerAction, PeerDB, PeerInfo, PeerSyncStatus, SyncInfo,
 };
-pub use service::{Libp2pEvent, Service, NETWORK_KEY_FILENAME};
+pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};

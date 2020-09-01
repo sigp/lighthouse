@@ -131,8 +131,9 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
     type InboundProtocol = DelegateInProto<TSpec>;
     type OutboundProtocol = DelegateOutProto<TSpec>;
     type OutboundOpenInfo = DelegateOutInfo<TSpec>;
+    type InboundOpenInfo = ();
 
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
+    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         let gossip_proto = self.gossip_handler.listen_protocol();
         let rpc_proto = self.rpc_handler.listen_protocol();
         let identify_proto = self.identify_handler.listen_protocol();
@@ -147,24 +148,27 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             SelectUpgrade::new(rpc_proto.into_upgrade().1, identify_proto.into_upgrade().1),
         );
 
-        SubstreamProtocol::new(select).with_timeout(timeout)
+        SubstreamProtocol::new(select, ()).with_timeout(timeout)
     }
 
     fn inject_fully_negotiated_inbound(
         &mut self,
         out: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
+        _info: Self::InboundOpenInfo,
     ) {
         match out {
             // Gossipsub
-            EitherOutput::First(out) => self.gossip_handler.inject_fully_negotiated_inbound(out),
+            EitherOutput::First(out) => {
+                self.gossip_handler.inject_fully_negotiated_inbound(out, ())
+            }
             // RPC
             EitherOutput::Second(EitherOutput::First(out)) => {
-                self.rpc_handler.inject_fully_negotiated_inbound(out)
+                self.rpc_handler.inject_fully_negotiated_inbound(out, ())
             }
             // Identify
-            EitherOutput::Second(EitherOutput::Second(out)) => {
-                self.identify_handler.inject_fully_negotiated_inbound(out)
-            }
+            EitherOutput::Second(EitherOutput::Second(out)) => self
+                .identify_handler
+                .inject_fully_negotiated_inbound(out, ()),
         }
     }
 
@@ -317,10 +321,11 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
                     event,
                 )));
             }
-            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
+            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol }) => {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                    protocol: protocol.map_upgrade(EitherUpgrade::A),
-                    info: EitherOutput::First(info),
+                    protocol: protocol
+                        .map_upgrade(EitherUpgrade::A)
+                        .map_info(EitherOutput::First),
                 });
             }
             Poll::Pending => (),
@@ -333,10 +338,11 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             Poll::Ready(ProtocolsHandlerEvent::Close(event)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::RPC(event)));
             }
-            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
+            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol }) => {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                    protocol: protocol.map_upgrade(|u| EitherUpgrade::B(EitherUpgrade::A(u))),
-                    info: EitherOutput::Second(EitherOutput::First(info)),
+                    protocol: protocol
+                        .map_upgrade(|u| EitherUpgrade::B(EitherUpgrade::A(u)))
+                        .map_info(|info| EitherOutput::Second(EitherOutput::First(info))),
                 });
             }
             Poll::Pending => (),
@@ -351,10 +357,11 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             Poll::Ready(ProtocolsHandlerEvent::Close(event)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Identify(event)));
             }
-            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info: () }) => {
+            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol }) => {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                    protocol: protocol.map_upgrade(|u| EitherUpgrade::B(EitherUpgrade::B(u))),
-                    info: EitherOutput::Second(EitherOutput::Second(())),
+                    protocol: protocol
+                        .map_upgrade(|u| EitherUpgrade::B(EitherUpgrade::B(u)))
+                        .map_info(|_| EitherOutput::Second(EitherOutput::Second(()))),
                 });
             }
             Poll::Pending => (),

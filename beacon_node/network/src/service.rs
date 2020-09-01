@@ -6,12 +6,12 @@ use crate::{
 };
 use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
     Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
 };
 use eth2_libp2p::{BehaviourEvent, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace, warn};
@@ -55,11 +55,13 @@ pub enum NetworkMessage<T: EthSpec> {
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },
     /// Validates a received gossipsub message. This will propagate the message on the network.
-    Validate {
+    ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
         propagation_source: PeerId,
         /// The id of the message we are validating and propagating.
         message_id: MessageId,
+        /// The result of the validation
+        validation_result: MessageAcceptance,
     },
     /// Reports a peer to the peer manager for performing an action.
     ReportPeer { peer_id: PeerId, action: PeerAction },
@@ -169,6 +171,7 @@ fn spawn_service<T: BeaconChainTypes>(
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
     let mut exit_rx = executor.exit();
+    let mut shutdown_sender = executor.shutdown_sender();
 
     // spawn on the current executor
     executor.spawn_without_exit(async move {
@@ -215,9 +218,10 @@ fn spawn_service<T: BeaconChainTypes>(
                         NetworkMessage::SendError{ peer_id, error, id, reason } => {
                             service.libp2p.respond_with_error(peer_id, id, error, reason);
                         }
-                        NetworkMessage::Validate {
+                        NetworkMessage::ValidationResult {
                             propagation_source,
                             message_id,
+                            validation_result,
                         } => {
                                 trace!(service.log, "Propagating gossipsub message";
                                     "propagation_peer" => format!("{:?}", propagation_source),
@@ -226,7 +230,9 @@ fn spawn_service<T: BeaconChainTypes>(
                                 service
                                     .libp2p
                                     .swarm
-                                    .validate_message(&propagation_source, message_id);
+                                    .report_message_validation_result(
+                                        &propagation_source, message_id, validation_result
+                                    );
                         }
                         NetworkMessage::Publish { messages } => {
                                 let mut topic_kinds = Vec::new();
@@ -271,8 +277,8 @@ fn spawn_service<T: BeaconChainTypes>(
                         AttServiceMessage::EnrRemove(subnet_id) => {
                             service.libp2p.swarm.update_enr_subnet(subnet_id, false);
                         }
-                        AttServiceMessage::DiscoverPeers{subnet_id, min_ttl} => {
-                            service.libp2p.swarm.discover_subnet_peers(subnet_id, min_ttl);
+                        AttServiceMessage::DiscoverPeers(subnets_to_discover) => {
+                            service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
                         }
                     }
                 }
@@ -375,6 +381,12 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
+                        }
+                        Libp2pEvent::ZeroListeners => {
+                            let _ = shutdown_sender.send("All listeners are closed. Unable to listen").await.map_err(|e| {
+                                warn!(service.log, "failed to send a shutdown signal"; "error" => e.to_string()
+                                )
+                            });
                         }
                     }
                 }

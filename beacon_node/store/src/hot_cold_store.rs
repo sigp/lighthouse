@@ -14,7 +14,7 @@ use crate::{
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
-use slog::{debug, error, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -147,6 +147,12 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         // Load the previous split slot from the database (if any). This ensures we can
         // stop and restart correctly.
         if let Some(split) = db.load_split()? {
+            info!(
+                db.log,
+                "Hot-Cold DB initialized";
+                "split_slot" => split.slot,
+                "split_state" => format!("{:?}", split.state_root)
+            );
             *db.split.write() = split;
         }
         Ok(db)
@@ -819,7 +825,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
-pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: Arc<HotColdDB<E, Hot, Cold>>,
     frozen_head_root: Hash256,
     frozen_head: &BeaconState<E>,

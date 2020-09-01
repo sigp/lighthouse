@@ -1,5 +1,6 @@
 ///! The subnet predicate used for searching for a particular subnet.
 use super::*;
+use slog::{debug, trace};
 use std::ops::Deref;
 
 /// Returns the predicate for a given subnet.
@@ -30,7 +31,7 @@ where
                 .collect();
 
             if matches.is_empty() {
-                debug!(
+                trace!(
                     log_clone,
                     "Peer found but not on any of the desired subnets";
                     "peer_id" => format!("{}", enr.peer_id())

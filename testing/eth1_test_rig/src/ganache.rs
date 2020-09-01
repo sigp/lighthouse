@@ -14,6 +14,8 @@ use web3::{
 /// How long we will wait for ganache to indicate that it is ready.
 const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
 
+const NETWORK_ID: u64 = 42;
+
 /// Provides a dedicated `ganachi-cli` instance with a connected `Web3` instance.
 ///
 /// Requires that `ganachi-cli` is installed and available on `PATH`.
@@ -42,6 +44,8 @@ impl GanacheInstance {
             .arg(format!("{}", port))
             .arg("--mnemonic")
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
+            .arg("--networkId")
+            .arg(format!("{}", NETWORK_ID))
             .spawn()
             .map_err(|e| {
                 format!(
@@ -95,6 +99,11 @@ impl GanacheInstance {
     /// Returns the endpoint that this instance is listening on.
     pub fn endpoint(&self) -> String {
         endpoint(self.port)
+    }
+
+    /// Returns the network id of the ganache instance
+    pub fn network_id(&self) -> u64 {
+        NETWORK_ID
     }
 
     /// Increase the timestamp on future blocks by `increase_by` seconds.

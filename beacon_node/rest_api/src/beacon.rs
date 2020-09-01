@@ -1,14 +1,13 @@
 use crate::helpers::*;
-use crate::response_builder::ResponseBuilder;
 use crate::validator::get_state_for_epoch;
-use crate::{ApiError, ApiResult, UrlQuery};
+use crate::Context;
+use crate::{ApiError, UrlQuery};
 use beacon_chain::{
     observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
-use bus::BusReader;
 use futures::executor::block_on;
 use hyper::body::Bytes;
-use hyper::{Body, Request, Response};
+use hyper::{Body, Request};
 use rest_types::{
     BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
     ValidatorRequest, ValidatorResponse,
@@ -16,20 +15,20 @@ use rest_types::{
 use std::io::Write;
 use std::sync::Arc;
 
-use slog::{error, Logger};
+use slog::error;
 use types::{
     AttesterSlashing, BeaconState, EthSpec, Hash256, ProposerSlashing, PublicKeyBytes,
     RelativeEpoch, SignedBeaconBlockHash, Slot,
 };
 
-/// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
+/// Returns a summary of the head of the beacon chain.
 pub fn get_head<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    ctx: Arc<Context<T>>,
+) -> Result<CanonicalHeadResponse, ApiError> {
+    let beacon_chain = &ctx.beacon_chain;
     let chain_head = beacon_chain.head()?;
 
-    let head = CanonicalHeadResponse {
+    Ok(CanonicalHeadResponse {
         slot: chain_head.beacon_state.slot,
         block_root: chain_head.beacon_block_root,
         state_root: chain_head.beacon_state_root,
@@ -51,33 +50,27 @@ pub fn get_head<T: BeaconChainTypes>(
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch()),
         previous_justified_block_root: chain_head.beacon_state.previous_justified_checkpoint.root,
-    };
-
-    ResponseBuilder::new(&req)?.body(&head)
+    })
 }
 
-/// HTTP handler to return a list of head BeaconBlocks.
-pub fn get_heads<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let heads = beacon_chain
+/// Return the list of heads of the beacon chain.
+pub fn get_heads<T: BeaconChainTypes>(ctx: Arc<Context<T>>) -> Vec<HeadBeaconBlock> {
+    ctx.beacon_chain
         .heads()
         .into_iter()
         .map(|(beacon_block_root, beacon_block_slot)| HeadBeaconBlock {
             beacon_block_root,
             beacon_block_slot,
         })
-        .collect::<Vec<_>>();
-
-    ResponseBuilder::new(&req)?.body(&heads)
+        .collect()
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
 pub fn get_block<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<BlockResponse<T::EthSpec>, ApiError> {
+    let beacon_chain = &ctx.beacon_chain;
     let query_params = ["root", "slot"];
     let (key, value) = UrlQuery::from_request(&req)?.first_of(&query_params)?;
 
@@ -85,7 +78,7 @@ pub fn get_block<T: BeaconChainTypes>(
         ("slot", value) => {
             let target = parse_slot(&value)?;
 
-            block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
+            block_root_at_slot(beacon_chain, target)?.ok_or_else(|| {
                 ApiError::NotFound(format!(
                     "Unable to find SignedBeaconBlock for slot {:?}",
                     target
@@ -103,30 +96,26 @@ pub fn get_block<T: BeaconChainTypes>(
         ))
     })?;
 
-    let response = BlockResponse {
+    Ok(BlockResponse {
         root: block_root,
         beacon_block: block,
-    };
-
-    ResponseBuilder::new(&req)?.body(&response)
+    })
 }
 
 /// HTTP handler to return a `SignedBeaconBlock` root at a given `slot`.
 pub fn get_block_root<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Hash256, ApiError> {
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
 
-    let root = block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
+    block_root_at_slot(&ctx.beacon_chain, target)?.ok_or_else(|| {
         ApiError::NotFound(format!(
             "Unable to find SignedBeaconBlock for slot {:?}",
             target
         ))
-    })?;
-
-    ResponseBuilder::new(&req)?.body(&root)
+    })
 }
 
 fn make_sse_response_chunk(new_head_hash: SignedBeaconBlockHash) -> std::io::Result<Bytes> {
@@ -140,45 +129,27 @@ fn make_sse_response_chunk(new_head_hash: SignedBeaconBlockHash) -> std::io::Res
     Ok(bytes)
 }
 
-pub fn stream_forks<T: BeaconChainTypes>(
-    log: Logger,
-    mut events: BusReader<SignedBeaconBlockHash>,
-) -> ApiResult {
+pub fn stream_forks<T: BeaconChainTypes>(ctx: Arc<Context<T>>) -> Result<Body, ApiError> {
+    let mut events = ctx.events.lock().add_rx();
     let (mut sender, body) = Body::channel();
     std::thread::spawn(move || {
         while let Ok(new_head_hash) = events.recv() {
             let chunk = match make_sse_response_chunk(new_head_hash) {
                 Ok(chunk) => chunk,
                 Err(e) => {
-                    error!(log, "Failed to make SSE chunk"; "error" => e.to_string());
+                    error!(ctx.log, "Failed to make SSE chunk"; "error" => e.to_string());
                     sender.abort();
                     break;
                 }
             };
             match block_on(sender.send_data(chunk)) {
                 Err(e) if e.is_closed() => break,
-                Err(e) => error!(log, "Couldn't stream piece {:?}", e),
+                Err(e) => error!(ctx.log, "Couldn't stream piece {:?}", e),
                 Ok(_) => (),
             }
         }
     });
-    let response = Response::builder()
-        .status(200)
-        .header("Content-Type", "text/event-stream")
-        .header("Connection", "Keep-Alive")
-        .header("Cache-Control", "no-cache")
-        .header("Access-Control-Allow-Origin", "*")
-        .body(body)
-        .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))?;
-    Ok(response)
-}
-
-/// HTTP handler to return the `Fork` of the current head.
-pub fn get_fork<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.fork)
+    Ok(body)
 }
 
 /// HTTP handler to which accepts a query string of a list of validator pubkeys and maps it to a
@@ -187,9 +158,9 @@ pub fn get_fork<T: BeaconChainTypes>(
 /// This method is limited to as many `pubkeys` that can fit in a URL. See `post_validators` for
 /// doing bulk requests.
 pub fn get_validators<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Vec<ValidatorResponse>, ApiError> {
     let query = UrlQuery::from_request(&req)?;
 
     let validator_pubkeys = query
@@ -204,17 +175,14 @@ pub fn get_validators<T: BeaconChainTypes>(
         None
     };
 
-    let validators =
-        validator_responses_by_pubkey(beacon_chain, state_root_opt, validator_pubkeys)?;
-
-    ResponseBuilder::new(&req)?.body(&validators)
+    validator_responses_by_pubkey(&ctx.beacon_chain, state_root_opt, validator_pubkeys)
 }
 
 /// HTTP handler to return all validators, each as a `ValidatorResponse`.
 pub fn get_all_validators<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Vec<ValidatorResponse>, ApiError> {
     let query = UrlQuery::from_request(&req)?;
 
     let state_root_opt = if let Some((_key, value)) = query.first_of_opt(&["state_root"]) {
@@ -223,23 +191,21 @@ pub fn get_all_validators<T: BeaconChainTypes>(
         None
     };
 
-    let mut state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    let mut state = get_state_from_root_opt(&ctx.beacon_chain, state_root_opt)?;
     state.update_pubkey_cache()?;
 
-    let validators = state
+    state
         .validators
         .iter()
         .map(|validator| validator_response_by_pubkey(&state, validator.pubkey.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    ResponseBuilder::new(&req)?.body(&validators)
+        .collect::<Result<Vec<_>, _>>()
 }
 
 /// HTTP handler to return all active validators, each as a `ValidatorResponse`.
 pub fn get_active_validators<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Vec<ValidatorResponse>, ApiError> {
     let query = UrlQuery::from_request(&req)?;
 
     let state_root_opt = if let Some((_key, value)) = query.first_of_opt(&["state_root"]) {
@@ -248,17 +214,15 @@ pub fn get_active_validators<T: BeaconChainTypes>(
         None
     };
 
-    let mut state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    let mut state = get_state_from_root_opt(&ctx.beacon_chain, state_root_opt)?;
     state.update_pubkey_cache()?;
 
-    let validators = state
+    state
         .validators
         .iter()
         .filter(|validator| validator.is_active_at(state.current_epoch()))
         .map(|validator| validator_response_by_pubkey(&state, validator.pubkey.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    ResponseBuilder::new(&req)?.body(&validators)
+        .collect::<Result<Vec<_>, _>>()
 }
 
 /// HTTP handler to which accepts a `ValidatorRequest` and returns a `ValidatorResponse` for
@@ -266,17 +230,11 @@ pub fn get_active_validators<T: BeaconChainTypes>(
 ///
 /// This method allows for a basically unbounded list of `pubkeys`, where as the `get_validators`
 /// request is limited by the max number of pubkeys you can fit in a URL.
-pub async fn post_validators<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let response_builder = ResponseBuilder::new(&req);
-
-    let body = req.into_body();
-    let chunks = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
-    serde_json::from_slice::<ValidatorRequest>(&chunks)
+pub fn post_validators<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Vec<ValidatorResponse>, ApiError> {
+    serde_json::from_slice::<ValidatorRequest>(&req.into_body())
         .map_err(|e| {
             ApiError::BadRequest(format!(
                 "Unable to parse JSON into ValidatorRequest: {:?}",
@@ -285,12 +243,11 @@ pub async fn post_validators<T: BeaconChainTypes>(
         })
         .and_then(|bulk_request| {
             validator_responses_by_pubkey(
-                beacon_chain,
+                &ctx.beacon_chain,
                 bulk_request.state_root,
                 bulk_request.pubkeys,
             )
         })
-        .and_then(|validators| response_builder?.body(&validators))
 }
 
 /// Returns either the state given by `state_root_opt`, or the canonical head state if it is
@@ -317,11 +274,11 @@ fn get_state_from_root_opt<T: BeaconChainTypes>(
 /// Maps a vec of `validator_pubkey` to a vec of `ValidatorResponse`, using the state at the given
 /// `state_root`. If `state_root.is_none()`, uses the canonial head state.
 fn validator_responses_by_pubkey<T: BeaconChainTypes>(
-    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: &BeaconChain<T>,
     state_root_opt: Option<Hash256>,
     validator_pubkeys: Vec<PublicKeyBytes>,
 ) -> Result<Vec<ValidatorResponse>, ApiError> {
-    let mut state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    let mut state = get_state_from_root_opt(beacon_chain, state_root_opt)?;
     state.update_pubkey_cache()?;
 
     validator_pubkeys
@@ -372,24 +329,25 @@ fn validator_response_by_pubkey<E: EthSpec>(
 
 /// HTTP handler
 pub fn get_committees<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Vec<Committee>, ApiError> {
     let query = UrlQuery::from_request(&req)?;
 
     let epoch = query.epoch()?;
 
-    let mut state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
+    let mut state =
+        get_state_for_epoch(&ctx.beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|e| {
         ApiError::ServerError(format!("Failed to get state suitable for epoch: {:?}", e))
     })?;
 
     state
-        .build_committee_cache(relative_epoch, &beacon_chain.spec)
+        .build_committee_cache(relative_epoch, &ctx.beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
 
-    let committees = state
+    Ok(state
         .get_beacon_committees_at_epoch(relative_epoch)
         .map_err(|e| ApiError::ServerError(format!("Unable to get all committees: {:?}", e)))?
         .into_iter()
@@ -398,9 +356,7 @@ pub fn get_committees<T: BeaconChainTypes>(
             index: c.index,
             committee: c.committee.to_vec(),
         })
-        .collect::<Vec<_>>();
-
-    ResponseBuilder::new(&req)?.body(&committees)
+        .collect::<Vec<_>>())
 }
 
 /// HTTP handler to return a `BeaconState` at a given `root` or `slot`.
@@ -408,10 +364,10 @@ pub fn get_committees<T: BeaconChainTypes>(
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
 pub fn get_state<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let head_state = beacon_chain.head()?.beacon_state;
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<StateResponse<T::EthSpec>, ApiError> {
+    let head_state = ctx.beacon_chain.head()?.beacon_state;
 
     let (key, value) = match UrlQuery::from_request(&req) {
         Ok(query) => {
@@ -429,11 +385,12 @@ pub fn get_state<T: BeaconChainTypes>(
     };
 
     let (root, state): (Hash256, BeaconState<T::EthSpec>) = match (key.as_ref(), value) {
-        ("slot", value) => state_at_slot(&beacon_chain, parse_slot(&value)?)?,
+        ("slot", value) => state_at_slot(&ctx.beacon_chain, parse_slot(&value)?)?,
         ("root", value) => {
             let root = &parse_root(&value)?;
 
-            let state = beacon_chain
+            let state = ctx
+                .beacon_chain
                 .store
                 .get_state(root, None)?
                 .ok_or_else(|| ApiError::NotFound(format!("No state for root: {:?}", root)))?;
@@ -443,12 +400,10 @@ pub fn get_state<T: BeaconChainTypes>(
         _ => return Err(ApiError::ServerError("Unexpected query parameter".into())),
     };
 
-    let response = StateResponse {
+    Ok(StateResponse {
         root,
         beacon_state: state,
-    };
-
-    ResponseBuilder::new(&req)?.body(&response)
+    })
 }
 
 /// HTTP handler to return a `BeaconState` root at a given `slot`.
@@ -456,15 +411,13 @@ pub fn get_state<T: BeaconChainTypes>(
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
 pub fn get_state_root<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Hash256, ApiError> {
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let slot = parse_slot(&slot_string)?;
 
-    let root = state_root_at_slot(&beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
-
-    ResponseBuilder::new(&req)?.body(&root)
+    state_root_at_slot(&ctx.beacon_chain, slot, StateSkipConfig::WithStateRoots)
 }
 
 /// HTTP handler to return a `BeaconState` at the genesis block.
@@ -472,50 +425,28 @@ pub fn get_state_root<T: BeaconChainTypes>(
 /// This is an undocumented convenience method used during testing. For production, simply do a
 /// state request at slot 0.
 pub fn get_genesis_state<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
-
-    ResponseBuilder::new(&req)?.body(&state)
+    ctx: Arc<Context<T>>,
+) -> Result<BeaconState<T::EthSpec>, ApiError> {
+    state_at_slot(&ctx.beacon_chain, Slot::new(0)).map(|(_root, state)| state)
 }
 
-/// Read the genesis time from the current beacon chain state.
-pub fn get_genesis_time<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head_info()?.genesis_time)
-}
-
-/// Read the `genesis_validators_root` from the current beacon chain state.
-pub fn get_genesis_validators_root<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head_info()?.genesis_validators_root)
-}
-
-pub async fn proposer_slashing<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let response_builder = ResponseBuilder::new(&req);
-
+pub fn proposer_slashing<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<bool, ApiError> {
     let body = req.into_body();
-    let chunks = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
 
-    serde_json::from_slice::<ProposerSlashing>(&chunks)
+    serde_json::from_slice::<ProposerSlashing>(&body)
         .map_err(|e| format!("Unable to parse JSON into ProposerSlashing: {:?}", e))
         .and_then(move |proposer_slashing| {
-            if beacon_chain.eth1_chain.is_some() {
-                let obs_outcome = beacon_chain
+            if ctx.beacon_chain.eth1_chain.is_some() {
+                let obs_outcome = ctx
+                    .beacon_chain
                     .verify_proposer_slashing_for_gossip(proposer_slashing)
                     .map_err(|e| format!("Error while verifying proposer slashing: {:?}", e))?;
                 if let ObservationOutcome::New(verified_proposer_slashing) = obs_outcome {
-                    beacon_chain.import_proposer_slashing(verified_proposer_slashing);
+                    ctx.beacon_chain
+                        .import_proposer_slashing(verified_proposer_slashing);
                     Ok(())
                 } else {
                     Err("Proposer slashing for that validator index already known".into())
@@ -524,22 +455,17 @@ pub async fn proposer_slashing<T: BeaconChainTypes>(
                 Err("Cannot insert proposer slashing on node without Eth1 connection.".to_string())
             }
         })
-        .map_err(ApiError::BadRequest)
-        .and_then(|_| response_builder?.body(&true))
+        .map_err(ApiError::BadRequest)?;
+
+    Ok(true)
 }
 
-pub async fn attester_slashing<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let response_builder = ResponseBuilder::new(&req);
-
+pub fn attester_slashing<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<bool, ApiError> {
     let body = req.into_body();
-    let chunks = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
-
-    serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&chunks)
+    serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&body)
         .map_err(|e| {
             ApiError::BadRequest(format!(
                 "Unable to parse JSON into AttesterSlashing: {:?}",
@@ -547,13 +473,13 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
             ))
         })
         .and_then(move |attester_slashing| {
-            if beacon_chain.eth1_chain.is_some() {
-                beacon_chain
+            if ctx.beacon_chain.eth1_chain.is_some() {
+                ctx.beacon_chain
                     .verify_attester_slashing_for_gossip(attester_slashing)
                     .map_err(|e| format!("Error while verifying attester slashing: {:?}", e))
                     .and_then(|outcome| {
                         if let ObservationOutcome::New(verified_attester_slashing) = outcome {
-                            beacon_chain
+                            ctx.beacon_chain
                                 .import_attester_slashing(verified_attester_slashing)
                                 .map_err(|e| {
                                     format!("Error while importing attester slashing: {:?}", e)
@@ -568,6 +494,7 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
                     "Cannot insert attester slashing on node without Eth1 connection.".to_string(),
                 ))
             }
-        })
-        .and_then(|_| response_builder?.body(&true))
+        })?;
+
+    Ok(true)
 }

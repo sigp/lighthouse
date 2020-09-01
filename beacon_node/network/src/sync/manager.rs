@@ -35,7 +35,7 @@
 
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
-use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
+use super::range_sync::{ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
@@ -44,6 +44,7 @@ use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, Goodbye
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
+use lru_cache::LRUCache;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use ssz_types::VariableList;
@@ -51,7 +52,7 @@ use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -100,13 +101,18 @@ pub enum SyncMessage<T: EthSpec> {
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
         chain_id: ChainId,
-        batch_id: BatchId,
+        epoch: Epoch,
         downloaded_blocks: Vec<SignedBeaconBlock<T>>,
         result: BatchProcessResult,
     },
 
-    /// A parent lookup has failed for a block given by this `peer_id`.
-    ParentLookupFailed(PeerId),
+    /// A parent lookup has failed.
+    ParentLookupFailed {
+        /// The head of the chain of blocks that failed to process.
+        chain_head: Hash256,
+        /// The peer that instigated the chain lookup.
+        peer_id: PeerId,
+    },
 }
 
 /// The result of processing a multiple blocks (a chain segment).
@@ -160,6 +166,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     /// A collection of parent block lookups.
     parent_queue: SmallVec<[ParentRequests<T::EthSpec>; 3]>,
+
+    /// A cache of failed chain lookups to prevent duplicate searches.
+    failed_chains: LRUCache<Hash256>,
 
     /// A collection of block hashes being searched for and a flag indicating if a result has been
     /// received or not.
@@ -222,6 +231,7 @@ pub fn spawn<T: BeaconChainTypes>(
         network_globals,
         input_channel: sync_recv,
         parent_queue: SmallVec::new(),
+        failed_chains: LRUCache::new(500),
         single_block_lookups: FnvHashMap::default(),
         log: log.clone(),
         beacon_processor_send,
@@ -351,6 +361,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         return;
                     }
                 };
+
+                // check if the parent of this block isn't in our failed cache. If it is, this
+                // chain should be dropped and the peer downscored.
+                if self.failed_chains.contains(&block.message.parent_root) {
+                    debug!(self.log, "Parent chain ignored due to past failure"; "block" => format!("{:?}", block.message.parent_root), "slot" => block.message.slot);
+                    if !parent_request.downloaded_blocks.is_empty() {
+                        // Add the root block to failed chains
+                        self.failed_chains
+                            .insert(parent_request.downloaded_blocks[0].canonical_root());
+                    } else {
+                        crit!(self.log, "Parent chain has no blocks");
+                    }
+                    self.network
+                        .report_peer(peer_id, PeerAction::MidToleranceError);
+                    return;
+                }
                 // add the block to response
                 parent_request.downloaded_blocks.push(block);
                 // queue for processing
@@ -508,6 +534,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             {
                 return;
             }
+        }
+
+        let block_root = block.canonical_root();
+        // If this block or it's parent is part of a known failed chain, ignore it.
+        if self.failed_chains.contains(&block.message.parent_root)
+            || self.failed_chains.contains(&block_root)
+        {
+            debug!(self.log, "Block is from a past failed chain. Dropping"; "block_root" => format!("{:?}", block_root), "block_slot" => block.message.slot);
+            return;
         }
 
         // Make sure this block is not already being searched for
@@ -697,6 +732,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // If the last block in the queue has an unknown parent, we continue the parent
             // lookup-search.
 
+            let chain_block_hash = parent_request.downloaded_blocks[0].canonical_root();
+
             let newest_block = parent_request
                 .downloaded_blocks
                 .pop()
@@ -715,8 +752,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.request_parent(parent_request);
                 }
                 Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
-                    let process_id =
-                        ProcessId::ParentLookup(parent_request.last_submitted_peer.clone());
+                    let process_id = ProcessId::ParentLookup(
+                        parent_request.last_submitted_peer.clone(),
+                        chain_block_hash,
+                    );
                     let blocks = parent_request.downloaded_blocks;
 
                     match self
@@ -742,6 +781,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "outcome" => format!("{:?}", outcome),
                         "last_peer" => parent_request.last_submitted_peer.to_string(),
                     );
+
+                    // Add this chain to cache of failed chains
+                    self.failed_chains.insert(chain_block_hash);
+
                     // This currently can be a host of errors. We permit this due to the partial
                     // ambiguity.
                     // TODO: Refine the error types and score the peer appropriately.
@@ -764,8 +807,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             || parent_request.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE
         {
             let error = if parent_request.failed_attempts >= PARENT_FAIL_TOLERANCE {
+                // This is a peer-specific error and the chain could be continued with another
+                // peer. We don't consider this chain a failure and prevent retries with another
+                // peer.
                 "too many failed attempts"
             } else {
+                if !parent_request.downloaded_blocks.is_empty() {
+                    self.failed_chains
+                        .insert(parent_request.downloaded_blocks[0].canonical_root());
+                } else {
+                    crit!(self.log, "Parent lookup has no blocks");
+                }
                 "reached maximum lookup-depth"
             };
 
@@ -773,6 +825,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             "block" => format!("{:?}",parent_request.downloaded_blocks[0].canonical_root()),
             "ancestors_found" => parent_request.downloaded_blocks.len(),
             "reason" => error
+            );
+            // Downscore the peer.
+            self.network.report_peer(
+                parent_request.last_submitted_peer,
+                PeerAction::LowToleranceError,
             );
             return; // drop the request
         }
@@ -842,24 +899,25 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                     SyncMessage::BatchProcessed {
                         chain_id,
-                        batch_id,
+                        epoch,
                         downloaded_blocks,
                         result,
                     } => {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
                             chain_id,
-                            batch_id,
+                            epoch,
                             downloaded_blocks,
                             result,
                         );
                     }
-                    SyncMessage::ParentLookupFailed(peer_id) => {
+                    SyncMessage::ParentLookupFailed {
+                        chain_head,
+                        peer_id,
+                    } => {
                         // A peer sent an object (block or attestation) that referenced a parent.
-                        // On request for this parent the peer indicated it did not have this
-                        // block.
-                        // This is not fatal. Peer's could prune old blocks so we moderately
-                        // tolerate this behaviour.
+                        // The processing of this chain failed.
+                        self.failed_chains.insert(chain_head);
                         self.network
                             .report_peer(peer_id, PeerAction::MidToleranceError);
                     }

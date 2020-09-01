@@ -1,24 +1,16 @@
 //! This contains a collection of lighthouse specific HTTP endpoints.
 
-use crate::response_builder::ResponseBuilder;
-use crate::ApiResult;
-use eth2_libp2p::{NetworkGlobals, PeerInfo};
-use hyper::{Body, Request};
+use crate::{ApiError, Context};
+use beacon_chain::BeaconChainTypes;
+use eth2_libp2p::PeerInfo;
 use serde::Serialize;
 use std::sync::Arc;
 use types::EthSpec;
 
-/// The syncing state of the beacon node.
-pub fn syncing<T: EthSpec>(
-    req: Request<Body>,
-    network_globals: Arc<NetworkGlobals<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body_no_ssz(&network_globals.sync_state())
-}
-
 /// Returns all known peers and corresponding information
-pub fn peers<T: EthSpec>(req: Request<Body>, network_globals: Arc<NetworkGlobals<T>>) -> ApiResult {
-    let peers: Vec<Peer<T>> = network_globals
+pub fn peers<T: BeaconChainTypes>(ctx: Arc<Context<T>>) -> Result<Vec<Peer<T::EthSpec>>, ApiError> {
+    Ok(ctx
+        .network_globals
         .peers
         .read()
         .peers()
@@ -26,16 +18,15 @@ pub fn peers<T: EthSpec>(req: Request<Body>, network_globals: Arc<NetworkGlobals
             peer_id: peer_id.to_string(),
             peer_info: peer_info.clone(),
         })
-        .collect();
-    ResponseBuilder::new(&req)?.body_no_ssz(&peers)
+        .collect())
 }
 
 /// Returns all known connected peers and their corresponding information
-pub fn connected_peers<T: EthSpec>(
-    req: Request<Body>,
-    network_globals: Arc<NetworkGlobals<T>>,
-) -> ApiResult {
-    let peers: Vec<Peer<T>> = network_globals
+pub fn connected_peers<T: BeaconChainTypes>(
+    ctx: Arc<Context<T>>,
+) -> Result<Vec<Peer<T::EthSpec>>, ApiError> {
+    Ok(ctx
+        .network_globals
         .peers
         .read()
         .connected_peers()
@@ -43,14 +34,13 @@ pub fn connected_peers<T: EthSpec>(
             peer_id: peer_id.to_string(),
             peer_info: peer_info.clone(),
         })
-        .collect();
-    ResponseBuilder::new(&req)?.body_no_ssz(&peers)
+        .collect())
 }
 
 /// Information returned by `peers` and `connected_peers`.
 #[derive(Clone, Debug, Serialize)]
 #[serde(bound = "T: EthSpec")]
-struct Peer<T: EthSpec> {
+pub struct Peer<T: EthSpec> {
     /// The Peer's ID
     peer_id: String,
     /// The PeerInfo associated with the peer.

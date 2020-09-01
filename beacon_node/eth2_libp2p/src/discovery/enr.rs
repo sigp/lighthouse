@@ -6,6 +6,7 @@ use super::enr_ext::CombinedKeyExt;
 use super::ENR_FILENAME;
 use crate::types::{Enr, EnrBitfield};
 use crate::NetworkConfig;
+use discv5::enr::EnrKey;
 use libp2p::core::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
@@ -48,6 +49,56 @@ impl Eth2Enr for Enr {
     }
 }
 
+/// Either use the given ENR or load an ENR from file if it exists and matches the current NodeId
+/// and sequence number.
+/// If an ENR exists, with the same NodeId, this function checks to see if the loaded ENR from
+/// disk is suitable to use, otherwise we increment the given ENR's sequence number.
+pub fn use_or_load_enr(
+    enr_key: &CombinedKey,
+    local_enr: &mut Enr,
+    config: &NetworkConfig,
+    log: &slog::Logger,
+) -> Result<(), String> {
+    let enr_f = config.network_dir.join(ENR_FILENAME);
+    if let Ok(mut enr_file) = File::open(enr_f.clone()) {
+        let mut enr_string = String::new();
+        match enr_file.read_to_string(&mut enr_string) {
+            Err(_) => debug!(log, "Could not read ENR from file"),
+            Ok(_) => {
+                match Enr::from_str(&enr_string) {
+                    Ok(disk_enr) => {
+                        // if the same node id, then we may need to update our sequence number
+                        if local_enr.node_id() == disk_enr.node_id() {
+                            if compare_enr(&local_enr, &disk_enr) {
+                                debug!(log, "ENR loaded from disk"; "file" => format!("{:?}", enr_f));
+                                // the stored ENR has the same configuration, use it
+                                *local_enr = disk_enr;
+                                return Ok(());
+                            }
+
+                            // same node id, different configuration - update the sequence number
+                            // Note: local_enr is generated with default(0) attnets value,
+                            // so a non default value in persisted enr will also update sequence number.
+                            let new_seq_no = disk_enr.seq().checked_add(1).ok_or_else(|| "ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
+                            local_enr.set_seq(new_seq_no, enr_key).map_err(|e| {
+                                format!("Could not update ENR sequence number: {:?}", e)
+                            })?;
+                            debug!(log, "ENR sequence number increased"; "seq" =>  new_seq_no);
+                        }
+                    }
+                    Err(e) => {
+                        warn!(log, "ENR from file could not be decoded"; "error" => format!("{:?}", e));
+                    }
+                }
+            }
+        }
+    }
+
+    save_enr_to_disk(&config.network_dir, &local_enr, log);
+
+    Ok(())
+}
+
 /// Loads an ENR from file if it exists and matches the current NodeId and sequence number. If none
 /// exists, generates a new one.
 ///
@@ -65,51 +116,11 @@ pub fn build_or_load_enr<T: EthSpec>(
     let enr_key = CombinedKey::from_libp2p(&local_key)?;
     let mut local_enr = build_enr::<T>(&enr_key, config, enr_fork_id)?;
 
-    let enr_f = config.network_dir.join(ENR_FILENAME);
-    if let Ok(mut enr_file) = File::open(enr_f.clone()) {
-        let mut enr_string = String::new();
-        match enr_file.read_to_string(&mut enr_string) {
-            Err(_) => debug!(log, "Could not read ENR from file"),
-            Ok(_) => {
-                match Enr::from_str(&enr_string) {
-                    Ok(disk_enr) => {
-                        // if the same node id, then we may need to update our sequence number
-                        if local_enr.node_id() == disk_enr.node_id() {
-                            if compare_enr(&local_enr, &disk_enr) {
-                                debug!(log, "ENR loaded from disk"; "file" => format!("{:?}", enr_f));
-                                // the stored ENR has the same configuration, use it
-                                return Ok(disk_enr);
-                            }
-
-                            // same node id, different configuration - update the sequence number
-                            // Note: local_enr is generated with default(0) attnets value,
-                            // so a non default value in persisted enr will also update sequence number.
-                            let new_seq_no = disk_enr.seq().checked_add(1).ok_or_else(|| "ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
-                            local_enr.set_seq(new_seq_no, &enr_key).map_err(|e| {
-                                format!("Could not update ENR sequence number: {:?}", e)
-                            })?;
-                            debug!(log, "ENR sequence number increased"; "seq" =>  new_seq_no);
-                        }
-                    }
-                    Err(e) => {
-                        warn!(log, "ENR from file could not be decoded"; "error" => format!("{:?}", e));
-                    }
-                }
-            }
-        }
-    }
-
-    save_enr_to_disk(&config.network_dir, &local_enr, log);
-
+    use_or_load_enr(&enr_key, &mut local_enr, config, log)?;
     Ok(local_enr)
 }
 
-/// Builds a lighthouse ENR given a `NetworkConfig`.
-pub fn build_enr<T: EthSpec>(
-    enr_key: &CombinedKey,
-    config: &NetworkConfig,
-    enr_fork_id: EnrForkId,
-) -> Result<Enr, String> {
+pub fn create_enr_builder_from_config<T: EnrKey>(config: &NetworkConfig) -> EnrBuilder<T> {
     let mut builder = EnrBuilder::new("v4");
     if let Some(enr_address) = config.enr_address {
         builder.ip(enr_address);
@@ -120,7 +131,17 @@ pub fn build_enr<T: EthSpec>(
     // we always give it our listening tcp port
     // TODO: Add uPnP support to map udp and tcp ports
     let tcp_port = config.enr_tcp_port.unwrap_or_else(|| config.libp2p_port);
-    builder.tcp(tcp_port);
+    builder.tcp(tcp_port).tcp(config.libp2p_port);
+    builder
+}
+
+/// Builds a lighthouse ENR given a `NetworkConfig`.
+pub fn build_enr<T: EthSpec>(
+    enr_key: &CombinedKey,
+    config: &NetworkConfig,
+    enr_fork_id: EnrForkId,
+) -> Result<Enr, String> {
+    let mut builder = create_enr_builder_from_config(config);
 
     // set the `eth2` field on our ENR
     builder.add_value(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes());
@@ -131,7 +152,6 @@ pub fn build_enr<T: EthSpec>(
     builder.add_value(BITFIELD_ENR_KEY.into(), bitfield.as_ssz_bytes());
 
     builder
-        .tcp(config.libp2p_port)
         .build(enr_key)
         .map_err(|e| format!("Could not build Local ENR: {:?}", e))
 }

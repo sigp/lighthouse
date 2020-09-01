@@ -24,10 +24,14 @@ use serde_repr::*;
 pub struct JsonKeystore {
     pub crypto: Crypto,
     pub uuid: Uuid,
-    pub path: String,
+    /// EIP-2335 does not declare this field as optional, but Prysm is omitting it so we must
+    /// support it.
+    pub path: Option<String>,
     pub pubkey: String,
     pub version: Version,
     pub description: Option<String>,
+    /// Not part of EIP-2335, but `ethdo` and Prysm have adopted it anyway so we must support it.
+    pub name: Option<String>,
 }
 
 /// Version for `JsonKeystore`.

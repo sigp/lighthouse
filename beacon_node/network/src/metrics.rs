@@ -98,6 +98,49 @@ lazy_static! {
         "beacon_processor_gossip_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
     );
+    // Gossip Exits.
+    pub static ref BEACON_PROCESSOR_EXIT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_exit_queue_total",
+        "Count of exits from gossip waiting to be verified."
+    );
+    pub static ref BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_exit_verified_total",
+        "Total number of voluntary exits verified for propagation."
+    );
+    pub static ref BEACON_PROCESSOR_EXIT_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_exit_imported_total",
+        "Total number of voluntary exits imported to the op pool."
+    );
+    // Gossip proposer slashings.
+    pub static ref BEACON_PROCESSOR_PROPOSER_SLASHING_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_proposer_slashing_queue_total",
+        "Count of proposer slashings from gossip waiting to be verified."
+    );
+    pub static ref BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_proposer_slashing_verified_total",
+        "Total number of proposer slashings verified for propagation."
+    );
+    pub static ref BEACON_PROCESSOR_PROPOSER_SLASHING_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_proposer_slashing_imported_total",
+        "Total number of proposer slashings imported to the op pool."
+    );
+    // Gossip attester slashings.
+    pub static ref BEACON_PROCESSOR_ATTESTER_SLASHING_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_attester_slashing_queue_total",
+        "Count of attester slashings from gossip waiting to be verified."
+    );
+    pub static ref BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_attester_slashing_verified_total",
+        "Total number of attester slashings verified for propagation."
+    );
+    pub static ref BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_attester_slashing_imported_total",
+        "Total number of attester slashings imported to the op pool."
+    );
+    pub static ref BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_attester_slashing_error_total",
+        "Total number of attester slashings that raised an error during processing."
+    );
     // Rpc blocks.
     pub static ref BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_rpc_block_queue_total",

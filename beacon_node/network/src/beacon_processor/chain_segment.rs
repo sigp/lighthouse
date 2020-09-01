@@ -1,21 +1,21 @@
 use crate::metrics;
 use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
-use crate::sync::{BatchId, BatchProcessResult, ChainId};
+use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{EthSpec, SignedBeaconBlock};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// Id associated to a block processing request, either a batch or a single block.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(ChainId, BatchId),
-    /// Processing Id of the parent lookup of a block
-    ParentLookup(PeerId),
+    RangeBatchId(ChainId, Epoch),
+    /// Processing Id of the parent lookup of a block.
+    ParentLookup(PeerId, Hash256),
 }
 
 pub fn handle_chain_segment<T: BeaconChainTypes>(
@@ -27,7 +27,7 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
 ) {
     match process_id {
         // this a request from the range sync
-        ProcessId::RangeBatchId(chain_id, batch_id) => {
+        ProcessId::RangeBatchId(chain_id, epoch) => {
             let len = downloaded_blocks.len();
             let start_slot = if len > 0 {
                 downloaded_blocks[0].message.slot.as_u64()
@@ -40,26 +40,26 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
                 0
             };
 
-            debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len(),  "start_slot" => start_slot, "end_slot" => end_slot);
+            debug!(log, "Processing batch"; "batch_epoch" => epoch, "blocks" => downloaded_blocks.len(),  "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service" => "sync");
             let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                 (_, Ok(_)) => {
-                    debug!(log, "Batch processed"; "id" => *batch_id , "start_slot" => start_slot, "end_slot" => end_slot);
+                    debug!(log, "Batch processed"; "batch_epoch" => epoch , "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service"=> "sync");
                     BatchProcessResult::Success
                 }
                 (imported_blocks, Err(e)) if imported_blocks > 0 => {
                     debug!(log, "Batch processing failed but imported some blocks";
-                            "id" => *batch_id, "error" => e, "imported_blocks"=> imported_blocks);
+                        "batch_epoch" => epoch, "error" => e, "imported_blocks"=> imported_blocks, "service" => "sync");
                     BatchProcessResult::Partial
                 }
                 (_, Err(e)) => {
-                    debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
+                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "error" => e, "service" => "sync");
                     BatchProcessResult::Failed
                 }
             };
 
             let msg = SyncMessage::BatchProcessed {
                 chain_id,
-                batch_id,
+                epoch,
                 downloaded_blocks,
                 result,
             };
@@ -71,7 +71,7 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
             });
         }
         // this a parent lookup request from the sync manager
-        ProcessId::ParentLookup(peer_id) => {
+        ProcessId::ParentLookup(peer_id, chain_head) => {
             debug!(
                 log, "Processing parent lookup";
                 "last_peer_id" => format!("{}", peer_id),
@@ -81,9 +81,9 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
             // reverse
             match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
                 (_, Err(e)) => {
-                    warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
+                    debug!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
                     sync_send
-                        .send(SyncMessage::ParentLookupFailed(peer_id))
+                        .send(SyncMessage::ParentLookupFailed{peer_id, chain_head})
                         .unwrap_or_else(|_| {
                             // on failure, inform to downvote the peer
                             debug!(

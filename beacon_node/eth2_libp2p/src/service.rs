@@ -36,6 +36,8 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
     Behaviour(BehaviourEvent<TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
+    /// We reached zero listening addresses.
+    ZeroListeners,
 }
 
 /// The configuration and state of the libp2p components for the beacon node.
@@ -283,10 +285,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
                 }
                 SwarmEvent::ListenerClosed { addresses, reason } => {
-                    crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
+                    crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason));
+                    if Swarm::listeners(&self.swarm).count() == 0 {
+                        return Libp2pEvent::ZeroListeners;
+                    }
                 }
                 SwarmEvent::ListenerError { error } => {
-                    warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
+                    // this is non fatal, but we still check
+                    warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()));
+                    if Swarm::listeners(&self.swarm).count() == 0 {
+                        return Libp2pEvent::ZeroListeners;
+                    }
                 }
                 SwarmEvent::Dialing(peer_id) => {
                     debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
@@ -348,7 +357,7 @@ fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
 /// generated and is then saved to disk.
 ///
 /// Currently only secp256k1 keys are allowed, as these are the only keys supported by discv5.
-fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
+pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
     // check for key from disk
     let network_key_f = config.network_dir.join(NETWORK_KEY_FILENAME);
     if let Ok(mut network_key_file) = File::open(network_key_f.clone()) {

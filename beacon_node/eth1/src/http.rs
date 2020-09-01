@@ -12,8 +12,10 @@
 
 use futures::future::TryFutureExt;
 use reqwest::{header::CONTENT_TYPE, ClientBuilder, StatusCode};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::ops::Range;
+use std::str::FromStr;
 use std::time::Duration;
 use types::Hash256;
 
@@ -29,6 +31,40 @@ pub const DEPOSIT_COUNT_FN_SIGNATURE: &str = "0x621fd130";
 pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
 /// Number of bytes in deposit contract deposit root (value only).
 pub const DEPOSIT_ROOT_BYTES: usize = 32;
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum Eth1NetworkId {
+    Goerli,
+    Mainnet,
+    Custom(u64),
+}
+
+impl FromStr for Eth1NetworkId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1" => Ok(Eth1NetworkId::Mainnet),
+            "5" => Ok(Eth1NetworkId::Goerli),
+            custom => {
+                let network_id = u64::from_str_radix(custom, 10)
+                    .map_err(|e| format!("Failed to parse eth1 network id {}", e))?;
+                Ok(Eth1NetworkId::Custom(network_id))
+            }
+        }
+    }
+}
+
+/// Get the eth1 network id of the given endpoint.
+pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1NetworkId, String> {
+    let response_body = send_rpc_request(endpoint, "net_version", json!([]), timeout).await?;
+    Eth1NetworkId::from_str(
+        response_result(&response_body)?
+            .ok_or_else(|| "No result was returned for block number".to_string())?
+            .as_str()
+            .ok_or_else(|| "Data was not string")?,
+    )
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Block {

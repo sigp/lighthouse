@@ -9,37 +9,14 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
-use types::{EthSpec, SignedBeaconBlock, Slot};
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct BatchId(pub u64);
-
-impl std::ops::Deref for BatchId {
-    type Target = u64;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl std::ops::DerefMut for BatchId {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl std::convert::From<u64> for BatchId {
-    fn from(id: u64) -> Self {
-        BatchId(id)
-    }
-}
+use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
 
 /// A collection of sequential blocks that are requested from peers in a single RPC request.
 #[derive(PartialEq, Debug)]
 pub struct Batch<T: EthSpec> {
-    /// The ID of the batch, these are sequential.
-    pub id: BatchId,
-    /// The requested start slot of the batch, inclusive.
-    pub start_slot: Slot,
-    /// The requested end slot of batch, exlcusive.
+    /// The requested start epoch of the batch.
+    pub start_epoch: Epoch,
+    /// The requested end slot of batch, exclusive.
     pub end_slot: Slot,
     /// The `Attempts` that have been made to send us this batch.
     pub attempts: Vec<Attempt>,
@@ -69,10 +46,9 @@ pub struct Attempt {
 impl<T: EthSpec> Eq for Batch<T> {}
 
 impl<T: EthSpec> Batch<T> {
-    pub fn new(id: BatchId, start_slot: Slot, end_slot: Slot, peer_id: PeerId) -> Self {
+    pub fn new(start_epoch: Epoch, end_slot: Slot, peer_id: PeerId) -> Self {
         Batch {
-            id,
-            start_slot,
+            start_epoch,
             end_slot,
             attempts: Vec::new(),
             current_peer: peer_id,
@@ -82,12 +58,21 @@ impl<T: EthSpec> Batch<T> {
         }
     }
 
+    pub fn start_slot(&self) -> Slot {
+        // batches are shifted by 1
+        self.start_epoch.start_slot(T::slots_per_epoch()) + 1
+    }
+
+    pub fn end_slot(&self) -> Slot {
+        self.end_slot
+    }
     pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
+        let start_slot = self.start_slot();
         BlocksByRangeRequest {
-            start_slot: self.start_slot.into(),
+            start_slot: start_slot.into(),
             count: min(
                 T::slots_per_epoch() * EPOCHS_PER_BATCH,
-                self.end_slot.sub(self.start_slot).into(),
+                self.end_slot.sub(start_slot).into(),
             ),
             step: 1,
         }
@@ -105,7 +90,7 @@ impl<T: EthSpec> Batch<T> {
 
 impl<T: EthSpec> Ord for Batch<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.id.0.cmp(&other.id.0)
+        self.start_epoch.cmp(&other.start_epoch)
     }
 }
 
