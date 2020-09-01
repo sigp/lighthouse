@@ -26,14 +26,10 @@ jobs:
         run: |
             docker buildx create --use --name build --node build --driver-opt network=host
 
-      - name: test
-        run: |
-            pwd; ls; ls ..
-
       - name: Build dockerfile (with push)
         run: |
             docker buildx build \
                 --platform=linux/amd64,linux/arm64 \
                 --output "type=image,push=true" \
-                --file ../Dockerfile . \
+                --file ./Dockerfile . \
                 --tag seananderson33/lighthouse:latest
