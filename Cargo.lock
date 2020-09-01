@@ -5883,7 +5883,6 @@ dependencies = [
  "compare_fields_derive",
  "criterion",
  "derivative",
- "dirs",
  "eth2_hashing",
  "eth2_interop_keypairs",
  "eth2_ssz",
