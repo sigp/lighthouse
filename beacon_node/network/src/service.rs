@@ -218,9 +218,9 @@ fn spawn_service<T: BeaconChainTypes>(
                 _ = service.metrics_update.next() => {
                     // update various network metrics
                     metric_update_counter +=1;
-                    if metric_update_counter* 1000 % T::EthSpec::default_spec().milliseconds_per_slot == 0 { 
+                    if metric_update_counter* 1000 % T::EthSpec::default_spec().milliseconds_per_slot == 0 {
                         // if a slot has occurred, reset the metrics
-                        let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT 
+                        let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT
                             .as_ref()
                             .map(|gauge| gauge.reset());
                     }
@@ -500,7 +500,6 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
         .as_ref()
         .map(|gauge| gauge.reset());
 
-
     // Subnet topics subscribed to
     for topic_hash in gossipsub.topics() {
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
@@ -605,5 +604,19 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
                 }
             }
         }
+    }
+
+    // protocol peers
+    let mut peers_per_protocol: HashMap<String, i64> = HashMap::new();
+    for (_peer, protocol) in gossipsub.peer_protocol() {
+        *peers_per_protocol.entry(protocol.to_string()).or_default() += 1;
+    }
+
+    for (protocol, peers) in peers_per_protocol.iter() {
+        if let Some(v) =
+            metrics::get_int_gauge(&metrics::PEERS_PER_PROTOCOL, &[&protocol.to_string()])
+        {
+            v.set(*peers)
+        };
     }
 }
