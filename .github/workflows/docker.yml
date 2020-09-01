@@ -11,10 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@master
 
-      -   name: Build Docker Buildx
-          run: |
-              docker version
-
       - name: Dockerhub login
         env:
             DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
@@ -24,7 +20,10 @@ jobs:
 
       - name: Build Docker Buildx
         run: |
-            git clone git://github.com/docker/buildx && cd buildx && make install
+            export DOCKER_BUILDKIT=1;
+            docker build --platform=local -o . git://github.com/docker/buildx;
+            mkdir -p ~/.docker/cli-plugins;
+            mv buildx ~/.docker/cli-plugins/docker-buildx;
 
       - name: Create Docker Builder
         run: |
