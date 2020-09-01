@@ -34,8 +34,8 @@ eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 dirs = "2.0.2"
+account_utils = { path = "../common/account_utils" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
-account_utils = { path = "../common/account_utils" }

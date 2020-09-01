@@ -1,3 +1,4 @@
+use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use directory::DEFAULT_ROOT_DIR;
@@ -213,6 +214,17 @@ fn run<E: EthSpec>(
         for dir in ["validators", "wallets", "secrets", "beacon"].iter() {
             let old_path = default_root_dir.join(dir);
             if old_path.exists() {
+                if *dir == "validators" {
+                    let mut def = ValidatorDefinitions::open(&old_path).map_err(|e| {
+                        format!("Failed to open validator_definitions.yaml: {:?}", e)
+                    })?;
+                    def.migrate(&default_root_dir, &testnet_dir).map_err(|e| {
+                        format!("Failed to migrate validator_definitions.yaml: {}", e)
+                    })?;
+                    def.save(&old_path).map_err(|e| {
+                        format!("Failed to save validator_definitions.yaml: {:?}", e)
+                    })?;
+                }
                 std::fs::rename(old_path, testnet_dir.join(dir))
                     .map_err(|e| format!("Failed to move directory: {}", e))?;
             }
