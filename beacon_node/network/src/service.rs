@@ -474,13 +474,7 @@ fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
 }
 
 fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
-    // Clear the subnet subscriptions
-    let _ = metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC
-        .as_ref()
-        .map(|gauge| gauge.reset());
-    let _ = metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC
-        .as_ref()
-        .map(|gauge| gauge.reset());
+    // Clear the metrics
     let _ = metrics::PEERS_PER_PROTOCOL
         .as_ref()
         .map(|gauge| gauge.reset());
@@ -490,15 +484,33 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
     let _ = metrics::MESH_PEERS_PER_MAIN_TOPIC
         .as_ref()
         .map(|gauge| gauge.reset());
-    let _ = metrics::MESH_PEERS_PER_SUBNET_TOPIC
-        .as_ref()
-        .map(|gauge| gauge.reset());
     let _ = metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC
         .as_ref()
         .map(|gauge| gauge.reset());
     let _ = metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC
         .as_ref()
         .map(|gauge| gauge.reset());
+
+    // reset the mesh peers, showing all subnets
+    for subnet_id in 0..T::default_spec().attestation_subnet_count {
+        let _ = metrics::get_int_gauge(
+            &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
+            &[&subnet_id.to_string()],
+        )
+        .map(|v| v.set(0));
+
+        let _ = metrics::get_int_gauge(
+            &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
+            &[&subnet_id.to_string()],
+        )
+        .map(|v| v.set(0));
+
+        let _ = metrics::get_int_gauge(
+            &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
+            &[&subnet_id.to_string()],
+        )
+        .map(|v| v.set(0));
+    }
 
     // Subnet topics subscribed to
     for topic_hash in gossipsub.topics() {

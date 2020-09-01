@@ -49,7 +49,7 @@ lazy_static! {
     );
 
     pub static ref ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT: Result<IntCounterVec> = try_create_int_counter_vec(
-        "gossipsub_failed_attestation_published_per_subnet_per_slot",
+        "gossipsub_attestations_published_per_subnet_per_slot",
         "Failed attestation publishes per subnet",
         &["subnet"]
     );
