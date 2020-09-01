@@ -1,12 +1,12 @@
+use crate::common::read_mnemonic_from_cli;
+use crate::wallet::create::create_wallet_from_mnemonic;
+use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSPHRASE_FLAG, TYPE_FLAG};
 use clap::{App, Arg, ArgMatches};
 use std::path::PathBuf;
 
-use crate::wallet::create::create_wallet_from_mnemonic;
-use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSPHRASE_FLAG, TYPE_FLAG};
-
-use crate::common::{read_mnemonic_from_cli, MNEMONIC_FLAG, STDIN_PASSWORD_FLAG};
-
 pub const CMD: &str = "recover";
+pub const MNEMONIC_FLAG: &str = "mnemonic-path";
+pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -63,7 +63,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
-    let mnemonic = read_mnemonic_from_cli(matches)?;
+    let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
+    let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+    let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_password)?;
 
     let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir, &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;

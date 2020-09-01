@@ -1,4 +1,4 @@
-use crate::common::{read_mnemonic_from_cli, MNEMONIC_FLAG, STDIN_PASSWORD_FLAG};
+use crate::common::read_mnemonic_from_cli;
 use crate::validator::create::COUNT_FLAG;
 use crate::wallet::create::HD_TYPE;
 use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
@@ -13,12 +13,16 @@ pub const CMD: &str = "recover";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const TYPE_FLAG: &str = "type";
 pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
+pub const MNEMONIC_FLAG: &str = "mnemonic-path";
+pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about(
-            "Recovers validator private keys given a 12-word BIP-39 mnemonic phrase.",
-        )
+            "Recovers validator private keys given a 12-word BIP-39 mnemonic phrase. \
+            If you did not specify a `--first-index` or count `--count`, by default this will \
+            only recover the keys associated with the validator at index 0 for an HD wallet \
+            in accordance with the EIP-2333 spec.")
         .arg(
             Arg::with_name(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)
@@ -107,8 +111,10 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     )?;
     let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
+    let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
+    let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
 
-    let mnemonic = read_mnemonic_from_cli(matches)?;
+    let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_password)?;
 
     let seed = Seed::new(&mnemonic, "");
 
@@ -144,7 +150,13 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
-        println!("{}/{}\t0x{}", index + 1, count, voting_pubkey);
+        println!(
+            "{}/{}\tIndex: {}\t0x{}",
+            index - first_index,
+            count - first_index,
+            index,
+            voting_pubkey
+        );
     }
 
     Ok(())

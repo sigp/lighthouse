@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::Duration;
 
-pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 pub const MNEMONIC_PROMPT: &str = "Enter the 12-word mnemonic phrase:";
-pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
     let path = path.as_ref();
@@ -29,15 +27,14 @@ pub fn base_wallet_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBu
     )
 }
 
-pub fn read_mnemonic_from_cli(matches: &ArgMatches) -> Result<Mnemonic, String> {
-
-
-    //TODO: EXPLICIT DIRECTIONS ON HOW TO AVOID SLASHING
+pub fn read_mnemonic_from_cli(
+    mnemonic_path: Option<PathBuf>,
+    stdin_password: bool,
+) -> Result<Mnemonic, String> {
     eprintln!("");
     println!("WARNING: IF YOU HAVE RUN THESE KEYS ON ANOTHER CLIENT, YOU RISK BEING SLASHED.");
     eprintln!("");
-    let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+
     let mnemonic = match mnemonic_path {
         Some(path) => fs::read(&path)
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))

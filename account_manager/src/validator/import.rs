@@ -1,4 +1,3 @@
-use crate::common::STDIN_PASSWORD_FLAG;
 use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
 use account_utils::{
     eth2_keystore::Keystore,
@@ -17,6 +16,7 @@ use std::time::Duration;
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
+pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter to omit it:";
 pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
