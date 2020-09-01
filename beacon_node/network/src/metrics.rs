@@ -43,8 +43,8 @@ lazy_static! {
     );
 
     pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "gossipsub_avg_peer_score_per_topic",
-        "Average peer's score per topic",
+        "gossipsub_avg_peer_score_per_subnet_topic",
+        "Average peer's score per subnet topic",
         &["subnet"]
     );
 
