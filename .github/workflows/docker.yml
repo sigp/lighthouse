@@ -11,6 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@master
 
+      -   name: Build Docker Buildx
+          run: |
+              docker version
+
       - name: Dockerhub login
         env:
             DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
