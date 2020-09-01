@@ -3,16 +3,21 @@
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
+
+use crate::slog::Drain;
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, BlockingMigratorDiskHarnessType,
 };
 use beacon_chain::BeaconSnapshot;
-use beacon_chain::StateSkipConfig;
+use maplit::hashset;
 use rand::Rng;
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::sync::Arc;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
@@ -33,14 +38,18 @@ lazy_static! {
 }
 
 type E = MinimalEthSpec;
-type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
+type TestHarness = BeaconChainHarness<BlockingMigratorDiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
-    let log = NullLoggerBuilder.build().expect("logger should build");
+
+    let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
+    let drain = slog_term::FullFormat::new(decorator).build();
+    let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+
     Arc::new(
         HotColdDB::open(&hot_path, &cold_path, config, spec, log)
             .expect("disk store should initialize"),
@@ -65,7 +74,7 @@ fn full_participation_no_skips() {
     let num_blocks_produced = E::slots_per_epoch() * 5;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     harness.extend_chain(
         num_blocks_produced as usize,
@@ -85,7 +94,7 @@ fn randomised_skips() {
     let mut num_blocks_produced = 0;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let rng = &mut XorShiftRng::from_seed([42; 16]);
 
     let mut head_slot = 0;
@@ -121,7 +130,7 @@ fn randomised_skips() {
 fn long_skip() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     // Number of blocks to create in the first run, intentionally not falling on an epoch
     // boundary in order to check that the DB hot -> cold migration is capable of reaching
@@ -172,7 +181,7 @@ fn randao_genesis_storage() {
     let validator_count = 8;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), validator_count);
+    let mut harness = get_harness(store.clone(), validator_count);
 
     let num_slots = E::slots_per_epoch() * (E::epochs_per_historical_vector() - 1) as u64;
 
@@ -233,7 +242,7 @@ fn split_slot_restore() {
 
     let split_slot = {
         let store = get_store(&db_path);
-        let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+        let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
         let num_blocks = 4 * E::slots_per_epoch();
 
@@ -261,7 +270,7 @@ fn epoch_boundary_state_attestation_processing() {
     let num_blocks_produced = E::slots_per_epoch() * 5;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     let late_validators = vec![0, 1];
     let timely_validators = (2..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
@@ -347,16 +356,18 @@ fn epoch_boundary_state_attestation_processing() {
 fn delete_blocks_and_states() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let mut harness =
+        BeaconChainHarness::new_with_disk_store(MinimalEthSpec, store.clone(), validators_keypairs);
 
-    let unforked_blocks = 4 * E::slots_per_epoch();
+    let unforked_blocks: u64 = 4 * E::slots_per_epoch();
 
     // Finalize an initial portion of the chain.
-    harness.extend_chain(
-        unforked_blocks as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    let initial_slots: Vec<Slot> = (1..=unforked_blocks).map(Into::into).collect();
+    let state = harness.get_current_state();
+    let all_validators = harness.get_all_validators();
+    harness.add_attested_blocks_at_slots(state, &initial_slots, &all_validators);
 
     // Create a fork post-finalization.
     let two_thirds = (LOW_VALIDATOR_COUNT / 3) * 2;
@@ -365,24 +376,37 @@ fn delete_blocks_and_states() {
 
     let fork_blocks = 2 * E::slots_per_epoch();
 
-    let (honest_head, faulty_head) = harness.generate_two_forks_by_skipping_a_block(
-        &honest_validators,
-        &faulty_validators,
-        fork_blocks as usize,
-        fork_blocks as usize,
-    );
+    let slot_u64: u64 = harness.get_current_slot().as_u64() + 1;
+
+    let fork1_slots: Vec<Slot> = (slot_u64..(slot_u64 + fork_blocks))
+        .map(Into::into)
+        .collect();
+    let fork2_slots: Vec<Slot> = (slot_u64 + 1..(slot_u64 + 1 + fork_blocks))
+        .map(Into::into)
+        .collect();
+
+    let fork1_state = harness.get_current_state();
+    let fork2_state = fork1_state.clone();
+    let results = harness.add_blocks_on_multiple_chains(vec![
+        (fork1_state, fork1_slots, honest_validators),
+        (fork2_state, fork2_slots, faulty_validators),
+    ]);
+
+    let honest_head = results[0].2;
+    let faulty_head = results[1].2;
 
     assert_ne!(honest_head, faulty_head, "forks should be distinct");
     let head_info = harness.chain.head_info().expect("should get head");
     assert_eq!(head_info.slot, unforked_blocks + fork_blocks);
 
     assert_eq!(
-        head_info.block_root, honest_head,
+        head_info.block_root,
+        honest_head.into(),
         "the honest chain should be the canonical chain",
     );
 
     let faulty_head_block = store
-        .get_block(&faulty_head)
+        .get_block(&faulty_head.into())
         .expect("no errors")
         .expect("faulty head block exists");
 
@@ -394,31 +418,35 @@ fn delete_blocks_and_states() {
         .expect("no db error")
         .expect("faulty head state exists");
 
-    let states_to_delete = StateRootsIterator::new(store.clone(), &faulty_head_state)
-        .map(Result::unwrap)
-        .take_while(|(_, slot)| *slot > unforked_blocks)
-        .collect::<Vec<_>>();
-
     // Delete faulty fork
     // Attempting to load those states should find them unavailable
-    for (state_root, slot) in &states_to_delete {
-        store.delete_state(state_root, *slot).unwrap();
-        assert_eq!(store.get_state(state_root, Some(*slot)).unwrap(), None);
+    for (state_root, slot) in
+        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+    {
+        if slot <= unforked_blocks {
+            break;
+        }
+        store.delete_state(&state_root, slot).unwrap();
+        assert_eq!(store.get_state(&state_root, Some(slot)).unwrap(), None);
     }
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
-    for (state_root, slot) in &states_to_delete {
-        store.delete_state(state_root, *slot).unwrap();
+    for (state_root, slot) in
+        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+    {
+        if slot <= unforked_blocks {
+            break;
+        }
+        store.delete_state(&state_root, slot).unwrap();
     }
 
     // Deleting the blocks from the fork should remove them completely
-    let blocks_to_delete = BlockRootsIterator::new(store.clone(), &faulty_head_state)
-        .map(Result::unwrap)
-        // Extra +1 here accounts for the skipped slot that started this fork
-        .take_while(|(_, slot)| *slot > unforked_blocks + 1)
-        .collect::<Vec<_>>();
-
-    for (block_root, _) in blocks_to_delete {
+    for (block_root, slot) in
+        BlockRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+    {
+        if slot <= unforked_blocks + 1 {
+            break;
+        }
         store.delete_block(&block_root).unwrap();
         assert_eq!(store.get_block(&block_root).unwrap(), None);
     }
@@ -429,11 +457,12 @@ fn delete_blocks_and_states() {
         .chain
         .rev_iter_state_roots()
         .expect("rev iter ok")
-        .map(Result::unwrap)
-        .filter(|(_, slot)| *slot < split_slot);
+        .map(Result::unwrap);
 
     for (state_root, slot) in finalized_states {
-        store.delete_state(&state_root, slot).unwrap();
+        if slot < split_slot {
+            store.delete_state(&state_root, slot).unwrap();
+        }
     }
 
     // After all that, the chain dump should still be OK
@@ -444,35 +473,52 @@ fn delete_blocks_and_states() {
 // See https://github.com/sigp/lighthouse/issues/845
 fn multi_epoch_fork_valid_blocks_test(
     initial_blocks: usize,
-    num_fork1_blocks: usize,
-    num_fork2_blocks: usize,
+    num_fork1_blocks_: usize,
+    num_fork2_blocks_: usize,
     num_fork1_validators: usize,
 ) -> (TempDir, TestHarness, Hash256, Hash256) {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let mut harness =
+        BeaconChainHarness::new_with_disk_store(MinimalEthSpec, store, validators_keypairs);
+
+    let num_fork1_blocks: u64 = num_fork1_blocks_.try_into().unwrap();
+    let num_fork2_blocks: u64 = num_fork2_blocks_.try_into().unwrap();
 
     // Create the initial portion of the chain
     if initial_blocks > 0 {
-        harness.extend_chain(
-            initial_blocks,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
+        let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
+        let state = harness.get_current_state();
+        let all_validators = harness.get_all_validators();
+        harness.add_attested_blocks_at_slots(state, &initial_slots, &all_validators);
     }
 
     assert!(num_fork1_validators <= LOW_VALIDATOR_COUNT);
     let fork1_validators: Vec<usize> = (0..num_fork1_validators).collect();
     let fork2_validators: Vec<usize> = (num_fork1_validators..LOW_VALIDATOR_COUNT).collect();
 
-    let (head1, head2) = harness.generate_two_forks_by_skipping_a_block(
-        &fork1_validators,
-        &fork2_validators,
-        num_fork1_blocks,
-        num_fork2_blocks,
-    );
+    let fork1_state = harness.get_current_state();
+    let fork2_state = fork1_state.clone();
 
-    (db_path, harness, head1, head2)
+    let slot_u64: u64 = harness.get_current_slot().as_u64() + 1;
+    let fork1_slots: Vec<Slot> = (slot_u64..(slot_u64 + num_fork1_blocks))
+        .map(Into::into)
+        .collect();
+    let fork2_slots: Vec<Slot> = (slot_u64 + 1..(slot_u64 + 1 + num_fork2_blocks))
+        .map(Into::into)
+        .collect();
+
+    let results = harness.add_blocks_on_multiple_chains(vec![
+        (fork1_state, fork1_slots, fork1_validators),
+        (fork2_state, fork2_slots, fork2_validators),
+    ]);
+
+    let head1 = results[0].2;
+    let head2 = results[1].2;
+
+    (db_path, harness, head1.into(), head2.into())
 }
 
 // This is the minimal test of block production with different shufflings.
@@ -504,8 +550,7 @@ fn block_production_different_shuffling_long() {
 fn multiple_attestations_per_block() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store, HIGH_VALIDATOR_COUNT);
-    let chain = &harness.chain;
+    let mut harness = get_harness(store, HIGH_VALIDATOR_COUNT);
 
     harness.extend_chain(
         MainnetEthSpec::slots_per_epoch() as usize * 3,
@@ -513,14 +558,14 @@ fn multiple_attestations_per_block() {
         AttestationStrategy::AllValidators,
     );
 
-    let head = chain.head().unwrap();
+    let head = harness.chain.head().unwrap();
     let committees_per_slot = head
         .beacon_state
         .get_committee_count_at_slot(head.beacon_state.slot)
         .unwrap();
     assert!(committees_per_slot > 1);
 
-    for snapshot in chain.chain_dump().unwrap() {
+    for snapshot in harness.chain.chain_dump().unwrap() {
         assert_eq!(
             snapshot.beacon_block.message.body.attestations.len() as u64,
             if snapshot.beacon_block.slot() <= 1 {
@@ -536,7 +581,7 @@ fn multiple_attestations_per_block() {
 fn shuffling_compatible_linear_chain() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     // Skip the block at the end of the first epoch.
     let head_block_root = harness.extend_chain(
@@ -560,7 +605,7 @@ fn shuffling_compatible_linear_chain() {
 fn shuffling_compatible_missing_pivot_block() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let mut harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     // Skip the block at the end of the first epoch.
     harness.extend_chain(
@@ -718,150 +763,160 @@ fn check_shuffling_compatible(
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[test]
 fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
-    const VALIDATOR_COUNT: usize = 24;
-    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
-    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
+    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
-    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+    let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let mut rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
+    let slots_per_epoch = rig.slots_per_epoch();
+    let mut state = rig.get_current_state();
 
-    let slot = harness.get_chain_slot();
-    let state = harness.get_head_state();
-    let (canonical_blocks_pre_finalization, _, slot, _, state) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
-    let (stray_blocks, stray_states, _, stray_head, _) = harness.add_stray_blocks(
-        harness.get_head_state(),
-        slot,
-        slots_per_epoch - 1,
-        &faulty_validators,
+    let canonical_chain_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
+    let (canonical_chain_blocks_pre_finalization, _, _, new_state) =
+        rig.add_attested_blocks_at_slots(state, &canonical_chain_slots, &honest_validators);
+    state = new_state;
+    let canonical_chain_slot: u64 = rig.get_current_slot().into();
+
+    let stray_slots: Vec<Slot> = (canonical_chain_slot + 1..rig.epoch_start_slot(2))
+        .map(Slot::new)
+        .collect();
+    let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
+        rig.get_current_state(),
+        &stray_slots,
+        &adversarial_validators,
     );
 
     // Precondition: Ensure all stray_blocks blocks are still known
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness
-            .chain
-            .get_state(&state_hash.into(), Some(slot))
-            .unwrap();
         assert!(
-            state.is_some(),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    // Precondition: Only genesis is finalized
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    assert_eq!(
-        get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::zero().into()].into_iter().collect(),
-    );
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
 
-    assert!(harness.chain.knows_head(&stray_head));
+    assert!(rig.chain.knows_head(&stray_head));
 
     // Trigger finalization
-    let (canonical_blocks_post_finalization, _, _, _, _) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch * 5, &honest_validators);
+    let finalization_slots: Vec<Slot> = ((canonical_chain_slot + 1)
+        ..=(canonical_chain_slot + slots_per_epoch * 5))
+        .map(Slot::new)
+        .collect();
+    let (canonical_chain_blocks_post_finalization, _, _, _) =
+        rig.add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators);
 
     // Postcondition: New blocks got finalized
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
     assert_eq!(
-        finalized_blocks,
-        vec![
-            Hash256::zero().into(),
-            canonical_blocks_pre_finalization[&Slot::new(slots_per_epoch as u64)],
-            canonical_blocks_post_finalization[&Slot::new((slots_per_epoch * 2) as u64)],
-        ]
-        .into_iter()
-        .collect()
+        rig.get_finalized_checkpoints(),
+        hashset! {
+            canonical_chain_blocks_pre_finalization[&rig.epoch_start_slot(1).into()],
+            canonical_chain_blocks_post_finalization[&rig.epoch_start_slot(2).into()],
+        },
     );
 
     // Postcondition: Ensure all stray_blocks blocks have been pruned
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_none(),
+            !rig.block_exists(block_hash),
             "abandoned block {} should have been pruned",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_none(),
-            "stray state {} at slot {} should have been deleted",
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
         );
     }
 
-    assert!(!harness.chain.knows_head(&stray_head));
+    assert!(!rig.chain.knows_head(&stray_head));
 }
 
 #[test]
 fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
-    const VALIDATOR_COUNT: usize = 24;
-    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
-    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
+    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
-    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let all_validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
-    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+    let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let mut rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
+    let slots_per_epoch = rig.slots_per_epoch();
+    let state = rig.get_current_state();
 
     // Fill up 0th epoch
-    let slot = harness.get_chain_slot();
-    let state = harness.get_head_state();
-    let (canonical_blocks_zeroth_epoch, _, slot, _, state) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+    let canonical_chain_slots_zeroth_epoch: Vec<Slot> =
+        (1..rig.epoch_start_slot(1)).map(Slot::new).collect();
+    let (_, _, _, state) = rig.add_attested_blocks_at_slots(
+        state,
+        &canonical_chain_slots_zeroth_epoch,
+        &honest_validators,
+    );
 
     // Fill up 1st epoch
-    let (_, _, canonical_slot, shared_head, canonical_state) =
-        harness.add_canonical_chain_blocks(state, slot, 1, &all_validators);
-    let (stray_blocks, stray_states, _, stray_head, _) = harness.add_stray_blocks(
-        canonical_state.clone(),
-        canonical_slot,
-        1,
-        &faulty_validators,
+    let canonical_chain_slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1)
+        ..=rig.epoch_start_slot(1) + 1)
+        .map(Slot::new)
+        .collect();
+    let (canonical_chain_blocks_first_epoch, _, shared_head, state) = rig
+        .add_attested_blocks_at_slots(
+            state.clone(),
+            &canonical_chain_slots_first_epoch,
+            &honest_validators,
+        );
+    let canonical_chain_slot: u64 = rig.get_current_slot().into();
+
+    let stray_chain_slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 2
+        ..=rig.epoch_start_slot(1) + 2)
+        .map(Slot::new)
+        .collect();
+    let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
+        state.clone(),
+        &stray_chain_slots_first_epoch,
+        &adversarial_validators,
     );
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_some(),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    let chain_dump = harness.chain.chain_dump().unwrap();
+    let chain_dump = rig.chain.chain_dump().unwrap();
     assert_eq!(
         get_finalized_epoch_boundary_blocks(&chain_dump),
         vec![Hash256::zero().into()].into_iter().collect(),
@@ -870,172 +925,167 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 
     // Trigger finalization
-    let (canonical_blocks, _, _, _, _) = harness.add_canonical_chain_blocks(
-        canonical_state,
-        canonical_slot,
-        slots_per_epoch * 5,
-        &honest_validators,
-    );
+    let finalization_slots: Vec<Slot> = ((canonical_chain_slot + 1)
+        ..=(canonical_chain_slot + slots_per_epoch * 5))
+        .map(Slot::new)
+        .collect();
+    let (canonical_chain_blocks, _, _, _) =
+        rig.add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators);
 
     // Postconditions
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
     assert_eq!(
-        finalized_blocks,
-        vec![
-            Hash256::zero().into(),
-            canonical_blocks_zeroth_epoch[&Slot::new(slots_per_epoch as u64)],
-            canonical_blocks[&Slot::new((slots_per_epoch * 2) as u64)],
-        ]
-        .into_iter()
-        .collect()
+        rig.get_finalized_checkpoints(),
+        hashset! {
+            canonical_chain_blocks_first_epoch[&rig.epoch_start_slot(1).into()],
+            canonical_chain_blocks[&rig.epoch_start_slot(2).into()],
+        },
     );
 
     for &block_hash in stray_blocks.values() {
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_none(),
+            !rig.block_exists(block_hash),
             "stray block {} should have been pruned",
             block_hash,
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_none(),
-            "stray state {} at slot {} should have been deleted",
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
         );
     }
 
-    assert!(!harness.chain.knows_head(&stray_head));
+    assert!(!rig.chain.knows_head(&stray_head));
+    let chain_dump = rig.chain.chain_dump().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 }
 
 #[test]
 fn pruning_does_not_touch_blocks_prior_to_finalization() {
-    const VALIDATOR_COUNT: usize = 24;
-    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
-    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+    const HONEST_VALIDATOR_COUNT: usize = 16;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
+    const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
+    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
-    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+    let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let mut rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
+    let slots_per_epoch = rig.slots_per_epoch();
+    let mut state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
-    let slot = harness.get_chain_slot();
-    let state = harness.get_head_state();
-    let (canonical_blocks_zeroth_epoch, _, slot, _, state) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+    let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
+    let (canonical_chain_blocks, _, _, new_state) =
+        rig.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators);
+    state = new_state;
+    let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
     // Fill up 1st epoch.  Contains a fork.
-    let (stray_blocks, stray_states, _, stray_head, _) =
-        harness.add_stray_blocks(state.clone(), slot, slots_per_epoch - 1, &faulty_validators);
+    let first_epoch_slots: Vec<Slot> = ((rig.epoch_start_slot(1) + 1)..(rig.epoch_start_slot(2)))
+        .map(Slot::new)
+        .collect();
+    let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
+        state.clone(),
+        &first_epoch_slots,
+        &adversarial_validators,
+    );
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_some(),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    assert_eq!(
-        get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::zero().into()].into_iter().collect(),
-    );
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
 
     // Trigger finalization
-    let (_, _, _, _, _) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch * 4, &honest_validators);
+    let slots: Vec<Slot> = ((canonical_chain_slot + 1)
+        ..=(canonical_chain_slot + slots_per_epoch * 4))
+        .map(Slot::new)
+        .collect();
+    let (_, _, _, _) = rig.add_attested_blocks_at_slots(state, &slots, &honest_validators);
 
     // Postconditions
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
     assert_eq!(
-        finalized_blocks,
-        vec![
-            Hash256::zero().into(),
-            canonical_blocks_zeroth_epoch[&Slot::new(slots_per_epoch as u64)],
-        ]
-        .into_iter()
-        .collect()
+        rig.get_finalized_checkpoints(),
+        hashset! {canonical_chain_blocks[&rig.epoch_start_slot(1).into()]},
     );
 
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_some(),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    assert!(harness.chain.knows_head(&stray_head));
+    assert!(rig.chain.knows_head(&stray_head));
 }
 
 #[test]
-fn prunes_fork_running_past_finalized_checkpoint() {
-    const VALIDATOR_COUNT: usize = 24;
-    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
-    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
+    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
+    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
-    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+    let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let mut rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
+    let state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
-    let slot = harness.get_chain_slot();
-    let state = harness.get_head_state();
-    let (canonical_blocks_zeroth_epoch, _, slot, _, state) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+    let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
+    let (canonical_blocks_zeroth_epoch, _, _, state) =
+        rig.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators);
 
     // Fill up 1st epoch.  Contains a fork.
-    let (stray_blocks_first_epoch, stray_states_first_epoch, stray_slot, _, stray_state) =
-        harness.add_stray_blocks(state.clone(), slot, slots_per_epoch, &faulty_validators);
-
-    let (canonical_blocks_first_epoch, _, canonical_slot, _, canonical_state) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+    let slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 1..rig.epoch_start_slot(2))
+        .map(Into::into)
+        .collect();
+    let (stray_blocks_first_epoch, stray_states_first_epoch, _, stray_state) = rig
+        .add_attested_blocks_at_slots(state.clone(), &slots_first_epoch, &adversarial_validators);
+    let (canonical_blocks_first_epoch, _, _, canonical_state) =
+        rig.add_attested_blocks_at_slots(state, &slots_first_epoch, &honest_validators);
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
-    let (stray_blocks_second_epoch, stray_states_second_epoch, _, stray_head, _) = harness
-        .add_stray_blocks(
+    let stray_slots_second_epoch: Vec<Slot> = (rig.epoch_start_slot(2)
+        ..=rig.epoch_start_slot(2) + 1)
+        .map(Into::into)
+        .collect();
+    let (stray_blocks_second_epoch, stray_states_second_epoch, stray_head, _) = rig
+        .add_attested_blocks_at_slots(
             stray_state,
-            stray_slot,
-            slots_per_epoch - 1,
-            &faulty_validators,
+            &stray_slots_second_epoch,
+            &adversarial_validators,
         );
 
     // Precondition: Ensure all stray_blocks blocks are still known
@@ -1050,148 +1100,485 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         .collect();
 
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_some(),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    // Precondition: Only genesis is finalized
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    assert_eq!(
-        get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::zero().into()].into_iter().collect(),
-    );
+    // Precondition: Nothing is finalized yet
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
 
-    assert!(harness.chain.knows_head(&stray_head));
+    assert!(rig.chain.knows_head(&stray_head));
 
     // Trigger finalization
-    let (canonical_blocks_second_epoch, _, _, _, _) = harness.add_canonical_chain_blocks(
-        canonical_state,
-        canonical_slot,
-        slots_per_epoch * 6,
-        &honest_validators,
-    );
-    assert_ne!(
-        harness
-            .chain
-            .head()
-            .unwrap()
-            .beacon_state
-            .finalized_checkpoint
-            .epoch,
-        0,
-        "chain should have finalized"
-    );
+    let canonical_slots: Vec<Slot> = (rig.epoch_start_slot(2)..=rig.epoch_start_slot(6))
+        .map(Into::into)
+        .collect();
+    let (canonical_blocks, _, _, _) =
+        rig.add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators);
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
         .into_iter()
         .chain(canonical_blocks_first_epoch.into_iter())
-        .chain(canonical_blocks_second_epoch.into_iter())
+        .chain(canonical_blocks.into_iter())
         .collect();
 
     // Postcondition: New blocks got finalized
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
     assert_eq!(
-        finalized_blocks,
-        vec![
-            Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 3)],
-            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 4)],
-        ]
-        .into_iter()
-        .collect()
+        rig.get_finalized_checkpoints(),
+        hashset! {
+            canonical_blocks[&rig.epoch_start_slot(1).into()],
+            canonical_blocks[&rig.epoch_start_slot(2).into()],
+        },
     );
 
     // Postcondition: Ensure all stray_blocks blocks have been pruned
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_none(),
+            !rig.block_exists(block_hash),
             "abandoned block {} should have been pruned",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_none(),
-            "stray state {} at slot {} should have been deleted",
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
         );
     }
 
-    assert!(!harness.chain.knows_head(&stray_head));
+    assert!(!rig.chain.knows_head(&stray_head));
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
 #[test]
 fn prunes_skipped_slots_states() {
-    const VALIDATOR_COUNT: usize = 24;
-    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
-    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
+    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
-    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+    let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let mut rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
+    let state = rig.get_current_state();
 
-    // Arrange skipped slots so as to cross the epoch boundary.  That way, we excercise the code
-    // responsible for storing state outside of normal block processing.
+    let canonical_slots_zeroth_epoch: Vec<Slot> =
+        (1..=rig.epoch_start_slot(1)).map(Into::into).collect();
+    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig.add_attested_blocks_at_slots(
+        state.clone(),
+        &canonical_slots_zeroth_epoch,
+        &honest_validators,
+    );
 
-    let canonical_slot = harness.get_chain_slot();
-    let canonical_state = harness.get_head_state();
-    let (canonical_blocks_zeroth_epoch, _, canonical_slot, _, canonical_state) = harness
-        .add_canonical_chain_blocks(
-            canonical_state,
-            canonical_slot,
-            slots_per_epoch - 1,
-            &honest_validators,
-        );
+    let skipped_slot: Slot = (rig.epoch_start_slot(1) + 1).into();
 
-    let (stray_blocks, stray_states, stray_slot, _, _) = harness.add_stray_blocks(
+    let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
+        .map(Into::into)
+        .collect();
+    let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
         canonical_state.clone(),
-        canonical_slot,
-        slots_per_epoch,
-        &faulty_validators,
+        &stray_slots,
+        &adversarial_validators,
     );
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_some(),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
+
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
+
+    // Make sure slots were skipped
+    assert!(rig.is_skipped_slot(&stray_state, skipped_slot));
+    {
+        let state_hash = (*stray_state.get_state_root(skipped_slot).unwrap()).into();
+        assert!(
+            rig.hot_state_exists(state_hash),
+            "skipped slot state {} should be still present",
+            state_hash
+        );
+    }
+
+    // Trigger finalization
+    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
+        .map(Into::into)
+        .collect();
+    let (canonical_blocks_post_finalization, _, _, _) =
+        rig.add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators);
+
+    // Postconditions
+    let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
+        .into_iter()
+        .chain(canonical_blocks_post_finalization.into_iter())
+        .collect();
+    assert_eq!(
+        rig.get_finalized_checkpoints(),
+        hashset! {
+            canonical_blocks[&rig.epoch_start_slot(1).into()],
+            canonical_blocks[&rig.epoch_start_slot(2).into()],
+        },
+    );
+
+    for (&slot, &state_hash) in &stray_states {
+        assert!(
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+    }
+
+    assert!(rig.is_skipped_slot(&stray_state, skipped_slot));
+    {
+        let state_hash: BeaconStateHash =
+            (*stray_state.get_state_root(skipped_slot).unwrap()).into();
+        assert!(
+            !rig.hot_state_exists(state_hash),
+            "skipped slot {} state {} should have been pruned",
+            skipped_slot,
+            state_hash
+        );
+    }
+}
+
+// This is to check if state outside of normal block processing are pruned correctly.
+#[test]
+fn finalizes_non_epoch_start_slot() {
+    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
+    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
+    let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
+    let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let mut rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
+    let state = rig.get_current_state();
+
+    let canonical_slots_zeroth_epoch: Vec<Slot> =
+        (1..rig.epoch_start_slot(1)).map(Into::into).collect();
+    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig.add_attested_blocks_at_slots(
+        state.clone(),
+        &canonical_slots_zeroth_epoch,
+        &honest_validators,
+    );
+
+    let skipped_slot: Slot = rig.epoch_start_slot(1).into();
+
+    let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
+        .map(Into::into)
+        .collect();
+    let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
+        canonical_state.clone(),
+        &stray_slots,
+        &adversarial_validators,
+    );
+
+    // Preconditions
+    for &block_hash in stray_blocks.values() {
+        assert!(
+            rig.block_exists(block_hash),
+            "stray block {} should be still present",
+            block_hash
+        );
+    }
+
+    for (&slot, &state_hash) in &stray_states {
+        assert!(
+            rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should be still present",
+            state_hash,
+            slot
+        );
+    }
+
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
+
+    // Make sure slots were skipped
+    assert!(rig.is_skipped_slot(&stray_state, skipped_slot));
+    {
+        let state_hash = (*stray_state.get_state_root(skipped_slot).unwrap()).into();
+        assert!(
+            rig.hot_state_exists(state_hash),
+            "skipped slot state {} should be still present",
+            state_hash
+        );
+    }
+
+    // Trigger finalization
+    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
+        .map(Into::into)
+        .collect();
+    let (canonical_blocks_post_finalization, _, _, _) =
+        rig.add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators);
+
+    // Postconditions
+    let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
+        .into_iter()
+        .chain(canonical_blocks_post_finalization.into_iter())
+        .collect();
+    assert_eq!(
+        rig.get_finalized_checkpoints(),
+        hashset! {
+            canonical_blocks[&(rig.epoch_start_slot(1)-1).into()],
+            canonical_blocks[&rig.epoch_start_slot(2).into()],
+        },
+    );
+
+    for (&slot, &state_hash) in &stray_states {
+        assert!(
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+    }
+
+    assert!(rig.is_skipped_slot(&stray_state, skipped_slot));
+    {
+        let state_hash: BeaconStateHash =
+            (*stray_state.get_state_root(skipped_slot).unwrap()).into();
+        assert!(
+            !rig.hot_state_exists(state_hash),
+            "skipped slot {} state {} should have been pruned",
+            skipped_slot,
+            state_hash
+        );
+    }
+}
+
+fn check_all_blocks_exist<'a>(
+    harness: &TestHarness,
+    blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
+) {
+    for &block_hash in blocks {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        assert!(
+            block.is_some(),
+            "expected block {:?} to be in DB",
+            block_hash
+        );
+    }
+}
+
+fn check_all_states_exist<'a>(
+    harness: &TestHarness,
+    states: impl Iterator<Item = &'a BeaconStateHash>,
+) {
+    for &state_hash in states {
+        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
+        assert!(
+            state.is_some(),
+            "expected state {:?} to be in DB",
+            state_hash,
+        );
+    }
+}
+
+// Check that none of the given states exist in the database.
+fn check_no_states_exist<'a>(
+    harness: &TestHarness,
+    states: impl Iterator<Item = &'a BeaconStateHash>,
+) {
+    for &state_root in states {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_root.into(), None)
+                .unwrap()
+                .is_none(),
+            "state {:?} should not be in the DB",
+            state_root
+        );
+    }
+}
+
+// Check that none of the given blocks exist in the database.
+fn check_no_blocks_exist<'a>(
+    harness: &TestHarness,
+    blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
+) {
+    for &block_hash in blocks {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        assert!(
+            block.is_none(),
+            "did not expect block {:?} to be in the DB",
+            block_hash
+        );
+    }
+}
+
+#[test]
+fn prune_single_block_fork() {
+    let slots_per_epoch = E::slots_per_epoch();
+    pruning_test(3 * slots_per_epoch, 1, slots_per_epoch, 0, 1);
+}
+
+#[test]
+fn prune_single_block_long_skip() {
+    let slots_per_epoch = E::slots_per_epoch();
+    pruning_test(
+        2 * slots_per_epoch,
+        1,
+        2 * slots_per_epoch,
+        2 * slots_per_epoch as u64,
+        1,
+    );
+}
+
+#[test]
+fn prune_shared_skip_states_mid_epoch() {
+    let slots_per_epoch = E::slots_per_epoch();
+    pruning_test(
+        slots_per_epoch + slots_per_epoch / 2,
+        1,
+        slots_per_epoch,
+        2,
+        slots_per_epoch - 1,
+    );
+}
+
+#[test]
+fn prune_shared_skip_states_epoch_boundaries() {
+    let slots_per_epoch = E::slots_per_epoch();
+    pruning_test(slots_per_epoch - 1, 1, slots_per_epoch, 2, slots_per_epoch);
+    pruning_test(slots_per_epoch - 1, 2, slots_per_epoch, 1, slots_per_epoch);
+    pruning_test(
+        2 * slots_per_epoch + slots_per_epoch / 2,
+        slots_per_epoch as u64 / 2,
+        slots_per_epoch,
+        slots_per_epoch as u64 / 2 + 1,
+        slots_per_epoch,
+    );
+    pruning_test(
+        2 * slots_per_epoch + slots_per_epoch / 2,
+        slots_per_epoch as u64 / 2,
+        slots_per_epoch,
+        slots_per_epoch as u64 / 2 + 1,
+        slots_per_epoch,
+    );
+    pruning_test(
+        2 * slots_per_epoch - 1,
+        slots_per_epoch as u64,
+        1,
+        0,
+        2 * slots_per_epoch,
+    );
+}
+
+/// Generic harness for pruning tests.
+fn pruning_test(
+    // Number of blocks to start the chain with before forking.
+    num_initial_blocks: u64,
+    // Number of skip slots on the main chain after the initial blocks.
+    num_canonical_skips: u64,
+    // Number of blocks on the main chain after the skip, but before the finalisation-triggering
+    // blocks.
+    num_canonical_middle_blocks: u64,
+    // Number of skip slots on the fork chain after the initial blocks.
+    num_fork_skips: u64,
+    // Number of blocks on the fork chain after the skips.
+    num_fork_blocks: u64,
+) {
+    const VALIDATOR_COUNT: usize = 24;
+    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
+    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let mut harness = get_harness(store.clone(), VALIDATOR_COUNT);
+    let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
+    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+
+    let slots = |start: Slot, num_blocks: u64| -> Vec<Slot> {
+        (start.as_u64()..start.as_u64() + num_blocks)
+            .map(Slot::new)
+            .collect()
+    };
+
+    let start_slot = Slot::new(1);
+    let divergence_slot = start_slot + num_initial_blocks;
+    let (_, _, _, divergence_state) = harness.add_attested_blocks_at_slots(
+        harness.get_current_state(),
+        &slots(start_slot, num_initial_blocks)[..],
+        &honest_validators,
+    );
+
+    let mut chains = harness.add_blocks_on_multiple_chains(vec![
+        // Canonical chain
+        (
+            divergence_state.clone(),
+            slots(
+                divergence_slot + num_canonical_skips,
+                num_canonical_middle_blocks,
+            ),
+            honest_validators.clone(),
+        ),
+        // Fork chain
+        (
+            divergence_state.clone(),
+            slots(divergence_slot + num_fork_skips, num_fork_blocks),
+            faulty_validators,
+        ),
+    ]);
+    let (_, _, _, canonical_state) = chains.remove(0);
+    let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
+
+    let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks - 1;
+    let stray_head_state_root = stray_states[&stray_head_slot];
+    let stray_states = harness
+        .chain
+        .rev_iter_state_roots_from(stray_head_state_root.into(), &stray_head_state)
+        .map(Result::unwrap)
+        .map(|(state_root, _)| state_root.into())
+        .collect::<HashSet<_>>();
+
+    check_all_blocks_exist(&harness, stray_blocks.values());
+    check_all_states_exist(&harness, stray_states.iter());
 
     let chain_dump = harness.chain.chain_dump().unwrap();
     assert_eq!(
@@ -1199,89 +1586,42 @@ fn prunes_skipped_slots_states() {
         vec![Hash256::zero().into()].into_iter().collect(),
     );
 
-    // Make sure slots were skipped
-    let stray_state = harness
-        .chain
-        .state_at_slot(stray_slot, StateSkipConfig::WithoutStateRoots)
-        .unwrap();
-    let block_root = stray_state.get_block_root(canonical_slot - 1);
-    assert_eq!(stray_state.get_block_root(canonical_slot), block_root);
-    assert_eq!(stray_state.get_block_root(canonical_slot + 1), block_root);
-
-    let skipped_slots = vec![canonical_slot, canonical_slot + 1];
-    for &slot in &skipped_slots {
-        assert_eq!(stray_state.get_block_root(slot), block_root);
-        let state_hash = stray_state.get_state_root(slot).unwrap();
-        assert!(
-            harness
-                .chain
-                .get_state(&state_hash, Some(slot))
-                .unwrap()
-                .is_some(),
-            "skipped slots state should be still present"
-        );
-    }
-
     // Trigger finalization
-    let (canonical_blocks_post_finalization, _, _, _, _) = harness.add_canonical_chain_blocks(
+    let num_finalization_blocks = 4 * E::slots_per_epoch();
+    let canonical_slot = divergence_slot + num_canonical_skips + num_canonical_middle_blocks;
+    harness.add_attested_blocks_at_slots(
         canonical_state,
-        canonical_slot,
-        slots_per_epoch * 6,
+        &slots(canonical_slot, num_finalization_blocks),
         &honest_validators,
     );
-    assert_eq!(
+
+    // Check that finalization has advanced past the divergence slot.
+    assert!(
         harness
             .chain
-            .head()
+            .head_info()
             .unwrap()
-            .beacon_state
             .finalized_checkpoint
-            .epoch,
-        2,
-        "chain should have finalized"
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            > divergence_slot
+    );
+    check_chain_dump(
+        &harness,
+        (num_initial_blocks + num_canonical_middle_blocks + num_finalization_blocks + 1) as u64,
     );
 
-    // Postconditions
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
-    let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
-        .into_iter()
-        .chain(canonical_blocks_post_finalization.into_iter())
-        .collect();
-    assert_eq!(
-        finalized_blocks,
-        vec![
-            Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 2)],
-        ]
-        .into_iter()
-        .collect()
-    );
+    let all_canonical_states = harness
+        .chain
+        .rev_iter_state_roots()
+        .unwrap()
+        .map(Result::unwrap)
+        .map(|(state_root, _)| state_root.into())
+        .collect::<HashSet<BeaconStateHash>>();
 
-    for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
-        assert!(
-            state.is_none(),
-            "stray state {} at slot {} should have been deleted",
-            state_hash,
-            slot
-        );
-    }
-
-    for &slot in &skipped_slots {
-        assert_eq!(stray_state.get_block_root(slot), block_root);
-        let state_hash = stray_state.get_state_root(slot).unwrap();
-        assert!(
-            harness
-                .chain
-                .get_state(&state_hash, None)
-                .unwrap()
-                .is_none(),
-            "skipped slot {} state {} should have been pruned",
-            slot,
-            state_hash
-        );
-    }
+    check_all_states_exist(&harness, all_canonical_states.iter());
+    check_no_states_exist(&harness, stray_states.difference(&all_canonical_states));
+    check_no_blocks_exist(&harness, stray_blocks.values());
 }
 
 /// Check that the head state's slot matches `expected_slot`.
@@ -1388,18 +1728,31 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     }
 }
 
-/// Check that state and block root iterators can reach genesis
+/// Check that every state from the canonical chain is in the database, and that the
+/// reverse state and block root iterators reach genesis.
 fn check_iterators(harness: &TestHarness) {
-    assert_eq!(
-        harness
-            .chain
-            .rev_iter_state_roots()
-            .expect("should get iter")
-            .last()
-            .map(Result::unwrap)
-            .map(|(_, slot)| slot),
-        Some(Slot::new(0))
-    );
+    let mut min_slot = None;
+    for (state_root, slot) in harness
+        .chain
+        .rev_iter_state_roots()
+        .expect("should get iter")
+        .map(Result::unwrap)
+    {
+        assert!(
+            harness
+                .chain
+                .store
+                .get_state(&state_root, Some(slot))
+                .unwrap()
+                .is_some(),
+            "state {:?} from canonical chain should be in DB",
+            state_root
+        );
+        min_slot = Some(slot);
+    }
+    // Assert that we reached genesis.
+    assert_eq!(min_slot, Some(Slot::new(0)));
+    // Assert that the block root iterator reaches genesis.
     assert_eq!(
         harness
             .chain

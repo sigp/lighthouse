@@ -2,6 +2,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
+use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
@@ -23,10 +24,12 @@ pub struct Config {
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
-    /// If true, we will be strict about concurrency and validator registration.
-    pub strict: bool,
-    /// If true, register new validator keys with the slashing protection database.
-    pub auto_register: bool,
+    /// If true, refuse to unlock a keypair that is guarded by a lockfile.
+    pub strict_lockfiles: bool,
+    /// If true, don't scan the validators dir for new keystores.
+    pub disable_auto_discover: bool,
+    /// Graffiti to be inserted everytime we create a block.
+    pub graffiti: Option<Graffiti>,
 }
 
 impl Default for Config {
@@ -43,8 +46,9 @@ impl Default for Config {
             secrets_dir,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
-            auto_register: false,
-            strict: false,
+            strict_lockfiles: false,
+            disable_auto_discover: false,
+            graffiti: None,
         }
     }
 }
@@ -73,23 +77,31 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
-        config.auto_register = cli_args.is_present("auto-register");
-        config.strict = cli_args.is_present("strict");
-
-        if !config.strict {
-            // Do not require an explicit `--auto-register` if `--strict` is disabled.
-            config.auto_register = true
-        }
+        config.strict_lockfiles = cli_args.is_present("strict-lockfiles");
+        config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
 
         if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
             config.secrets_dir = secrets_dir;
         }
 
-        if !config.secrets_dir.exists() {
-            return Err(format!(
-                "The directory for validator passwords (--secrets-dir) does not exist: {:?}",
-                config.secrets_dir
-            ));
+        if let Some(input_graffiti) = cli_args.value_of("graffiti") {
+            let graffiti_bytes = input_graffiti.as_bytes();
+            if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
+                return Err(format!(
+                    "Your graffiti is too long! {} bytes maximum!",
+                    GRAFFITI_BYTES_LEN
+                ));
+            } else {
+                // Default graffiti to all 0 bytes.
+                let mut graffiti = Graffiti::default();
+
+                // Copy the provided bytes over.
+                //
+                // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
+                graffiti[..graffiti_bytes.len()].copy_from_slice(&graffiti_bytes);
+
+                config.graffiti = Some(graffiti);
+            }
         }
 
         Ok(config)

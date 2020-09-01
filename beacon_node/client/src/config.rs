@@ -2,6 +2,7 @@ use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use types::Graffiti;
 
 pub const DEFAULT_DATADIR: &str = ".lighthouse";
 
@@ -45,7 +46,6 @@ pub struct Config {
     pub db_name: String,
     /// Path where the freezer database will be located.
     pub freezer_db_path: Option<PathBuf>,
-    pub testnet_dir: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
@@ -55,6 +55,8 @@ pub struct Config {
     pub sync_eth1_chain: bool,
     /// A list of hard-coded forks that will be disabled.
     pub disabled_forks: Vec<String>,
+    /// Graffiti to be inserted everytime we create a block.
+    pub graffiti: Graffiti,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -62,6 +64,7 @@ pub struct Config {
     pub store: store::StoreConfig,
     pub network: network::NetworkConfig,
     pub rest_api: rest_api::Config,
+    pub chain: beacon_chain::ChainConfig,
     pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
 }
@@ -72,11 +75,11 @@ impl Default for Config {
             data_dir: PathBuf::from(DEFAULT_DATADIR),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
-            testnet_dir: None,
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
             store: <_>::default(),
             network: NetworkConfig::default(),
+            chain: <_>::default(),
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
@@ -84,6 +87,7 @@ impl Default for Config {
             sync_eth1_chain: false,
             eth1: <_>::default(),
             disabled_forks: Vec::new(),
+            graffiti: Graffiti::default(),
         }
     }
 }

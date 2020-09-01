@@ -11,6 +11,7 @@ use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, EventHandler,
@@ -27,7 +28,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, Signature, SignedBeaconBlock,
+    Slot,
 };
 
 pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
@@ -92,6 +94,7 @@ where
 ///
 /// See the tests for an example of a complete working example.
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
+    #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
     canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
@@ -108,8 +111,10 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     pubkey_cache_path: Option<PathBuf>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
+    chain_config: ChainConfig,
     disabled_forks: Vec<String>,
     log: Option<Logger>,
+    graffiti: Graffiti,
 }
 
 impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
@@ -154,7 +159,9 @@ where
             disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
+            chain_config: ChainConfig::default(),
             log: None,
+            graffiti: Graffiti::default(),
         }
     }
 
@@ -164,6 +171,15 @@ where
     /// are started with a consistent spec.
     pub fn custom_spec(mut self, spec: ChainSpec) -> Self {
         self.spec = spec;
+        self
+    }
+
+    /// Sets the maximum number of blocks that will be skipped when processing
+    /// some consensus messages.
+    ///
+    /// Set to `None` for no limit.
+    pub fn import_max_skip_slots(mut self, n: Option<u64>) -> Self {
+        self.chain_config.import_max_skip_slots = n;
         self
     }
 
@@ -396,6 +412,18 @@ where
         self
     }
 
+    /// Sets the `graffiti` field.
+    pub fn graffiti(mut self, graffiti: Graffiti) -> Self {
+        self.graffiti = graffiti;
+        self
+    }
+
+    /// Sets the `ChainConfig` that determines `BeaconChain` runtime behaviour.
+    pub fn chain_config(mut self, config: ChainConfig) -> Self {
+        self.chain_config = config;
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -452,13 +480,10 @@ where
             .pubkey_cache_path
             .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
 
-        let validator_pubkey_cache = self
-            .validator_pubkey_cache
-            .map(|cache| Ok(cache))
-            .unwrap_or_else(|| {
-                ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
-                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-            })?;
+        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
+            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
+                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+        })?;
 
         let persisted_fork_choice = store
             .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
@@ -482,6 +507,7 @@ where
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
+            config: self.chain_config,
             store,
             store_migrator: self
                 .store_migrator
@@ -523,6 +549,7 @@ where
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             disabled_forks: self.disabled_forks,
             log: log.clone(),
+            graffiti: self.graffiti,
         };
 
         let head = beacon_chain
@@ -576,10 +603,7 @@ where
         let backend =
             CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
 
-        let mut eth1_chain = Eth1Chain::new(backend);
-        eth1_chain.use_dummy_backend = true;
-
-        self.eth1_chain = Some(eth1_chain);
+        self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
 
         Ok(self)
     }
@@ -661,7 +685,7 @@ fn genesis_block<T: EthSpec>(
         message: BeaconBlock::empty(&spec),
         // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
         // block consistent with every other block.
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     genesis_block.message.state_root = genesis_state
         .update_tree_hash_cache()

@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_until, Instant};
+use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -16,15 +17,12 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing validators_per_node default");
     let speed_up_factor =
         value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
-    let mut end_after_checks = true;
-    if matches.is_present("end_after_checks") {
-        end_after_checks = false;
-    }
+    let continue_after_checks = matches.is_present("continue_after_checks");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}", node_count);
     println!(" validators_per_node:{}", validators_per_node);
-    println!(" end_after_checks:{}", end_after_checks);
+    println!(" continue_after_checks:{}", continue_after_checks);
 
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..node_count)
@@ -103,7 +101,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 network
                     .add_validator_client(
                         ValidatorConfig {
-                            auto_register: true,
+                            disable_auto_discover: false,
                             ..ValidatorConfig::default()
                         },
                         i,
@@ -121,8 +119,18 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let checks_fut = async {
             delay_until(genesis_instant).await;
 
-            // Check that the chain finalizes at the first given opportunity.
-            checks::verify_first_finalization(network.clone(), slot_duration).await?;
+            let (finalization, block_prod) = futures::join!(
+                // Check that the chain finalizes at the first given opportunity.
+                checks::verify_first_finalization(network.clone(), slot_duration),
+                // Check that a block is produced at every slot.
+                checks::verify_full_block_production_up_to(
+                    network.clone(),
+                    Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
+                    slot_duration,
+                )
+            );
+            finalization?;
+            block_prod?;
 
             Ok::<(), String>(())
         };
@@ -133,9 +141,9 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         start_checks?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
-        // of `end_after_checks`.
+        // of `continue_after_checks`.
 
-        if !end_after_checks {
+        if continue_after_checks {
             future::pending::<()>().await;
         }
         /*
@@ -154,5 +162,6 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    Ok(env.runtime().block_on(main_future).unwrap())
+    env.runtime().block_on(main_future).unwrap();
+    Ok(())
 }

@@ -1,7 +1,9 @@
 use crate::types::GossipKind;
 use crate::Enr;
 use discv5::{Discv5Config, Discv5ConfigBuilder};
-use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
+use libp2p::gossipsub::{
+    GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
+};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -37,7 +39,7 @@ pub struct Config {
     pub enr_tcp_port: Option<u16>,
 
     /// Target number of connected peers.
-    pub max_peers: usize,
+    pub target_peers: usize,
 
     /// Gossipsub configuration parameters.
     #[serde(skip)]
@@ -48,7 +50,10 @@ pub struct Config {
     pub discv5_config: Discv5Config,
 
     /// List of nodes to initially connect to.
-    pub boot_nodes: Vec<Enr>,
+    pub boot_nodes_enr: Vec<Enr>,
+
+    /// List of nodes to initially connect to, on Multiaddr format.
+    pub boot_nodes_multiaddr: Vec<Multiaddr>,
 
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
@@ -82,7 +87,7 @@ impl Default for Config {
         // The function used to generate a gossipsub message id
         // We use base64(SHA256(data)) for content addressing
         let gossip_message_id = |message: &GossipsubMessage| {
-            MessageId(base64::encode_config(
+            MessageId::from(base64::encode_config(
                 &Sha256::digest(&message.data),
                 base64::URL_SAFE_NO_PAD,
             ))
@@ -93,19 +98,29 @@ impl Default for Config {
         // parameter.
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
-            .heartbeat_interval(Duration::from_secs(1))
-            .manual_propagation() // require validation before propagation
-            .no_source_id()
+            .heartbeat_interval(Duration::from_millis(700))
+            .mesh_n(8)
+            .mesh_n_low(6)
+            .mesh_n_high(12)
+            .gossip_lazy(6)
+            .fanout_ttl(Duration::from_secs(60))
+            .history_length(6)
+            .history_gossip(3)
+            .validate_messages() // require validation before propagation
+            .validation_mode(ValidationMode::Permissive)
+            // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
+            .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
-            .build();
+            .build()
+            .expect("valid gossipsub configuration");
 
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
             .enable_packet_filter()
             .session_cache_capacity(1000)
             .request_timeout(Duration::from_secs(4))
-            .request_retries(2)
-            .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
+            .request_retries(1)
+            .enr_peer_update_min(10)
             .query_parallelism(5)
             .query_timeout(Duration::from_secs(30))
             .query_peer_timeout(Duration::from_secs(2))
@@ -122,12 +137,13 @@ impl Default for Config {
             enr_address: None,
             enr_udp_port: None,
             enr_tcp_port: None,
-            max_peers: 50,
+            target_peers: 50,
             gs_config,
             discv5_config,
-            boot_nodes: vec![],
+            boot_nodes_enr: vec![],
+            boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
-            client_version: version::version(),
+            client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             topics,
         }

@@ -37,11 +37,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        nodes using the same key. Automatically enabled unless `--strict` is specified",
         ))
         .arg(
-            Arg::with_name("strict")
-            .long("strict")
+            Arg::with_name("strict-lockfiles")
+            .long("strict-lockfiles")
             .help(
-                "If present, require that validator keypairs are unlocked and that auto-register \
-                is explicit before new validators are allowed to be used."
+                "If present, do not load validators that are guarded by a lockfile. Note: for \
+                Eth2 mainnet, this flag will likely be removed and its behaviour will become default."
+            )
+        )
+        .arg(
+            Arg::with_name("disable-auto-discover")
+            .long("disable-auto-discover")
+            .help(
+                "If present, do not attempt to discover new validators in the validators-dir. Validators \
+                will need to be manually added to the validator_definitions.yml file."
             )
         )
         .arg(
@@ -51,5 +59,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "If present, the validator client will still poll for duties if the beacon
                       node is not synced.",
                 ),
+        )
+        // This overwrites the graffiti configured in the beacon node.
+        .arg(
+            Arg::with_name("graffiti")
+                .long("graffiti")
+                .help("Specify your custom graffiti to be included in blocks.")
+                .value_name("GRAFFITI")
+                .takes_value(true)
         )
 }

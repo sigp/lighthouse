@@ -6,17 +6,18 @@ use crate::{
 };
 use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
-    rpc::{RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerRequestId, PubsubMessage, Request, Response,
+    rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
 };
-use eth2_libp2p::{BehaviourEvent, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    types::GossipKind, BehaviourEvent, GossipTopic, MessageId, NetworkGlobals, PeerId, TopicHash,
+};
+use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace, warn};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
@@ -24,8 +25,56 @@ use types::EthSpec;
 
 mod tests;
 
-/// The time in seconds that a peer will be banned and prevented from reconnecting.
-const BAN_PEER_TIMEOUT: u64 = 30;
+/// The interval (in seconds) that various network metrics will update.
+const METRIC_UPDATE_INTERVAL: u64 = 1;
+
+/// Types of messages that the network service can receive.
+#[derive(Debug)]
+pub enum NetworkMessage<T: EthSpec> {
+    /// Subscribes a list of validators to specific slots for attestation duties.
+    Subscribe {
+        subscriptions: Vec<ValidatorSubscription>,
+    },
+    /// Send an RPC request to the libp2p service.
+    SendRequest {
+        peer_id: PeerId,
+        request: Request,
+        request_id: RequestId,
+    },
+    /// Send a successful Response to the libp2p service.
+    SendResponse {
+        peer_id: PeerId,
+        response: Response<T>,
+        id: PeerRequestId,
+    },
+    /// Respond to a peer's request with an error.
+    SendError {
+        // TODO: note that this is never used, we just say goodbye without nicely closing the
+        // stream assigned to the request
+        peer_id: PeerId,
+        error: RPCResponseErrorCode,
+        reason: String,
+        id: PeerRequestId,
+    },
+    /// Publish a list of messages to the gossipsub protocol.
+    Publish { messages: Vec<PubsubMessage<T>> },
+    /// Validates a received gossipsub message. This will propagate the message on the network.
+    ValidationResult {
+        /// The peer that sent us the message. We don't send back to this peer.
+        propagation_source: PeerId,
+        /// The id of the message we are validating and propagating.
+        message_id: MessageId,
+        /// The result of the validation
+        validation_result: MessageAcceptance,
+    },
+    /// Reports a peer to the peer manager for performing an action.
+    ReportPeer { peer_id: PeerId, action: PeerAction },
+    /// Disconnect an ban a peer, providing a reason.
+    GoodbyePeer {
+        peer_id: PeerId,
+        reason: GoodbyeReason,
+    },
+}
 
 /// Service that handles communication between internal services and the `eth2_libp2p` network service.
 pub struct NetworkService<T: BeaconChainTypes> {
@@ -46,12 +95,15 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Option<Delay>,
+    /// A timer for updating various network metrics.
+    metrics_update: tokio::time::Interval,
     /// The logger for the network service.
     log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
-    pub fn start(
+    #[allow(clippy::type_complexity)]
+    pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: environment::TaskExecutor,
@@ -73,7 +125,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
-            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log)?;
+            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log).await?;
 
         // Repopulate the DHT with stored ENR's.
         let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
@@ -82,7 +134,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Loading peers into the routing table"; "peers" => enrs_to_load.len()
         );
         for enr in enrs_to_load {
-            libp2p.swarm.add_enr(enr.clone());
+            libp2p.swarm.add_enr(enr.clone()); //TODO change?
         }
 
         // launch derived network services
@@ -100,8 +152,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let attestation_service =
             AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
 
+        // create a timer for updating network metrics
+        let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
+
         // create the network service and spawn the task
-        let network_log = network_log.new(o!("service"=> "network"));
+        let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
             beacon_chain,
             libp2p,
@@ -111,6 +166,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             store,
             network_globals: network_globals.clone(),
             next_fork_update,
+            metrics_update,
             log: network_log,
         };
 
@@ -125,12 +181,12 @@ fn spawn_service<T: BeaconChainTypes>(
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
     let mut exit_rx = executor.exit();
+    let mut shutdown_sender = executor.shutdown_sender();
 
     // spawn on the current executor
     executor.spawn_without_exit(async move {
-        // TODO: there is something with this code that prevents cargo fmt from doing anything at
-        // all. Ok, it is worse, the compiler doesn't show errors over this code beyond ast
-        // checking
+
+        let mut metric_update_counter = 0;
         loop {
             // build the futures to check simultaneously
             tokio::select! {
@@ -159,6 +215,17 @@ fn spawn_service<T: BeaconChainTypes>(
                     info!(service.log, "Network service shutdown");
                     return;
                 }
+                _ = service.metrics_update.next() => {
+                    // update various network metrics
+                    metric_update_counter +=1;
+                    if metric_update_counter* 1000 % T::EthSpec::default_spec().milliseconds_per_slot == 0 {
+                        // if a slot has occurred, reset the metrics
+                        let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT
+                            .as_ref()
+                            .map(|gauge| gauge.reset());
+                    }
+                    update_gossip_metrics::<T::EthSpec>(&service.libp2p.swarm.gs());
+                }
                 // handle a message sent to the network
                 Some(message) = service.network_recv.recv() => {
                     match message {
@@ -171,9 +238,10 @@ fn spawn_service<T: BeaconChainTypes>(
                         NetworkMessage::SendError{ peer_id, error, id, reason } => {
                             service.libp2p.respond_with_error(peer_id, id, error, reason);
                         }
-                        NetworkMessage::Propagate {
+                        NetworkMessage::ValidationResult {
                             propagation_source,
                             message_id,
+                            validation_result,
                         } => {
                                 trace!(service.log, "Propagating gossipsub message";
                                     "propagation_peer" => format!("{:?}", propagation_source),
@@ -182,7 +250,9 @@ fn spawn_service<T: BeaconChainTypes>(
                                 service
                                     .libp2p
                                     .swarm
-                                    .propagate_message(&propagation_source, message_id);
+                                    .report_message_validation_result(
+                                        &propagation_source, message_id, validation_result
+                                    );
                         }
                         NetworkMessage::Publish { messages } => {
                                 let mut topic_kinds = Vec::new();
@@ -200,12 +270,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                 expose_publish_metrics(&messages);
                                 service.libp2p.swarm.publish(messages);
                         }
-                        NetworkMessage::Disconnect { peer_id } => {
-                            service.libp2p.disconnect_and_ban_peer(
-                                peer_id,
-                                std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
-                            );
-                        }
+                        NetworkMessage::ReportPeer { peer_id, action } => service.libp2p.report_peer(&peer_id, action),
+                        NetworkMessage::GoodbyePeer { peer_id, reason } => service.libp2p.goodbye_peer(&peer_id, reason),
                         NetworkMessage::Subscribe { subscriptions } => {
                             if let Err(e) = service
                                 .attestation_service
@@ -231,8 +297,8 @@ fn spawn_service<T: BeaconChainTypes>(
                         AttServiceMessage::EnrRemove(subnet_id) => {
                             service.libp2p.swarm.update_enr_subnet(subnet_id, false);
                         }
-                        AttServiceMessage::DiscoverPeers{subnet_id, min_ttl} => {
-                            service.libp2p.swarm.discover_subnet_peers(subnet_id, min_ttl);
+                        AttServiceMessage::DiscoverPeers(subnets_to_discover) => {
+                            service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
                         }
                     }
                 }
@@ -240,16 +306,27 @@ fn spawn_service<T: BeaconChainTypes>(
                     // poll the swarm
                     match libp2p_event {
                         Libp2pEvent::Behaviour(event) => match event {
+
+                            BehaviourEvent::PeerDialed(peer_id) => {
+                                    let _ = service
+                                        .router_send
+                                        .send(RouterMessage::PeerDialed(peer_id))
+                                        .map_err(|_| {
+                                            debug!(service.log, "Failed to send peer dialed to router"); });
+                            },
+                            BehaviourEvent::PeerConnected(_peer_id) => {
+                                // A peer has connected to us
+                                // We currently do not perform any action here.
+                            },
+                            BehaviourEvent::PeerDisconnected(peer_id) => {
+                            let _ = service
+                                .router_send
+                                .send(RouterMessage::PeerDisconnected(peer_id))
+                                .map_err(|_| {
+                                    debug!(service.log, "Failed to send peer disconnect to router");
+                                });
+                            },
                             BehaviourEvent::RequestReceived{peer_id, id, request} => {
-                                if let Request::Goodbye(_) = request {
-                                    // if we received a Goodbye message, drop and ban the peer
-                                    //peers_to_ban.push(peer_id.clone());
-                                    // TODO: remove this: https://github.com/sigp/lighthouse/issues/1240
-                                    service.libp2p.disconnect_and_ban_peer(
-                                        peer_id.clone(),
-                                        std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
-                                    );
-                                };
                                 let _ = service
                                     .router_send
                                     .send(RouterMessage::RPCRequestReceived{peer_id, id, request})
@@ -296,27 +373,24 @@ fn spawn_service<T: BeaconChainTypes>(
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
                                         let subnet = subnet_and_attestation.0;
                                         let attestation = &subnet_and_attestation.1;
-                                        // checks if we have an aggregator for the slot. If so, we process
-                                        // the attestation
-                                        if service.attestation_service.should_process_attestation(
+                                        // checks if we have an aggregator for the slot. If so, we should process
+                                        // the attestation, else we just just propagate the Attestation.
+                                        let should_process = service.attestation_service.should_process_attestation(
                                             subnet,
                                             attestation,
-                                        ) {
-                                            let _ = service
-                                                .router_send
-                                                .send(RouterMessage::PubsubMessage(id, source, message))
-                                                .map_err(|_| {
-                                                    debug!(service.log, "Failed to send pubsub message to router");
-                                                });
-                                        } else {
-                                            metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_IGNORED)
-                                        }
+                                        );
+                                        let _ = service
+                                            .router_send
+                                            .send(RouterMessage::PubsubMessage(id, source, message, should_process))
+                                            .map_err(|_| {
+                                                debug!(service.log, "Failed to send pubsub message to router");
+                                            });
                                     }
                                     _ => {
                                         // all else is sent to the router
                                         let _ = service
                                             .router_send
-                                            .send(RouterMessage::PubsubMessage(id, source, message))
+                                            .send(RouterMessage::PubsubMessage(id, source, message, true))
                                             .map_err(|_| {
                                                 debug!(service.log, "Failed to send pubsub message to router");
                                             });
@@ -328,24 +402,11 @@ fn spawn_service<T: BeaconChainTypes>(
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
                         }
-                        Libp2pEvent::PeerConnected{ peer_id, endpoint,} => {
-                            debug!(service.log, "Peer Connected"; "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                            if let eth2_libp2p::ConnectedPoint::Dialer { .. } = endpoint {
-                                let _ = service
-                                    .router_send
-                                    .send(RouterMessage::PeerDialed(peer_id))
-                                    .map_err(|_| {
-                                        debug!(service.log, "Failed to send peer dialed to router"); });
-                            }
-                        }
-                        Libp2pEvent::PeerDisconnected{ peer_id, endpoint,} => {
-                            debug!(service.log, "Peer Disconnected";  "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::PeerDisconnected(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send peer disconnect to router");
-                                });
+                        Libp2pEvent::ZeroListeners => {
+                            let _ = shutdown_sender.send("All listeners are closed. Unable to listen").await.map_err(|e| {
+                                warn!(service.log, "failed to send a shutdown signal"; "error" => e.to_string()
+                                )
+                            });
                         }
                     }
                 }
@@ -378,51 +439,16 @@ fn next_fork_delay<T: BeaconChainTypes>(
     })
 }
 
-/// Types of messages that the network service can receive.
-#[derive(Debug)]
-pub enum NetworkMessage<T: EthSpec> {
-    /// Subscribes a list of validators to specific slots for attestation duties.
-    Subscribe {
-        subscriptions: Vec<ValidatorSubscription>,
-    },
-    /// Send an RPC request to the libp2p service.
-    SendRequest {
-        peer_id: PeerId,
-        request: Request,
-        request_id: RequestId,
-    },
-    /// Send a successful Response to the libp2p service.
-    SendResponse {
-        peer_id: PeerId,
-        response: Response<T>,
-        id: PeerRequestId,
-    },
-    /// Respond to a peer's request with an error.
-    SendError {
-        // TODO: note that this is never used, we just say goodbye without nicely clossing the
-        // stream assigned to the request
-        peer_id: PeerId,
-        error: RPCResponseErrorCode,
-        reason: String,
-        id: PeerRequestId,
-    },
-    /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<T>> },
-    /// Propagate a received gossipsub message.
-    Propagate {
-        propagation_source: PeerId,
-        message_id: MessageId,
-    },
-    /// Disconnect and bans a peer id.
-    Disconnect { peer_id: PeerId },
-}
-
 /// Inspects the `messages` that were being sent to the network and updates Prometheus metrics.
 fn expose_publish_metrics<T: EthSpec>(messages: &[PubsubMessage<T>]) {
     for message in messages {
         match message {
             PubsubMessage::BeaconBlock(_) => metrics::inc_counter(&metrics::GOSSIP_BLOCKS_TX),
-            PubsubMessage::Attestation(_) => {
+            PubsubMessage::Attestation(subnet_id) => {
+                metrics::inc_counter_vec(
+                    &metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT,
+                    &[&subnet_id.0.to_string()],
+                );
                 metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_TX)
             }
             PubsubMessage::AggregateAndProofAttestation(_) => {
@@ -444,5 +470,165 @@ fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
             metrics::inc_counter(&metrics::GOSSIP_AGGREGATED_ATTESTATIONS_RX)
         }
         _ => {}
+    }
+}
+
+fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
+    // Clear the metrics
+    let _ = metrics::PEERS_PER_PROTOCOL
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::PEERS_PER_PROTOCOL
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::MESH_PEERS_PER_MAIN_TOPIC
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC
+        .as_ref()
+        .map(|gauge| gauge.reset());
+
+    // reset the mesh peers, showing all subnets
+    for subnet_id in 0..T::default_spec().attestation_subnet_count {
+        let _ = metrics::get_int_gauge(
+            &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
+            &[&subnet_id.to_string()],
+        )
+        .map(|v| v.set(0));
+
+        let _ = metrics::get_int_gauge(
+            &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
+            &[&subnet_id.to_string()],
+        )
+        .map(|v| v.set(0));
+
+        let _ = metrics::get_int_gauge(
+            &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
+            &[&subnet_id.to_string()],
+        )
+        .map(|v| v.set(0));
+    }
+
+    // Subnet topics subscribed to
+    for topic_hash in gossipsub.topics() {
+        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+            if let GossipKind::Attestation(subnet_id) = topic.kind() {
+                let _ = metrics::get_int_gauge(
+                    &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
+                    &[&subnet_id.to_string()],
+                )
+                .map(|v| v.set(1));
+            }
+        }
+    }
+
+    // Peers per subscribed subnet
+    let mut peers_per_topic: HashMap<TopicHash, usize> = HashMap::new();
+    for (peer_id, topics) in gossipsub.all_peers() {
+        for topic_hash in topics {
+            *peers_per_topic.entry(topic_hash.clone()).or_default() += 1;
+
+            if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+                match topic.kind() {
+                    GossipKind::Attestation(subnet_id) => {
+                        if let Some(v) = metrics::get_int_gauge(
+                            &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
+                            &[&subnet_id.to_string()],
+                        ) {
+                            v.inc()
+                        };
+
+                        // average peer scores
+                        if let Some(score) = gossipsub.peer_score(peer_id) {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
+                                &[&subnet_id.to_string()],
+                            ) {
+                                v.add(score as i64)
+                            };
+                        }
+                    }
+                    kind => {
+                        // main topics
+                        if let Some(score) = gossipsub.peer_score(peer_id) {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
+                                &[&format!("{:?}", kind)],
+                            ) {
+                                v.add(score as i64)
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // adjust to average scores by dividing by number of peers
+    for (topic_hash, peers) in peers_per_topic.iter() {
+        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+            match topic.kind() {
+                GossipKind::Attestation(subnet_id) => {
+                    // average peer scores
+                    if let Some(v) = metrics::get_int_gauge(
+                        &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
+                        &[&subnet_id.to_string()],
+                    ) {
+                        v.set(v.get() / (*peers as i64))
+                    };
+                }
+                kind => {
+                    // main topics
+                    if let Some(v) = metrics::get_int_gauge(
+                        &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
+                        &[&format!("{:?}", kind)],
+                    ) {
+                        v.set(v.get() / (*peers as i64))
+                    };
+                }
+            }
+        }
+    }
+
+    // mesh peers
+    for topic_hash in gossipsub.topics() {
+        let peers = gossipsub.mesh_peers(&topic_hash).count();
+        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+            match topic.kind() {
+                GossipKind::Attestation(subnet_id) => {
+                    if let Some(v) = metrics::get_int_gauge(
+                        &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
+                        &[&subnet_id.to_string()],
+                    ) {
+                        v.set(peers as i64)
+                    };
+                }
+                kind => {
+                    // main topics
+                    if let Some(v) = metrics::get_int_gauge(
+                        &metrics::MESH_PEERS_PER_MAIN_TOPIC,
+                        &[&format!("{:?}", kind)],
+                    ) {
+                        v.set(peers as i64)
+                    };
+                }
+            }
+        }
+    }
+
+    // protocol peers
+    let mut peers_per_protocol: HashMap<String, i64> = HashMap::new();
+    for (_peer, protocol) in gossipsub.peer_protocol() {
+        *peers_per_protocol.entry(protocol.to_string()).or_default() += 1;
+    }
+
+    for (protocol, peers) in peers_per_protocol.iter() {
+        if let Some(v) =
+            metrics::get_int_gauge(&metrics::PEERS_PER_PROTOCOL, &[&protocol.to_string()])
+        {
+            v.set(*peers)
+        };
     }
 }

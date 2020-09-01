@@ -1,12 +1,12 @@
 use crate::beacon_chain::ForkChoiceError;
 use crate::eth1_chain::Error as Eth1ChainError;
+use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_attestations::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
-use ssz::DecodeError;
 use ssz_types::Error as SszTypesError;
 use state_processing::{
     block_signature_verifier::Error as BlockSignatureVerifierError,
@@ -62,6 +62,7 @@ pub enum BeaconChainError {
         requested_slot: Slot,
         max_task_runtime: Duration,
     },
+    MissingFinalizedStateRoot(Slot),
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
     SszTypesError(SszTypesError),
@@ -69,7 +70,7 @@ pub enum BeaconChainError {
     AttestationCacheLockTimeout,
     ValidatorPubkeyCacheLockTimeout,
     IncorrectStateForAttestation(RelativeEpochError),
-    InvalidValidatorPubkeyBytes(DecodeError),
+    InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(SignatureSetError),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
@@ -80,6 +81,7 @@ pub enum BeaconChainError {
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
+    PruningError(PruningError),
     ArithError(ArithError),
 }
 
@@ -95,6 +97,7 @@ easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
+easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 
 #[derive(Debug)]

@@ -11,11 +11,11 @@ members = [
     "beacon_node/rest_api",
     "beacon_node/store",
     "beacon_node/timer",
-    "beacon_node/version",
     "beacon_node/websocket_server",
 
 	"boot_node",
 
+    "common/account_utils",
     "common/clap_utils",
     "common/compare_fields",
     "common/compare_fields_derive",
@@ -26,7 +26,9 @@ members = [
     "common/eth2_wallet_manager",
     "common/hashset_delay",
     "common/lighthouse_metrics",
+    "common/lighthouse_version",
     "common/logging",
+    "common/lru_cache",
     "common/remote_beacon_node",
     "common/rest_types",
     "common/slot_clock",

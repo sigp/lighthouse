@@ -66,71 +66,172 @@ use types::{
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     FutureSlot {
         attestation_slot: Slot,
         latest_permissible_slot: Slot,
     },
     /// The attestation is from a slot that is prior to the earliest permissible slot (with
     /// respect to the gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     PastSlot {
         attestation_slot: Slot,
         earliest_permissible_slot: Slot,
     },
     /// The attestations aggregation bits were empty when they shouldn't be.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     EmptyAggregationBitfield,
     /// The `selection_proof` on the aggregate attestation does not elect it as an aggregator.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     InvalidSelectionProof { aggregator_index: u64 },
     /// The `selection_proof` on the aggregate attestation selects it as a validator, however the
     /// aggregator index is not in the committee for that attestation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     AggregatorNotInCommittee { aggregator_index: u64 },
     /// The aggregator index refers to a validator index that we have not seen.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
     /// The attestation has been seen before; either in a block, on the gossip network or from a
     /// local validator.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this attestation is valid, however we have already observed it and do not
+    /// need to observe it again.
     AttestationAlreadyKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this attestation is valid, however we have already observed an aggregate
+    /// attestation from this validator for this epoch and should not observe another.
     AggregatorAlreadyKnown(u64),
     /// The aggregator index is higher than the maximum possible validator count.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     ValidatorIndexTooHigh(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation points to a block we have not yet imported. It's unclear if the attestation
+    /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
-    /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch` and therefore
-    /// the attestation is invalid.
+    /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     BadTargetEpoch,
     /// The target root of the attestation points to a block that we have not verified.
+    ///
+    /// This is invalid behaviour whilst we first check for `UnknownHeadBlock`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     UnknownTargetRoot(Hash256),
     /// A signature on the attestation is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     InvalidSignature,
     /// There is no committee for the slot and committee index of this attestation and the
     /// attestation should not have been produced.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
     /// The unaggregated attestation doesn't have only one aggregation bit set.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     NotExactlyOneAggregationBitSet(usize),
     /// We have already observed an attestation for the `validator_index` and refuse to process
     /// another.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this attestation is valid, however we have already observed a
+    /// single-participant attestation from this validator for this epoch and should not observe
+    /// another.
     PriorAttestationKnown { validator_index: u64, epoch: Epoch },
     /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     FutureEpoch {
         attestation_epoch: Epoch,
         current_epoch: Epoch,
     },
     /// The attestation is for an epoch in the past (with respect to the gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     PastEpoch {
         attestation_epoch: Epoch,
         current_epoch: Epoch,
     },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     AttestsToFutureBlock { block: Slot, attestation: Slot },
     /// The attestation was received on an invalid attestation subnet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     InvalidSubnetId {
         received: SubnetId,
         expected: SubnetId,
     },
     /// The attestation failed the `state_processing` verification stage.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     Invalid(AttestationValidationError),
+    /// The attestation head block is too far behind the attestation slot, causing many skip slots.
+    /// This is deemed a DoS risk.
+    TooManySkippedSlots {
+        head_block_slot: Slot,
+        attestation_slot: Slot,
+    },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this attestation due to an internal error. It's unclear if the
+    /// attestation is valid.
     BeaconChainError(BeaconChainError),
 }
 
@@ -224,6 +325,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         }?;
 
         // Ensure the block being voted for (attestation.data.beacon_block_root) passes validation.
+        // Don't enforce the skip slot restriction for aggregates.
         //
         // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
         // choice. Any known, non-finalized, processed block should be in fork choice, so this
@@ -232,7 +334,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        verify_head_block_is_known(chain, &attestation)?;
+        verify_head_block_is_known(chain, &attestation, None)?;
 
         // Ensure that the attestation has participants.
         if attestation.aggregation_bits.is_zero() {
@@ -287,7 +389,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         if chain
             .observed_aggregators
             .observe_validator(&attestation, aggregator_index as usize)
-            .map_err(|e| BeaconChainError::from(e))?
+            .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index: aggregator_index,
@@ -338,7 +440,9 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        verify_head_block_is_known(chain, &attestation)?;
+        //
+        // Enforce a maximum skip distance for unaggregated attestations.
+        verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
 
         let (indexed_attestation, committees_per_slot) =
             obtain_indexed_attestation_and_committees_per_slot(chain, &attestation)?;
@@ -370,7 +474,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .validator_has_been_observed(&attestation, validator_index as usize)
-            .map_err(|e| BeaconChainError::from(e))?
+            .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index,
@@ -390,7 +494,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .observe_validator(&attestation, validator_index as usize)
-            .map_err(|e| BeaconChainError::from(e))?
+            .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index,
@@ -436,12 +540,22 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
+    max_skip_slots: Option<u64>,
 ) -> Result<(), Error> {
-    if chain
+    if let Some(block) = chain
         .fork_choice
         .read()
-        .contains_block(&attestation.data.beacon_block_root)
+        .get_block(&attestation.data.beacon_block_root)
     {
+        // Reject any block that exceeds our limit on skipped slots.
+        if let Some(max_skip_slots) = max_skip_slots {
+            if attestation.data.slot > block.slot + max_skip_slots {
+                return Err(Error::TooManySkippedSlots {
+                    head_block_slot: block.slot,
+                    attestation_slot: attestation.data.slot,
+                });
+            }
+        }
         Ok(())
     } else {
         Err(Error::UnknownHeadBlock {
@@ -504,7 +618,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
         .ok_or_else(|| BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork.clone())?;
+        .map(|head| head.beacon_state.fork)?;
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
@@ -521,7 +635,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     let _signature_verification_timer =
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
 
-    if signature_set.is_valid() {
+    if signature_set.verify() {
         Ok(())
     } else {
         Err(Error::InvalidSignature)
@@ -559,7 +673,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
         .ok_or_else(|| BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork.clone())?;
+        .map(|head| head.beacon_state.fork)?;
 
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(
@@ -589,7 +703,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
     ];
 
-    Ok(verify_signature_sets(signature_sets))
+    Ok(verify_signature_sets(signature_sets.iter()))
 }
 
 /// Assists in readability.
@@ -680,7 +794,12 @@ where
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
         let mut state = chain
-            .get_state(&target_block.state_root, Some(target_block.slot))?
+            .store
+            .get_inconsistent_state_for_attestation_verification_only(
+                &target_block.state_root,
+                Some(target_block.slot),
+            )
+            .map_err(BeaconChainError::from)?
             .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block.state_root))?;
 
         metrics::stop_timer(state_read_timer);
@@ -694,7 +813,7 @@ where
             // The state roots are not useful for the shuffling, so there's no need to
             // compute them.
             per_slot_processing(&mut state, Some(Hash256::zero()), &chain.spec)
-                .map_err(|e| BeaconChainError::from(e))?;
+                .map_err(BeaconChainError::from)?;
         }
 
         metrics::stop_timer(state_skip_timer);
@@ -706,11 +825,11 @@ where
 
         state
             .build_committee_cache(relative_epoch, &chain.spec)
-            .map_err(|e| BeaconChainError::from(e))?;
+            .map_err(BeaconChainError::from)?;
 
         let committee_cache = state
             .committee_cache(relative_epoch)
-            .map_err(|e| BeaconChainError::from(e))?;
+            .map_err(BeaconChainError::from)?;
 
         chain
             .shuffling_cache

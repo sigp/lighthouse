@@ -27,7 +27,7 @@ impl SelectionProof {
         );
         let message = slot.signing_root(domain);
 
-        Self(Signature::new(message.as_bytes(), secret_key))
+        Self(secret_key.sign(message))
     }
 
     /// Returns the "modulo" used for determining if a `SelectionProof` elects an aggregator.
@@ -74,7 +74,7 @@ impl SelectionProof {
         );
         let message = slot.signing_root(domain);
 
-        self.0.verify(message.as_bytes(), pubkey)
+        self.0.verify(pubkey, message)
     }
 }
 

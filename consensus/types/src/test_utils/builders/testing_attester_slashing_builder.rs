@@ -42,7 +42,7 @@ impl TestingAttesterSlashingBuilder {
             slot,
             index,
             beacon_block_root: hash_1,
-            source: checkpoint_1.clone(),
+            source: checkpoint_1,
             target: checkpoint_1,
         };
 
@@ -64,7 +64,7 @@ impl TestingAttesterSlashingBuilder {
                 validator_indices.to_vec().into()
             },
             data: data_1,
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty(),
         };
 
         let mut attestation_2 = IndexedAttestation {
@@ -76,7 +76,7 @@ impl TestingAttesterSlashingBuilder {
                 validator_indices.to_vec().into()
             },
             data: data_2,
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty(),
         };
 
         let add_signatures = |attestation: &mut IndexedAttestation<T>| {
@@ -90,7 +90,7 @@ impl TestingAttesterSlashingBuilder {
 
             for validator_index in validator_indices {
                 let signature = signer(*validator_index, message.as_bytes());
-                attestation.signature.add(&signature);
+                attestation.signature.add_assign(&signature);
             }
         };
 

@@ -44,7 +44,7 @@ fn random_deposit_data() -> DepositData {
         pubkey: keypair.pk.into(),
         withdrawal_credentials: Hash256::zero(),
         amount: 32_000_000_000,
-        signature: Signature::empty_signature().into(),
+        signature: Signature::empty().into(),
     };
 
     deposit.signature = deposit.create_signature(&keypair.sk, &MainnetEthSpec::default_spec());

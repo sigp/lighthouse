@@ -75,7 +75,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
             genesis_time: s.genesis_time,
             genesis_validators_root: s.genesis_validators_root,
             slot: s.slot,
-            fork: s.fork.clone(),
+            fork: s.fork,
 
             // History
             latest_block_header: s.latest_block_header.clone(),
@@ -107,9 +107,9 @@ impl<T: EthSpec> PartialBeaconState<T> {
 
             // Finality
             justification_bits: s.justification_bits.clone(),
-            previous_justified_checkpoint: s.previous_justified_checkpoint.clone(),
-            current_justified_checkpoint: s.current_justified_checkpoint.clone(),
-            finalized_checkpoint: s.finalized_checkpoint.clone(),
+            previous_justified_checkpoint: s.previous_justified_checkpoint,
+            current_justified_checkpoint: s.current_justified_checkpoint,
+            finalized_checkpoint: s.finalized_checkpoint,
         }
     }
 

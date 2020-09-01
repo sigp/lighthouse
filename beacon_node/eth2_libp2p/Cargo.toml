@@ -1,7 +1,7 @@
 [package]
 name = "eth2_libp2p"
-version = "0.1.2"
-authors = ["Age Manning <Age@AgeManning.com>"]
+version = "0.2.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
@@ -14,7 +14,7 @@ serde_derive = "1.0.110"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-version = { path = "../version" }
+lighthouse_version = { path = "../../common/lighthouse_version" }
 tokio = { version = "0.2.21", features = ["time", "macros"] }
 futures = "0.3.5"
 error-chain = "0.12.2"
@@ -23,25 +23,27 @@ fnv = "1.0.7"
 unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-smallvec = "1.4.0"
+smallvec = "1.4.1"
 lru = "0.5.1"
-parking_lot = "0.10.2"
-sha2 = "0.8.2"
+parking_lot = "0.11.0"
+sha2 = "0.9.1"
 base64 = "0.12.1"
 snap = "1.0.0"
 void = "1.0.2"
 tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
-discv5 = { version = "0.1.0-alpha.5", features = ["libp2p"] }
+discv5 = { version = "0.1.0-alpha.8", features = ["libp2p", "openssl-vendored"] }
 tiny-keccak = "2.0.2"
 environment = { path = "../../lighthouse/environment" }
+# TODO: Remove rand crate for mainnet
+rand = "0.7.3"
 
 [dependencies.libp2p]
-#version = "0.19.1"
+#version = "0.23.0"
 git = "https://github.com/sigp/rust-libp2p"
-rev = "a6232506278b9e686248f8d04b79400861b143c2"
+rev = "03f998022ce2f566a6c6e6c4206bc0ce4d45109f"
 default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "secio", "tcp-tokio"] 
+features = ["websocket", "identify", "mplex", "noise", "gossipsub", "dns", "tcp-tokio"]
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["full"] }

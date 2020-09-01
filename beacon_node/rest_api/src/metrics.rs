@@ -1,42 +1,38 @@
-use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use hyper::{Body, Request};
+use crate::{ApiError, Context};
+use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
 use rest_types::Health;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use lighthouse_metrics::*;
 
 lazy_static! {
+    pub static ref BEACON_HTTP_API_REQUESTS_TOTAL: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "beacon_http_api_requests_total",
+            "Count of HTTP requests received",
+            &["endpoint"]
+        );
+    pub static ref BEACON_HTTP_API_SUCCESS_TOTAL: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "beacon_http_api_success_total",
+            "Count of HTTP requests that returned 200 OK",
+            &["endpoint"]
+        );
+    pub static ref BEACON_HTTP_API_ERROR_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "beacon_http_api_error_total",
+        "Count of HTTP that did not return 200 OK",
+        &["endpoint"]
+    );
+    pub static ref BEACON_HTTP_API_TIMES_TOTAL: Result<HistogramVec> = try_create_histogram_vec(
+        "beacon_http_api_times_total",
+        "Duration to process HTTP requests",
+        &["endpoint"]
+    );
     pub static ref REQUEST_RESPONSE_TIME: Result<Histogram> = try_create_histogram(
         "http_server_request_duration_seconds",
         "Time taken to build a response to a HTTP request"
     );
-    pub static ref REQUEST_COUNT: Result<IntCounter> = try_create_int_counter(
-        "http_server_request_total",
-        "Total count of HTTP requests received"
-    );
-    pub static ref SUCCESS_COUNT: Result<IntCounter> = try_create_int_counter(
-        "http_server_success_total",
-        "Total count of HTTP 200 responses sent"
-    );
-    pub static ref VALIDATOR_GET_BLOCK_REQUEST_RESPONSE_TIME: Result<Histogram> =
-        try_create_histogram(
-            "http_server_validator_block_get_request_duration_seconds",
-            "Time taken to respond to GET /validator/block"
-        );
-    pub static ref VALIDATOR_GET_ATTESTATION_REQUEST_RESPONSE_TIME: Result<Histogram> =
-        try_create_histogram(
-            "http_server_validator_attestation_get_request_duration_seconds",
-            "Time taken to respond to GET /validator/attestation"
-        );
-    pub static ref VALIDATOR_GET_DUTIES_REQUEST_RESPONSE_TIME: Result<Histogram> =
-        try_create_histogram(
-            "http_server_validator_duties_get_request_duration_seconds",
-            "Time taken to respond to GET /validator/duties"
-        );
     pub static ref PROCESS_NUM_THREADS: Result<IntGauge> = try_create_int_gauge(
         "process_num_threads",
         "Number of threads used by the current process"
@@ -77,11 +73,8 @@ lazy_static! {
 ///
 /// This is a HTTP handler method.
 pub fn get_prometheus<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-    db_path: PathBuf,
-    freezer_db_path: PathBuf,
-) -> ApiResult {
+    ctx: Arc<Context<T>>,
+) -> std::result::Result<String, ApiError> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 
@@ -101,9 +94,9 @@ pub fn get_prometheus<T: BeaconChainTypes>(
     // using `lighthouse_metrics::gather(..)` to collect the global `DEFAULT_REGISTRY` metrics into
     // a string that can be returned via HTTP.
 
-    slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&beacon_chain.slot_clock);
-    store::scrape_for_metrics(&db_path, &freezer_db_path);
-    beacon_chain::scrape_for_metrics(&beacon_chain);
+    slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&ctx.beacon_chain.slot_clock);
+    store::scrape_for_metrics(&ctx.db_path, &ctx.freezer_db_path);
+    beacon_chain::scrape_for_metrics(&ctx.beacon_chain);
     eth2_libp2p::scrape_discovery_metrics();
 
     // This will silently fail if we are unable to observe the health. This is desired behaviour
@@ -133,6 +126,5 @@ pub fn get_prometheus<T: BeaconChainTypes>(
         .unwrap();
 
     String::from_utf8(buffer)
-        .map(|string| ResponseBuilder::new(&req)?.body_text(string))
-        .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))?
+        .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))
 }

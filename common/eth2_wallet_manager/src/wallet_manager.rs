@@ -123,7 +123,7 @@ impl WalletManager {
         }
 
         let wallet = WalletBuilder::from_mnemonic(mnemonic, password, name)?.build()?;
-        let uuid = wallet.uuid().clone();
+        let uuid = *wallet.uuid();
 
         let wallet_dir = self.dir.join(format!("{}", uuid));
 

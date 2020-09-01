@@ -8,13 +8,15 @@ use std::fs::File;
 use std::io::Write;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use types::{EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let ip: IpAddr = clap_utils::parse_required(matches, "ip")?;
     let udp_port: u16 = clap_utils::parse_required(matches, "udp-port")?;
     let tcp_port: u16 = clap_utils::parse_required(matches, "tcp-port")?;
     let output_dir: PathBuf = clap_utils::parse_required(matches, "output-dir")?;
+    let genesis_fork_version: [u8; 4] =
+        clap_utils::parse_ssz_required(matches, "genesis-fork-version")?;
 
     if output_dir.exists() {
         return Err(format!(
@@ -30,7 +32,12 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
 
     let local_keypair = Keypair::generate_secp256k1();
     let enr_key = CombinedKey::from_libp2p(&local_keypair)?;
-    let enr = build_enr::<T>(&enr_key, &config, EnrForkId::default())
+    let enr_fork_id = EnrForkId {
+        fork_digest: ChainSpec::compute_fork_digest(genesis_fork_version, Hash256::zero()),
+        next_fork_version: genesis_fork_version,
+        next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
+    };
+    let enr = build_enr::<T>(&enr_key, &config, enr_fork_id)
         .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("Unable to create output-dir: {:?}", e))?;

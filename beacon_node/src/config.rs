@@ -2,15 +2,16 @@ use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
-use eth2_libp2p::{Enr, Multiaddr};
+use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, Logger};
 use ssz::Encode;
+use std::cmp;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
 
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
@@ -67,138 +68,20 @@ pub fn get_config<E: EthSpec>(
     let mut log_dir = client_config.data_dir.clone();
     // remove /beacon from the end
     log_dir.pop();
-    info!(log, "Data directory initialised"; "datadir" => format!("{}",log_dir.into_os_string().into_string().expect("Datadir should be a valid os string")));
+    info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
 
     client_config.spec_constants = spec_constants.into();
-    client_config.testnet_dir = get_testnet_dir(cli_args);
 
     /*
      * Networking
      */
-    // If a network dir has been specified, override the `datadir` definition.
-    if let Some(dir) = cli_args.value_of("network-dir") {
-        client_config.network.network_dir = PathBuf::from(dir);
-    } else {
-        client_config.network.network_dir = client_config.data_dir.join(NETWORK_DIR);
-    };
-
-    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
-        let listen_address = listen_address_str
-            .parse()
-            .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
-        client_config.network.listen_address = listen_address;
-    }
-
-    if let Some(max_peers_str) = cli_args.value_of("max-peers") {
-        client_config.network.max_peers = max_peers_str
-            .parse::<usize>()
-            .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
-    }
-
-    if let Some(port_str) = cli_args.value_of("port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        client_config.network.libp2p_port = port;
-        client_config.network.discovery_port = port;
-    }
-
-    if let Some(port_str) = cli_args.value_of("discovery-port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        client_config.network.discovery_port = port;
-    }
-
-    if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
-        client_config.network.boot_nodes = boot_enr_str
-            .split(',')
-            .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
-            .collect::<Result<Vec<Enr>, _>>()?;
-    }
-
-    if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
-        client_config.network.libp2p_nodes = libp2p_addresses_str
-            .split(',')
-            .map(|multiaddr| {
-                multiaddr
-                    .parse()
-                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
-            })
-            .collect::<Result<Vec<Multiaddr>, _>>()?;
-    }
-
-    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
-        client_config.network.enr_udp_port = Some(
-            enr_udp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
-        );
-    }
-
-    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
-        client_config.network.enr_tcp_port = Some(
-            enr_tcp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
-        );
-    }
-
-    if cli_args.is_present("enr-match") {
-        // set the enr address to localhost if the address is 0.0.0.0
-        if client_config.network.listen_address
-            == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr")
-        {
-            client_config.network.enr_address =
-                Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
-        } else {
-            client_config.network.enr_address = Some(client_config.network.listen_address);
-        }
-        client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
-    }
-
-    if let Some(enr_address) = cli_args.value_of("enr-address") {
-        let resolved_addr = match enr_address.parse::<IpAddr>() {
-            Ok(addr) => addr, // // Input is an IpAddr
-            Err(_) => {
-                let mut addr = enr_address.to_string();
-                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
-                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
-                // will make the node undiscoverable.
-                if let Some(enr_udp_port) = client_config.network.enr_udp_port {
-                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
-                } else {
-                    return Err(
-                        "enr-udp-port must be set for node to be discoverable with dns address"
-                            .into(),
-                    );
-                }
-                // `to_socket_addr()` does the dns resolution
-                // Note: `to_socket_addrs()` is a blocking call
-                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
-                    // Pick the first ip from the list of resolved addresses
-                    resolved_addrs
-                        .next()
-                        .map(|a| a.ip())
-                        .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
-                } else {
-                    return Err(format!("Failed to parse enr-address: {}", enr_address));
-                };
-                client_config.network.discv5_config.enr_update = false;
-                resolved_addr
-            }
-        };
-        client_config.network.enr_address = Some(resolved_addr);
-    }
-
-    if cli_args.is_present("disable_enr_auto_update") {
-        client_config.network.discv5_config.enr_update = false;
-    }
-
-    if cli_args.is_present("disable-discovery") {
-        client_config.network.disable_discovery = true;
-        slog::warn!(log, "Discovery is disabled. New peers will not be found");
-    }
+    set_network_config(
+        &mut client_config.network,
+        cli_args,
+        &client_config.data_dir,
+        &log,
+        false,
+    )?;
 
     /*
      * Http server
@@ -218,6 +101,15 @@ pub fn get_config<E: EthSpec>(
         client_config.rest_api.port = port
             .parse::<u16>()
             .map_err(|_| "http-port is not a valid u16.")?;
+    }
+
+    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
+        hyper::header::HeaderValue::from_str(allow_origin)
+            .map_err(|_| "Invalid allow-origin value")?;
+
+        client_config.rest_api.allow_origin = allow_origin.to_string();
     }
 
     /*
@@ -317,8 +209,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 testnet dir to obtain some additional config values.
      */
-    let eth2_testnet_config: Eth2TestnetConfig<E> =
-        get_eth2_testnet_config(&client_config.testnet_dir)?;
+    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
@@ -329,7 +220,7 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config.network.boot_nodes.append(&mut boot_nodes)
+        client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
@@ -343,7 +234,191 @@ pub fn get_config<E: EthSpec>(
         client_config.genesis = ClientGenesis::DepositContract;
     }
 
+    let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
+        if graffiti.len() > GRAFFITI_BYTES_LEN {
+            return Err(format!(
+                "Your graffiti is too long! {} bytes maximum!",
+                GRAFFITI_BYTES_LEN
+            ));
+        }
+
+        graffiti.as_bytes()
+    } else {
+        lighthouse_version::VERSION.as_bytes()
+    };
+
+    let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
+    client_config.graffiti[..trimmed_graffiti_len]
+        .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
+
+    if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
+        client_config.chain.import_max_skip_slots = match max_skip_slots {
+            "none" => None,
+            n => Some(
+                n.parse()
+                    .map_err(|_| "Invalid max-skip-slots".to_string())?,
+            ),
+        };
+    }
+
     Ok(client_config)
+}
+
+/// Sets the network config from the command line arguments
+pub fn set_network_config(
+    config: &mut NetworkConfig,
+    cli_args: &ArgMatches,
+    data_dir: &PathBuf,
+    log: &Logger,
+    use_listening_port_as_enr_port_by_default: bool,
+) -> Result<(), String> {
+    // If a network dir has been specified, override the `datadir` definition.
+    if let Some(dir) = cli_args.value_of("network-dir") {
+        config.network_dir = PathBuf::from(dir);
+    } else {
+        config.network_dir = data_dir.join(NETWORK_DIR);
+    };
+
+    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
+        let listen_address = listen_address_str
+            .parse()
+            .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
+        config.listen_address = listen_address;
+    }
+
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        config.target_peers = target_peers_str
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    }
+
+    if let Some(port_str) = cli_args.value_of("port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
+        config.libp2p_port = port;
+        config.discovery_port = port;
+    }
+
+    if let Some(port_str) = cli_args.value_of("discovery-port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
+        config.discovery_port = port;
+    }
+
+    if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
+        let mut enrs: Vec<Enr> = vec![];
+        let mut multiaddrs: Vec<Multiaddr> = vec![];
+        for addr in boot_enr_str.split(',') {
+            match addr.parse() {
+                Ok(enr) => enrs.push(enr),
+                Err(_) => {
+                    // parsing as ENR failed, try as Multiaddr
+                    let multi: Multiaddr = addr
+                        .parse()
+                        .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
+                        slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                    }
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
+                        slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                    }
+                    multiaddrs.push(multi);
+                }
+            }
+        }
+        config.boot_nodes_enr = enrs;
+        config.boot_nodes_multiaddr = multiaddrs;
+    }
+
+    if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
+        config.libp2p_nodes = libp2p_addresses_str
+            .split(',')
+            .map(|multiaddr| {
+                multiaddr
+                    .parse()
+                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
+            })
+            .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
+        config.enr_udp_port = Some(
+            enr_udp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+        config.enr_tcp_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if cli_args.is_present("enr-match") {
+        // set the enr address to localhost if the address is 0.0.0.0
+        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
+            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        } else {
+            config.enr_address = Some(config.listen_address);
+        }
+        config.enr_udp_port = Some(config.discovery_port);
+    }
+
+    if let Some(enr_address) = cli_args.value_of("enr-address") {
+        let resolved_addr = match enr_address.parse::<IpAddr>() {
+            Ok(addr) => addr, // // Input is an IpAddr
+            Err(_) => {
+                let mut addr = enr_address.to_string();
+                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
+                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
+                // will make the node undiscoverable.
+                if let Some(enr_udp_port) = config.enr_udp_port.or_else(|| {
+                    if use_listening_port_as_enr_port_by_default {
+                        Some(config.discovery_port)
+                    } else {
+                        None
+                    }
+                }) {
+                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                } else {
+                    return Err(
+                        "enr-udp-port must be set for node to be discoverable with dns address"
+                            .into(),
+                    );
+                }
+                // `to_socket_addr()` does the dns resolution
+                // Note: `to_socket_addrs()` is a blocking call
+                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
+                    // Pick the first ip from the list of resolved addresses
+                    resolved_addrs
+                        .next()
+                        .map(|a| a.ip())
+                        .ok_or_else(|| "Resolved dns addr contains no entries".to_string())?
+                } else {
+                    return Err(format!("Failed to parse enr-address: {}", enr_address));
+                };
+                config.discv5_config.enr_update = false;
+                resolved_addr
+            }
+        };
+        config.enr_address = Some(resolved_addr);
+    }
+
+    if cli_args.is_present("disable_enr_auto_update") {
+        config.discv5_config.enr_update = false;
+    }
+
+    if cli_args.is_present("disable-discovery") {
+        config.disable_discovery = true;
+        slog::warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    Ok(())
 }
 
 /// Gets the datadir which should be used.
@@ -359,29 +434,19 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Gets the testnet dir which should be used.
-pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
-    // Read the `--testnet-dir` flag.
-    if let Some(val) = cli_args.value_of("testnet-dir") {
-        Some(PathBuf::from(val))
-    } else {
-        None
-    }
-}
-
-/// If `testnet_dir` is `Some`, returns the `Eth2TestnetConfig` at that path or returns an error.
-/// If it is `None`, returns the "hard coded" config.
+/// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
+/// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_testnet_config<E: EthSpec>(
-    testnet_dir: &Option<PathBuf>,
+    cli_args: &ArgMatches,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    if let Some(testnet_dir) = testnet_dir {
-        Eth2TestnetConfig::load(testnet_dir.clone())
-            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))
+    let optional_testnet_config = if cli_args.is_present("testnet") {
+        clap_utils::parse_hardcoded_network(cli_args, "testnet")?
+    } else if cli_args.is_present("testnet-dir") {
+        clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        Eth2TestnetConfig::hard_coded()
-            .map_err(|e| format!("Error parsing hardcoded testnet: {}", e))?
-            .ok_or_else(|| format!("{}", BAD_TESTNET_DIR_MESSAGE))
-    }
+        Eth2TestnetConfig::hard_coded_default()?
+    };
+    optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }
 
 /// A bit of hack to find an unused port.

@@ -14,7 +14,7 @@ fn builder() -> EnvironmentBuilder<MainnetEthSpec> {
 }
 
 fn eth2_testnet_config() -> Option<Eth2TestnetConfig<MainnetEthSpec>> {
-    Eth2TestnetConfig::hard_coded().expect("should decode hard_coded params")
+    Eth2TestnetConfig::hard_coded_default().expect("should decode hard_coded params")
 }
 
 mod setup_eth2_config {

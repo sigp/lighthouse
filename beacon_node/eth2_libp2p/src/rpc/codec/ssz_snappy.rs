@@ -64,9 +64,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) => res.as_ssz_bytes(),
             },
-            RPCCodedResponse::InvalidRequest(err) => err.as_ssz_bytes(),
-            RPCCodedResponse::ServerError(err) => err.as_ssz_bytes(),
-            RPCCodedResponse::Unknown(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::Error(_, err) => err.as_ssz_bytes(),
             RPCCodedResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
@@ -74,7 +72,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
             return Err(RPCError::InternalError(
-                "attempting to encode data > max_packet_size".into(),
+                "attempting to encode data > max_packet_size",
             ));
         }
         // Inserts the length prefix of the uncompressed bytes into dst
@@ -186,7 +184,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     },
                     Protocol::MetaData => match self.protocol.version {
                         Version::V1 => {
-                            if decoded_buffer.len() > 0 {
+                            if !decoded_buffer.is_empty() {
                                 Err(RPCError::InvalidData)
                             } else {
                                 Ok(Some(RPCRequest::MetaData(PhantomData)))
@@ -198,10 +196,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
             Err(e) => match e.kind() {
                 // Haven't received enough bytes to decode yet
                 // TODO: check if this is the only Error variant where we return `Ok(None)`
-                ErrorKind::UnexpectedEof => {
-                    return Ok(None);
-                }
-                _ => return Err(e).map_err(RPCError::from),
+                ErrorKind::UnexpectedEof => Ok(None),
+                _ => Err(e).map_err(RPCError::from),
             },
         }
     }
@@ -370,10 +366,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
             Err(e) => match e.kind() {
                 // Haven't received enough bytes to decode yet
                 // TODO: check if this is the only Error variant where we return `Ok(None)`
-                ErrorKind::UnexpectedEof => {
-                    return Ok(None);
-                }
-                _ => return Err(e).map_err(RPCError::from),
+                ErrorKind::UnexpectedEof => Ok(None),
+                _ => Err(e).map_err(RPCError::from),
             },
         }
     }
@@ -414,10 +408,8 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
             Err(e) => match e.kind() {
                 // Haven't received enough bytes to decode yet
                 // TODO: check if this is the only Error variant where we return `Ok(None)`
-                ErrorKind::UnexpectedEof => {
-                    return Ok(None);
-                }
-                _ => return Err(e).map_err(RPCError::from),
+                ErrorKind::UnexpectedEof => Ok(None),
+                _ => Err(e).map_err(RPCError::from),
             },
         }
     }

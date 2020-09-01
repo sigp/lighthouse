@@ -14,7 +14,7 @@ use crate::{
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
-use slog::{debug, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -29,6 +29,16 @@ use types::*;
 
 /// 32-byte key for accessing the `split` of the freezer DB.
 pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
+
+/// Defines how blocks should be replayed on states.
+#[derive(PartialEq)]
+pub enum BlockReplay {
+    /// Perform all transitions faithfully to the specification.
+    Accurate,
+    /// Don't compute state roots, eventually computing an invalid beacon state that can only be
+    /// used for obtaining shuffling.
+    InconsistentStateRoots,
+}
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -87,6 +97,68 @@ pub enum HotColdDBError {
     RestorePointBlockHashError(BeaconStateError),
 }
 
+impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+    pub fn open_ephemeral(
+        config: StoreConfig,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+
+        let db = HotColdDB {
+            split: RwLock::new(Split::default()),
+            cold_db: MemoryStore::open(),
+            hot_db: MemoryStore::open(),
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            config,
+            spec,
+            log,
+            _phantom: PhantomData,
+        };
+
+        Ok(db)
+    }
+}
+
+impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
+    /// Open a new or existing database, with the given paths to the hot and cold DBs.
+    ///
+    /// The `slots_per_restore_point` parameter must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
+    pub fn open(
+        hot_path: &Path,
+        cold_path: &Path,
+        config: StoreConfig,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<HotColdDB<E, LevelDB<E>, LevelDB<E>>, Error> {
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+
+        let db = HotColdDB {
+            split: RwLock::new(Split::default()),
+            cold_db: LevelDB::open(cold_path)?,
+            hot_db: LevelDB::open(hot_path)?,
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            config,
+            spec,
+            log,
+            _phantom: PhantomData,
+        };
+
+        // Load the previous split slot from the database (if any). This ensures we can
+        // stop and restart correctly.
+        if let Some(split) = db.load_split()? {
+            info!(
+                db.log,
+                "Hot-Cold DB initialized";
+                "split_slot" => split.slot,
+                "split_state" => format!("{:?}", split.state_root)
+            );
+            *db.split.write() = split;
+        }
+        Ok(db)
+    }
+}
+
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Store a block and update the LRU cache.
     pub fn put_block(
@@ -141,13 +213,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
-            self.store_cold_state(state_root, &state)
+            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+            self.store_cold_state(state_root, &state, &mut ops)?;
+            self.cold_db.do_atomically(ops)
         } else {
-            self.store_hot_state(state_root, state)
+            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+            self.store_hot_state(state_root, state, &mut ops)?;
+            self.hot_db.do_atomically(ops)
         }
     }
 
     /// Fetch a state from the store.
+    ///
+    /// If `slot` is provided then it will be used as a hint as to which database should
+    /// be checked. Importantly, if the slot hint is provided and indicates a slot that lies
+    /// in the freezer database, then only the freezer database will be accessed and `Ok(None)`
+    /// will be returned if the provided `state_root` doesn't match the state root of the
+    /// frozen state at `slot`. Consequently, if a state from a non-canonical chain is desired, it's
+    /// best to set `slot` to `None`, or call `load_hot_state` directly.
     pub fn get_state(
         &self,
         state_root: &Hash256,
@@ -157,15 +240,43 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if let Some(slot) = slot {
             if slot < self.get_split_slot() {
-                self.load_cold_state_by_slot(slot).map(Some)
+                // Although we could avoid a DB lookup by shooting straight for the
+                // frozen state using `load_cold_state_by_slot`, that would be incorrect
+                // in the case where the caller provides a `state_root` that's off the canonical
+                // chain. This way we avoid returning a state that doesn't match `state_root`.
+                self.load_cold_state(state_root)
             } else {
-                self.load_hot_state(state_root)
+                self.load_hot_state(state_root, BlockReplay::Accurate)
             }
         } else {
-            match self.load_hot_state(state_root)? {
+            match self.load_hot_state(state_root, BlockReplay::Accurate)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
+        }
+    }
+
+    /// Fetch a state from the store, but don't compute all of the values when replaying blocks
+    /// upon that state (e.g., state roots). Additionally, only states from the hot store are
+    /// returned.
+    ///
+    /// See `Self::get_state` for information about `slot`.
+    ///
+    /// ## Warning
+    ///
+    /// The returned state **is not a valid beacon state**, it can only be used for obtaining
+    /// shuffling to process attestations.
+    pub fn get_inconsistent_state_for_attestation_verification_only(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
+
+        if slot.map_or(false, |slot| slot < self.get_split_slot()) {
+            Ok(None)
+        } else {
+            self.load_hot_state(state_root, BlockReplay::InconsistentStateRoots)
         }
     }
 
@@ -212,8 +323,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }) = self.load_hot_state_summary(state_root)?
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
+            //
+            // `BlockReplay` should be irrelevant here since we never replay blocks for an epoch
+            // boundary state in the hot DB.
             let state = self
-                .load_hot_state(&epoch_boundary_state_root)?
+                .load_hot_state(&epoch_boundary_state_root, BlockReplay::Accurate)?
                 .ok_or_else(|| {
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
                 })?;
@@ -243,12 +357,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.exists::<I>(key)
     }
 
-    pub fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
         let mut guard = self.block_cache.lock();
 
         let mut key_value_batch: Vec<KeyValueStoreOp> = Vec::with_capacity(batch.len());
-        for op in batch {
+        for op in &batch {
             match op {
+                StoreOp::PutBlock(block_hash, block) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    key_value_batch.push(block.as_kv_store_op(untyped_hash));
+                }
+
+                StoreOp::PutState(state_hash, state) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    self.store_hot_state(&untyped_hash, state, &mut key_value_batch)?;
+                }
+
+                StoreOp::PutStateSummary(state_hash, summary) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    key_value_batch.push(summary.as_kv_store_op(untyped_hash));
+                }
+
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
                     let key =
@@ -272,78 +401,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
             }
         }
-        self.hot_db.do_atomically(&key_value_batch)?;
+        self.hot_db.do_atomically(key_value_batch)?;
 
-        for op in batch {
+        for op in &batch {
             match op {
+                StoreOp::PutBlock(block_hash, block) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    guard.put(untyped_hash, block.clone());
+                }
+
+                StoreOp::PutState(_, _) => (),
+
+                StoreOp::PutStateSummary(_, _) => (),
+
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
                     guard.pop(&untyped_hash);
                 }
+
                 StoreOp::DeleteState(_, _) => (),
             }
         }
         Ok(())
     }
-}
-
-impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
-    pub fn open_ephemeral(
-        config: StoreConfig,
-        spec: ChainSpec,
-        log: Logger,
-    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
-        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
-
-        let db = HotColdDB {
-            split: RwLock::new(Split::default()),
-            cold_db: MemoryStore::open(),
-            hot_db: MemoryStore::open(),
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            config,
-            spec,
-            log,
-            _phantom: PhantomData,
-        };
-
-        Ok(db)
-    }
-}
-
-impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
-    /// Open a new or existing database, with the given paths to the hot and cold DBs.
-    ///
-    /// The `slots_per_restore_point` parameter must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
-    pub fn open(
-        hot_path: &Path,
-        cold_path: &Path,
-        config: StoreConfig,
-        spec: ChainSpec,
-        log: Logger,
-    ) -> Result<HotColdDB<E, LevelDB<E>, LevelDB<E>>, Error> {
-        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
-
-        let db = HotColdDB {
-            split: RwLock::new(Split::default()),
-            cold_db: LevelDB::open(cold_path)?,
-            hot_db: LevelDB::open(hot_path)?,
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            config,
-            spec,
-            log,
-            _phantom: PhantomData,
-        };
-
-        // Load the previous split slot from the database (if any). This ensures we can
-        // stop and restart correctly.
-        if let Some(split) = db.load_split()? {
-            *db.split.write() = split;
-        }
-        Ok(db)
-    }
-}
-
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Store a post-finalization state efficiently in the hot database.
     ///
     /// On an epoch boundary, store a full state. On an intermediate slot, store
@@ -352,6 +432,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
         state: &BeaconState<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
         if state.slot % E::slots_per_epoch() == 0 {
@@ -361,13 +442,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "slot" => state.slot.as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
-            store_full_state(&self.hot_db, state_root, &state)?;
+            store_full_state(state_root, &state, ops)?;
         }
 
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
-        self.put_state_summary(state_root, HotStateSummary::new(state_root, state)?)?;
+        let hot_state_summary = HotStateSummary::new(state_root, state)?;
+        let op = hot_state_summary.as_kv_store_op(*state_root);
+        ops.push(op);
 
         Ok(())
     }
@@ -375,7 +458,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Load a post-finalization state from the hot database.
     ///
     /// Will replay blocks from the nearest epoch boundary.
-    pub fn load_hot_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
+    pub fn load_hot_state(
+        &self,
+        state_root: &Hash256,
+        block_replay: BlockReplay,
+    ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
         if let Some(HotStateSummary {
@@ -396,7 +483,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             } else {
                 let blocks =
                     self.load_blocks_to_replay(boundary_state.slot, slot, latest_block_root)?;
-                self.replay_blocks(boundary_state, blocks, slot)?
+                self.replay_blocks(boundary_state, blocks, slot, block_replay)?
             };
 
             Ok(Some(state))
@@ -413,6 +500,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
         state: &BeaconState<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         if state.slot % self.config.slots_per_restore_point != 0 {
             warn!(
@@ -433,18 +521,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // 1. Convert to PartialBeaconState and store that in the DB.
         let partial_state = PartialBeaconState::from_state_forgetful(state);
-        self.cold_db.put(state_root, &partial_state)?;
+        let op = partial_state.as_kv_store_op(*state_root);
+        ops.push(op);
 
         // 2. Store updated vector entries.
         let db = &self.cold_db;
-        store_updated_vector(BlockRoots, db, state, &self.spec)?;
-        store_updated_vector(StateRoots, db, state, &self.spec)?;
-        store_updated_vector(HistoricalRoots, db, state, &self.spec)?;
-        store_updated_vector(RandaoMixes, db, state, &self.spec)?;
+        store_updated_vector(BlockRoots, db, state, &self.spec, ops)?;
+        store_updated_vector(StateRoots, db, state, &self.spec, ops)?;
+        store_updated_vector(HistoricalRoots, db, state, &self.spec, ops)?;
+        store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
 
         // 3. Store restore point.
         let restore_point_index = state.slot.as_u64() / self.config.slots_per_restore_point;
-        self.store_restore_point_hash(restore_point_index, *state_root)?;
+        self.store_restore_point_hash(restore_point_index, *state_root, ops);
 
         Ok(())
     }
@@ -525,7 +614,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )?;
 
         // 3. Replay the blocks on top of the low restore point.
-        self.replay_blocks(low_restore_point, blocks, slot)
+        self.replay_blocks(low_restore_point, blocks, slot, BlockReplay::Accurate)
     }
 
     /// Get a suitable block root for backtracking from `high_restore_point` to the state at `slot`.
@@ -582,9 +671,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
-        blocks: Vec<SignedBeaconBlock<E>>,
+        mut blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
+        block_replay: BlockReplay,
     ) -> Result<BeaconState<E>, Error> {
+        if block_replay == BlockReplay::InconsistentStateRoots {
+            for i in 0..blocks.len() {
+                blocks[i].message.state_root = Hash256::zero();
+                if i > 0 {
+                    blocks[i].message.parent_root = blocks[i - 1].canonical_root()
+                }
+            }
+        }
+
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
                 let prev_block = &blocks[i - 1].message;
@@ -604,10 +703,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             while state.slot < block.message.slot {
-                let state_root = state_root_from_prev_block(i, &state);
+                let state_root = match block_replay {
+                    BlockReplay::Accurate => state_root_from_prev_block(i, &state),
+                    BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
+                };
                 per_slot_processing(&mut state, state_root, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
             }
+
             per_block_processing(
                 &mut state,
                 &block,
@@ -619,7 +722,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         while state.slot < target_slot {
-            let state_root = state_root_from_prev_block(blocks.len(), &state);
+            let state_root = match block_replay {
+                BlockReplay::Accurate => state_root_from_prev_block(blocks.len(), &state),
+                BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
+            };
             per_slot_processing(&mut state, state_root, &self.spec)
                 .map_err(HotColdDBError::BlockReplaySlotError)?;
         }
@@ -645,13 +751,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(split)
     }
 
-    /// Store the split point on disk.
-    fn store_split(&self) -> Result<(), Error> {
-        let key = Hash256::from_slice(SPLIT_DB_KEY.as_bytes());
-        self.hot_db.put(&key, &*self.split.read())?;
-        Ok(())
-    }
-
     /// Load the state root of a restore point.
     fn load_restore_point_hash(&self, restore_point_index: u64) -> Result<Hash256, Error> {
         let key = Self::restore_point_key(restore_point_index);
@@ -666,11 +765,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         restore_point_index: u64,
         state_root: Hash256,
-    ) -> Result<(), Error> {
-        let key = Self::restore_point_key(restore_point_index);
-        self.cold_db
-            .put(&key, &RestorePointHash { state_root })
-            .map_err(Into::into)
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        let value = &RestorePointHash { state_root };
+        let op = value.as_kv_store_op(Self::restore_point_key(restore_point_index));
+        ops.push(op);
     }
 
     /// Convert a `restore_point_index` into a database key.
@@ -684,13 +783,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .cold_db
             .get(state_root)?
             .map(|s: ColdStateSummary| s.slot))
-    }
-
-    /// Store the slot of a frozen state.
-    fn store_cold_state_slot(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
-        self.cold_db
-            .put(state_root, &ColdStateSummary { slot })
-            .map_err(Into::into)
     }
 
     /// Load a hot state's summary, given its root.
@@ -733,7 +825,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
-pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: Arc<HotColdDB<E, Hot, Cold>>,
     frozen_head_root: Hash256,
     frozen_head: &BeaconState<E>,
@@ -747,7 +839,7 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // 0. Check that the migration is sensible.
     // The new frozen head must increase the current split slot, and lie on an epoch
     // boundary (in order for the hot state summary scheme to work).
-    let current_split_slot = store.get_split_slot();
+    let current_split_slot = store.split.read().slot;
 
     if frozen_head.slot < current_split_slot {
         return Err(HotColdDBError::FreezeSlotError {
@@ -761,42 +853,92 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot).into());
     }
 
+    let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
+
     // 1. Copy all of the states between the head and the split slot, from the hot DB
     // to the cold DB.
     let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
-
-    let mut to_delete = vec![];
     for maybe_pair in state_root_iter.take_while(|result| match result {
         Ok((_, slot)) => slot >= &current_split_slot,
         Err(_) => true,
     }) {
         let (state_root, slot) = maybe_pair?;
+
+        let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
+
         if slot % store.config.slots_per_restore_point == 0 {
             let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
                 .ok_or_else(|| HotColdDBError::MissingStateToFreeze(state_root))?;
 
-            store.store_cold_state(&state_root, &state)?;
+            store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
         }
 
         // Store a pointer from this state root to its slot, so we can later reconstruct states
         // from their state root alone.
-        store.store_cold_state_slot(&state_root, slot)?;
+        let cold_state_summary = ColdStateSummary { slot };
+        let op = cold_state_summary.as_kv_store_op(state_root);
+        cold_db_ops.push(op);
+
+        // There are data dependencies between calls to `store_cold_state()` that prevent us from
+        // doing one big call to `store.cold_db.do_atomically()` at end of the loop.
+        store.cold_db.do_atomically(cold_db_ops)?;
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
-        to_delete.push((state_root, slot));
+        hot_db_ops.push(StoreOp::DeleteState(state_root.into(), slot));
     }
 
-    // 2. Update the split slot
-    *store.split.write() = Split {
-        slot: frozen_head.slot,
-        state_root: frozen_head_root,
-    };
-    store.store_split()?;
+    // Warning: Critical section.  We have to take care not to put any of the two databases in an
+    //          inconsistent state if the OS process dies at any point during the freezeing
+    //          procedure.
+    //
+    // Since it is pretty much impossible to be atomic across more than one database, we trade
+    // losing track of states to delete, for consistency.  In other words: We should be safe to die
+    // at any point below but it may happen that some states won't be deleted from the hot database
+    // and will remain there forever.  Since dying in these particular few lines should be an
+    // exceedingly rare event, this should be an acceptable tradeoff.
 
-    // 3. Delete from the hot DB
-    for (state_root, slot) in to_delete {
-        store.delete_state(&state_root, slot)?;
+    // Flush to disk all the states that have just been migrated to the cold store.
+    store.cold_db.sync()?;
+
+    {
+        let mut split_guard = store.split.write();
+        let latest_split_slot = split_guard.slot;
+
+        // Detect a sitation where the split point is (erroneously) changed from more than one
+        // place in code.
+        if latest_split_slot != current_split_slot {
+            error!(
+                store.log,
+                "Race condition detected: Split point changed while moving states to the freezer";
+                "previous split slot" => current_split_slot,
+                "current split slot" => latest_split_slot,
+            );
+
+            // Assume the freezing procedure will be retried in case this happens.
+            return Err(Error::SplitPointModified(
+                current_split_slot,
+                latest_split_slot,
+            ));
+        }
+
+        // Before updating the in-memory split value, we flush it to disk first, so that should the
+        // OS process die at this point, we pick up from the right place after a restart.
+        let split = Split {
+            slot: frozen_head.slot,
+            state_root: frozen_head_root,
+        };
+        store
+            .hot_db
+            .put_sync(&Hash256::from_slice(SPLIT_DB_KEY.as_bytes()), &split)?;
+
+        // Split point is now persisted in the hot database on disk.  The in-memory split point
+        // hasn't been modified elsewhere since we keep a write lock on it.  It's safe to update
+        // the in-memory split point now.
+        *split_guard = split;
     }
+
+    // Delete the states from the hot database if we got this far.
+    store.do_atomically(hot_db_ops)?;
 
     debug!(
         store.log,
@@ -809,7 +951,7 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
 /// Struct for storing the split slot and state root in the database.
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
-struct Split {
+pub struct Split {
     slot: Slot,
     state_root: Hash256,
 }

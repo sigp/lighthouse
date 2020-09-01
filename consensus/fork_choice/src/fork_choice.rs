@@ -1,10 +1,13 @@
-use crate::ForkChoiceStore;
+use std::marker::PhantomData;
+
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use std::marker::PhantomData;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, IndexedAttestation, Slot,
 };
+
+use crate::ForkChoiceStore;
+use std::cmp::Ordering;
 
 /// Defined here:
 ///
@@ -301,21 +304,22 @@ where
             .get_block(&block_root)
             .ok_or_else(|| Error::MissingProtoArrayBlock(block_root))?;
 
-        if block.slot > ancestor_slot {
-            Ok(self
+        match block.slot.cmp(&ancestor_slot) {
+            Ordering::Greater => Ok(self
                 .proto_array
                 .core_proto_array()
                 .iter_block_roots(&block_root)
                 // Search for a slot that is **less than or equal to** the target slot. We check
                 // for lower slots to account for skip slots.
                 .find(|(_, slot)| *slot <= ancestor_slot)
-                .map(|(root, _)| root))
-        } else if block.slot == ancestor_slot {
-            Ok(Some(block_root))
-        } else {
-            // Root is older than queried slot, thus a skip slot. Return most recent root prior to
-            // slot.
-            Ok(Some(block_root))
+                .map(|(root, _)| root)),
+            Ordering::Less => Ok(Some(block_root)),
+            Ordering::Equal =>
+            // Root is older than queried slot, thus a skip slot. Return most recent root prior
+            // to slot.
+            {
+                Ok(Some(block_root))
+            }
         }
     }
 
@@ -331,17 +335,14 @@ where
 
         let store = &mut self.fc_store;
 
-        let result = self
-            .proto_array
+        self.proto_array
             .find_head(
                 store.justified_checkpoint().epoch,
                 store.justified_checkpoint().root,
                 store.finalized_checkpoint().epoch,
                 store.justified_balances(),
             )
-            .map_err(Into::into);
-
-        result
+            .map_err(Into::into)
     }
 
     /// Returns `true` if the given `store` should be updated to set
@@ -496,17 +497,16 @@ where
             // information:
             //
             // https://github.com/ethereum/eth2.0-specs/pull/1880
-            if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint {
-                if state.current_justified_checkpoint.epoch
+            if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint
+                && (state.current_justified_checkpoint.epoch
                     > self.fc_store.justified_checkpoint().epoch
                     || self
                         .get_ancestor(self.fc_store.justified_checkpoint().root, finalized_slot)?
-                        != Some(self.fc_store.finalized_checkpoint().root)
-                {
-                    self.fc_store
-                        .set_justified_checkpoint(state.current_justified_checkpoint)
-                        .map_err(Error::UnableToSetJustifiedCheckpoint)?;
-                }
+                        != Some(self.fc_store.finalized_checkpoint().root))
+            {
+                self.fc_store
+                    .set_justified_checkpoint(state.current_justified_checkpoint)
+                    .map_err(Error::UnableToSetJustifiedCheckpoint)?;
             }
         }
 
@@ -557,13 +557,13 @@ where
         //
         // This is not in the specification, however it should be transparent to other nodes. We
         // return early here to avoid wasting precious resources verifying the rest of it.
-        if indexed_attestation.attesting_indices.len() == 0 {
+        if indexed_attestation.attesting_indices.is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
         }
 
         let slot_now = self.fc_store.get_current_slot();
         let epoch_now = slot_now.epoch(E::slots_per_epoch());
-        let target = indexed_attestation.data.target.clone();
+        let target = indexed_attestation.data.target;
 
         // Attestation must be from the current or previous epoch.
         if target.epoch > epoch_now {
@@ -608,10 +608,20 @@ where
                 beacon_block_root: indexed_attestation.data.beacon_block_root,
             })?;
 
-        if block.target_root != target.root {
+        // If an attestation points to a block that is from an earlier slot than the attestation,
+        // then all slots between the block and attestation must be skipped. Therefore if the block
+        // is from a prior epoch to the attestation, then the target root must be equal to the root
+        // of the block that is being attested to.
+        let expected_target = if target.epoch > block.slot.epoch(E::slots_per_epoch()) {
+            indexed_attestation.data.beacon_block_root
+        } else {
+            block.target_root
+        };
+
+        if expected_target != target.root {
             return Err(InvalidAttestation::InvalidTarget {
                 attestation: target.root,
-                local: block.target_root,
+                local: expected_target,
             });
         }
 
@@ -728,14 +738,25 @@ where
         Ok(())
     }
 
-    /// Returns `true` if the block is known.
+    /// Returns `true` if the block is known **and** a descendant of the finalized root.
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.proto_array.contains_block(block_root)
+        self.proto_array.contains_block(block_root) && self.is_descendant_of_finalized(*block_root)
     }
 
-    /// Returns a `ProtoBlock` if the block is known.
+    /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        self.proto_array.get_block(block_root)
+        self.proto_array.get_block(block_root).filter(|block| {
+            // If available, use the parent_root to perform the lookup since it will involve one
+            // less lookup. This involves making the assumption that the finalized block will
+            // always have `block.parent_root` of `None`.
+            self.is_descendant_of_finalized(block.parent_root.unwrap_or(block.root))
+        })
+    }
+
+    /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
+    pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
+        self.proto_array
+            .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
     }
 
     /// Returns the latest message for a given validator, if any.
@@ -812,8 +833,9 @@ pub struct PersistedForkChoice {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use types::{EthSpec, MainnetEthSpec};
+
+    use super::*;
 
     type E = MainnetEthSpec;
 

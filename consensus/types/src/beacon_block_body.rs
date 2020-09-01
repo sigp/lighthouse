@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::utils::{graffiti_from_hex_str, graffiti_to_hex_str};
+use crate::utils::{graffiti_from_hex_str, graffiti_to_hex_str, Graffiti};
 use crate::*;
 
 use serde_derive::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ pub struct BeaconBlockBody<T: EthSpec> {
         serialize_with = "graffiti_to_hex_str",
         deserialize_with = "graffiti_from_hex_str"
     )]
-    pub graffiti: [u8; 32],
+    pub graffiti: Graffiti,
     pub proposer_slashings: VariableList<ProposerSlashing, T::MaxProposerSlashings>,
     pub attester_slashings: VariableList<AttesterSlashing<T>, T::MaxAttesterSlashings>,
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,

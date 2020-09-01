@@ -116,6 +116,18 @@ pub enum GoodbyeReason {
     /// Error/fault in the RPC.
     Fault = 3,
 
+    /// Teku uses this code for not being able to verify a network.
+    UnableToVerifyNetwork = 128,
+
+    /// The node has too many connected peers.
+    TooManyPeers = 129,
+
+    /// Scored poorly.
+    BadScore = 250,
+
+    /// The peer is banned
+    Banned = 251,
+
     /// Unknown reason.
     Unknown = 0,
 }
@@ -126,6 +138,10 @@ impl From<u64> for GoodbyeReason {
             1 => GoodbyeReason::ClientShutdown,
             2 => GoodbyeReason::IrrelevantNetwork,
             3 => GoodbyeReason::Fault,
+            128 => GoodbyeReason::UnableToVerifyNetwork,
+            129 => GoodbyeReason::TooManyPeers,
+            250 => GoodbyeReason::BadScore,
+            251 => GoodbyeReason::Banned,
             _ => GoodbyeReason::Unknown,
         }
     }
@@ -166,7 +182,7 @@ impl ssz::Decode for GoodbyeReason {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        u64::from_ssz_bytes(bytes).and_then(|n| Ok(n.into()))
+        u64::from_ssz_bytes(bytes).map(|n| n.into())
     }
 }
 
@@ -233,14 +249,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
     /// The response is a successful.
     Success(RPCResponse<T>),
 
-    /// The response was invalid.
-    InvalidRequest(ErrorType),
-
-    /// The response indicates a server error.
-    ServerError(ErrorType),
-
-    /// There was an unknown response.
-    Unknown(ErrorType),
+    Error(RPCResponseErrorCode, ErrorType),
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
@@ -249,6 +258,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 /// The code assigned to an erroneous `RPCResponse`.
 #[derive(Debug, Clone, Copy)]
 pub enum RPCResponseErrorCode {
+    RateLimited,
     InvalidRequest,
     ServerError,
     Unknown,
@@ -259,9 +269,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
     pub fn as_u8(&self) -> Option<u8> {
         match self {
             RPCCodedResponse::Success(_) => Some(0),
-            RPCCodedResponse::InvalidRequest(_) => Some(1),
-            RPCCodedResponse::ServerError(_) => Some(2),
-            RPCCodedResponse::Unknown(_) => Some(255),
+            RPCCodedResponse::Error(code, _) => Some(code.as_u8()),
             RPCCodedResponse::StreamTermination(_) => None,
         }
     }
@@ -276,20 +284,12 @@ impl<T: EthSpec> RPCCodedResponse<T> {
 
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
     pub fn from_error(response_code: u8, err: String) -> Self {
-        match response_code {
-            1 => RPCCodedResponse::InvalidRequest(err.into()),
-            2 => RPCCodedResponse::ServerError(err.into()),
-            _ => RPCCodedResponse::Unknown(err.into()),
-        }
-    }
-
-    /// Builds an RPCCodedResponse from a response code and an ErrorMessage
-    pub fn from_error_code(response_code: RPCResponseErrorCode, err: String) -> Self {
-        match response_code {
-            RPCResponseErrorCode::InvalidRequest => RPCCodedResponse::InvalidRequest(err.into()),
-            RPCResponseErrorCode::ServerError => RPCCodedResponse::ServerError(err.into()),
-            RPCResponseErrorCode::Unknown => RPCCodedResponse::Unknown(err.into()),
-        }
+        let code = match response_code {
+            1 => RPCResponseErrorCode::InvalidRequest,
+            2 => RPCResponseErrorCode::ServerError,
+            _ => RPCResponseErrorCode::Unknown,
+        };
+        RPCCodedResponse::Error(code, err.into())
     }
 
     /// Specifies which response allows for multiple chunks for the stream handler.
@@ -302,30 +302,28 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
             },
-            RPCCodedResponse::InvalidRequest(_) => true,
-            RPCCodedResponse::ServerError(_) => true,
-            RPCCodedResponse::Unknown(_) => true,
+            RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
             RPCCodedResponse::StreamTermination(_) => true,
         }
     }
 
-    /// Returns true if this response is an error. Used to terminate the stream after an error is
-    /// sent.
-    pub fn is_error(&self) -> bool {
+    /// Returns true if this response always terminates the stream.
+    pub fn close_after(&self) -> bool {
         match self {
             RPCCodedResponse::Success(_) => false,
             _ => true,
         }
     }
+}
 
-    pub fn error_code(&self) -> Option<RPCResponseErrorCode> {
+impl RPCResponseErrorCode {
+    fn as_u8(&self) -> u8 {
         match self {
-            RPCCodedResponse::Success(_) => None,
-            RPCCodedResponse::StreamTermination(_) => None,
-            RPCCodedResponse::InvalidRequest(_) => Some(RPCResponseErrorCode::InvalidRequest),
-            RPCCodedResponse::ServerError(_) => Some(RPCResponseErrorCode::ServerError),
-            RPCCodedResponse::Unknown(_) => Some(RPCResponseErrorCode::Unknown),
+            RPCResponseErrorCode::InvalidRequest => 1,
+            RPCResponseErrorCode::ServerError => 2,
+            RPCResponseErrorCode::Unknown => 255,
+            RPCResponseErrorCode::RateLimited => 128,
         }
     }
 }
@@ -336,6 +334,7 @@ impl std::fmt::Display for RPCResponseErrorCode {
             RPCResponseErrorCode::InvalidRequest => "The request was invalid",
             RPCResponseErrorCode::ServerError => "Server error occurred",
             RPCResponseErrorCode::Unknown => "Unknown error occurred",
+            RPCResponseErrorCode::RateLimited => "Rate limited",
         };
         f.write_str(repr)
     }
@@ -367,9 +366,7 @@ impl<T: EthSpec> std::fmt::Display for RPCCodedResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCCodedResponse::Success(res) => write!(f, "{}", res),
-            RPCCodedResponse::InvalidRequest(err) => write!(f, "Invalid Request: {:?}", err),
-            RPCCodedResponse::ServerError(err) => write!(f, "Server Error: {:?}", err),
-            RPCCodedResponse::Unknown(err) => write!(f, "Unknown Error: {:?}", err),
+            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err.to_string()),
             RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }
@@ -381,6 +378,10 @@ impl std::fmt::Display for GoodbyeReason {
             GoodbyeReason::ClientShutdown => write!(f, "Client Shutdown"),
             GoodbyeReason::IrrelevantNetwork => write!(f, "Irrelevant Network"),
             GoodbyeReason::Fault => write!(f, "Fault"),
+            GoodbyeReason::UnableToVerifyNetwork => write!(f, "Unable to verify network"),
+            GoodbyeReason::TooManyPeers => write!(f, "Too many peers"),
+            GoodbyeReason::BadScore => write!(f, "Bad Score"),
+            GoodbyeReason::Banned => write!(f, "Banned"),
             GoodbyeReason::Unknown => write!(f, "Unknown Reason"),
         }
     }

@@ -24,7 +24,6 @@ use types::{
     RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
     SubnetId, Validator,
 };
-use version;
 
 type E = MinimalEthSpec;
 
@@ -62,7 +61,7 @@ fn get_randao_reveal<T: BeaconChainTypes>(
     let epoch = slot.epoch(E::slots_per_epoch());
     let domain = spec.get_domain(epoch, Domain::Randao, &fork, genesis_validators_root);
     let message = epoch.signing_root(domain);
-    Signature::new(message.as_bytes(), &keypair.sk)
+    keypair.sk.sign(message)
 }
 
 /// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).
@@ -337,6 +336,10 @@ fn check_duties<T: BeaconChainTypes>(
         "there should be a duty for each validator"
     );
 
+    // Are the duties from the current epoch of the beacon chain, and thus are proposer indices
+    // known?
+    let proposers_known = epoch == beacon_chain.epoch().unwrap();
+
     let mut state = beacon_chain
         .state_at_slot(
             epoch.start_slot(T::EthSpec::slots_per_epoch()),
@@ -380,38 +383,46 @@ fn check_duties<T: BeaconChainTypes>(
                 "attestation index should match"
             );
 
-            if !duty.block_proposal_slots.is_empty() {
-                for slot in &duty.block_proposal_slots {
-                    let expected_proposer = state
-                        .get_beacon_proposer_index(*slot, spec)
-                        .expect("should know proposer");
-                    assert_eq!(
-                        expected_proposer, validator_index,
-                        "should get correct proposal slot"
-                    );
+            if proposers_known {
+                let block_proposal_slots = duty.block_proposal_slots.as_ref().unwrap();
+
+                if !block_proposal_slots.is_empty() {
+                    for slot in block_proposal_slots {
+                        let expected_proposer = state
+                            .get_beacon_proposer_index(*slot, spec)
+                            .expect("should know proposer");
+                        assert_eq!(
+                            expected_proposer, validator_index,
+                            "should get correct proposal slot"
+                        );
+                    }
+                } else {
+                    epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
+                        let slot_proposer = state
+                            .get_beacon_proposer_index(slot, spec)
+                            .expect("should know proposer");
+                        assert_ne!(
+                            slot_proposer, validator_index,
+                            "validator should not have proposal slot in this epoch"
+                        )
+                    })
                 }
             } else {
-                epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
-                    let slot_proposer = state
-                        .get_beacon_proposer_index(slot, spec)
-                        .expect("should know proposer");
-                    assert_ne!(
-                        slot_proposer, validator_index,
-                        "validator should not have proposal slot in this epoch"
-                    )
-                })
+                assert_eq!(duty.block_proposal_slots, None);
             }
         });
 
-    // Validator duties should include a proposer for every slot of the epoch.
-    let mut all_proposer_slots: Vec<Slot> = duties
-        .iter()
-        .flat_map(|duty| duty.block_proposal_slots.clone())
-        .collect();
-    all_proposer_slots.sort();
+    if proposers_known {
+        // Validator duties should include a proposer for every slot of the epoch.
+        let mut all_proposer_slots: Vec<Slot> = duties
+            .iter()
+            .flat_map(|duty| duty.block_proposal_slots.clone().unwrap())
+            .collect();
+        all_proposer_slots.sort();
 
-    let all_slots: Vec<Slot> = epoch.slot_iter(E::slots_per_epoch()).collect();
-    assert_eq!(all_proposer_slots, all_slots);
+        let all_slots: Vec<Slot> = epoch.slot_iter(E::slots_per_epoch()).collect();
+        assert_eq!(all_proposer_slots, all_slots);
+    }
 }
 
 #[test]
@@ -449,14 +460,14 @@ fn validator_block_post() {
             remote_node
                 .http
                 .validator()
-                .produce_block(slot, randao_reveal),
+                .produce_block(slot, randao_reveal, None),
         )
         .expect("should fetch block from http api");
 
     // Try publishing the block without a signature, ensure it is flagged as invalid.
     let empty_sig_block = SignedBeaconBlock {
         message: block.clone(),
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     let publish_status = env
         .runtime()
@@ -536,7 +547,7 @@ fn validator_block_get() {
             remote_node
                 .http
                 .validator()
-                .produce_block(slot, randao_reveal.clone()),
+                .produce_block(slot, randao_reveal.clone(), None),
         )
         .expect("should fetch block from http api");
 
@@ -544,7 +555,50 @@ fn validator_block_get() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain")
-        .produce_block(randao_reveal, slot)
+        .produce_block(randao_reveal, slot, None)
+        .expect("should produce block");
+
+    assert_eq!(
+        block, expected_block,
+        "the block returned from the API should be as expected"
+    );
+}
+
+#[test]
+fn validator_block_get_with_graffiti() {
+    let mut env = build_env();
+
+    let spec = &E::default_spec();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let beacon_chain = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain");
+
+    let slot = Slot::new(1);
+    let randao_reveal = get_randao_reveal(beacon_chain, slot, spec);
+
+    let block = env
+        .runtime()
+        .block_on(remote_node.http.validator().produce_block(
+            slot,
+            randao_reveal.clone(),
+            Some(*b"test-graffiti-test-graffiti-test"),
+        ))
+        .expect("should fetch block from http api");
+
+    let (expected_block, _state) = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain")
+        .produce_block(
+            randao_reveal,
+            slot,
+            Some(*b"test-graffiti-test-graffiti-test"),
+        )
         .expect("should produce block");
 
     assert_eq!(
@@ -750,9 +804,13 @@ fn get_version() {
     let version = env
         .runtime()
         .block_on(remote_node.http.node().get_version())
-        .expect("should fetch eth2 config from http api");
+        .expect("should fetch version from http api");
 
-    assert_eq!(version::version(), version, "result should be as expected");
+    assert_eq!(
+        lighthouse_version::version_with_platform(),
+        version,
+        "result should be as expected"
+    );
 }
 
 #[test]

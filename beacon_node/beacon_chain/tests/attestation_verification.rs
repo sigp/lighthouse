@@ -5,16 +5,19 @@ extern crate lazy_static;
 
 use beacon_chain::{
     attestation_verification::Error as AttnError,
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
+    },
     BeaconChain, BeaconChainTypes,
 };
+use int_to_bytes::int_to_bytes32;
 use state_processing::per_slot_processing;
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, EthSpec, Hash256,
-    Keypair, MainnetEthSpec, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SubnetId, Unsigned,
+    Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -29,7 +32,7 @@ lazy_static! {
 }
 
 /// Returns a beacon chain harness.
-fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
+fn get_harness(validator_count: usize) -> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_target_aggregators(
         MainnetEthSpec,
         KEYPAIRS[0..validator_count].to_vec(),
@@ -183,8 +186,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
 /// Tests verification of `SignedAggregateAndProof` from the gossip network.
 #[test]
 fn aggregated_gossip_verification() {
-    let harness = get_harness(VALIDATOR_COUNT);
-    let chain = &harness.chain;
+    let mut harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -196,7 +198,7 @@ fn aggregated_gossip_verification() {
     // Advance into a slot where there have not been blocks or attestations produced.
     harness.advance_slot();
 
-    let current_slot = chain.slot().expect("should get slot");
+    let current_slot = harness.chain.slot().expect("should get slot");
 
     assert_eq!(
         current_slot % E::slots_per_epoch(),
@@ -311,7 +313,7 @@ fn aggregated_gossip_verification() {
             let aggregation_bits = &mut a.message.aggregate.aggregation_bits;
             aggregation_bits.difference_inplace(&aggregation_bits.clone());
             assert!(aggregation_bits.is_zero());
-            a.message.aggregate.signature = AggregateSignature::new();
+            a.message.aggregate.signature = AggregateSignature::infinity();
             a
         },
         AttnError::EmptyAggregationBitfield
@@ -330,7 +332,7 @@ fn aggregated_gossip_verification() {
         {
             let mut a = valid_aggregate.clone();
 
-            a.signature = Signature::new(&[42, 42], &validator_sk);
+            a.signature = validator_sk.sign(Hash256::from_low_u64_be(42));
 
             a
         },
@@ -370,7 +372,9 @@ fn aggregated_gossip_verification() {
             let mut i: u64 = 0;
             a.message.selection_proof = loop {
                 i += 1;
-                let proof: SelectionProof = Signature::new(&i.to_le_bytes(), &validator_sk).into();
+                let proof: SelectionProof = validator_sk
+                    .sign(Hash256::from_slice(&int_to_bytes32(i)))
+                    .into();
                 if proof
                     .is_aggregator(committee_len, &harness.chain.spec)
                     .unwrap()
@@ -397,8 +401,8 @@ fn aggregated_gossip_verification() {
         {
             let mut a = valid_aggregate.clone();
 
-            let mut agg_sig = AggregateSignature::new();
-            agg_sig.add(&Signature::new(&[42, 42], &aggregator_sk));
+            let mut agg_sig = AggregateSignature::infinity();
+            agg_sig.add_assign(&aggregator_sk.sign(Hash256::from_low_u64_be(42)));
             a.message.aggregate.signature = agg_sig;
 
             a
@@ -529,8 +533,7 @@ fn aggregated_gossip_verification() {
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
 #[test]
 fn unaggregated_gossip_verification() {
-    let harness = get_harness(VALIDATOR_COUNT);
-    let chain = &harness.chain;
+    let mut harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -542,8 +545,8 @@ fn unaggregated_gossip_verification() {
     // Advance into a slot where there have not been blocks or attestations produced.
     harness.advance_slot();
 
-    let current_slot = chain.slot().expect("should get slot");
-    let current_epoch = chain.epoch().expect("should get epoch");
+    let current_slot = harness.chain.slot().expect("should get slot");
+    let current_epoch = harness.chain.epoch().expect("should get epoch");
 
     assert_eq!(
         current_slot % E::slots_per_epoch(),
@@ -727,8 +730,8 @@ fn unaggregated_gossip_verification() {
         {
             let mut a = valid_attestation.clone();
 
-            let mut agg_sig = AggregateSignature::new();
-            agg_sig.add(&Signature::new(&[42, 42], &validator_sk));
+            let mut agg_sig = AggregateSignature::infinity();
+            agg_sig.add_assign(&validator_sk.sign(Hash256::from_low_u64_be(42)));
             a.signature = agg_sig;
 
             a
@@ -737,13 +740,10 @@ fn unaggregated_gossip_verification() {
         AttnError::InvalidSignature
     );
 
-    assert!(
-        harness
-            .chain
-            .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
-            .is_ok(),
-        "valid attestation should be verified"
-    );
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
+        .expect("valid attestation should be verified");
 
     /*
      * The following test ensures that:
@@ -772,8 +772,7 @@ fn unaggregated_gossip_verification() {
 /// This also checks that we can do a state lookup if we don't get a hit from the shuffling cache.
 #[test]
 fn attestation_that_skips_epochs() {
-    let harness = get_harness(VALIDATOR_COUNT);
-    let chain = &harness.chain;
+    let mut harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -782,16 +781,18 @@ fn attestation_that_skips_epochs() {
         AttestationStrategy::SomeValidators(vec![]),
     );
 
-    let current_slot = chain.slot().expect("should get slot");
-    let current_epoch = chain.epoch().expect("should get epoch");
+    let current_slot = harness.chain.slot().expect("should get slot");
+    let current_epoch = harness.chain.epoch().expect("should get epoch");
 
     let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
-    let earlier_block = chain
+    let earlier_block = harness
+        .chain
         .block_at_slot(earlier_slot)
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
 
-    let mut state = chain
+    let mut state = harness
+        .chain
         .get_state(&earlier_block.state_root(), Some(earlier_slot))
         .expect("should not error getting state")
         .expect("should find state");

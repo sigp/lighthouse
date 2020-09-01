@@ -225,13 +225,13 @@ fn key_derivation_from_seed() {
             .expect("should generate keystores");
 
         assert_eq!(
-            keystores.voting.path(),
+            keystores.voting.path().unwrap(),
             format!("m/12381/3600/{}/0/0", i),
             "voting path should match"
         );
 
         assert_eq!(
-            keystores.withdrawal.path(),
+            keystores.withdrawal.path().unwrap(),
             format!("m/12381/3600/{}/0", i),
             "withdrawal path should match"
         );
@@ -242,13 +242,13 @@ fn key_derivation_from_seed() {
             .expect("should decrypt voting keypair");
 
         assert_eq!(
-            voting_keypair.sk.as_bytes().as_ref(),
+            voting_keypair.sk.serialize().as_ref(),
             &manually_derived_voting_key(i)[..],
             "voting secret should match manually derived"
         );
 
         assert_eq!(
-            voting_keypair.sk.as_bytes().as_ref(),
+            voting_keypair.sk.serialize().as_ref(),
             &recovered_voting_key(&wallet, i)[..],
             "voting secret should match recovered"
         );
@@ -259,20 +259,20 @@ fn key_derivation_from_seed() {
             .expect("should decrypt withdrawal keypair");
 
         assert_eq!(
-            withdrawal_keypair.sk.as_bytes().as_ref(),
+            withdrawal_keypair.sk.serialize().as_ref(),
             &manually_derived_withdrawal_key(i)[..],
             "withdrawal secret should match manually derived"
         );
 
         assert_eq!(
-            withdrawal_keypair.sk.as_bytes().as_ref(),
+            withdrawal_keypair.sk.serialize().as_ref(),
             &recovered_withdrawal_key(&wallet, i)[..],
             "withdrawal secret should match recovered"
         );
 
         assert_ne!(
-            withdrawal_keypair.sk.as_bytes().as_ref(),
-            voting_keypair.sk.as_bytes().as_bytes(),
+            withdrawal_keypair.sk.serialize().as_ref(),
+            voting_keypair.sk.serialize().as_bytes(),
             "voting and withdrawal keypairs should be distinct"
         );
 

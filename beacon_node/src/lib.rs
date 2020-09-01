@@ -7,7 +7,7 @@ mod config;
 pub use beacon_chain;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
+pub use config::{get_data_dir, get_eth2_testnet_config, set_network_config};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;
@@ -52,9 +52,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// Identical to `start_from_client_config`, however the `client_config` is generated from the
     /// given `matches` and potentially configuration files on the local filesystem or other
     /// configurations hosted remotely.
-    pub async fn new_from_cli<'a, 'b>(
+    pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: &ArgMatches<'b>,
+        matches: &ArgMatches<'_>,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(
             &matches,
@@ -100,7 +100,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 "endpoint" => &client_config.eth1.endpoint,
                 "method" => "json rpc via http"
             );
-            builder.caching_eth1_backend(client_config.eth1.clone())?
+            builder
+                .caching_eth1_backend(client_config.eth1.clone())
+                .await?
         } else if client_config.dummy_eth1_backend {
             warn!(
                 log,
@@ -126,7 +128,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let builder = builder
             .build_beacon_chain()?
-            .network(&mut client_config.network)?
+            .network(&client_config.network)
+            .await?
             .notifier()?;
 
         let builder = if client_config.rest_api.enabled {

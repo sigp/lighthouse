@@ -71,7 +71,7 @@ fn process_pubkey_bytes_field(
     leaf: &mut Hash256,
     force_update: bool,
 ) -> bool {
-    let new_tree_hash = merkle_root(val.as_slice(), 0);
+    let new_tree_hash = merkle_root(val.as_serialized(), 0);
     process_slice_field(new_tree_hash.as_bytes(), leaf, force_update)
 }
 

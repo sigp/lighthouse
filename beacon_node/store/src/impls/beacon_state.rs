@@ -4,24 +4,20 @@ use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
 
-pub fn store_full_state<KV: KeyValueStore<E>, E: EthSpec>(
-    store: &KV,
+pub fn store_full_state<E: EthSpec>(
     state_root: &Hash256,
     state: &BeaconState<E>,
+    ops: &mut Vec<KeyValueStoreOp>,
 ) -> Result<(), Error> {
-    let total_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
-    let overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_OVERHEAD_TIMES);
-
-    let bytes = StorageContainer::new(state).as_ssz_bytes();
-    metrics::stop_timer(overhead_timer);
-
-    let result = store.put_bytes(DBColumn::BeaconState.into(), state_root.as_bytes(), &bytes);
-
-    metrics::stop_timer(total_timer);
-    metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
+    let bytes = {
+        let _overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_OVERHEAD_TIMES);
+        StorageContainer::new(state).as_ssz_bytes()
+    };
     metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
-
-    result
+    metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
+    let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
+    ops.push(KeyValueStoreOp::PutKeyValue(key, bytes));
+    Ok(())
 }
 
 pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(

@@ -10,7 +10,8 @@ fn config_test<E: EthSpec + TypeName>() {
         .join("eth2.0-spec-tests")
         .join("tests")
         .join(E::name())
-        .join("config.yaml");
+        .join("config")
+        .join("phase0.yaml");
     let yaml_config = YamlConfig::from_file(&config_path).expect("config file loads OK");
     let spec = E::default_spec();
     let yaml_from_spec = YamlConfig::from_spec::<E>(&spec);
@@ -180,8 +181,8 @@ mod ssz_static {
     ssz_static_test!(
         beacon_state,
         SszStaticTHCHandler, {
-            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache, MinimalEthSpec),
-            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache, MainnetEthSpec)
+            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
+            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
         }
     );
     ssz_static_test!(checkpoint, Checkpoint);
@@ -233,8 +234,14 @@ fn epoch_processing_slashings() {
 
 #[test]
 fn epoch_processing_final_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, FinalUpdates>::run();
     EpochProcessingHandler::<MainnetEthSpec, FinalUpdates>::run();
-    EpochProcessingHandler::<MainnetEthSpec, FinalUpdates>::run();
+}
+
+#[test]
+fn finality() {
+    FinalityHandler::<MinimalEthSpec>::run();
+    FinalityHandler::<MainnetEthSpec>::run();
 }
 
 #[test]

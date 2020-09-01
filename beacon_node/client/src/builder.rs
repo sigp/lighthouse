@@ -50,6 +50,7 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 /// `self.memory_store(..)` has been called.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
+    #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
@@ -134,6 +135,8 @@ where
         let eth_spec_instance = self.eth_spec_instance.clone();
         let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
+        let chain_config = config.chain.clone();
+        let graffiti = config.graffiti;
 
         let store =
             store.ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
@@ -151,7 +154,9 @@ where
             .store_migrator(store_migrator)
             .data_dir(data_dir)
             .custom_spec(spec.clone())
-            .disabled_forks(disabled_forks);
+            .chain_config(chain_config)
+            .disabled_forks(disabled_forks)
+            .graffiti(graffiti);
 
         let chain_exists = builder
             .store_contains_beacon_chain()
@@ -229,8 +234,8 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the networking stack.
-    pub fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    /// Starts the networking stack.
+    pub async fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -243,6 +248,7 @@ where
 
         let (network_globals, network_send) =
             NetworkService::start(beacon_chain, config, context.executor)
+                .await
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
@@ -437,49 +443,6 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
             TSlotClock,
             TEth1Backend,
             TEthSpec,
-            WebSocketSender<TEthSpec>,
-            THotStore,
-            TColdStore,
-        >,
-    >
-where
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-{
-    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
-    pub fn websocket_event_handler(mut self, config: WebSocketConfig) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
-            .service_context("ws".into());
-
-        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
-            let (sender, listening_addr) =
-                websocket_server::start_server(context.executor, &config)?;
-            (sender, Some(listening_addr))
-        } else {
-            (WebSocketSender::dummy(), None)
-        };
-
-        self.event_handler = Some(sender);
-        self.websocket_listen_addr = listening_addr;
-
-        Ok(self)
-    }
-}
-
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
             TeeEventHandler<TEthSpec>,
             THotStore,
             TColdStore,
@@ -493,6 +456,7 @@ where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
+    #[allow(clippy::type_complexity)]
     /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
     pub fn tee_event_handler(
         mut self,
@@ -501,7 +465,7 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
+            .ok_or_else(|| "tee_event_handler requires a runtime_context")?
             .service_context("ws".into());
 
         let log = context.log().clone();
@@ -620,7 +584,7 @@ where
     /// Specifies that the `BeaconChain` should cache eth1 blocks/logs from a remote eth1 node
     /// (e.g., Parity/Geth) and refer to that cache when collecting deposits or eth1 votes during
     /// block production.
-    pub fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
+    pub async fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -633,6 +597,17 @@ where
             .chain_spec
             .clone()
             .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
+
+        // Check if the eth1 endpoint we connect to is on the correct network id.
+        let network_id =
+            eth1::http::get_network_id(&config.endpoint, Duration::from_millis(15_000)).await?;
+
+        if network_id != config.network_id {
+            return Err(format!(
+                "Invalid eth1 network id. Expected {:?}, got {:?}",
+                config.network_id, network_id
+            ));
+        }
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;

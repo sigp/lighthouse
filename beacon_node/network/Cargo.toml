@@ -1,7 +1,7 @@
 [package]
 name = "network"
-version = "0.1.2"
-authors = ["Age Manning <Age@AgeManning.com>"]
+version = "0.2.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
@@ -29,8 +29,8 @@ tree_hash = "0.1.0"
 futures = "0.3.5"
 error-chain = "0.12.2"
 tokio = { version = "0.2.21", features = ["full"] }
-parking_lot = "0.10.2"
-smallvec = "1.4.0"
+parking_lot = "0.11.0"
+smallvec = "1.4.1"
 # TODO: Remove rand crate for mainnet
 rand = "0.7.3"
 fnv = "1.0.6"
@@ -39,3 +39,5 @@ lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 environment = { path = "../../lighthouse/environment" }
 itertools = "0.9.0"
+num_cpus = "1.13.0"
+lru_cache = { path = "../../common/lru_cache" }

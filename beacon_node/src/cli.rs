@@ -61,9 +61,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("max-peers")
-                .long("max-peers")
-                .help("The maximum number of peers.")
+            Arg::with_name("target-peers")
+                .long("target-peers")
+                .help("The target number of peers.")
                 .default_value("50")
                 .takes_value(true),
         )
@@ -71,8 +71,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("boot-nodes")
                 .long("boot-nodes")
                 .allow_hyphen_values(true)
-                .value_name("ENR-LIST")
-                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network.")
+                .value_name("ENR/MULTIADDR LIST")
+                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported.")
                 .takes_value(true),
         )
         .arg(
@@ -155,6 +155,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("5052")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("http-allow-origin")
+                .long("http-allow-origin")
+                .value_name("ORIGIN")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
+                .default_value("")
+                .takes_value(true),
+        )
         /* Websocket related arguments */
         .arg(
             Arg::with_name("ws")
@@ -226,5 +234,32 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("purge-db")
                 .long("purge-db")
                 .help("If present, the chain database will be deleted. Use with caution.")
+        )
+
+        /*
+         * Misc.
+         */
+        .arg(
+            Arg::with_name("graffiti")
+                .long("graffiti")
+                .help(
+                    "Specify your custom graffiti to be included in blocks. \
+                    Defaults to the current version and commit, truncated to fit in 32 bytes. "
+                )
+                .value_name("GRAFFITI")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("max-skip-slots")
+                .long("max-skip-slots")
+                .help(
+                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    This prevents nodes on minority forks from wasting our time and RAM, \
+                    but might need to be raised or set to 'none' in times of extreme network \
+                    outage."
+                )
+                .value_name("NUM_SLOTS")
+                .takes_value(true)
+                .default_value("700")
         )
 }

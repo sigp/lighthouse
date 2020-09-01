@@ -20,7 +20,7 @@ pub struct Client {
     pub agent_string: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum ClientKind {
     /// A lighthouse node (the best kind).
     Lighthouse,
@@ -30,6 +30,8 @@ pub enum ClientKind {
     Teku,
     /// A Prysm node.
     Prysm,
+    /// A lodestar node.
+    Lodestar,
     /// An unknown client.
     Unknown,
 }
@@ -84,6 +86,7 @@ impl std::fmt::Display for Client {
                 "Prysm: version: {}, os_version: {}",
                 self.version, self.os_version
             ),
+            ClientKind::Lodestar => write!(f, "Lodestar: version: {}", self.version),
             ClientKind::Unknown => {
                 if let Some(agent_string) = &self.agent_string {
                     write!(f, "Unknown: {}", agent_string)
@@ -92,6 +95,12 @@ impl std::fmt::Display for Client {
                 }
             }
         }
+    }
+}
+
+impl std::fmt::Display for ClientKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
@@ -131,8 +140,34 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
             let unknown = String::from("unknown");
             (kind, unknown.clone(), unknown)
         }
+        Some("Prysm") => {
+            let kind = ClientKind::Prysm;
+            let mut version = String::from("unknown");
+            let mut os_version = version.clone();
+            if agent_split.next().is_some() {
+                if let Some(agent_version) = agent_split.next() {
+                    version = agent_version.into();
+                    if let Some(agent_os_version) = agent_split.next() {
+                        os_version = agent_os_version.into();
+                    }
+                }
+            }
+            (kind, version, os_version)
+        }
         Some("nim-libp2p") => {
             let kind = ClientKind::Nimbus;
+            let mut version = String::from("unknown");
+            let mut os_version = version.clone();
+            if let Some(agent_version) = agent_split.next() {
+                version = agent_version.into();
+                if let Some(agent_os_version) = agent_split.next() {
+                    os_version = agent_os_version.into();
+                }
+            }
+            (kind, version, os_version)
+        }
+        Some("js-libp2p") => {
+            let kind = ClientKind::Lodestar;
             let mut version = String::from("unknown");
             let mut os_version = version.clone();
             if let Some(agent_version) = agent_split.next() {

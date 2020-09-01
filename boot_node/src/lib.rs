@@ -1,6 +1,5 @@
 //! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
 use clap::ArgMatches;
-use slog;
 use slog::{o, Drain, Level, Logger};
 
 use std::convert::TryFrom;
@@ -9,6 +8,8 @@ mod config;
 mod server;
 pub use cli::cli_app;
 use config::BootNodeConfig;
+
+const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
@@ -27,7 +28,9 @@ pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
         let decorator = slog_term::TermDecorator::new().build();
         let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
         let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        slog_async::Async::new(drain).build()
+        slog_async::Async::new(drain)
+            .chan_size(LOG_CHANNEL_SIZE)
+            .build()
     };
 
     let drain = match debug_level {

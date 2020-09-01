@@ -1,6 +1,6 @@
 [package]
 name = "account_manager"
-version = "0.0.1"
+version = "0.2.8"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Luke Anderson <luke@sigmaprime.io>"]
 edition = "2018"
 
@@ -11,6 +11,7 @@ slog = "2.5.2"
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 types = { path = "../consensus/types" }
+state_processing = { path = "../consensus/state_processing" }
 dirs = "2.0.2"
 environment = { path = "../lighthouse/environment" }
 deposit_contract = { path = "../common/deposit_contract" }
@@ -26,6 +27,7 @@ clap_utils = { path = "../common/clap_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.2"
-validator_dir = { path = "../common/validator_dir", features = ["unencrypted_keys"] }
+validator_dir = { path = "../common/validator_dir" }
 tokio = { version = "0.2.21", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
+account_utils = { path = "../common/account_utils" }

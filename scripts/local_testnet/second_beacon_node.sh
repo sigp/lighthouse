@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #
 # Starts a beacon node based upon a genesis state created by
@@ -16,5 +16,6 @@ exec lighthouse \
 	--testnet-dir $TESTNET_DIR \
 	--dummy-eth1 \
 	--http \
+    --port 9902 \
 	--http-port 6052 \
 	--boot-nodes $(cat $BEACON_DIR/beacon/network/enr.dat)

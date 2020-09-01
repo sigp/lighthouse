@@ -5,7 +5,7 @@ use types::test_utils::{generate_deterministic_keypairs, TestingBeaconStateBuild
 use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
 lazy_static! {
-    static ref KEYPAIRS: Vec<Keypair> = { generate_deterministic_keypairs(300_000) };
+    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(300_000);
 }
 
 fn build_state<T: EthSpec>(validator_count: usize) -> BeaconState<T> {
@@ -34,7 +34,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
     let state1 = build_state::<T>(validator_count);
     let state2 = state1.clone();
     let mut state3 = state1.clone();
-    state3.build_tree_hash_cache().unwrap();
+    state3.update_tree_hash_cache().unwrap();
 
     c.bench(
         &format!("{}/{}_validators/no_cache", spec_desc, validator_count),

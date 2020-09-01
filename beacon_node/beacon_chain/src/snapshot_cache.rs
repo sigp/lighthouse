@@ -99,7 +99,7 @@ mod test {
     use super::*;
     use types::{
         test_utils::{generate_deterministic_keypair, TestingBeaconStateBuilder},
-        BeaconBlock, Epoch, MainnetEthSpec, Signature, SignedBeaconBlock, Slot,
+        BeaconBlock, Epoch, MainnetEthSpec, SignedBeaconBlock, Slot,
     };
 
     const CACHE_SIZE: usize = 4;
@@ -115,7 +115,9 @@ mod test {
             beacon_state_root: Hash256::from_low_u64_be(i),
             beacon_block: SignedBeaconBlock {
                 message: BeaconBlock::empty(&spec),
-                signature: Signature::new(&[42], &generate_deterministic_keypair(0).sk),
+                signature: generate_deterministic_keypair(0)
+                    .sk
+                    .sign(Hash256::from_low_u64_be(42)),
             },
             beacon_block_root: Hash256::from_low_u64_be(i),
         }

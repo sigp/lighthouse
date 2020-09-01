@@ -11,9 +11,9 @@ const BOOTNODE_PORT: u16 = 42424;
 
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
-    context: RuntimeContext<E>,
-    beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
-    validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
+    pub context: RuntimeContext<E>,
+    pub beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
+    pub validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
 }
 
 /// Represents a set of interconnected `LocalBeaconNode` and `LocalValidatorClient`.
@@ -86,7 +86,7 @@ impl<E: EthSpec> LocalNetwork<E> {
 
             let boot_node = read_lock.first().expect("should have at least one node");
 
-            beacon_config.network.boot_nodes.push(
+            beacon_config.network.boot_nodes_enr.push(
                 boot_node
                     .client
                     .enr()

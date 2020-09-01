@@ -4,6 +4,7 @@ use crate::cases::common::BlsCase;
 use bls::{PublicKey, Signature, SignatureBytes};
 use serde_derive::Deserialize;
 use std::convert::TryInto;
+use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsVerifyInput {
@@ -27,7 +28,9 @@ impl Case for BlsVerify {
 
         let signature_ok = (&self.input.signature)
             .try_into()
-            .map(|signature: Signature| signature.verify(&message, &self.input.pubkey))
+            .map(|signature: Signature| {
+                signature.verify(&self.input.pubkey, Hash256::from_slice(&message))
+            })
             .unwrap_or(false);
 
         compare_result::<bool, ()>(&Ok(signature_ok), &Some(self.output))

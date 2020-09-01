@@ -2,12 +2,17 @@
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
+
 pub mod attestation_verification;
 mod beacon_chain;
 mod beacon_fork_choice_store;
 mod beacon_snapshot;
 mod block_verification;
 pub mod builder;
+pub mod chain_config;
 mod errors;
 pub mod eth1_chain;
 pub mod events;
@@ -32,10 +37,11 @@ pub use self::beacon_chain::{
     ForkChoiceError, StateSkipConfig,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
+pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
-pub use block_verification::{BlockError, BlockProcessingOutcome, GossipVerifiedBlock};
+pub use block_verification::{BlockError, GossipVerifiedBlock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::EventHandler;
 pub use metrics::scrape_for_metrics;

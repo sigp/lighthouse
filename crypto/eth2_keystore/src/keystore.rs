@@ -7,13 +7,23 @@ use crate::json_keystore::{
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::Uuid;
-use bls::{Keypair, PublicKey, SecretHash, SecretKey};
-use crypto::{digest::Digest, sha2::Sha256};
+use aes_ctr::stream_cipher::generic_array::GenericArray;
+use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher};
+use aes_ctr::Aes128Ctr as AesCtr;
+use bls::{Keypair, PublicKey, SecretKey, ZeroizeHash};
 use eth2_key_derivation::PlainText;
+use hmac::Hmac;
+use pbkdf2::pbkdf2;
 use rand::prelude::*;
+use scrypt::{
+    errors::{InvalidOutputLen, InvalidParams},
+    scrypt, ScryptParams,
+};
 use serde::{Deserialize, Serialize};
-use ssz::DecodeError;
+use sha2::{Digest, Sha256};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::path::Path;
 
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
@@ -49,7 +59,7 @@ pub const HASH_SIZE: usize = 32;
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
-    InvalidSecretKeyBytes(DecodeError),
+    InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
     EmptyPassword,
     UnableToSerialize(String),
@@ -59,6 +69,8 @@ pub enum Error {
     InvalidPbkdf2Param,
     InvalidScryptParam,
     IncorrectIvSize { expected: usize, len: usize },
+    ScryptInvalidParams(InvalidParams),
+    ScryptInvaidOutputLen(InvalidOutputLen),
 }
 
 /// Constructs a `Keystore`.
@@ -136,7 +148,7 @@ impl Keystore {
         uuid: Uuid,
         path: String,
     ) -> Result<Self, Error> {
-        let secret: SecretHash = keypair.sk.as_bytes();
+        let secret: ZeroizeHash = keypair.sk.serialize();
 
         let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
 
@@ -160,9 +172,11 @@ impl Keystore {
                     },
                 },
                 uuid,
-                path,
-                pubkey: keypair.pk.as_hex_string()[2..].to_string(),
+                path: Some(path),
+                pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
+                description: None,
+                name: None,
             },
         })
     }
@@ -190,7 +204,7 @@ impl Keystore {
 
         let keypair = keypair_from_secret(plain_text.as_bytes())?;
         // Verify that the derived `PublicKey` matches `self`.
-        if keypair.pk.as_hex_string()[2..] != self.json.pubkey {
+        if keypair.pk.to_hex_string()[2..] != self.json.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
 
@@ -205,13 +219,18 @@ impl Keystore {
     /// Returns the path for the keystore.
     ///
     /// Note: the path is not validated, it is simply whatever string the keystore provided.
-    pub fn path(&self) -> &str {
-        &self.json.path
+    pub fn path(&self) -> Option<String> {
+        self.json.path.clone()
     }
 
     /// Returns the pubkey for the keystore.
     pub fn pubkey(&self) -> &str {
         &self.json.pubkey
+    }
+
+    /// Returns the pubkey for the keystore, parsed as a `PublicKey` if it parses.
+    pub fn public_key(&self) -> Option<PublicKey> {
+        serde_json::from_str(&format!("\"0x{}\"", &self.json.pubkey)).ok()
     }
 
     /// Returns the key derivation function for the keystore.
@@ -238,6 +257,17 @@ impl Keystore {
     pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
         serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
     }
+
+    /// Instantiates `self` by reading a JSON file at `path`.
+    pub fn from_json_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        OpenOptions::new()
+            .read(true)
+            .write(false)
+            .create(false)
+            .open(path)
+            .map_err(|e| Error::ReadError(format!("{}", e)))
+            .and_then(Self::from_json_reader)
+    }
 }
 
 /// Instantiates a BLS keypair from the given `secret`.
@@ -247,9 +277,9 @@ impl Keystore {
 /// - If `secret.len() != 32`.
 /// - If `secret` does not represent a point in the BLS curve.
 pub fn keypair_from_secret(secret: &[u8]) -> Result<Keypair, Error> {
-    let sk = SecretKey::from_bytes(secret).map_err(Error::InvalidSecretKeyBytes)?;
-    let pk = PublicKey::from_secret_key(&sk);
-    Ok(Keypair { sk, pk })
+    let sk = SecretKey::deserialize(secret).map_err(Error::InvalidSecretKeyBytes)?;
+    let pk = sk.public_key();
+    Ok(Keypair::from_components(pk, sk))
 }
 
 /// Returns `Kdf` used by default when creating keystores.
@@ -280,15 +310,13 @@ pub fn encrypt(
     let derived_key = derive_key(&password, &kdf)?;
 
     // Encrypt secret.
-    let mut cipher_text = vec![0; plain_text.len()];
+    let mut cipher_text = plain_text.to_vec();
     match &cipher {
         Cipher::Aes128Ctr(params) => {
-            crypto::aes::ctr(
-                crypto::aes::KeySize::KeySize128,
-                &derived_key.as_bytes()[0..16],
-                params.iv.as_bytes(),
-            )
-            .process(plain_text, &mut cipher_text);
+            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
+            let nonce = GenericArray::from_slice(params.iv.as_bytes());
+            let mut cipher = AesCtr::new(&key, &nonce);
+            cipher.apply_keystream(&mut cipher_text);
         }
     };
 
@@ -316,21 +344,19 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
         return Err(Error::InvalidPassword);
     }
 
-    let mut plain_text = PlainText::zero(cipher_message.len());
+    let mut plain_text = PlainText::from(cipher_message.as_bytes().to_vec());
     match &crypto.cipher.params {
         Cipher::Aes128Ctr(params) => {
-            crypto::aes::ctr(
-                crypto::aes::KeySize::KeySize128,
-                &derived_key.as_bytes()[0..16],
-                // NOTE: we do not check the size of the `iv` as there is no guidance about
-                // this on EIP-2335.
-                //
-                // Reference:
-                //
-                // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
-                params.iv.as_bytes(),
-            )
-            .process(cipher_message.as_bytes(), plain_text.as_mut_bytes());
+            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
+            // NOTE: we do not check the size of the `iv` as there is no guidance about
+            // this on EIP-2335.
+            //
+            // Reference:
+            //
+            // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
+            let nonce = GenericArray::from_slice(params.iv.as_bytes());
+            let mut cipher = AesCtr::new(&key, &nonce);
+            cipher.apply_keystream(plain_text.as_mut_bytes());
         }
     };
     Ok(plain_text)
@@ -340,11 +366,11 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
 /// `cipher_message`.
 fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> [u8; HASH_SIZE] {
     let mut hasher = Sha256::new();
-    hasher.input(&derived_key.as_bytes()[16..32]);
-    hasher.input(cipher_message);
+    hasher.update(&derived_key.as_bytes()[16..32]);
+    hasher.update(cipher_message);
 
     let mut digest = [0; HASH_SIZE];
-    hasher.result(&mut digest);
+    digest.copy_from_slice(&hasher.finalize());
     digest
 }
 
@@ -354,8 +380,6 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
 
     match &kdf {
         Kdf::Pbkdf2(params) => {
-            let mut mac = params.prf.mac(password);
-
             // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
             // if it is `0`.
             //
@@ -371,8 +395,8 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 return Err(Error::InvalidPbkdf2Param);
             }
 
-            crypto::pbkdf2::pbkdf2(
-                &mut mac,
+            pbkdf2::<Hmac<Sha256>>(
+                password,
                 params.salt.as_bytes(),
                 params.c,
                 dk.as_mut_bytes(),
@@ -400,12 +424,14 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 return Err(Error::InvalidScryptParam);
             }
 
-            crypto::scrypt::scrypt(
+            scrypt(
                 password,
                 params.salt.as_bytes(),
-                &crypto::scrypt::ScryptParams::new(log2_int(params.n) as u8, params.r, params.p),
+                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p)
+                    .map_err(Error::ScryptInvalidParams)?,
                 dk.as_mut_bytes(),
-            );
+            )
+            .map_err(Error::ScryptInvaidOutputLen)?;
         }
     }
 

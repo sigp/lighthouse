@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{RPCCodedResponse, RequestId, ResponseTermination};
+use super::methods::{RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -14,13 +14,13 @@ use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
 use libp2p::swarm::NegotiatedSubstream;
-use slog::{crit, debug, error, trace, warn};
+use slog::{crit, debug, warn};
 use smallvec::SmallVec;
 use std::{
     collections::hash_map::Entry,
     pin::Pin,
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::time::{delay_queue, delay_until, Delay, DelayQueue, Instant as TInstant};
 use types::EthSpec;
@@ -40,19 +40,29 @@ const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
-/// An error encoutered by the handler.
+type InboundSubstream<TSpec> = InboundFramed<NegotiatedSubstream, TSpec>;
+
+/// Output of the future handling the send of responses to a peer's request.
+type InboundProcessingOutput<TSpec> = (
+    InboundSubstream<TSpec>, /* substream */
+    Vec<RPCError>,           /* Errors sending messages if any */
+    bool,                    /* whether to remove the stream afterwards */
+    u64,                     /* Chunks remaining to be sent after this processing finishes */
+);
+
+/// An error encountered by the handler.
 pub enum HandlerErr {
-    /// An error ocurred for this peer's request. This can occurr during protocol negotiation,
-    /// message passing, or if the handler identifies that we are sending an error reponse to the peer.
+    /// An error occurred for this peer's request. This can occur during protocol negotiation,
+    /// message passing, or if the handler identifies that we are sending an error response to the peer.
     Inbound {
         /// Id of the peer's request for which an error occurred.
         id: SubstreamId,
         /// Information of the negotiated protocol.
         proto: Protocol,
-        /// The error that ocurred.
+        /// The error that occurred.
         error: RPCError,
     },
-    /// An error ocurred for this request. Such error can occurr during protocol negotiation,
+    /// An error occurred for this request. Such error can occur during protocol negotiation,
     /// message passing, or if we successfully received a response from the peer, but this response
     /// indicates an error.
     Outbound {
@@ -60,7 +70,7 @@ pub enum HandlerErr {
         id: RequestId,
         /// Information of the protocol.
         proto: Protocol,
-        /// The error that ocurred.
+        /// The error that occurred.
         error: RPCError,
     },
 }
@@ -71,9 +81,9 @@ where
     TSpec: EthSpec,
 {
     /// The upgrade for inbound substreams.
-    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>,
+    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
 
-    /// Errors ocurring on outbound and inbound connections queued for reporting back.
+    /// Errors occurring on outbound and inbound connections queued for reporting back.
     pending_errors: Vec<HandlerErr>,
 
     /// Queue of events to produce in `poll()`.
@@ -86,14 +96,7 @@ where
     dial_negotiated: u32,
 
     /// Current inbound substreams awaiting processing.
-    inbound_substreams: FnvHashMap<
-        SubstreamId,
-        (
-            InboundSubstreamState<TSpec>,
-            Option<delay_queue::Key>,
-            Protocol,
-        ),
-    >,
+    inbound_substreams: FnvHashMap<SubstreamId, InboundInfo<TSpec>>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     inbound_substreams_delay: DelayQueue<SubstreamId>,
@@ -104,9 +107,6 @@ where
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<SubstreamId>,
 
-    /// Map of outbound items that are queued as the stream processes them.
-    queued_outbound_items: FnvHashMap<SubstreamId, Vec<RPCCodedResponse<TSpec>>>,
-
     /// Sequential ID for waiting substreams. For inbound substreams, this is also the inbound request ID.
     current_inbound_substream_id: SubstreamId,
 
@@ -116,14 +116,8 @@ where
     /// Maximum number of concurrent outbound substreams being opened. Value is never modified.
     max_dial_negotiated: u32,
 
-    /// Value to return from `connection_keep_alive`.
-    keep_alive: KeepAlive,
-
     /// State of the handler.
     state: HandlerState,
-
-    /// After the given duration has elapsed, an inactive connection will shutdown.
-    inactive_timeout: Duration,
 
     /// Try to negotiate the outbound upgrade a few times if there is an IO error before reporting the request as failed.
     /// This keeps track of the number of attempts.
@@ -139,10 +133,25 @@ enum HandlerState {
     /// The handler is shutting_down.
     ///
     /// While in this state the handler rejects new requests but tries to finish existing ones.
+    /// Once the timer expires, all messages are killed.
     ShuttingDown(Delay),
     /// The handler is deactivated. A goodbye has been sent and no more messages are sent or
     /// received.
     Deactivated,
+}
+
+/// Contains the information the handler keeps on established inbound substreams.
+struct InboundInfo<TSpec: EthSpec> {
+    /// State of the substream.
+    state: InboundState<TSpec>,
+    /// Responses queued for sending.
+    pending_items: Vec<RPCCodedResponse<TSpec>>,
+    /// Protocol of the original request we received from the peer.
+    protocol: Protocol,
+    /// Responses that the peer is still expecting from us.
+    remaining_chunks: u64,
+    /// Key to keep track of the substream's timeout via `self.inbound_substreams_delay`.
+    delay_key: Option<delay_queue::Key>,
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
@@ -156,43 +165,44 @@ struct OutboundInfo<TSpec: EthSpec> {
     /// Number of chunks to be seen from the peer's response.
     // TODO: removing the option could allow clossing the streams after the number of
     // expected responses is met for all protocols.
-    // TODO: the type of this is  wrong
-    remaining_chunks: Option<usize>,
-    /// RequestId as given by the application that sent the request.
+    remaining_chunks: Option<u64>,
+    /// `RequestId` as given by the application that sent the request.
     req_id: RequestId,
 }
 
-pub enum InboundSubstreamState<TSpec>
-where
-    TSpec: EthSpec,
-{
-    /// A response has been sent, pending writing.
-    ResponsePendingSend {
-        /// The substream used to send the response
-        substream: Box<InboundFramed<NegotiatedSubstream, TSpec>>,
-        /// The message that is attempting to be sent.
-        message: RPCCodedResponse<TSpec>,
-        /// Whether a stream termination is requested. If true the stream will be closed after
-        /// this send. Otherwise it will transition to an idle state until a stream termination is
-        /// requested or a timeout is reached.
-        closing: bool,
-    },
-    /// A response has been sent, pending flush.
-    ResponsePendingFlush {
-        /// The substream used to send the response
-        substream: Box<InboundFramed<NegotiatedSubstream, TSpec>>,
-        /// Whether a stream termination is requested. If true the stream will be closed after
-        /// this send. Otherwise it will transition to an idle state until a stream termination is
-        /// requested or a timeout is reached.
-        closing: bool,
-    },
-    /// The response stream is idle and awaiting input from the application to send more chunked
-    /// responses.
-    ResponseIdle(Box<InboundFramed<NegotiatedSubstream, TSpec>>),
-    /// The substream is attempting to shutdown.
-    Closing(Box<InboundFramed<NegotiatedSubstream, TSpec>>),
+/// State of an inbound substream connection.
+enum InboundState<TSpec: EthSpec> {
+    /// The underlying substream is not being used.
+    Idle(InboundSubstream<TSpec>),
+    /// The underlying substream is processing responses.
+    Busy(Pin<Box<dyn Future<Output = InboundProcessingOutput<TSpec>> + Send>>),
     /// Temporary state during processing
     Poisoned,
+}
+
+impl<TSpec: EthSpec> InboundState<TSpec> {
+    /// Sends the given items over the underlying substream, if the state allows it, and returns the
+    /// final state.
+    fn send_items(
+        self,
+        pending_items: &mut Vec<RPCCodedResponse<TSpec>>,
+        remaining_chunks: u64,
+    ) -> Self {
+        if let InboundState::Idle(substream) = self {
+            // only send on Idle
+            if !pending_items.is_empty() {
+                // take the items that we need to send
+                let to_send = std::mem::replace(pending_items, vec![]);
+                let fut = process_inbound_substream(substream, remaining_chunks, to_send).boxed();
+                InboundState::Busy(Box::pin(fut))
+            } else {
+                // nothing to do, keep waiting for responses
+                InboundState::Idle(substream)
+            }
+        } else {
+            self
+        }
+    }
 }
 
 /// State of an outbound substream. Either waiting for a response, or in the process of sending.
@@ -211,76 +221,12 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
     Poisoned,
 }
 
-impl<TSpec> InboundSubstreamState<TSpec>
-where
-    TSpec: EthSpec,
-{
-    /// Moves the substream state to closing and informs the connected peer. The
-    /// `queued_outbound_items` must be given as a parameter to add stream termination messages to
-    /// the outbound queue.
-    pub fn close(&mut self, outbound_queue: &mut Vec<RPCCodedResponse<TSpec>>) {
-        // When terminating a stream, report the stream termination to the requesting user via
-        // an RPC error
-        let error = RPCCodedResponse::ServerError("Request timed out".into());
-
-        // The stream termination type is irrelevant, this will terminate the
-        // stream
-        let stream_termination =
-            RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange);
-
-        match std::mem::replace(self, InboundSubstreamState::Poisoned) {
-            // if we are busy awaiting a send/flush add the termination to the queue
-            InboundSubstreamState::ResponsePendingSend {
-                substream,
-                message,
-                closing,
-            } => {
-                if !closing {
-                    outbound_queue.push(error);
-                    outbound_queue.push(stream_termination);
-                }
-                // if the stream is closing after the send, allow it to finish
-
-                *self = InboundSubstreamState::ResponsePendingSend {
-                    substream,
-                    message,
-                    closing,
-                }
-            }
-            // if we are busy awaiting a send/flush add the termination to the queue
-            InboundSubstreamState::ResponsePendingFlush { substream, closing } => {
-                if !closing {
-                    outbound_queue.push(error);
-                    outbound_queue.push(stream_termination);
-                }
-                // if the stream is closing after the send, allow it to finish
-                *self = InboundSubstreamState::ResponsePendingFlush { substream, closing }
-            }
-            InboundSubstreamState::ResponseIdle(substream) => {
-                *self = InboundSubstreamState::ResponsePendingSend {
-                    substream,
-                    message: error,
-                    closing: true,
-                };
-            }
-            InboundSubstreamState::Closing(substream) => {
-                // let the stream close
-                *self = InboundSubstreamState::Closing(substream);
-            }
-            InboundSubstreamState::Poisoned => {
-                unreachable!("Coding error: Timeout poisoned substream")
-            }
-        };
-    }
-}
-
 impl<TSpec> RPCHandler<TSpec>
 where
     TSpec: EthSpec,
 {
     pub fn new(
-        listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>,
-        inactive_timeout: Duration,
+        listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
         log: &slog::Logger,
     ) -> Self {
         RPCHandler {
@@ -289,7 +235,6 @@ where
             events_out: SmallVec::new(),
             dial_queue: SmallVec::new(),
             dial_negotiated: 0,
-            queued_outbound_items: FnvHashMap::default(),
             inbound_substreams: FnvHashMap::default(),
             outbound_substreams: FnvHashMap::default(),
             inbound_substreams_delay: DelayQueue::new(),
@@ -298,8 +243,6 @@ where
             current_outbound_substream_id: SubstreamId(0),
             state: HandlerState::Active,
             max_dial_negotiated: 8,
-            keep_alive: KeepAlive::Yes,
-            inactive_timeout,
             outbound_io_error_retries: 0,
             log: log.clone(),
         }
@@ -309,7 +252,7 @@ where
     ///
     /// > **Note**: If you modify the protocol, modifications will only applies to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol<TSpec>> {
+    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol<TSpec>, ()> {
         &self.listen_protocol
     }
 
@@ -317,7 +260,7 @@ where
     ///
     /// > **Note**: If you modify the protocol, modifications will only apply to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol<TSpec>> {
+    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol<TSpec>, ()> {
         &mut self.listen_protocol
     }
 
@@ -343,7 +286,6 @@ where
                 TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
             ));
         }
-        self.update_keep_alive();
     }
 
     /// Opens an outbound substream with a request.
@@ -351,7 +293,6 @@ where
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
-                self.update_keep_alive();
             }
             _ => {
                 self.pending_errors.push(HandlerErr::Outbound {
@@ -367,37 +308,23 @@ where
     // NOTE: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
     fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<TSpec>) {
-        // Variables indicating if the response is an error response or a multi-part
-        // response
-        let res_is_error = response.is_error();
-        let res_is_multiple = response.multiple_responses();
-
         // check if the stream matching the response still exists
-        let (substream_state, protocol) = match self.inbound_substreams.get_mut(&inbound_id) {
-            Some((substream_state, _, protocol)) => (substream_state, protocol),
-            None => {
-                warn!(self.log, "Stream has expired. Response not sent";
-                    "response" => response.to_string(), "id" => inbound_id);
-                return;
-            }
+        let inbound_info = if let Some(info) = self.inbound_substreams.get_mut(&inbound_id) {
+            info
+        } else {
+            warn!(self.log, "Stream has expired. Response not sent";
+                "response" => response.to_string(), "id" => inbound_id);
+            return;
         };
 
         // If the response we are sending is an error, report back for handling
-        match response {
-            RPCCodedResponse::InvalidRequest(ref reason)
-            | RPCCodedResponse::ServerError(ref reason)
-            | RPCCodedResponse::Unknown(ref reason) => {
-                let code = &response
-                    .error_code()
-                    .expect("Error response should map to an error code");
-                let err = HandlerErr::Inbound {
-                    id: inbound_id,
-                    proto: *protocol,
-                    error: RPCError::ErrorResponse(*code, reason.to_string()),
-                };
-                self.pending_errors.push(err);
-            }
-            _ => {} // not an error, continue.
+        if let RPCCodedResponse::Error(ref code, ref reason) = response {
+            let err = HandlerErr::Inbound {
+                id: inbound_id,
+                proto: inbound_info.protocol,
+                error: RPCError::ErrorResponse(*code, reason.to_string()),
+            };
+            self.pending_errors.push(err);
         }
 
         if matches!(self.state, HandlerState::Deactivated) {
@@ -406,115 +333,7 @@ where
                 "response" => response.to_string(), "id" => inbound_id);
             return;
         }
-
-        match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
-            InboundSubstreamState::ResponseIdle(substream) => {
-                // close the stream if there is no response
-                if let RPCCodedResponse::StreamTermination(_) = response {
-                    *substream_state = InboundSubstreamState::Closing(substream);
-                } else {
-                    // send the response
-                    // if it's a single rpc request or an error close the stream after.
-                    *substream_state = InboundSubstreamState::ResponsePendingSend {
-                        substream,
-                        message: response,
-                        closing: !res_is_multiple | res_is_error,
-                    }
-                }
-            }
-            InboundSubstreamState::ResponsePendingSend {
-                substream,
-                message,
-                closing,
-            } if res_is_multiple => {
-                // the stream is in use, add the request to a pending queue if active
-                self.queued_outbound_items
-                    .entry(inbound_id)
-                    .or_insert_with(Vec::new)
-                    .push(response);
-
-                // return the state
-                *substream_state = InboundSubstreamState::ResponsePendingSend {
-                    substream,
-                    message,
-                    closing,
-                };
-            }
-            InboundSubstreamState::ResponsePendingFlush { substream, closing }
-                if res_is_multiple =>
-            {
-                // the stream is in use, add the request to a pending queue
-                self.queued_outbound_items
-                    .entry(inbound_id)
-                    .or_insert_with(Vec::new)
-                    .push(response);
-
-                // return the state
-                *substream_state =
-                    InboundSubstreamState::ResponsePendingFlush { substream, closing };
-            }
-            InboundSubstreamState::Closing(substream) => {
-                *substream_state = InboundSubstreamState::Closing(substream);
-                debug!(self.log, "Response not sent. Stream is closing"; "response" => response.to_string());
-            }
-            InboundSubstreamState::ResponsePendingSend {
-                substream, message, ..
-            } => {
-                *substream_state = InboundSubstreamState::ResponsePendingSend {
-                    substream,
-                    message,
-                    closing: true,
-                };
-                error!(
-                    self.log,
-                    "Attempted sending multiple responses to a single response request"
-                );
-            }
-            InboundSubstreamState::ResponsePendingFlush { substream, .. } => {
-                *substream_state = InboundSubstreamState::ResponsePendingFlush {
-                    substream,
-                    closing: true,
-                };
-                error!(
-                    self.log,
-                    "Attempted sending multiple responses to a single response request"
-                );
-            }
-            InboundSubstreamState::Poisoned => {
-                crit!(self.log, "Poisoned inbound substream");
-                unreachable!("Coding error: Poisoned substream");
-            }
-        }
-    }
-
-    /// Updates the `KeepAlive` returned by `connection_keep_alive`.
-    ///
-    /// The handler stays alive as long as there are inbound/outbound substreams established and no
-    /// items dialing/to be dialed. Otherwise it is given a grace period of inactivity of
-    /// `self.inactive_timeout`.
-    fn update_keep_alive(&mut self) {
-        // Check that we don't have outbound items pending for dialing, nor dialing, nor
-        // established. Also check that there are no established inbound substreams.
-        // Errors and events need to be reported back, so check those too.
-        let should_shutdown = self.dial_queue.is_empty()
-            && self.outbound_substreams.is_empty()
-            && self.inbound_substreams.is_empty()
-            && self.pending_errors.is_empty()
-            && self.events_out.is_empty()
-            && self.dial_negotiated == 0;
-
-        match self.keep_alive {
-            KeepAlive::Yes if should_shutdown => {
-                self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
-            }
-            KeepAlive::Yes => {} // We continue being active
-            KeepAlive::Until(_) if should_shutdown => {} // Already deemed inactive
-            KeepAlive::Until(_) => {
-                // No longer idle
-                self.keep_alive = KeepAlive::Yes;
-            }
-            KeepAlive::No => {} // currently not used
-        }
+        inbound_info.pending_items.push(response);
     }
 }
 
@@ -528,14 +347,16 @@ where
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RPCRequest<TSpec>;
     type OutboundOpenInfo = (RequestId, RPCRequest<TSpec>); // Keep track of the id and the request
+    type InboundOpenInfo = ();
 
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
+    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         self.listen_protocol.clone()
     }
 
     fn inject_fully_negotiated_inbound(
         &mut self,
         substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
+        _info: Self::InboundOpenInfo,
     ) {
         // only accept new peer requests when active
         if !matches!(self.state, HandlerState::Active) {
@@ -543,26 +364,31 @@ where
         }
 
         let (req, substream) = substream;
+        let expected_responses = req.expected_responses();
 
         // store requests that expect responses
-        if req.expected_responses() > 0 {
+        if expected_responses > 0 {
             // Store the stream and tag the output.
             let delay_key = self.inbound_substreams_delay.insert(
                 self.current_inbound_substream_id,
                 Duration::from_secs(RESPONSE_TIMEOUT),
             );
-            let awaiting_stream = InboundSubstreamState::ResponseIdle(Box::new(substream));
+            let awaiting_stream = InboundState::Idle(substream);
             self.inbound_substreams.insert(
                 self.current_inbound_substream_id,
-                (awaiting_stream, Some(delay_key), req.protocol()),
+                InboundInfo {
+                    state: awaiting_stream,
+                    pending_items: vec![],
+                    delay_key: Some(delay_key),
+                    protocol: req.protocol(),
+                    remaining_chunks: expected_responses,
+                },
             );
         }
 
         self.events_out
             .push(RPCReceived::Request(self.current_inbound_substream_id, req));
         self.current_inbound_substream_id.0 += 1;
-
-        self.update_keep_alive();
     }
 
     fn inject_fully_negotiated_outbound(
@@ -620,8 +446,6 @@ where
             }
             self.current_outbound_substream_id.0 += 1;
         }
-
-        self.update_keep_alive();
     }
 
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
@@ -649,7 +473,6 @@ where
 
         // This dialing is now considered failed
         self.dial_negotiated -= 1;
-        self.update_keep_alive();
 
         self.outbound_io_error_retries = 0;
         // map the error
@@ -682,7 +505,29 @@ where
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        self.keep_alive
+        // Check that we don't have outbound items pending for dialing, nor dialing, nor
+        // established. Also check that there are no established inbound substreams.
+        // Errors and events need to be reported back, so check those too.
+        let should_shutdown = match self.state {
+            HandlerState::ShuttingDown(_) => {
+                self.dial_queue.is_empty()
+                    && self.outbound_substreams.is_empty()
+                    && self.inbound_substreams.is_empty()
+                    && self.pending_errors.is_empty()
+                    && self.events_out.is_empty()
+                    && self.dial_negotiated == 0
+            }
+            HandlerState::Deactivated => {
+                // Regardless of events, the timeout has expired. Force the disconnect.
+                true
+            }
+            _ => false,
+        };
+        if should_shutdown {
+            KeepAlive::No
+        } else {
+            KeepAlive::Yes
+        }
     }
 
     fn poll(
@@ -714,13 +559,6 @@ where
             if delay.is_elapsed() {
                 self.state = HandlerState::Deactivated;
                 debug!(self.log, "Handler deactivated");
-                // Drain queued responses
-                for (inbound_id, queued_responses) in self.queued_outbound_items.drain() {
-                    for response in queued_responses {
-                        debug!(self.log, "Response not sent. Deactivated handler";
-                            "response" => response.to_string(), "id" => inbound_id);
-                    }
-                }
             }
         }
 
@@ -729,23 +567,22 @@ where
             match self.inbound_substreams_delay.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(inbound_id))) => {
                     // handle a stream timeout for various states
-                    if let Some((substream_state, delay_key, protocol)) =
-                        self.inbound_substreams.get_mut(inbound_id.get_ref())
-                    {
+                    if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
                         // the delay has been removed
-                        *delay_key = None;
-
+                        info.delay_key = None;
                         self.pending_errors.push(HandlerErr::Inbound {
                             id: *inbound_id.get_ref(),
-                            proto: *protocol,
+                            proto: info.protocol,
                             error: RPCError::StreamTimeout,
                         });
 
-                        let outbound_queue = self
-                            .queued_outbound_items
-                            .entry(inbound_id.into_inner())
-                            .or_insert_with(Vec::new);
-                        substream_state.close(outbound_queue);
+                        if info.pending_items.last().map(|l| l.close_after()) == Some(false) {
+                            // if the last chunk does not close the stream, append an error
+                            info.pending_items.push(RPCCodedResponse::Error(
+                                RPCResponseErrorCode::ServerError,
+                                "Request timed out".into(),
+                            ));
+                        }
                     }
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -766,8 +603,6 @@ where
                     if let Some(OutboundInfo { proto, req_id, .. }) =
                         self.outbound_substreams.remove(outbound_id.get_ref())
                     {
-                        self.update_keep_alive();
-
                         let outbound_err = HandlerErr::Outbound {
                             id: req_id,
                             proto,
@@ -793,202 +628,77 @@ where
         let deactivated = matches!(self.state, HandlerState::Deactivated);
 
         // drive inbound streams that need to be processed
-        for request_id in self.inbound_substreams.keys().copied().collect::<Vec<_>>() {
-            // Drain all queued items until all messages have been processed for this stream
-            // TODO Improve this code logic
-            let mut drive_stream_further = true;
-            while drive_stream_further {
-                drive_stream_further = false;
-                match self.inbound_substreams.entry(request_id) {
-                    Entry::Occupied(mut entry) => {
-                        match std::mem::replace(
-                            &mut entry.get_mut().0,
-                            InboundSubstreamState::Poisoned,
-                        ) {
-                            InboundSubstreamState::ResponsePendingSend {
-                                mut substream,
-                                message,
-                                closing,
-                            } => {
-                                if deactivated {
-                                    if !closing {
-                                        // inform back to cancel this request's processing
-                                        self.pending_errors.push(HandlerErr::Inbound {
-                                            id: request_id,
-                                            proto: entry.get().2,
-                                            error: RPCError::HandlerRejected,
-                                        });
-                                    }
-                                    entry.get_mut().0 = InboundSubstreamState::Closing(substream);
-                                    drive_stream_further = true;
-                                } else {
-                                    match Sink::poll_ready(Pin::new(&mut substream), cx) {
-                                        Poll::Ready(Ok(())) => {
-                                            // stream is ready to send data
-                                            match Sink::start_send(
-                                                Pin::new(&mut substream),
-                                                message,
-                                            ) {
-                                                Ok(()) => {
-                                                    // await flush
-                                                    entry.get_mut().0 =
-                                                    InboundSubstreamState::ResponsePendingFlush {
-                                                        substream: substream,
-                                                        closing,
-                                                    };
-                                                    drive_stream_further = true;
-                                                }
-                                                Err(e) => {
-                                                    // error with sending in the codec
-                                                    warn!(self.log, "Error sending RPC message"; "error" => e.to_string());
-                                                    // keep connection with the peer and return the
-                                                    // stream to awaiting response if this message
-                                                    // wasn't closing the stream
-                                                    if closing {
-                                                        entry.get_mut().0 =
-                                                            InboundSubstreamState::Closing(
-                                                                substream,
-                                                            );
-                                                        drive_stream_further = true;
-                                                    } else {
-                                                        // check for queued chunks and update the stream
-                                                        entry.get_mut().0 = apply_queued_responses(
-                                                            *substream,
-                                                            &mut self
-                                                                .queued_outbound_items
-                                                                .get_mut(&request_id),
-                                                            &mut drive_stream_further,
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Poll::Ready(Err(e)) => {
-                                            error!(
-                                                self.log,
-                                                "Outbound substream error while sending RPC message: {:?}",
-                                                e
-                                            );
-                                            entry.remove();
-                                            self.update_keep_alive();
-                                            return Poll::Ready(ProtocolsHandlerEvent::Close(e));
-                                        }
-                                        Poll::Pending => {
-                                            // the stream is not yet ready, continue waiting
-                                            entry.get_mut().0 =
-                                                InboundSubstreamState::ResponsePendingSend {
-                                                    substream,
-                                                    message,
-                                                    closing,
-                                                };
-                                        }
-                                    }
-                                }
+        let mut substreams_to_remove = Vec::new(); // Closed substreams that need to be removed
+        for (id, info) in self.inbound_substreams.iter_mut() {
+            match std::mem::replace(&mut info.state, InboundState::Poisoned) {
+                state @ InboundState::Idle(..) if !deactivated => {
+                    info.state = state.send_items(&mut info.pending_items, info.remaining_chunks);
+                }
+                InboundState::Idle(mut substream) => {
+                    // handler is deactivated, close the stream and mark it for removal
+                    match substream.close().poll_unpin(cx) {
+                        // if we can't close right now, put the substream back and try again later
+                        Poll::Pending => info.state = InboundState::Idle(substream),
+                        Poll::Ready(res) => {
+                            substreams_to_remove.push(*id);
+                            if let Some(ref delay_key) = info.delay_key {
+                                self.inbound_substreams_delay.remove(delay_key);
                             }
-                            InboundSubstreamState::ResponsePendingFlush {
-                                mut substream,
-                                closing,
-                            } => {
-                                match Sink::poll_flush(Pin::new(&mut substream), cx) {
-                                    Poll::Ready(Ok(())) => {
-                                        // finished flushing
-                                        // TODO: Duplicate code
-                                        if closing | deactivated {
-                                            if !closing {
-                                                // inform back to cancel this request's processing
-                                                self.pending_errors.push(HandlerErr::Inbound {
-                                                    id: request_id,
-                                                    proto: entry.get().2,
-                                                    error: RPCError::HandlerRejected,
-                                                });
-                                            }
-                                            entry.get_mut().0 =
-                                                InboundSubstreamState::Closing(substream);
-                                            drive_stream_further = true;
-                                        } else {
-                                            // check for queued chunks and update the stream
-                                            entry.get_mut().0 = apply_queued_responses(
-                                                *substream,
-                                                &mut self
-                                                    .queued_outbound_items
-                                                    .get_mut(&request_id),
-                                                &mut drive_stream_further,
-                                            );
-                                        }
-                                    }
-                                    Poll::Ready(Err(e)) => {
-                                        // error during flush
-                                        trace!(self.log, "Error sending flushing RPC message"; "error" => e.to_string());
-                                        // we drop the stream on error and inform the user, remove
-                                        // any pending requests
-                                        // TODO: Duplicate code
-                                        if let Some(delay_key) = &entry.get().1 {
-                                            self.inbound_substreams_delay.remove(delay_key);
-                                        }
-                                        self.queued_outbound_items.remove(&request_id);
-                                        entry.remove();
-
-                                        self.update_keep_alive();
-                                    }
-                                    Poll::Pending => {
-                                        entry.get_mut().0 =
-                                            InboundSubstreamState::ResponsePendingFlush {
-                                                substream,
-                                                closing,
-                                            };
-                                    }
-                                }
+                            if let Err(error) = res {
+                                self.pending_errors.push(HandlerErr::Inbound {
+                                    id: *id,
+                                    error,
+                                    proto: info.protocol,
+                                });
                             }
-                            InboundSubstreamState::ResponseIdle(substream) => {
-                                if !deactivated {
-                                    entry.get_mut().0 = apply_queued_responses(
-                                        *substream,
-                                        &mut self.queued_outbound_items.get_mut(&request_id),
-                                        &mut drive_stream_further,
-                                    );
-                                } else {
-                                    entry.get_mut().0 = InboundSubstreamState::Closing(substream);
-                                    drive_stream_further = true;
-                                }
-                            }
-                            InboundSubstreamState::Closing(mut substream) => {
-                                match Sink::poll_close(Pin::new(&mut substream), cx) {
-                                    Poll::Ready(Ok(())) => {
-                                        if let Some(delay_key) = &entry.get().1 {
-                                            self.inbound_substreams_delay.remove(delay_key);
-                                        }
-                                        self.queued_outbound_items.remove(&request_id);
-                                        entry.remove();
-
-                                        self.update_keep_alive();
-                                    } // drop the stream
-                                    Poll::Ready(Err(e)) => {
-                                        error!(self.log, "Error closing inbound stream"; "error" => e.to_string());
-                                        // drop the stream anyway
-                                        // TODO: Duplicate code
-                                        if let Some(delay_key) = &entry.get().1 {
-                                            self.inbound_substreams_delay.remove(delay_key);
-                                        }
-                                        self.queued_outbound_items.remove(&request_id);
-                                        entry.remove();
-
-                                        self.update_keep_alive();
-                                    }
-                                    Poll::Pending => {
-                                        entry.get_mut().0 =
-                                            InboundSubstreamState::Closing(substream);
-                                    }
-                                }
-                            }
-                            InboundSubstreamState::Poisoned => {
-                                crit!(self.log, "Poisoned outbound substream");
-                                unreachable!("Coding Error: Inbound Substream is poisoned");
+                            if info.pending_items.last().map(|l| l.close_after()) == Some(false) {
+                                // if the request was still active, report back to cancel it
+                                self.pending_errors.push(HandlerErr::Inbound {
+                                    id: *id,
+                                    proto: info.protocol,
+                                    error: RPCError::HandlerRejected,
+                                });
                             }
                         }
                     }
-                    Entry::Vacant(_) => unreachable!(),
                 }
+                InboundState::Busy(mut fut) => {
+                    // first check if sending finished
+                    let state = match fut.poll_unpin(cx) {
+                        Poll::Ready((substream, errors, remove, new_remaining_chunks)) => {
+                            info.remaining_chunks = new_remaining_chunks;
+                            // report any error
+                            for error in errors {
+                                self.pending_errors.push(HandlerErr::Inbound {
+                                    id: *id,
+                                    error,
+                                    proto: info.protocol,
+                                })
+                            }
+                            if remove {
+                                substreams_to_remove.push(*id);
+                                if let Some(ref delay_key) = info.delay_key {
+                                    self.inbound_substreams_delay.remove(delay_key);
+                                }
+                            }
+                            InboundState::Idle(substream)
+                        }
+                        Poll::Pending => InboundState::Busy(fut),
+                    };
+                    info.state = if !deactivated {
+                        // if the last batch finished, send more.
+                        state.send_items(&mut info.pending_items, info.remaining_chunks)
+                    } else {
+                        state
+                    };
+                }
+                InboundState::Poisoned => unreachable!("Poisoned inbound substream"),
             }
+        }
+
+        // remove closed substreams
+        for inbound_id in substreams_to_remove {
+            self.inbound_substreams.remove(&inbound_id);
         }
 
         // drive outbound streams that need to be processed
@@ -1023,7 +733,7 @@ where
                     request,
                 } => match substream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(response))) => {
-                        if request.expected_responses() > 1 && !response.is_error() {
+                        if request.expected_responses() > 1 && !response.close_after() {
                             let substream_entry = entry.get_mut();
                             let delay_key = &substream_entry.delay_key;
                             // chunks left after this one
@@ -1046,8 +756,8 @@ where
                                     .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
                             }
                         } else {
-                            // either this is a single response request or we received an
-                            // error only expect a single response, close the stream
+                            // either this is a single response request or this response closes the
+                            // stream
                             entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                         }
 
@@ -1060,18 +770,11 @@ where
                                 Ok(RPCReceived::EndOfStream(id, t))
                             }
                             RPCCodedResponse::Success(resp) => Ok(RPCReceived::Response(id, resp)),
-                            RPCCodedResponse::InvalidRequest(ref r)
-                            | RPCCodedResponse::ServerError(ref r)
-                            | RPCCodedResponse::Unknown(ref r) => {
-                                let code = response.error_code().expect(
-                                    "Response indicating and error should map to an error code",
-                                );
-                                Err(HandlerErr::Outbound {
-                                    id,
-                                    proto,
-                                    error: RPCError::ErrorResponse(code, r.to_string()),
-                                })
-                            }
+                            RPCCodedResponse::Error(ref code, ref r) => Err(HandlerErr::Outbound {
+                                id,
+                                proto,
+                                error: RPCError::ErrorResponse(*code, r.to_string()),
+                            }),
                         };
 
                         return Poll::Ready(ProtocolsHandlerEvent::Custom(received));
@@ -1083,10 +786,9 @@ where
                         //trace!(self.log, "RPC Response - stream closed by remote");
                         // drop the stream
                         let delay_key = &entry.get().delay_key;
-                        let request_id = *&entry.get().req_id;
+                        let request_id = entry.get().req_id;
                         self.outbound_substreams_delay.remove(delay_key);
                         entry.remove_entry();
-                        self.update_keep_alive();
                         // notify the application error
                         if request.expected_responses() > 1 {
                             // return an end of stream result
@@ -1117,7 +819,6 @@ where
                             error: e,
                         };
                         entry.remove_entry();
-                        self.update_keep_alive();
                         return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(outbound_err)));
                     }
                 },
@@ -1130,7 +831,6 @@ where
                             let request_id = entry.get().req_id;
                             self.outbound_substreams_delay.remove(delay_key);
                             entry.remove_entry();
-                            self.update_keep_alive();
 
                             // report the stream termination to the user
                             //
@@ -1167,42 +867,11 @@ where
             self.dial_negotiated += 1;
             let (id, req) = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
-            self.update_keep_alive();
             return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(req.clone()),
-                info: (id, req),
+                protocol: SubstreamProtocol::new(req.clone(), ()).map_info(|()| (id, req)),
             });
         }
         Poll::Pending
-    }
-}
-
-// Check for new items to send to the peer and update the underlying stream
-fn apply_queued_responses<TSpec: EthSpec>(
-    substream: InboundFramed<NegotiatedSubstream, TSpec>,
-    queued_outbound_items: &mut Option<&mut Vec<RPCCodedResponse<TSpec>>>,
-    new_items_to_send: &mut bool,
-) -> InboundSubstreamState<TSpec> {
-    match queued_outbound_items {
-        Some(ref mut queue) if !queue.is_empty() => {
-            *new_items_to_send = true;
-            // we have queued items
-            match queue.remove(0) {
-                RPCCodedResponse::StreamTermination(_) => {
-                    // close the stream if this is a stream termination
-                    InboundSubstreamState::Closing(Box::new(substream))
-                }
-                chunk => InboundSubstreamState::ResponsePendingSend {
-                    substream: Box::new(substream),
-                    message: chunk,
-                    closing: false,
-                },
-            }
-        }
-        _ => {
-            // no items queued set to idle
-            InboundSubstreamState::ResponseIdle(Box::new(substream))
-        }
     }
 }
 
@@ -1215,4 +884,44 @@ impl slog::Value for SubstreamId {
     ) -> slog::Result {
         slog::Value::serialize(&self.0, record, key, serializer)
     }
+}
+
+/// Sends the queued items to the peer.
+async fn process_inbound_substream<TSpec: EthSpec>(
+    mut substream: InboundSubstream<TSpec>,
+    mut remaining_chunks: u64,
+    pending_items: Vec<RPCCodedResponse<TSpec>>,
+) -> InboundProcessingOutput<TSpec> {
+    let mut errors = Vec::new();
+    let mut substream_closed = false;
+
+    for item in pending_items {
+        if !substream_closed {
+            if matches!(item, RPCCodedResponse::StreamTermination(_)) {
+                substream.close().await.unwrap_or_else(|e| errors.push(e));
+                substream_closed = true;
+            } else {
+                remaining_chunks = remaining_chunks.saturating_sub(1);
+                // chunks that are not stream terminations get sent, and the stream is closed if
+                // the response is an error
+                let is_error = matches!(item, RPCCodedResponse::Error(..));
+
+                substream
+                    .send(item)
+                    .await
+                    .unwrap_or_else(|e| errors.push(e));
+
+                if remaining_chunks == 0 || is_error {
+                    substream.close().await.unwrap_or_else(|e| errors.push(e));
+                    substream_closed = true;
+                }
+            }
+        } else {
+            // we have more items after a closed substream, report those as errors
+            errors.push(RPCError::InternalError(
+                "Sending responses to closed inbound substream",
+            ));
+        }
+    }
+    (substream, errors, substream_closed, remaining_chunks)
 }

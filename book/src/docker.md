@@ -29,6 +29,10 @@ $ docker run sigp/lighthouse lighthouse --help
 > Note: when you're running the Docker Hub image you're relying upon a
 > pre-built binary instead of building from source.
 
+> Note: due to the Docker Hub image being compiled to work on arbitrary machines, it isn't as highly
+> optimized as an image built from source. We're working to improve this, but for now if you want
+> the absolute best performance, please build the image yourself.
+
 ### Building the Docker Image
 
 To build the image from source, navigate to
@@ -49,8 +53,10 @@ $ docker run lighthouse:local lighthouse --help
 You can run a Docker beacon node with the following command:
 
 ```bash
-$ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse beacon --http --http-address 0.0.0.0
+$ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --testnet medalla beacon --http --http-address 0.0.0.0
 ```
+
+> To join the altona testnet, use --testnet altona instead.
 
 > The `-p` and `-v` and values are described below.
 

@@ -1,5 +1,4 @@
 use eth2_libp2p::Enr;
-use rlp;
 use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem};
 use types::{EthSpec, Hash256};

@@ -1,7 +1,7 @@
 [package]
 name = "client"
-version = "0.1.2"
-authors = ["Age Manning <Age@AgeManning.com>"]
+version = "0.2.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
@@ -15,9 +15,9 @@ network = { path = "../network" }
 timer = { path = "../timer" }
 eth2_libp2p = { path = "../eth2_libp2p" }
 rest_api = { path = "../rest_api" }
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 websocket_server = { path = "../websocket_server" }
-prometheus = "0.8.0"
+prometheus = "0.9.0"
 types = { path = "../../consensus/types" }
 tree_hash = "0.1.0"
 eth2_config = { path = "../../common/eth2_config" }
@@ -31,7 +31,7 @@ slog-async = "2.5.0"
 tokio = "0.2.21"
 dirs = "2.0.2"
 futures = "0.3.5"
-reqwest = "0.10.4"
+reqwest = { version = "0.10.4", features = ["native-tls-vendored"] }
 url = "2.1.1"
 eth1 = { path = "../eth1" }
 genesis = { path = "../genesis" }

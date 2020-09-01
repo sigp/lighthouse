@@ -26,7 +26,7 @@ lazy_static! {
 fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
 
-    let harness = BeaconChainHarness::new(
+    let mut harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
         KEYPAIRS[..].to_vec(),
         StoreConfig::default(),
@@ -111,7 +111,7 @@ fn produces_attestations() {
             );
             assert_eq!(
                 attestation.signature,
-                AggregateSignature::empty_signature(),
+                AggregateSignature::empty(),
                 "bad signature"
             );
             assert_eq!(data.index, index, "bad index");
