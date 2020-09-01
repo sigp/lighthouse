@@ -249,8 +249,28 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(topic.into(), message_data) {
+                        if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
                             slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
+
+                            // add to metrics
+                            match topic.kind() {
+                                GossipKind::Attestation(subnet_id) => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
+                                        &[&subnet_id.to_string()],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                                kind => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                                        &[&format!("{:?}", kind)],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                            }
                         }
                     }
                     Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
@@ -471,23 +491,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                if let Some(topic_metric) = metrics::get_int_gauge(
-                    &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_COUNT,
-                    &[topic.as_str()],
-                ) {
-                    topic_metric.inc()
-                }
-
                 self.add_event(BehaviourEvent::PeerSubscribed(peer_id, topic));
             }
-            GossipsubEvent::Unsubscribed { peer_id: _, topic } => {
-                if let Some(topic_metric) = metrics::get_int_gauge(
-                    &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_COUNT,
-                    &[topic.as_str()],
-                ) {
-                    topic_metric.dec()
-                }
-            }
+            GossipsubEvent::Unsubscribed { .. } => {}
         }
     }
 
