@@ -13,6 +13,16 @@ pub const DEFAULT_WALLET_DIR: &str = "wallets";
 /// Base directory name for unnamed testnets passed through the --testnet-dir flag
 pub const CUSTOM_TESTNET_DIR: &str = "custom";
 
+/// Get the default base directory as $HOME/DEFAULT_ROOT_DIR/DEFAULT_HARDCODED_TESTNET
+///
+/// For e.g. $HOME/.lighthouse/medalla
+pub fn get_default_base_dir() -> PathBuf {
+    let mut base_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    base_dir.push(DEFAULT_ROOT_DIR);
+    base_dir.push(eth2_testnet_config::DEFAULT_HARDCODED_TESTNET);
+    base_dir
+}
+
 /// Gets the testnet directory name
 ///
 /// Tries to get the name first from the "testnet" flag,

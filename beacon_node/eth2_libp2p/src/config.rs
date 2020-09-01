@@ -71,9 +71,7 @@ pub struct Config {
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
-        let mut network_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        network_dir.push(".lighthouse");
-        network_dir.push("network");
+        let network_dir = directory::get_default_base_dir();
 
         // The default topics that we will initially subscribe to
         let topics = vec![

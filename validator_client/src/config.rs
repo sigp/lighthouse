@@ -34,12 +34,8 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let data_dir = dirs::home_dir()
-            .map(|home| home.join(DEFAULT_ROOT_DIR))
-            .unwrap_or_else(|| PathBuf::from("."));
-        let secrets_dir = dirs::home_dir()
-            .map(|home| home.join(DEFAULT_ROOT_DIR))
-            .unwrap_or_else(|| PathBuf::from("."));
+        let data_dir = directory::get_default_base_dir();
+        let secrets_dir = directory::get_default_base_dir().join(DEFAULT_SECRET_DIR);
         Self {
             data_dir,
             secrets_dir,

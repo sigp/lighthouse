@@ -1508,6 +1508,7 @@ name = "eth2_libp2p"
 version = "0.2.0"
 dependencies = [
  "base64 0.12.3",
+ "directory",
  "dirs",
  "discv5",
  "environment",

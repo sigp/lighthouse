@@ -2,7 +2,7 @@ use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
-use directory::{get_testnet_dir, DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
+use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, Logger};
@@ -429,14 +429,7 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     cli_args
         .value_of("datadir")
         .map(|path| PathBuf::from(path).join(DEFAULT_BEACON_NODE_DIR))
-        .or_else(|| {
-            dirs::home_dir().map(|home| {
-                home.join(DEFAULT_ROOT_DIR)
-                    .join(get_testnet_dir(cli_args))
-                    .join(DEFAULT_BEACON_NODE_DIR)
-            })
-        })
-        .unwrap_or_else(|| PathBuf::from("."))
+        .unwrap_or(directory::get_default_base_dir())
 }
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
