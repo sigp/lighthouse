@@ -247,8 +247,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .peer_info(peer_id)
             .map(|peer_info| peer_info.client.kind.clone())
         {
-            metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-                .map(|v| v.dec());
+            if let Some(v) =
+                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+            {
+                v.dec()
+            };
         }
 
         self.network_globals.peers.write().disconnect(peer_id);
@@ -314,13 +317,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             if previous_kind != peer_info.client.kind {
                 // update the peer client kind metric
-                metrics::get_int_gauge(
+                if let Some(v) = metrics::get_int_gauge(
                     &metrics::PEERS_PER_CLIENT,
                     &[&peer_info.client.kind.to_string()],
-                )
-                .map(|v| v.inc());
-                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&previous_kind.to_string()])
-                    .map(|v| v.dec());
+                ) {
+                    v.inc()
+                };
+                if let Some(v) = metrics::get_int_gauge(
+                    &metrics::PEERS_PER_CLIENT,
+                    &[&previous_kind.to_string()],
+                ) {
+                    v.dec()
+                };
             }
         } else {
             crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
@@ -600,8 +608,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .peer_info(peer_id)
             .map(|peer_info| peer_info.client.kind.clone())
         {
-            metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-                .map(|v| v.inc());
+            if let Some(v) =
+                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+            {
+                v.inc()
+            };
         }
 
         true

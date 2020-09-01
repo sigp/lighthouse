@@ -514,29 +514,32 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
             if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
                 match topic.kind() {
                     GossipKind::Attestation(subnet_id) => {
-                        metrics::get_int_gauge(
+                        if let Some(v) = metrics::get_int_gauge(
                             &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
                             &[&subnet_id.to_string()],
-                        )
-                        .map(|v| v.inc());
+                        ) {
+                            v.inc()
+                        };
 
                         // average peer scores
                         if let Some(score) = gossipsub.peer_score(peer_id) {
-                            metrics::get_int_gauge(
+                            if let Some(v) = metrics::get_int_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
                                 &[&subnet_id.to_string()],
-                            )
-                            .map(|v| v.add(score as i64));
+                            ) {
+                                v.add(score as i64)
+                            };
                         }
                     }
                     kind => {
                         // main topics
                         if let Some(score) = gossipsub.peer_score(peer_id) {
-                            metrics::get_int_gauge(
+                            if let Some(v) = metrics::get_int_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
                                 &[&format!("{:?}", kind)],
-                            )
-                            .map(|v| v.add(score as i64));
+                            ) {
+                                v.add(score as i64)
+                            };
                         }
                     }
                 }
@@ -549,19 +552,21 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
                     // average peer scores
-                    metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_int_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
                         &[&subnet_id.to_string()],
-                    )
-                    .map(|v| v.set(v.get() / (*peers as i64)));
+                    ) {
+                        v.set(v.get() / (*peers as i64))
+                    };
                 }
                 kind => {
                     // main topics
-                    metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_int_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
                         &[&format!("{:?}", kind)],
-                    )
-                    .map(|v| v.set(v.get() / (*peers as i64)));
+                    ) {
+                        v.set(v.get() / (*peers as i64))
+                    };
                 }
             }
         }
@@ -573,19 +578,21 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
-                    metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_int_gauge(
                         &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
                         &[&subnet_id.to_string()],
-                    )
-                    .map(|v| v.set(peers as i64));
+                    ) {
+                        v.set(peers as i64)
+                    };
                 }
                 kind => {
                     // main topics
-                    metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_int_gauge(
                         &metrics::MESH_PEERS_PER_MAIN_TOPIC,
                         &[&format!("{:?}", kind)],
-                    )
-                    .map(|v| v.set(peers as i64));
+                    ) {
+                        v.set(peers as i64)
+                    };
                 }
             }
         }

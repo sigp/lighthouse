@@ -255,18 +255,20 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             // add to metrics
                             match topic.kind() {
                                 GossipKind::Attestation(subnet_id) => {
-                                    metrics::get_int_gauge(
+                                    if let Some(v) = metrics::get_int_gauge(
                                         &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
                                         &[&subnet_id.to_string()],
-                                    )
-                                    .map(|v| v.inc());
+                                    ) {
+                                        v.inc()
+                                    };
                                 }
                                 kind => {
-                                    metrics::get_int_gauge(
+                                    if let Some(v) = metrics::get_int_gauge(
                                         &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
                                         &[&format!("{:?}", kind)],
-                                    )
-                                    .map(|v| v.inc());
+                                    ) {
+                                        v.inc()
+                                    };
                                 }
                             }
                         }
