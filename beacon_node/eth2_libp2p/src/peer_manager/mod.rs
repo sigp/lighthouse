@@ -245,7 +245,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .peers
             .read()
             .peer_info(peer_id)
-            .map(|peer_info| peer_info.client.kind.clone())
+            .and_then(|peer_info| {
+                if let Connected { .. } = peer_info.connection_status {
+                    Some(peer_info.client.kind.clone())
+                } else {
+                    None
+                }
+            })
         {
             if let Some(v) =
                 metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
