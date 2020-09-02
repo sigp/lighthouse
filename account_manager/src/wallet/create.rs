@@ -1,4 +1,4 @@
-use crate::BASE_DIR_FLAG;
+use crate::WALLETS_DIR_FLAG;
 use account_utils::{random_password, strip_off_newlines};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
@@ -81,7 +81,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     };
 
     let mgr = WalletManager::open(&base_dir)
-        .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
+        .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
     // Create a new random mnemonic.
     //

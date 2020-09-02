@@ -1,4 +1,4 @@
-use crate::{BASE_DIR_FLAG, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
 use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
@@ -148,7 +148,7 @@ pub fn cli_run<T: EthSpec>(
         .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
 
     let mgr = WalletManager::open(&wallet_base_dir)
-        .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
+        .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
     let mut wallet = mgr
         .wallet_by_name(&name)

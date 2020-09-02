@@ -11,7 +11,7 @@ use account_manager::{
         list::CMD as LIST_CMD,
         CMD as WALLET_CMD,
     },
-    BASE_DIR_FLAG, CMD as ACCOUNT_CMD, *,
+    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG, *,
 };
 use account_utils::{
     eth2_keystore::KeystoreBuilder,
@@ -73,7 +73,7 @@ fn dir_child_count<P: AsRef<Path>>(dir: P) -> usize {
 fn list_wallets<P: AsRef<Path>>(base_dir: P) -> Vec<String> {
     let output = output_result(
         wallet_cmd()
-            .arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(base_dir.as_ref().as_os_str())
             .arg(LIST_CMD),
     )
@@ -97,7 +97,7 @@ fn create_wallet<P: AsRef<Path>>(
 ) -> Result<Output, String> {
     output_result(
         wallet_cmd()
-            .arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(base_dir.as_ref().as_os_str())
             .arg(CREATE_CMD)
             .arg(format!("--{}", NAME_FLAG))
@@ -233,7 +233,7 @@ impl TestValidator {
         store_withdrawal_key: bool,
     ) -> Result<Vec<String>, String> {
         let mut cmd = validator_cmd();
-        cmd.arg(format!("--{}", BASE_DIR_FLAG))
+        cmd.arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(self.wallet.base_dir().into_os_string())
             .arg(CREATE_CMD)
             .arg(format!("--{}", WALLET_NAME_FLAG))
