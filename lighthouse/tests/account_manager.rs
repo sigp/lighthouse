@@ -233,15 +233,15 @@ impl TestValidator {
         store_withdrawal_key: bool,
     ) -> Result<Vec<String>, String> {
         let mut cmd = validator_cmd();
-        cmd.arg(format!("--{}", WALLETS_DIR_FLAG))
-            .arg(self.wallet.base_dir().into_os_string())
+        cmd.arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(self.validator_dir.clone().into_os_string())
             .arg(CREATE_CMD)
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
+            .arg(self.wallet.base_dir().into_os_string())
             .arg(format!("--{}", WALLET_NAME_FLAG))
             .arg(&self.wallet.name)
             .arg(format!("--{}", WALLET_PASSWORD_FLAG))
             .arg(self.wallet.password_path().into_os_string())
-            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-            .arg(self.validator_dir.clone().into_os_string())
             .arg(format!("--{}", SECRETS_DIR_FLAG))
             .arg(self.secrets_dir.clone().into_os_string())
             .arg(format!("--{}", DEPOSIT_GWEI_FLAG))
@@ -375,13 +375,6 @@ fn validator_create() {
     assert_eq!(dir_child_count(validator_dir.path()), 6);
 }
 
-/// Returns the `lighthouse account validator import` command.
-fn validator_import_cmd() -> Command {
-    let mut cmd = validator_cmd();
-    cmd.arg(IMPORT_CMD);
-    cmd
-}
-
 #[test]
 fn validator_import_launchpad() {
     const PASSWORD: &str = "cats";
@@ -407,12 +400,13 @@ fn validator_import_launchpad() {
     // Create a not-keystore file in the src dir.
     File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
 
-    let mut child = validator_import_cmd()
+    let mut child = validator_cmd()
+        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        .arg(dst_dir.path().as_os_str())
+        .arg(IMPORT_CMD)
         .arg(format!("--{}", import::STDIN_PASSWORD_FLAG)) // Using tty does not work well with tests.
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
-        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-        .arg(dst_dir.path().as_os_str())
         .stderr(Stdio::piped())
         .stdin(Stdio::piped())
         .spawn()

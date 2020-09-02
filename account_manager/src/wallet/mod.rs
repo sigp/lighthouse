@@ -14,9 +14,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
-                .value_name("BASE_DIRECTORY")
+                .value_name("WALLETS_DIRECTORY")
                 .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
                 .takes_value(true)
+                .global(true)
                 .conflicts_with("datadir"),
         )
         .subcommand(create::cli_app())

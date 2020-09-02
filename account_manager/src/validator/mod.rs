@@ -23,7 +23,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The path to search for validator directories. \
                     Defaults to ~/.lighthouse/{testnet}/validators",
                 )
-                .takes_value(true),
+                .takes_value(true)
+                .global(true)
+                .conflicts_with("datadir"),
         )
         .about("Lists the names of all validators.")
         .subcommand(create::cli_app())
