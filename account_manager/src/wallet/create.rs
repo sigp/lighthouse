@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
 pub const NAME_FLAG: &str = "name";
-pub const PASSPHRASE_FLAG: &str = "passphrase-file";
+pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 
@@ -34,8 +34,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name(PASSPHRASE_FLAG)
-                .long(PASSPHRASE_FLAG)
+            Arg::with_name(PASSWORD_FLAG)
+                .long(PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
                 .help(
                     "A path to a file containing the password which will unlock the wallet. \
