@@ -49,26 +49,24 @@ pub fn read_mnemonic_from_cli(
                     )
                 })
             })??,
-        None => {
-            loop {
-                eprintln!("");
-                eprintln!("{}", MNEMONIC_PROMPT);
+        None => loop {
+            eprintln!("");
+            eprintln!("{}", MNEMONIC_PROMPT);
 
-                let mnemonic = read_mnemonic_from_user(stdin_password)?;
+            let mnemonic = read_mnemonic_from_user(stdin_password)?;
 
-                match Mnemonic::from_phrase(mnemonic.as_str(), Language::English) {
-                    Ok(mnemonic_m) => {
-                        eprintln!("Valid mnemonic provided.");
-                        eprintln!("");
-                        sleep(Duration::from_secs(1));
-                        break mnemonic_m;
-                    }
-                    Err(_) => {
-                        eprintln!("Invalid mnemonic");
-                    }
+            match Mnemonic::from_phrase(mnemonic.as_str(), Language::English) {
+                Ok(mnemonic_m) => {
+                    eprintln!("Valid mnemonic provided.");
+                    eprintln!("");
+                    sleep(Duration::from_secs(1));
+                    break mnemonic_m;
+                }
+                Err(_) => {
+                    eprintln!("Invalid mnemonic");
                 }
             }
-        }
+        },
     };
     Ok(mnemonic)
 }
