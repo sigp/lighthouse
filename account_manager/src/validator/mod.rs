@@ -39,6 +39,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
     } else {
         custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?
     };
+    eprintln!("validator-dir path: {:?}", base_dir);
 
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, base_dir),

@@ -1,4 +1,4 @@
-use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG, WALLETS_DIR_FLAG};
+use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
 use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
@@ -129,6 +129,9 @@ pub fn cli_run<T: EthSpec>(
 
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;
+
+    eprintln!("secrets-dir path {:?}", secrets_dir);
+    eprintln!("wallets-dir path {:?}", wallet_base_dir);
 
     let starting_validator_count = existing_validator_count(&validator_dir)?;
 

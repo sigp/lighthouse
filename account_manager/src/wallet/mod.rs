@@ -32,6 +32,8 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     };
     ensure_dir_exists(&base_dir)?;
 
+    eprintln!("wallet-dir path: {:?}", base_dir);
+
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run(matches, base_dir),
         (list::CMD, Some(_)) => list::cli_run(base_dir),
