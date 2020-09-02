@@ -429,7 +429,7 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     cli_args
         .value_of("datadir")
         .map(|path| PathBuf::from(path).join(DEFAULT_BEACON_NODE_DIR))
-        .unwrap_or_else(directory::get_default_base_dir)
+        .unwrap_or_else(|| directory::get_default_base_dir().join(DEFAULT_BEACON_NODE_DIR))
 }
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.

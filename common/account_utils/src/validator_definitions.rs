@@ -127,6 +127,7 @@ impl ValidatorDefinitions {
 
     /// Temporary migration script for updating `voting_keystore_path` and `voting_keystore_password_path`
     /// in `ValidatorDefinitions`.
+    /// Warning: This code should be deleted after users migrate to the new directory structure.
     pub fn migrate(
         &mut self,
         old_base_dir: &PathBuf,
@@ -140,16 +141,22 @@ impl ValidatorDefinitions {
                     ..
                 } => {
                     // Update voting keystore path
-                    let remaining = voting_keystore_path
-                        .strip_prefix(old_base_dir)
-                        .map_err(|e| format!("Failed to strip prefix: {}", e))?;
+                    let remaining =
+                        voting_keystore_path
+                            .strip_prefix(old_base_dir)
+                            .map_err(|e| {
+                                format!("Failed to strip prefix for voting keystore path: {}", e)
+                            })?;
                     *voting_keystore_path = new_base_dir.join(remaining);
 
                     // Update voting keystore password path
                     if let Some(path) = voting_keystore_password_path.as_mut() {
-                        let remaining = path
-                            .strip_prefix(old_base_dir)
-                            .map_err(|e| format!("Failed to strip prefix: {}", e))?;
+                        let remaining = path.strip_prefix(old_base_dir).map_err(|e| {
+                            format!(
+                                "Failed to strip prefix for voting keystore password path: {}",
+                                e
+                            )
+                        })?;
                         *path = new_base_dir.join(remaining);
                     }
                 }
