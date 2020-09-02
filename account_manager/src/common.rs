@@ -50,7 +50,7 @@ pub fn read_mnemonic_from_cli(
                 })
             })??,
         None => {
-            let mnemonic = loop {
+            loop {
                 eprintln!("");
                 eprintln!("{}", MNEMONIC_PROMPT);
 
@@ -67,8 +67,7 @@ pub fn read_mnemonic_from_cli(
                         eprintln!("Invalid mnemonic");
                     }
                 }
-            };
-            mnemonic
+            }
         }
     };
     Ok(mnemonic)

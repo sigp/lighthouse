@@ -114,7 +114,7 @@ pub fn create_wallet_from_mnemonic(
     mnemonic: &Mnemonic,
 ) -> Result<LockedWallet, String> {
     let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSPHRASE_FLAG)?;
+    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSWORD_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
 
     let wallet_type = match type_field.as_ref() {
@@ -127,7 +127,7 @@ pub fn create_wallet_from_mnemonic(
 
     // Create a random password if the file does not exist.
     if !wallet_password_path.exists() {
-        // To prevent users from accidentally supplying their password to the PASSPHRASE_FLAG and
+        // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
         // create a file with that name, we require that the password has a .pass suffix.
         if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
             return Err(format!(

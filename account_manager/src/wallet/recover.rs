@@ -1,6 +1,6 @@
 use crate::common::read_mnemonic_from_cli;
 use crate::wallet::create::create_wallet_from_mnemonic;
-use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSPHRASE_FLAG, TYPE_FLAG};
+use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSWORD_FLAG, TYPE_FLAG};
 use clap::{App, Arg, ArgMatches};
 use std::path::PathBuf;
 
@@ -23,11 +23,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name(PASSPHRASE_FLAG)
-                .long(PASSPHRASE_FLAG)
-                .value_name("PASSPHRASE_FILE_PATH")
+            Arg::with_name(PASSWORD_FLAG)
+                .long(PASSWORD_FLAG)
+                .value_name("PASSWORD_FILE_PATH")
                 .help(
-                    "This will be the new passphrase for your recovered wallet. \
+                    "This will be the new password for your recovered wallet. \
                     A path to a file containing the password which will unlock the wallet. \
                     If the file does not exist, a random password will be generated and \
                     saved at that path. To avoid confusion, if the file does not already \

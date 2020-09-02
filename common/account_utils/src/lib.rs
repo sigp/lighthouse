@@ -109,14 +109,13 @@ pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String>
 
 /// Reads a mnemonic phrase from TTY or stdin if `use_stdin == true`.
 pub fn read_mnemonic_from_user(use_stdin: bool) -> Result<String, String> {
-    let result = if use_stdin {
+    if use_stdin {
         rpassword::prompt_password_stderr("")
             .map_err(|e| format!("Error reading from stdin: {}", e))
     } else {
         rpassword::read_password_from_tty(None)
             .map_err(|e| format!("Error reading from tty: {}", e))
-    };
-    result
+    }
 }
 
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
