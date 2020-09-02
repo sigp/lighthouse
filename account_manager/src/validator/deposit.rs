@@ -1,7 +1,6 @@
 use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
 use deposit_contract::DEPOSIT_GAS;
-use directory::{custom_base_dir, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
 use futures::{
     compat::Future01CompatExt,
@@ -46,16 +45,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             before saving the transaction hash and moving onto the next batch of deposits. \
             The deposit contract address will be determined by the --testnet-dir flag on the \
             primary Lighthouse binary.",
-        )
-        .arg(
-            Arg::with_name(VALIDATOR_DIR_FLAG)
-                .long(VALIDATOR_DIR_FLAG)
-                .value_name("VALIDATOR_DIRECTORY")
-                .help(
-                    "The path to the validator client data directory. \
-                    Defaults to ~/.lighthouse/{tesntet}/validators",
-                )
-                .takes_value(true),
         )
         .arg(
             Arg::with_name(VALIDATOR_FLAG)
@@ -210,10 +199,10 @@ where
 pub fn cli_run<T: EthSpec>(
     matches: &ArgMatches<'_>,
     mut env: Environment<T>,
+    validator_dir: PathBuf,
 ) -> Result<(), String> {
     let log = env.core_context().log().clone();
 
-    let data_dir = custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?;
     let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
     let eth1_ipc_path: Option<PathBuf> = clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?;
     let eth1_http_url: Option<String> = clap_utils::parse_optional(matches, ETH1_HTTP_FLAG)?;
@@ -222,7 +211,7 @@ pub fn cli_run<T: EthSpec>(
     let confirmation_batch_size: usize =
         clap_utils::parse_required(matches, CONFIRMATION_BATCH_SIZE_FLAG)?;
 
-    let manager = ValidatorManager::open(&data_dir)
+    let manager = ValidatorManager::open(&validator_dir)
         .map_err(|e| format!("Unable to read --{}: {:?}", VALIDATOR_DIR_FLAG, e))?;
 
     let validators = match validator.as_ref() {

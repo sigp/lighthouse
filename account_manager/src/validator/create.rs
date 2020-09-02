@@ -1,7 +1,7 @@
 use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
-use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
 use environment::Environment;
 use eth2_wallet::PlainText;
 use eth2_wallet_manager::WalletManager;
@@ -42,14 +42,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name(VALIDATOR_DIR_FLAG)
-                .long(VALIDATOR_DIR_FLAG)
-                .value_name("VALIDATOR_DIRECTORY")
-                .help(
-                    "The path where the validator directories will be created. \
-                    Defaults to ~/.lighthouse/{testnet}/validators",
-                )
-                .takes_value(true),
+            Arg::with_name(WALLETS_DIR_FLAG)
+                .long(WALLETS_DIR_FLAG)
+                .value_name(WALLETS_DIR_FLAG)
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
+                .takes_value(true)
+                .conflicts_with("datadir"),
         )
         .arg(
             Arg::with_name(SECRETS_DIR_FLAG)
@@ -59,6 +57,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{testnet}/secrets",
                 )
+                .conflicts_with("datadir")
                 .takes_value(true),
         )
         .arg(
@@ -104,14 +103,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run<T: EthSpec>(
     matches: &ArgMatches,
     mut env: Environment<T>,
-    wallet_base_dir: PathBuf,
+    validator_dir: PathBuf,
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
     let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;
     let wallet_password_path: PathBuf = clap_utils::parse_required(matches, WALLET_PASSWORD_FLAG)?;
-    let validator_dir = custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?;
-    let secrets_dir = custom_base_dir(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?;
+    let wallet_base_dir = if matches.value_of("datadir").is_some() {
+        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
+        path.join(DEFAULT_WALLET_DIR)
+    } else {
+        custom_base_dir(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
+    };
+    let secrets_dir = if matches.value_of("datadir").is_some() {
+        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
+        path.join(DEFAULT_SECRET_DIR)
+    } else {
+        custom_base_dir(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+    };
+
     let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
         .unwrap_or_else(|| spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;
