@@ -25,7 +25,7 @@ lighthouse account wallet create --help
 Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.
 
 USAGE:
-    lighthouse account_manager wallet create [OPTIONS] --name <WALLET_NAME> --passphrase-file <WALLET_PASSWORD_PATH>
+    lighthouse account_manager wallet create [OPTIONS] --name <WALLET_NAME> --password-file <WALLET_PASSWORD_PATH>
 
 FLAGS:
     -h, --help       Prints help information
@@ -39,7 +39,7 @@ OPTIONS:
         --name <WALLET_NAME>
             The wallet will be created with this name. It is not allowed to create two wallets with the same name for
             the same --base-dir.
-        --passphrase-file <WALLET_PASSWORD_PATH>
+        --password-file <WALLET_PASSWORD_PATH>
             A path to a file containing the password which will unlock the wallet. If the file does not exist, a random
             password will be generated and saved at that path. To avoid confusion, if the file does not already exist it
             must include a '.pass' suffix.
@@ -61,7 +61,7 @@ Creates a new wallet named `wally` with a randomly generated password saved
 to `./wallet.pass`:
 
 ```bash
-lighthouse account wallet create --name wally --passphrase-file wally.pass
+lighthouse account wallet create --name wally --password-file wally.pass
 ```
 
 > Notes:
