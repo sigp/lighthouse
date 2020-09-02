@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
+use clap_utils::{parse_optional, parse_required};
 use directory::{get_testnet_dir, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
-    pub data_dir: PathBuf,
+    pub validator_dir: PathBuf,
     /// The directory containing the passwords to unlock validator keystores.
     pub secrets_dir: PathBuf,
     /// The http endpoint of the beacon node API.
@@ -34,10 +34,10 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let data_dir = directory::get_default_base_dir();
+        let validator_dir = directory::get_default_base_dir().join(DEFAULT_VALIDATOR_DIR);
         let secrets_dir = directory::get_default_base_dir().join(DEFAULT_SECRET_DIR);
         Self {
-            data_dir,
+            validator_dir,
             secrets_dir,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
@@ -54,26 +54,39 @@ impl Config {
     pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
         let mut config = Config::default();
 
-        config.data_dir = parse_path_with_default_in_home_dir(
-            cli_args,
-            "datadir",
-            PathBuf::from(DEFAULT_ROOT_DIR)
-                .join(get_testnet_dir(cli_args))
-                .join(DEFAULT_VALIDATOR_DIR),
-        )?;
+        let default_root_dir = dirs::home_dir()
+            .map(|home| home.join(DEFAULT_ROOT_DIR))
+            .unwrap_or_else(|| PathBuf::from("."));
 
-        config.secrets_dir = parse_path_with_default_in_home_dir(
-            cli_args,
-            "secrets-dir",
-            PathBuf::from(DEFAULT_ROOT_DIR)
-                .join(get_testnet_dir(cli_args))
-                .join(DEFAULT_SECRET_DIR),
-        )?;
+        let (mut validator_dir, mut secrets_dir) = (None, None);
+        if cli_args.value_of("datadir").is_some() {
+            let base_dir: PathBuf = parse_required(cli_args, "datadir")?;
+            validator_dir = Some(base_dir.join(DEFAULT_VALIDATOR_DIR));
+            secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
+        }
+        if cli_args.value_of("validators-dir").is_some()
+            && cli_args.value_of("secrets-dir").is_some()
+        {
+            validator_dir = Some(parse_required(cli_args, "validators-dir")?);
+            secrets_dir = Some(parse_required(cli_args, "secrets-dir")?);
+        }
 
-        if !config.data_dir.exists() {
+        config.validator_dir = validator_dir.unwrap_or_else(|| {
+            default_root_dir
+                .join(get_testnet_dir(cli_args))
+                .join(DEFAULT_VALIDATOR_DIR)
+        });
+
+        config.secrets_dir = secrets_dir.unwrap_or_else(|| {
+            default_root_dir
+                .join(get_testnet_dir(cli_args))
+                .join(DEFAULT_SECRET_DIR)
+        });
+
+        if !config.validator_dir.exists() {
             return Err(format!(
-                "The directory for validator data  (--datadir) does not exist: {:?}",
-                config.data_dir
+                "The directory for validator data  does not exist: {:?}",
+                config.validator_dir
             ));
         }
 

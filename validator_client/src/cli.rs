@@ -17,6 +17,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("validators-dir")
+                .long("validators-dir")
+                .value_name("VALIDATORS_DIR")
+                .help(
+                    "The directory which contains the validator keystores, deposit data for \
+                    each validator along with the common slashing protection database \
+                    and the validator_definitions.yml"
+                )
+                .takes_value(true)
+                .conflicts_with("datadir")
+                .requires("secrets-dir")
+        )
+        .arg(
             Arg::with_name("secrets-dir")
                 .long("secrets-dir")
                 .value_name("SECRETS_DIRECTORY")
@@ -26,6 +39,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     name is the 0x-prefixed hex representation of the validators voting public \
                     key. Defaults to ~/.lighthouse/{testnet}/secrets.",
                 )
+                .requires("validators-dir")
                 .takes_value(true),
         )
         .arg(Arg::with_name("auto-register").long("auto-register").help(

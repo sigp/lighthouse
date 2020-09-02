@@ -170,7 +170,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         mut config: ValidatorConfig,
         files: ValidatorFiles,
     ) -> Result<Self, String> {
-        config.data_dir = files.datadir.path().into();
+        config.validator_dir = files.datadir.path().into();
         config.secrets_dir = files.secrets_dir.path().into();
 
         ProductionValidatorClient::new(context, config)

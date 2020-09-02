@@ -92,7 +92,10 @@ fn main() {
                 .short("d")
                 .value_name("DIR")
                 .global(true)
-                .help("Root data directory for lighthouse keys and databases. Defaults to ~/.lighthouse")
+                .help(
+                    "Root data directory for lighthouse keys and databases. \
+                    Defaults to $HOME/.lighthouse/{default-testnet}, \
+                    currently, $HOME/.lighthouse/medalla")
                 .takes_value(true),
         )
         .arg(
@@ -206,8 +209,8 @@ fn run<E: EthSpec>(
     let default_root_dir = dirs::home_dir()
         .map(|home| home.join(DEFAULT_ROOT_DIR))
         .unwrap_or_else(|| PathBuf::from("."));
-    let testnet_dir = default_root_dir.join(directory::get_testnet_dir(matches));
 
+    let testnet_dir = default_root_dir.join(directory::get_testnet_dir(matches));
     if !matches.is_present("datadir") && !testnet_dir.exists() {
         std::fs::create_dir_all(&testnet_dir)
             .map_err(|e| format!("Failed to create testnet directory: {}", e))?;
@@ -215,14 +218,15 @@ fn run<E: EthSpec>(
             let old_path = default_root_dir.join(dir);
             if old_path.exists() {
                 if *dir == "validators" {
+                    // Migrate the paths in the validator_definitions.yml file
                     let mut def = ValidatorDefinitions::open(&old_path).map_err(|e| {
-                        format!("Failed to open validator_definitions.yaml: {:?}", e)
+                        format!("Failed to open validator_definitions.yml: {:?}", e)
                     })?;
                     def.migrate(&default_root_dir, &testnet_dir).map_err(|e| {
-                        format!("Failed to migrate validator_definitions.yaml: {}", e)
+                        format!("Failed to migrate validator_definitions.yml: {}", e)
                     })?;
                     def.save(&old_path).map_err(|e| {
-                        format!("Failed to save validator_definitions.yaml: {:?}", e)
+                        format!("Failed to save migrated validator_definitions.yml: {:?}", e)
                     })?;
                 }
                 std::fs::rename(old_path, testnet_dir.join(dir))

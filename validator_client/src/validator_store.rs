@@ -62,7 +62,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        let slashing_db_path = config.data_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection =
             SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
                 format!(
