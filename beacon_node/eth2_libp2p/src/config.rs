@@ -1,5 +1,8 @@
 use crate::types::GossipKind;
 use crate::Enr;
+use directory::{
+    DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_TESTNET, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
+};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
@@ -71,8 +74,14 @@ pub struct Config {
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
-        let network_dir = directory::get_default_base_dir();
-
+        // WARNING: this directory default should be always overrided with parameters
+        // from cli for specific networks.
+        let network_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(DEFAULT_ROOT_DIR)
+            .join(DEFAULT_HARDCODED_TESTNET)
+            .join(DEFAULT_BEACON_NODE_DIR)
+            .join(DEFAULT_NETWORK_DIR);
         // The default topics that we will initially subscribe to
         let topics = vec![
             GossipKind::BeaconBlock,

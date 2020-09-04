@@ -1,6 +1,9 @@
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
-use directory::{get_testnet_name, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{
+    get_testnet_name, DEFAULT_HARDCODED_TESTNET, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
+    DEFAULT_VALIDATOR_DIR,
+};
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
@@ -34,8 +37,14 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let validator_dir = directory::get_default_base_dir().join(DEFAULT_VALIDATOR_DIR);
-        let secrets_dir = directory::get_default_base_dir().join(DEFAULT_SECRET_DIR);
+        // WARNING: these directory defaults should be always overrided with parameters
+        // from cli for specific networks.
+        let base_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(DEFAULT_ROOT_DIR)
+            .join(DEFAULT_HARDCODED_TESTNET);
+        let validator_dir = base_dir.join(DEFAULT_VALIDATOR_DIR);
+        let secrets_dir = base_dir.join(DEFAULT_SECRET_DIR);
         Self {
             validator_dir,
             secrets_dir,
