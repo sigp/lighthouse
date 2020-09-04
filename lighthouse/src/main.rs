@@ -210,7 +210,7 @@ fn run<E: EthSpec>(
         .map(|home| home.join(DEFAULT_ROOT_DIR))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let testnet_dir = default_root_dir.join(directory::get_testnet_dir(matches));
+    let testnet_dir = default_root_dir.join(directory::get_testnet_name(matches));
     if !matches.is_present("datadir") && !testnet_dir.exists() {
         std::fs::create_dir_all(&testnet_dir)
             .map_err(|e| format!("Failed to create testnet directory: {}", e))?;

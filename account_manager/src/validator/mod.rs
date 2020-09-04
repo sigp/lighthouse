@@ -5,7 +5,7 @@ pub mod list;
 
 use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
-use directory::{custom_base_dir, DEFAULT_VALIDATOR_DIR};
+use directory::{parse_path_or_default_with_flag, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
 use std::path::PathBuf;
 use types::EthSpec;
@@ -27,7 +27,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .global(true)
                 .conflicts_with("datadir"),
         )
-        .about("Lists the names of all validators.")
         .subcommand(create::cli_app())
         .subcommand(deposit::cli_app())
         .subcommand(import::cli_app())
@@ -39,7 +38,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_VALIDATOR_DIR)
     } else {
-        custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?
+        parse_path_or_default_with_flag(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?
     };
     eprintln!("validator-dir path: {:?}", base_dir);
 

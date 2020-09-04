@@ -6,7 +6,7 @@ use validator_dir::Manager as ValidatorManager;
 pub const CMD: &str = "list";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+    App::new(CMD).about("Lists the names of all validators.")
 }
 
 pub fn cli_run(validator_dir: PathBuf) -> Result<(), String> {

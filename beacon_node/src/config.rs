@@ -432,7 +432,7 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .or_else(|| {
             dirs::home_dir().map(|home| {
                 home.join(DEFAULT_ROOT_DIR)
-                    .join(directory::get_testnet_dir(cli_args))
+                    .join(directory::get_testnet_name(cli_args))
                     .join(DEFAULT_BEACON_NODE_DIR)
             })
         })

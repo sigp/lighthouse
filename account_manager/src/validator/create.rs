@@ -1,7 +1,9 @@
 use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
-use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
+use directory::{
+    ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
+};
 use environment::Environment;
 use eth2_wallet::PlainText;
 use eth2_wallet_manager::WalletManager;
@@ -113,13 +115,13 @@ pub fn cli_run<T: EthSpec>(
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_WALLET_DIR)
     } else {
-        custom_base_dir(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
+        parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
     };
     let secrets_dir = if matches.value_of("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_SECRET_DIR)
     } else {
-        custom_base_dir(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
     };
 
     let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?

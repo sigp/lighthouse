@@ -28,7 +28,7 @@ pub fn get_default_base_dir() -> PathBuf {
 /// Tries to get the name first from the "testnet" flag,
 /// if not present, then checks the "testnet-dir" flag and returns a custom name
 /// If neither flags are present, returns the default hardcoded network name.
-pub fn get_testnet_dir(matches: &ArgMatches) -> String {
+pub fn get_testnet_name(matches: &ArgMatches) -> String {
     if let Some(testnet_name) = matches.value_of("testnet") {
         testnet_name.to_string()
     } else if matches.value_of("testnet-dir").is_some() {
@@ -49,19 +49,21 @@ pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
     Ok(())
 }
 
-/// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
-/// home directory and appends the default path for the chosen testnet + the given `default_arg`.
-pub fn custom_base_dir(
+/// If `arg` is in `matches`, parses the value as a path.
+///
+/// Otherwise, attempts to find the default directory for the `testnet` from the `matches`
+/// and appends `flag` to it.
+pub fn parse_path_or_default_with_flag(
     matches: &ArgMatches,
     arg: &'static str,
-    default_arg: &str,
+    flag: &str,
 ) -> Result<PathBuf, String> {
     clap_utils::parse_path_with_default_in_home_dir(
         matches,
         arg,
         PathBuf::new()
             .join(DEFAULT_ROOT_DIR)
-            .join(get_testnet_dir(matches))
-            .join(default_arg),
+            .join(get_testnet_name(matches))
+            .join(flag),
     )
 }

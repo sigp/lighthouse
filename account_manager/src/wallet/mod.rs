@@ -3,7 +3,7 @@ pub mod list;
 
 use crate::WALLETS_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
-use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_WALLET_DIR};
+use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
 use std::path::PathBuf;
 
 pub const CMD: &str = "wallet";
@@ -29,7 +29,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_WALLET_DIR)
     } else {
-        custom_base_dir(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
+        parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
     };
     ensure_dir_exists(&base_dir)?;
 
