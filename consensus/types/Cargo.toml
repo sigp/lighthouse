@@ -25,6 +25,7 @@ rand = "0.7.3"
 safe_arith = { path = "../safe_arith" }
 serde = "1.0.110"
 serde_derive = "1.0.110"
+serde_utils = { path = "../serde_utils" }
 slog = "2.5.2"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
