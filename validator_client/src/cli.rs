@@ -37,11 +37,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        nodes using the same key. Automatically enabled unless `--strict` is specified",
         ))
         .arg(
-            Arg::with_name("strict-lockfiles")
-            .long("strict-lockfiles")
+            Arg::with_name("delete-lockfiles")
+            .long("delete-lockfiles")
             .help(
-                "If present, do not load validators that are guarded by a lockfile. Note: for \
-                Eth2 mainnet, this flag will likely be removed and its behaviour will become default."
+                "If present, ignore and delete any keystore lockfiles encountered during start up. \
+                This is useful if the validator client did not exit gracefully on the last run. \
+                WARNING: lockfiles help prevent users from accidentally running the same validator \
+                using two different validator clients, an action that likely leads to slashing. \
+                Ensure you are certain that there are no other validator client instances running \
+                that might also be using the same keystores."
             )
         )
         .arg(

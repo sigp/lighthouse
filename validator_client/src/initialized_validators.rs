@@ -56,6 +56,8 @@ pub enum Error {
     UnableToReadPasswordFromUser(String),
     /// There was an error running a tokio async task.
     TokioJoin(tokio::task::JoinError),
+    /// There was a filesystem error when deleting a lockfile.
+    UnableToDeleteLockfile(io::Error),
 }
 
 /// A method used by a validator to sign messages.
@@ -88,7 +90,7 @@ impl InitializedValidator {
     /// If the validator is unable to be initialized for whatever reason.
     pub fn from_definition(
         def: ValidatorDefinition,
-        strict_lockfiles: bool,
+        delete_lockfiles: bool,
         log: &Logger,
     ) -> Result<Self, Error> {
         if !def.enabled {
@@ -152,16 +154,17 @@ impl InitializedValidator {
                     })?;
 
                 if voting_keystore_lockfile_path.exists() {
-                    if strict_lockfiles {
-                        return Err(Error::LockfileExists(voting_keystore_lockfile_path));
-                    } else {
-                        // If **not** respecting lockfiles, just raise a warning if the voting
-                        // keypair cannot be unlocked.
+                    if delete_lockfiles {
                         warn!(
                             log,
-                            "Ignoring validator lockfile";
+                            "Deleting validator lockfile";
                             "file" => format!("{:?}", voting_keystore_lockfile_path)
                         );
+
+                        fs::remove_file(&voting_keystore_lockfile_path)
+                            .map_err(Error::UnableToDeleteLockfile)?;
+                    } else {
+                        return Err(Error::LockfileExists(voting_keystore_lockfile_path));
                     }
                 } else {
                     // Create a new lockfile.

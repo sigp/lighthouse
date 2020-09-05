@@ -259,6 +259,7 @@ fn run<E: EthSpec>(
         ("beacon_node", Some(matches)) => {
             let context = environment.core_context();
             let log = context.log().clone();
+            let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(
                 matches,
                 &context.eth2_config.spec_constants,
@@ -266,14 +267,20 @@ fn run<E: EthSpec>(
                 context.log().clone(),
             )?;
             environment.runtime().spawn(async move {
-                if let Err(e) = ProductionBeaconNode::new(context, config).await {
-                    crit!(log, "Failed to start beacon node"; "error" => e);
+                if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                    crit!(log, "Failed to start beacon node"; "reason" => e);
+                    // Ignore the error since it always occurs during normal operation when
+                    // shutting down.
+                    let _ = executor
+                        .shutdown_sender()
+                        .try_send("Failed to start beacon node");
                 }
             })
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
             let log = context.log().clone();
+            let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(&matches)
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             environment.runtime().spawn(async move {
@@ -285,7 +292,12 @@ fn run<E: EthSpec>(
                     Ok::<(), String>(())
                 };
                 if let Err(e) = run.await {
-                    crit!(log, "Failed to start validator client"; "error" => e);
+                    crit!(log, "Failed to start validator client"; "reason" => e);
+                    // Ignore the error since it always occurs during normal operation when
+                    // shutting down.
+                    let _ = executor
+                        .shutdown_sender()
+                        .try_send("Failed to start validator client");
                 }
             })
         }

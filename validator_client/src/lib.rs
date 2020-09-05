@@ -90,7 +90,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.data_dir.clone(),
-            config.strict_lockfiles,
+            config.delete_lockfiles,
             log.clone(),
         )
         .await
@@ -107,8 +107,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             RemoteBeaconNode::new_with_timeout(config.http_server.clone(), HTTP_TIMEOUT)
                 .map_err(|e| format!("Unable to init beacon node http client: {}", e))?;
 
-        // TODO: check if all logs in wait_for_node are produed while awaiting
-        let beacon_node = wait_for_node(beacon_node, &log).await?;
+        // TODO: check if all logs in wait_for_node are produced while awaiting
+        let beacon_node = wait_for_node(&context, beacon_node, log.clone()).await?;
         let eth2_config = beacon_node
             .http
             .spec()
@@ -138,7 +138,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 "seconds_to_wait" => (genesis - now).as_secs()
             );
 
-            delay_for(genesis - now).await
+            tokio::select! {
+                () = delay_for(genesis - now) => (),
+                () = context.executor.exit() => return Err("Shutting down".to_string())
+            }
         } else {
             info!(
                 log,
@@ -274,38 +277,46 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
 async fn wait_for_node<E: EthSpec>(
+    context: &RuntimeContext<E>,
     beacon_node: RemoteBeaconNode<E>,
-    log: &Logger,
+    log: Logger,
 ) -> Result<RemoteBeaconNode<E>, String> {
-    // Try to get the version string from the node, looping until success is returned.
-    loop {
-        let log = log.clone();
-        let result = beacon_node
-            .clone()
-            .http
-            .node()
-            .get_version()
-            .await
-            .map_err(|e| format!("{:?}", e));
+    let future = Box::pin(async move {
+        // Try to get the version string from the node, looping until success is returned.
+        loop {
+            let log = log.clone();
+            let result = beacon_node
+                .clone()
+                .http
+                .node()
+                .get_version()
+                .await
+                .map_err(|e| format!("{:?}", e));
 
-        match result {
-            Ok(version) => {
-                info!(
-                    log,
-                    "Connected to beacon node";
-                    "version" => version,
-                );
+            match result {
+                Ok(version) => {
+                    info!(
+                        log,
+                        "Connected to beacon node";
+                        "version" => version,
+                    );
 
-                return Ok(beacon_node);
-            }
-            Err(e) => {
-                error!(
-                    log,
-                    "Unable to connect to beacon node";
-                    "error" => format!("{:?}", e),
-                );
-                delay_for(RETRY_DELAY).await;
+                    return Ok(beacon_node);
+                }
+                Err(e) => {
+                    error!(
+                        log,
+                        "Unable to connect to beacon node";
+                        "error" => format!("{:?}", e),
+                    );
+                    delay_for(RETRY_DELAY).await;
+                }
             }
         }
+    });
+
+    tokio::select! {
+        result = future => result,
+        () = context.executor.exit() => Err("Shutting down".to_string())
     }
 }
