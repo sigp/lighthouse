@@ -1320,7 +1320,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let slot = block.message.slot;
-        let re = Regex::new(r"\p{C}").unwrap();
+        let re = Regex::new("\\p{C}").expect("regex is valid");
         let graffiti_string =
             String::from_utf8_lossy(&re.replace_all(&block.message.body.graffiti[..], &b""[..]))
                 .to_string();
