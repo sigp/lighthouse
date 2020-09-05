@@ -93,6 +93,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             config.strict_lockfiles,
             log.clone(),
         )
+        .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
         info!(
