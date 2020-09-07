@@ -25,10 +25,9 @@ jobs:
                     mkdir -p ~/.docker/cli-plugins;
                     mv buildx ~/.docker/cli-plugins/docker-buildx;
 
-            - name: Create Docker Builder
-              run: |
-                docker context create builder;
-                docker buildx create --use --name lighthouse builder;
+            -   name: Create Docker Builder
+                run: |
+                    docker buildx create --use --name build --node build --driver-opt network=host
 #                                      docker buildx create --append --name lighthouse node-arm64;
 
             -   name: Build dockerfile (with push)
