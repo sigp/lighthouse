@@ -26,10 +26,11 @@ jobs:
                     mv buildx ~/.docker/cli-plugins/docker-buildx;
 
             -   name: Create Docker Builder
+                env:
+                    DOCKER_ARM_HOST: ${{ secrets.DOCKER_ARM_HOST }}
                 run: |
-                    docker buildx create --use --name=cross;
-                    docker buildx inspect --bootstrap cross;
-#                                      docker buildx create --append --name lighthouse node-arm64;
+                    docker buildx create --use --name cross;
+                    docker buildx create --append --name cross ${DOCKER_ARM_HOST};
 
             -   name: Build dockerfile (with push)
                 run: |
