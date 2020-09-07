@@ -4669,6 +4669,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_utils"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
 name = "serde_yaml"
 version = "0.8.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5886,6 +5895,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_utils",
  "serde_yaml",
  "slog",
  "swap_or_not_shuffle",

@@ -44,6 +44,7 @@ members = [
     "consensus/ssz_derive",
     "consensus/ssz_types",
     "consensus/serde_hex",
+    "consensus/serde_utils",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
     "consensus/tree_hash",
