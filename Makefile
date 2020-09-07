@@ -18,14 +18,13 @@ ifeq ($(PORTABLE), true)
 ifeq ($(TARGETPLATFORM), linux/arm64)
 ifeq ($(BUILDPLATFORM), linux/amd64)
 	make build-aarch64-portable
-else
+endif
+endif
 ifeq ($(PORTABLE), true)
 	cargo install --path lighthouse --force --locked --portable
+endif
 else
 	cargo install --path lighthouse --force --locked
-endif
-endif
-endif
 endif
 
 # Builds the lcli binary in release (optimized).
