@@ -1,4 +1,4 @@
-FROM rust:1.45.1 AS builder
+FROM --platform=$BUILDPLATFORM rust:1.45.1 AS builder
 RUN apt-get update && apt-get install -y cmake
 COPY . lighthouse
 
