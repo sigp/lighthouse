@@ -29,8 +29,10 @@ jobs:
                 env:
                     DOCKER_ARM_HOST: ${{ secrets.DOCKER_ARM_HOST }}
                 run: |
-                    docker buildx create --use --name cross;
-                    docker buildx create --append --name cross ${DOCKER_ARM_HOST};
+                    docker context create node-arm64 --docker host=${DOCKER_ARM_HOST};
+                    docker context create node-amd64 --docker host=unix:///var/run/docker.sock;
+                    docker buildx create --use --name cross node-amd64;
+                    docker buildx create --append --name cross node-arm64;
 
             -   name: Build dockerfile (with push)
                 run: |
