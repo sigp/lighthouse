@@ -19,7 +19,7 @@ type MaxErrorLen = U256;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
-pub struct ErrorType(VariableList<u8, MaxErrorLen>);
+pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
 
 impl From<String> for ErrorType {
     fn from(s: String) -> Self {
@@ -283,13 +283,13 @@ impl<T: EthSpec> RPCCodedResponse<T> {
     }
 
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
-    pub fn from_error(response_code: u8, err: String) -> Self {
+    pub fn from_error(response_code: u8, err: ErrorType) -> Self {
         let code = match response_code {
             1 => RPCResponseErrorCode::InvalidRequest,
             2 => RPCResponseErrorCode::ServerError,
             _ => RPCResponseErrorCode::Unknown,
         };
-        RPCCodedResponse::Error(code, err.into())
+        RPCCodedResponse::Error(code, err)
     }
 
     /// Specifies which response allows for multiple chunks for the stream handler.
