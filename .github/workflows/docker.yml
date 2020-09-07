@@ -28,7 +28,7 @@ jobs:
             -   name: Create Docker Builder
                 run: |
                     docker buildx create --use --name=cross;
-                    ddocker buildx inspect --bootstrap cross;
+                    docker buildx inspect --bootstrap cross;
 #                                      docker buildx create --append --name lighthouse node-arm64;
 
             -   name: Build dockerfile (with push)
