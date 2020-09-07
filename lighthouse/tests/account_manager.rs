@@ -102,7 +102,7 @@ fn create_wallet<P: AsRef<Path>>(
             .arg(CREATE_CMD)
             .arg(format!("--{}", NAME_FLAG))
             .arg(&name)
-            .arg(format!("--{}", PASSPHRASE_FLAG))
+            .arg(format!("--{}", PASSWORD_FLAG))
             .arg(password.as_ref().as_os_str())
             .arg(format!("--{}", MNEMONIC_FLAG))
             .arg(mnemonic.as_ref().as_os_str()),
@@ -238,7 +238,7 @@ impl TestValidator {
             .arg(CREATE_CMD)
             .arg(format!("--{}", WALLET_NAME_FLAG))
             .arg(&self.wallet.name)
-            .arg(format!("--{}", WALLET_PASSPHRASE_FLAG))
+            .arg(format!("--{}", WALLET_PASSWORD_FLAG))
             .arg(self.wallet.password_path().into_os_string())
             .arg(format!("--{}", VALIDATOR_DIR_FLAG))
             .arg(self.validator_dir.clone().into_os_string())

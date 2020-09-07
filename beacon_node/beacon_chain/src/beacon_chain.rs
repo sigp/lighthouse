@@ -31,6 +31,7 @@ use fork_choice::ForkChoice;
 use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use regex::bytes::Regex;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
@@ -1319,8 +1320,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let slot = block.message.slot;
-        let graffiti_string = String::from_utf8(block.message.body.graffiti[..].to_vec())
-            .unwrap_or_else(|_| format!("{:?}", &block.message.body.graffiti[..]));
+        #[allow(clippy::invalid_regex)]
+        let re = Regex::new("\\p{C}").expect("regex is valid");
+        let graffiti_string =
+            String::from_utf8_lossy(&re.replace_all(&block.message.body.graffiti[..], &b""[..]))
+                .to_string();
 
         match GossipVerifiedBlock::new(block, self) {
             Ok(verified) => {

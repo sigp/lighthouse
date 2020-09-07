@@ -34,9 +34,20 @@ lazy_static! {
         "Unsolicited discovery requests per ip per second",
         &["Addresses"]
     );
-    pub static ref GOSSIPSUB_SUBSCRIBED_PEERS_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "gossipsub_peers_per_topic_count",
-        "Peers subscribed per topic",
+    pub static ref PEERS_PER_CLIENT: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "libp2p_peers_per_client",
+        "The connected peers via client implementation",
+        &["Client"]
+    );
+    pub static ref FAILED_ATTESTATION_PUBLISHES_PER_SUBNET: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "gossipsub_failed_attestation_publishes_per_subnet",
+            "Failed attestation publishes per subnet",
+            &["subnet"]
+        );
+    pub static ref FAILED_PUBLISHES_PER_MAIN_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_failed_publishes_per_main_topic",
+        "Failed gossip publishes",
         &["topic_hash"]
     );
 }

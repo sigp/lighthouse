@@ -163,6 +163,22 @@ pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Opti
     }
 }
 
+/// If `int_gauge_vec.is_ok()`, sets the gauge with the given `name` to the given `value`
+/// otherwise returns false.
+pub fn set_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str], value: i64) -> bool {
+    if let Ok(int_gauge_vec) = int_gauge_vec {
+        int_gauge_vec
+            .get_metric_with_label_values(name)
+            .map(|v| {
+                v.set(value);
+                true
+            })
+            .unwrap_or_else(|_| false)
+    } else {
+        false
+    }
+}
+
 /// If `int_counter_vec.is_ok()`, returns a counter with the given `name`.
 pub fn get_int_counter(
     int_counter_vec: &Result<IntCounterVec>,

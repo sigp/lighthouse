@@ -17,7 +17,7 @@ lighthouse account validator create --help
 Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key derivation scheme.
 
 USAGE:
-    lighthouse account_manager validator create [FLAGS] [OPTIONS] --wallet-name <WALLET_NAME> --wallet-passphrase <WALLET_PASSWORD_PATH>
+    lighthouse account_manager validator create [FLAGS] [OPTIONS] --wallet-name <WALLET_NAME> --wallet-password <WALLET_PASSWORD_PATH>
 
 FLAGS:
     -h, --help                         Prints help information
@@ -56,7 +56,7 @@ OPTIONS:
             The path where the validator directories will be created. Defaults to ~/.lighthouse/validators
 
         --wallet-name <WALLET_NAME>                   Use the wallet identified by this name
-        --wallet-passphrase <WALLET_PASSWORD_PATH>
+        --wallet-password <WALLET_PASSWORD_PATH>
             A path to a file containing the password which will unlock the wallet.
 ```
 
@@ -66,12 +66,12 @@ The example assumes that the `wally` wallet was generated from the
 [wallet](./wallet-create.md) example.
 
 ```bash
-lighthouse --testnet medalla account validator create --name wally --wallet-passphrase wally.pass --count 1
+lighthouse --testnet medalla account validator create --name wally --wallet-password wally.pass --count 1
 ```
 
 This command will:
 
-- Derive a new BLS keypair from `wally`, updating it so that it generates a
+- Derive a single new BLS keypair from `wally`, updating it so that it generates a
     new key next time.
 - Create a new directory in `~/.lighthouse/validators` containing:
     - An encrypted keystore containing the validators voting keypair.

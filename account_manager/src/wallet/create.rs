@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
 pub const NAME_FLAG: &str = "name";
-pub const PASSPHRASE_FLAG: &str = "passphrase-file";
+pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 
@@ -34,8 +34,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name(PASSPHRASE_FLAG)
-                .long(PASSPHRASE_FLAG)
+            Arg::with_name(PASSWORD_FLAG)
+                .long(PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
                 .help(
                     "A path to a file containing the password which will unlock the wallet. \
@@ -71,7 +71,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSPHRASE_FLAG)?;
+    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSWORD_FLAG)?;
     let mnemonic_output_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
 
@@ -90,7 +90,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
     // Create a random password if the file does not exist.
     if !wallet_password_path.exists() {
-        // To prevent users from accidentally supplying their password to the PASSPHRASE_FLAG and
+        // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
         // create a file with that name, we require that the password has a .pass suffix.
         if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
             return Err(format!(
