@@ -109,13 +109,19 @@ pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String>
 
 /// Reads a mnemonic phrase from TTY or stdin if `use_stdin == true`.
 pub fn read_mnemonic_from_user(use_stdin: bool) -> Result<String, String> {
+    let mut input = String::new();
     if use_stdin {
-        rpassword::prompt_password_stderr("")
-            .map_err(|e| format!("Error reading from stdin: {}", e))
+        io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| format!("Error reading from stdin: {}", e))?;
     } else {
-        rpassword::read_password_from_tty(None)
-            .map_err(|e| format!("Error reading from tty: {}", e))
+        let tty = File::open("/dev/tty").map_err(|e| format!("Error opening tty: {}", e))?;
+        let mut buf_reader = io::BufReader::new(tty);
+        buf_reader
+            .read_line(&mut input)
+            .map_err(|e| format!("Error reading from tty: {}", e))?;
     }
+    Ok(input)
 }
 
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.

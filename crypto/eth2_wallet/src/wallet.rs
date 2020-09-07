@@ -286,6 +286,9 @@ pub fn recover_validator_secret(
     Ok((destination.secret().to_vec().into(), path))
 }
 
+/// Returns `(secret, path)` for the `key_type` for the validator at `index`.
+///
+/// This function should only be used for key recovery since it can easily lead to key duplication.
 pub fn recover_validator_secret_from_mnemonic(
     secret: &[u8],
     index: u32,

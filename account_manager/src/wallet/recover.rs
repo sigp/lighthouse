@@ -10,7 +10,7 @@ pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about("Recovers an EIP-2386 wallet from a given a 12-word BIP-39 mnemonic phrase.")
+        .about("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
         .arg(
             Arg::with_name(NAME_FLAG)
                 .long(NAME_FLAG)
@@ -65,9 +65,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+
+    eprintln!("");
+    eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
+    eprintln!("");
+
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_password)?;
 
-    let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir, &mnemonic)
+    let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir.as_path(), &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
     println!("Your wallet has been successfully recovered.");

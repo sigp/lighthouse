@@ -77,7 +77,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
     let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
 
-    let wallet = create_wallet_from_mnemonic(matches, &base_dir, &mnemonic)?;
+    let wallet = create_wallet_from_mnemonic(matches, &base_dir.as_path(), &mnemonic)?;
 
     if let Some(path) = mnemonic_output_path {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
@@ -110,7 +110,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
 pub fn create_wallet_from_mnemonic(
     matches: &ArgMatches,
-    base_dir: &PathBuf,
+    base_dir: &Path,
     mnemonic: &Mnemonic,
 ) -> Result<LockedWallet, String> {
     let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;

@@ -1,6 +1,7 @@
-use crate::common::read_mnemonic_from_cli;
+use super::create::STORE_WITHDRAW_FLAG;
+use super::import::STDIN_PASSWORD_FLAG;
+use crate::common::{ensure_dir_exists, read_mnemonic_from_cli};
 use crate::validator::create::COUNT_FLAG;
-use crate::wallet::create::HD_TYPE;
 use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::random_password;
@@ -11,15 +12,12 @@ use std::path::PathBuf;
 use validator_dir::Builder as ValidatorDirBuilder;
 pub const CMD: &str = "recover";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
-pub const TYPE_FLAG: &str = "type";
-pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
-pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about(
-            "Recovers validator private keys given a 12-word BIP-39 mnemonic phrase. \
+            "Recovers validator private keys given a BIP-39 mnemonic phrase. \
             If you did not specify a `--first-index` or count `--count`, by default this will \
             only recover the keys associated with the validator at index 0 for an HD wallet \
             in accordance with the EIP-2333 spec.")
@@ -27,7 +25,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)
                 .value_name("FIRST_INDEX")
-                .help("The first of consecutive key indexes you wish to recover. Defaults to 0.")
+                .help("The first of consecutive key indexes you wish to recover.")
                 .takes_value(true)
                 .required(false)
                 .default_value("0"),
@@ -36,7 +34,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(COUNT_FLAG)
                 .long(COUNT_FLAG)
                 .value_name("COUNT")
-                .help("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`. Defaults to 1.")
+                .help("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.")
                 .takes_value(true)
                 .required(false)
                 .default_value("1"),
@@ -71,18 +69,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(TYPE_FLAG)
-                .long(TYPE_FLAG)
-                .value_name("WALLET_TYPE")
-                .help(
-                    "The type of wallet to create. Only HD (hierarchical-deterministic) \
-                            wallets are supported presently..",
-                )
-                .takes_value(true)
-                .possible_values(&[HD_TYPE])
-                .default_value(HD_TYPE),
-        )
-        .arg(
             Arg::with_name(STORE_WITHDRAW_FLAG)
                 .long(STORE_WITHDRAW_FLAG)
                 .help(
@@ -113,6 +99,13 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+
+    ensure_dir_exists(&validator_dir)?;
+    ensure_dir_exists(&secrets_dir)?;
+
+    eprintln!("");
+    eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
+    eprintln!("");
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_password)?;
 

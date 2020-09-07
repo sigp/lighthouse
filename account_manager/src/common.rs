@@ -1,13 +1,15 @@
+use account_utils::PlainText;
 use account_utils::{read_mnemonic_from_user, strip_off_newlines};
 use clap::ArgMatches;
 use eth2_wallet::bip39::{Language, Mnemonic};
 use std::fs;
 use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
+use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::Duration;
 
-pub const MNEMONIC_PROMPT: &str = "Enter the 12-word mnemonic phrase:";
+pub const MNEMONIC_PROMPT: &str = "Enter the mnemonic phrase:";
 
 pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
     let path = path.as_ref();
@@ -31,16 +33,12 @@ pub fn read_mnemonic_from_cli(
     mnemonic_path: Option<PathBuf>,
     stdin_password: bool,
 ) -> Result<Mnemonic, String> {
-    eprintln!("");
-    println!("WARNING: IF YOU HAVE RUN THESE KEYS ON ANOTHER CLIENT, YOU RISK BEING SLASHED.");
-    eprintln!("");
-
     let mnemonic = match mnemonic_path {
         Some(path) => fs::read(&path)
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-            .map(|bytes| {
-                let bytes_no_newlines = strip_off_newlines(bytes);
-                let phrase = std::str::from_utf8(&bytes_no_newlines)
+            .and_then(|bytes| {
+                let bytes_no_newlines: PlainText = strip_off_newlines(bytes).into();
+                let phrase = from_utf8(&bytes_no_newlines.as_ref())
                     .map_err(|e| format!("Unable to derive mnemonic: {:?}", e))?;
                 Mnemonic::from_phrase(phrase, Language::English).map_err(|e| {
                     format!(
@@ -48,7 +46,7 @@ pub fn read_mnemonic_from_cli(
                         phrase, e
                     )
                 })
-            })??,
+            })?,
         None => loop {
             eprintln!("");
             eprintln!("{}", MNEMONIC_PROMPT);
