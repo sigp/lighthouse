@@ -374,9 +374,12 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 }
 
 impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
-    type ErrorType = String;
+    type CodecErrorType = ErrorType;
 
-    fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
+    fn decode_error(
+        &mut self,
+        src: &mut BytesMut,
+    ) -> Result<Option<Self::CodecErrorType>, RPCError> {
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
             match self.inner.decode(src).map_err(RPCError::from)? {
@@ -401,9 +404,9 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
                 let n = reader.get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
-                Ok(Some(
-                    String::from_utf8_lossy(&<Vec<u8>>::from_ssz_bytes(&decoded_buffer)?).into(),
-                ))
+                Ok(Some(ErrorType(VariableList::from_ssz_bytes(
+                    &decoded_buffer,
+                )?)))
             }
             Err(e) => match e.kind() {
                 // Haven't received enough bytes to decode yet
