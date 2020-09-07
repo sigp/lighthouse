@@ -1,8 +1,15 @@
 FROM rust:1.45.1 AS builder
 RUN apt-get update && apt-get install -y cmake
 COPY . lighthouse
+
 ARG PORTABLE
 ENV PORTABLE $PORTABLE
+ARG TARGETPLATFORM
+ENV TARGETPLATFORM $TARGETPLATFORM
+ARG BUILDPLATFORM
+ENV BUILDPLATFORM $BUILDPLATFORM
+
+RUN cargo install cross
 RUN cd lighthouse && make
 RUN cd lighthouse && make install-lcli
 
