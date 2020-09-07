@@ -9,7 +9,9 @@ ENV TARGETPLATFORM $TARGETPLATFORM
 ARG BUILDPLATFORM
 ENV BUILDPLATFORM $BUILDPLATFORM
 
+ENV CROSS_DOCKER_IN_DOCKER=true
 RUN cargo install cross
+
 RUN cd lighthouse && make
 RUN cd lighthouse && make install-lcli
 
