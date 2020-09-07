@@ -21,7 +21,7 @@ ifeq ($(BUILDPLATFORM), linux/amd64)
 endif
 endif
 ifeq ($(PORTABLE), true)
-	cargo install --path lighthouse --force --locked --portable
+	cargo install --path lighthouse --force --locked --features portable
 endif
 else
 	cargo install --path lighthouse --force --locked
