@@ -4,9 +4,10 @@ use super::PeerSyncStatus;
 use crate::rpc::MetaData;
 use crate::Multiaddr;
 use serde::{
-    ser::{SerializeStructVariant, Serializer},
+    ser::{SerializeStruct, Serializer},
     Serialize,
 };
+use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
@@ -104,6 +105,8 @@ pub enum PeerConnectionStatus {
     Banned {
         /// moment when the peer was banned.
         since: Instant,
+        /// ip addresses this peer had a the moment of the ban
+        ip_addresses: Vec<IpAddr>,
     },
     /// We are currently dialing this peer.
     Dialing {
@@ -117,29 +120,51 @@ pub enum PeerConnectionStatus {
 /// Serialization for http requests.
 impl Serialize for PeerConnectionStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut s = serializer.serialize_struct("connection_status", 5)?;
         match self {
             Connected { n_in, n_out } => {
-                let mut s = serializer.serialize_struct_variant("", 0, "Connected", 2)?;
-                s.serialize_field("in", n_in)?;
-                s.serialize_field("out", n_out)?;
+                s.serialize_field("status", "connected")?;
+                s.serialize_field("connections_in", n_in)?;
+                s.serialize_field("connections_out", n_out)?;
+                s.serialize_field("last_seen", &0)?;
+                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
                 s.end()
             }
             Disconnected { since } => {
-                let mut s = serializer.serialize_struct_variant("", 1, "Disconnected", 1)?;
-                s.serialize_field("since", &since.elapsed().as_secs())?;
+                s.serialize_field("status", "disconnected")?;
+                s.serialize_field("connections_in", &0)?;
+                s.serialize_field("connections_out", &0)?;
+                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
+                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
                 s.end()
             }
-            Banned { since } => {
-                let mut s = serializer.serialize_struct_variant("", 2, "Banned", 1)?;
-                s.serialize_field("since", &since.elapsed().as_secs())?;
+            Banned {
+                since,
+                ip_addresses,
+            } => {
+                s.serialize_field("status", "banned")?;
+                s.serialize_field("connections_in", &0)?;
+                s.serialize_field("connections_out", &0)?;
+                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
+                s.serialize_field("banned_ips", &ip_addresses)?;
                 s.end()
             }
             Dialing { since } => {
-                let mut s = serializer.serialize_struct_variant("", 3, "Dialing", 1)?;
-                s.serialize_field("since", &since.elapsed().as_secs())?;
+                s.serialize_field("status", "dialing")?;
+                s.serialize_field("connections_in", &0)?;
+                s.serialize_field("connections_out", &0)?;
+                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
+                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
                 s.end()
             }
-            Unknown => serializer.serialize_unit_variant("", 4, "Unknown"),
+            Unknown => {
+                s.serialize_field("status", "unknown")?;
+                s.serialize_field("connections_in", &0)?;
+                s.serialize_field("connections_out", &0)?;
+                s.serialize_field("last_seen", &0)?;
+                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
+                s.end()
+            }
         }
     }
 }
@@ -218,15 +243,16 @@ impl PeerConnectionStatus {
     }
 
     /// Modifies the status to Banned
-    pub fn ban(&mut self) {
+    pub fn ban(&mut self, ip_addresses: Vec<IpAddr>) {
         *self = Banned {
             since: Instant::now(),
+            ip_addresses,
         };
     }
 
     /// The score system has unbanned the peer. Update the connection status
     pub fn unban(&mut self) {
-        if let PeerConnectionStatus::Banned { since } = self {
+        if let PeerConnectionStatus::Banned { since, .. } = self {
             *self = PeerConnectionStatus::Disconnected { since: *since }
         }
     }

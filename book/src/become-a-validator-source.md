@@ -3,7 +3,9 @@
 ## 0. Install Rust
 If you don't have Rust installed already, visit [rustup.rs](https://rustup.rs/) to install it.
 
-> Note:  if you're not familiar with Rust or you'd like more detailed instructions, see our  [installation guide](./installation.md).
+> Notes:
+>   - If you're not familiar with Rust or you'd like more detailed instructions, see our  [installation guide](./installation.md).
+>   - Windows is presently only supported via [WSL](https://docs.microsoft.com/en-us/windows/wsl/about).
 
 
 ## 1. Download and install Lighthouse
@@ -86,7 +88,7 @@ validator](./validator-create.md). A two-step example follows:
 Create a wallet with:
 
 ```bash
-lighthouse --testnet medalla account wallet create --name my-validators --passphrase-file my-validators.pass
+lighthouse --testnet medalla account wallet create --name my-validators --password-file my-validators.pass
 ```
 
 The output will look like this:
@@ -122,7 +124,7 @@ used to restore your validator if there is a data loss.
 Create a validator from the wallet with:
 
 ```bash
-lighthouse --testnet medalla account validator create --wallet-name my-validators --wallet-passphrase my-validators.pass --count 1
+lighthouse --testnet medalla account validator create --wallet-name my-validators --wallet-password my-validators.pass --count 1
 ```
 
 The output will look like this:

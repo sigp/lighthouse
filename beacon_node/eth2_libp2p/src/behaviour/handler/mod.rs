@@ -54,16 +54,18 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     type InboundProtocol = DelegateInProto<TSpec>;
     type OutboundProtocol = DelegateOutProto<TSpec>;
     type OutboundOpenInfo = DelegateOutInfo<TSpec>;
+    type InboundOpenInfo = ();
 
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
+    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         self.delegate.listen_protocol()
     }
 
     fn inject_fully_negotiated_inbound(
         &mut self,
         out: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
+        _info: Self::InboundOpenInfo,
     ) {
-        self.delegate.inject_fully_negotiated_inbound(out)
+        self.delegate.inject_fully_negotiated_inbound(out, ())
     }
 
     fn inject_fully_negotiated_outbound(
@@ -127,11 +129,8 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
             Poll::Ready(ProtocolsHandlerEvent::Close(err)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(err))
             }
-            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
-                return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                    protocol,
-                    info,
-                });
+            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol }) => {
+                return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol });
             }
             Poll::Pending => (),
         }

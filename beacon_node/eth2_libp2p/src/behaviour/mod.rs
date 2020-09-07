@@ -1,6 +1,6 @@
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
-use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use crate::types::{EnrBitfield, GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -11,7 +11,10 @@ use libp2p::{
         identity::Keypair,
         Multiaddr,
     },
-    gossipsub::{Gossipsub, GossipsubEvent, MessageAuthenticity, MessageId},
+    gossipsub::{
+        Gossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity,
+        MessageId,
+    },
     identify::{Identify, IdentifyEvent},
     swarm::{
         NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters,
@@ -19,19 +22,23 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, o, trace};
+use slog::{crit, debug, o, trace, warn};
+use ssz::{Decode, Encode};
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::{
     collections::VecDeque,
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
-    time::Instant,
 };
 use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
 
 mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
+const METADATA_FILENAME: &str = "metadata";
 
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
@@ -61,13 +68,15 @@ pub struct Behaviour<TSpec: EthSpec> {
     enr_fork_id: EnrForkId,
     /// The waker for the current thread.
     waker: Option<std::task::Waker>,
+    /// Directory where metadata is stored
+    network_dir: PathBuf,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
 
 /// Implements the combined behaviour for the libp2p service.
 impl<TSpec: EthSpec> Behaviour<TSpec> {
-    pub fn new(
+    pub async fn new(
         local_key: &Keypair,
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -86,33 +95,31 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let attnets = network_globals
-            .local_enr()
-            .bitfield::<TSpec>()
-            .expect("Local ENR must have subnet bitfield");
+        let meta_data = load_or_build_metadata(&net_conf.network_dir, &log);
 
-        let meta_data = MetaData {
-            seq_number: 1,
-            attnets,
-        };
+        let gossipsub = Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
+            .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
-        // TODO: Until other clients support no author, we will use a 0 peer_id as our author.
-        let message_author = PeerId::from_bytes(vec![0, 1, 0]).expect("Valid peer id");
+        // Temporarily disable scoring until parameters are tested.
+        /*
+        gossipsub
+            .with_peer_score(PeerScoreParams::default(), PeerScoreThresholds::default())
+            .expect("Valid score params and thresholds");
+        */
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
-            gossipsub: Gossipsub::new(
-                MessageAuthenticity::Author(message_author),
-                net_conf.gs_config.clone(),
-            ),
+            gossipsub,
             identify,
-            peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)?,
+            peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
+                .await?,
             events: VecDeque::new(),
             peers_to_dc: VecDeque::new(),
             meta_data,
             network_globals,
             enr_fork_id,
             waker: None,
+            network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
         })
     }
@@ -123,7 +130,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ///
     /// All external dials, dial a multiaddr. This is currently unused but kept here in case any
     /// part of lighthouse needs to connect to a peer_id in the future.
-    pub fn _dial(&mut self, peer_id: &PeerId) {
+    pub fn dial(&mut self, peer_id: &PeerId) {
         self.peer_manager.dial_peer(peer_id);
     }
 
@@ -147,6 +154,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
+
+        // TODO: Implement scoring
+        // let topic: Topic = gossip_topic.into();
+        // self.gossipsub.set_topic_params(t.hash(), TopicScoreParams::default());
         self.subscribe(gossip_topic)
     }
 
@@ -168,6 +179,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
+        // TODO: Implement scoring
+        /*
+        let t: Topic = topic.clone().into();
+        self.gossipsub
+            .set_topic_params(t.hash(), TopicScoreParams::default());
+        */
         self.subscribe(topic)
     }
 
@@ -189,9 +206,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .write()
             .insert(topic.clone());
 
-        let topic_str: String = topic.clone().into();
-        debug!(self.log, "Subscribed to topic"; "topic" => topic_str);
-        self.gossipsub.subscribe(topic.into())
+        let topic: Topic = topic.into();
+
+        match self.gossipsub.subscribe(&topic) {
+            Err(_) => {
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => topic.to_string());
+                false
+            }
+            Ok(v) => {
+                debug!(self.log, "Subscribed to topic"; "topic" => topic.to_string());
+                v
+            }
+        }
     }
 
     /// Unsubscribe from a gossipsub topic.
@@ -201,8 +227,20 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .gossipsub_subscriptions
             .write()
             .remove(&topic);
+
         // unsubscribe from the topic
-        self.gossipsub.unsubscribe(topic.into())
+        let topic: Topic = topic.into();
+
+        match self.gossipsub.unsubscribe(&topic) {
+            Err(_) => {
+                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => topic.to_string());
+                false
+            }
+            Ok(v) => {
+                debug!(self.log, "Unsubscribed to topic"; "topic" => topic.to_string());
+                v
+            }
+        }
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
@@ -211,8 +249,28 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(&topic.into(), message_data) {
+                        if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
                             slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
+
+                            // add to metrics
+                            match topic.kind() {
+                                GossipKind::Attestation(subnet_id) => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
+                                        &[&subnet_id.to_string()],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                                kind => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                                        &[&format!("{:?}", kind)],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                            }
                         }
                     }
                     Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
@@ -221,11 +279,21 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
-    /// Forwards a message that is waiting in gossipsub's mcache. Messages are only propagated
-    /// once validated by the beacon chain.
-    pub fn validate_message(&mut self, propagation_source: &PeerId, message_id: MessageId) {
-        self.gossipsub
-            .validate_message(&message_id, propagation_source);
+    /// Informs the gossipsub about the result of a message validation.
+    /// If the message is valid it will get propagated by gossipsub.
+    pub fn report_message_validation_result(
+        &mut self,
+        propagation_source: &PeerId,
+        message_id: MessageId,
+        validation_result: MessageAcceptance,
+    ) {
+        if let Err(e) = self.gossipsub.report_message_validation_result(
+            &message_id,
+            propagation_source,
+            validation_result,
+        ) {
+            warn!(self.log, "Failed to report message validation"; "message_id" => message_id.to_string(), "peer_id" => propagation_source.to_string(), "error" => format!("{:?}", e));
+        }
     }
 
     /* Eth2 RPC behaviour functions */
@@ -300,8 +368,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
-        self.peer_manager.discover_subnet_peers(subnet_id, min_ttl)
+    pub fn discover_subnet_peers(&mut self, subnet_subscriptions: Vec<SubnetDiscovery>) {
+        self.peer_manager
+            .discover_subnet_peers(subnet_subscriptions)
     }
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.
@@ -345,6 +414,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .local_enr()
             .bitfield::<TSpec>()
             .expect("Local discovery must have bitfield");
+        // Save the updated metadata to disk
+        save_metadata_to_disk(&self.network_dir, self.meta_data.clone(), &self.log);
     }
 
     /// Sends a Ping request to the peer.
@@ -389,11 +460,25 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     fn on_gossip_event(&mut self, event: GossipsubEvent) {
         match event {
-            GossipsubEvent::Message(propagation_source, id, gs_msg) => {
+            GossipsubEvent::Message {
+                propagation_source,
+                message_id: id,
+                message: gs_msg,
+            } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
                 match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
-                    Err(e) => debug!(self.log, "Could not decode gossipsub message"; "error" => e),
+                    Err(e) => {
+                        debug!(self.log, "Could not decode gossipsub message"; "error" => e);
+                        //reject the message
+                        if let Err(e) = self.gossipsub.report_message_validation_result(
+                            &id,
+                            &propagation_source,
+                            MessageAcceptance::Reject,
+                        ) {
+                            warn!(self.log, "Failed to report message validation"; "message_id" => id.to_string(), "peer_id" => propagation_source.to_string(), "error" => format!("{:?}", e));
+                        }
+                    }
                     Ok(msg) => {
                         // Notify the network
                         self.add_event(BehaviourEvent::PubsubMessage {
@@ -406,23 +491,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                if let Some(topic_metric) = metrics::get_int_gauge(
-                    &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_COUNT,
-                    &[topic.as_str()],
-                ) {
-                    topic_metric.inc()
-                }
-
                 self.add_event(BehaviourEvent::PeerSubscribed(peer_id, topic));
             }
-            GossipsubEvent::Unsubscribed { peer_id: _, topic } => {
-                if let Some(topic_metric) = metrics::get_int_gauge(
-                    &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_COUNT,
-                    &[topic.as_str()],
-                ) {
-                    topic_metric.dec()
-                }
-            }
+            GossipsubEvent::Unsubscribed { .. } => {}
         }
     }
 
@@ -743,8 +814,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                 .peer_info(peer_id)
                 .map_or(true, |i| !i.has_future_duty())
         {
-            //If we are at our peer limit and we don't need the peer for a future validator
-            //duty, send goodbye with reason TooManyPeers
+            // If we are at our peer limit and we don't need the peer for a future validator
+            // duty, send goodbye with reason TooManyPeers
             Some(GoodbyeReason::TooManyPeers)
         } else {
             None
@@ -1034,4 +1105,61 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     PeerSubscribed(PeerId, TopicHash),
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
+}
+
+/// Load metadata from persisted file. Return default metadata if loading fails.
+fn load_or_build_metadata<E: EthSpec>(network_dir: &PathBuf, log: &slog::Logger) -> MetaData<E> {
+    // Default metadata
+    let mut meta_data = MetaData {
+        seq_number: 0,
+        attnets: EnrBitfield::<E>::default(),
+    };
+    // Read metadata from persisted file if available
+    let metadata_path = network_dir.join(METADATA_FILENAME);
+    if let Ok(mut metadata_file) = File::open(metadata_path) {
+        let mut metadata_ssz = Vec::new();
+        if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
+            match MetaData::<E>::from_ssz_bytes(&metadata_ssz) {
+                Ok(persisted_metadata) => {
+                    meta_data.seq_number = persisted_metadata.seq_number;
+                    // Increment seq number if persisted attnet is not default
+                    if persisted_metadata.attnets != meta_data.attnets {
+                        meta_data.seq_number += 1;
+                    }
+                    debug!(log, "Loaded metadata from disk");
+                }
+                Err(e) => {
+                    debug!(
+                        log,
+                        "Metadata from file could not be decoded";
+                        "error" => format!("{:?}", e),
+                    );
+                }
+            }
+        }
+    };
+
+    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number);
+    save_metadata_to_disk(network_dir, meta_data.clone(), &log);
+    meta_data
+}
+
+/// Persist metadata to disk
+fn save_metadata_to_disk<E: EthSpec>(dir: &PathBuf, metadata: MetaData<E>, log: &slog::Logger) {
+    let _ = std::fs::create_dir_all(&dir);
+    match File::create(dir.join(METADATA_FILENAME))
+        .and_then(|mut f| f.write_all(&metadata.as_ssz_bytes()))
+    {
+        Ok(_) => {
+            debug!(log, "Metadata written to disk");
+        }
+        Err(e) => {
+            warn!(
+                log,
+                "Could not write metadata to disk";
+                "file" => format!("{:?}{:?}",dir, METADATA_FILENAME),
+                "error" => format!("{}", e)
+            );
+        }
+    }
 }

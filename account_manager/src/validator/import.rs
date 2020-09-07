@@ -6,6 +6,7 @@ use account_utils::{
         recursively_find_voting_keystores, ValidatorDefinition, ValidatorDefinitions,
         CONFIG_FILENAME,
     },
+    ZeroizeString,
 };
 use clap::{App, Arg, ArgMatches};
 use std::fs;
@@ -17,6 +18,7 @@ pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
 pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
+pub const REUSE_PASSWORD_FLAG: &str = "reuse-password";
 
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter to omit it:";
 pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
@@ -68,6 +70,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(STDIN_PASSWORD_FLAG)
                 .help("If present, read passwords from stdin instead of tty."),
         )
+        .arg(
+            Arg::with_name(REUSE_PASSWORD_FLAG)
+                .long(REUSE_PASSWORD_FLAG)
+                .help("If present, the same password will be used for all imported keystores."),
+        )
 }
 
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
@@ -79,6 +86,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
     let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+    let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
 
     ensure_dir_exists(&validator_dir)?;
 
@@ -118,7 +126,9 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     // - Add the keystore to the validator definitions file.
     //
     // Skip keystores that already exist, but exit early if any operation fails.
+    // Reuses the same password for all keystores if the `REUSE_PASSWORD_FLAG` flag is set.
     let mut num_imported_keystores = 0;
+    let mut previous_password: Option<ZeroizeString> = None;
     for src_keystore in &keystore_paths {
         let keystore = Keystore::from_json_file(src_keystore)
             .map_err(|e| format!("Unable to read keystore JSON {:?}: {:?}", src_keystore, e))?;
@@ -136,6 +146,10 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         );
 
         let password_opt = loop {
+            if let Some(password) = previous_password.clone() {
+                eprintln!("Reuse previous password.");
+                break Some(password);
+            }
             eprintln!("");
             eprintln!("{}", PASSWORD_PROMPT);
 
@@ -152,6 +166,9 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
                     eprintln!("Password is correct.");
                     eprintln!("");
                     sleep(Duration::from_secs(1)); // Provides nicer UX.
+                    if reuse_password {
+                        previous_password = Some(password.clone());
+                    }
                     break Some(password);
                 }
                 Err(eth2_keystore::Error::InvalidPassword) => {

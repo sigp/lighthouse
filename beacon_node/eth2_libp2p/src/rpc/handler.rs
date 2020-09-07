@@ -81,7 +81,7 @@ where
     TSpec: EthSpec,
 {
     /// The upgrade for inbound substreams.
-    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>,
+    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
 
     /// Errors occurring on outbound and inbound connections queued for reporting back.
     pending_errors: Vec<HandlerErr>,
@@ -115,9 +115,6 @@ where
 
     /// Maximum number of concurrent outbound substreams being opened. Value is never modified.
     max_dial_negotiated: u32,
-
-    /// Value to return from `connection_keep_alive`.
-    keep_alive: KeepAlive,
 
     /// State of the handler.
     state: HandlerState,
@@ -228,7 +225,10 @@ impl<TSpec> RPCHandler<TSpec>
 where
     TSpec: EthSpec,
 {
-    pub fn new(listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>, log: &slog::Logger) -> Self {
+    pub fn new(
+        listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+        log: &slog::Logger,
+    ) -> Self {
         RPCHandler {
             listen_protocol,
             pending_errors: Vec::new(),
@@ -243,7 +243,6 @@ where
             current_outbound_substream_id: SubstreamId(0),
             state: HandlerState::Active,
             max_dial_negotiated: 8,
-            keep_alive: KeepAlive::Yes,
             outbound_io_error_retries: 0,
             log: log.clone(),
         }
@@ -253,7 +252,7 @@ where
     ///
     /// > **Note**: If you modify the protocol, modifications will only applies to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol<TSpec>> {
+    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol<TSpec>, ()> {
         &self.listen_protocol
     }
 
@@ -261,7 +260,7 @@ where
     ///
     /// > **Note**: If you modify the protocol, modifications will only apply to future inbound
     /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol<TSpec>> {
+    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol<TSpec>, ()> {
         &mut self.listen_protocol
     }
 
@@ -287,7 +286,6 @@ where
                 TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
             ));
         }
-        self.update_keep_alive();
     }
 
     /// Opens an outbound substream with a request.
@@ -295,7 +293,6 @@ where
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
-                self.update_keep_alive();
             }
             _ => {
                 self.pending_errors.push(HandlerErr::Outbound {
@@ -338,43 +335,6 @@ where
         }
         inbound_info.pending_items.push(response);
     }
-
-    /// Updates the `KeepAlive` returned by `connection_keep_alive`.
-    ///
-    /// The handler stays alive as long as there are inbound/outbound substreams established and no
-    /// items dialing/to be dialed. Otherwise it is given a grace period of inactivity of
-    /// `self.inactive_timeout`.
-    fn update_keep_alive(&mut self) {
-        // Check that we don't have outbound items pending for dialing, nor dialing, nor
-        // established. Also check that there are no established inbound substreams.
-        // Errors and events need to be reported back, so check those too.
-        let should_shutdown = match self.state {
-            HandlerState::ShuttingDown(_) => {
-                self.dial_queue.is_empty()
-                    && self.outbound_substreams.is_empty()
-                    && self.inbound_substreams.is_empty()
-                    && self.pending_errors.is_empty()
-                    && self.events_out.is_empty()
-                    && self.dial_negotiated == 0
-            }
-            HandlerState::Deactivated => {
-                // Regardless of events, the timeout has expired. Force the disconnect.
-                true
-            }
-            _ => false,
-        };
-
-        match self.keep_alive {
-            KeepAlive::Yes if should_shutdown => self.keep_alive = KeepAlive::No,
-            KeepAlive::Yes => {} // We continue being active
-            KeepAlive::Until(_) if should_shutdown => self.keep_alive = KeepAlive::No, // Already deemed inactive
-            KeepAlive::Until(_) => {
-                // No longer idle
-                self.keep_alive = KeepAlive::Yes;
-            }
-            KeepAlive::No => {} // currently not used
-        }
-    }
 }
 
 impl<TSpec> ProtocolsHandler for RPCHandler<TSpec>
@@ -387,14 +347,16 @@ where
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RPCRequest<TSpec>;
     type OutboundOpenInfo = (RequestId, RPCRequest<TSpec>); // Keep track of the id and the request
+    type InboundOpenInfo = ();
 
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
+    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         self.listen_protocol.clone()
     }
 
     fn inject_fully_negotiated_inbound(
         &mut self,
         substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
+        _info: Self::InboundOpenInfo,
     ) {
         // only accept new peer requests when active
         if !matches!(self.state, HandlerState::Active) {
@@ -427,8 +389,6 @@ where
         self.events_out
             .push(RPCReceived::Request(self.current_inbound_substream_id, req));
         self.current_inbound_substream_id.0 += 1;
-
-        self.update_keep_alive();
     }
 
     fn inject_fully_negotiated_outbound(
@@ -486,8 +446,6 @@ where
             }
             self.current_outbound_substream_id.0 += 1;
         }
-
-        self.update_keep_alive();
     }
 
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
@@ -515,7 +473,6 @@ where
 
         // This dialing is now considered failed
         self.dial_negotiated -= 1;
-        self.update_keep_alive();
 
         self.outbound_io_error_retries = 0;
         // map the error
@@ -548,7 +505,29 @@ where
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        self.keep_alive
+        // Check that we don't have outbound items pending for dialing, nor dialing, nor
+        // established. Also check that there are no established inbound substreams.
+        // Errors and events need to be reported back, so check those too.
+        let should_shutdown = match self.state {
+            HandlerState::ShuttingDown(_) => {
+                self.dial_queue.is_empty()
+                    && self.outbound_substreams.is_empty()
+                    && self.inbound_substreams.is_empty()
+                    && self.pending_errors.is_empty()
+                    && self.events_out.is_empty()
+                    && self.dial_negotiated == 0
+            }
+            HandlerState::Deactivated => {
+                // Regardless of events, the timeout has expired. Force the disconnect.
+                true
+            }
+            _ => false,
+        };
+        if should_shutdown {
+            KeepAlive::No
+        } else {
+            KeepAlive::Yes
+        }
     }
 
     fn poll(
@@ -624,8 +603,6 @@ where
                     if let Some(OutboundInfo { proto, req_id, .. }) =
                         self.outbound_substreams.remove(outbound_id.get_ref())
                     {
-                        self.update_keep_alive();
-
                         let outbound_err = HandlerErr::Outbound {
                             id: req_id,
                             proto,
@@ -724,7 +701,6 @@ where
             self.inbound_substreams.remove(&inbound_id);
         }
 
-        self.update_keep_alive();
         // drive outbound streams that need to be processed
         for outbound_id in self.outbound_substreams.keys().copied().collect::<Vec<_>>() {
             // get the state and mark it as poisoned
@@ -813,7 +789,6 @@ where
                         let request_id = entry.get().req_id;
                         self.outbound_substreams_delay.remove(delay_key);
                         entry.remove_entry();
-                        self.update_keep_alive();
                         // notify the application error
                         if request.expected_responses() > 1 {
                             // return an end of stream result
@@ -844,7 +819,6 @@ where
                             error: e,
                         };
                         entry.remove_entry();
-                        self.update_keep_alive();
                         return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(outbound_err)));
                     }
                 },
@@ -857,7 +831,6 @@ where
                             let request_id = entry.get().req_id;
                             self.outbound_substreams_delay.remove(delay_key);
                             entry.remove_entry();
-                            self.update_keep_alive();
 
                             // report the stream termination to the user
                             //
@@ -894,10 +867,8 @@ where
             self.dial_negotiated += 1;
             let (id, req) = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
-            self.update_keep_alive();
             return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(req.clone()),
-                info: (id, req),
+                protocol: SubstreamProtocol::new(req.clone(), ()).map_info(|()| (id, req)),
             });
         }
         Poll::Pending

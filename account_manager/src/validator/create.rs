@@ -13,7 +13,7 @@ use validator_dir::Builder as ValidatorDirBuilder;
 pub const CMD: &str = "create";
 pub const BASE_DIR_FLAG: &str = "base-dir";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
-pub const WALLET_PASSPHRASE_FLAG: &str = "wallet-passphrase";
+pub const WALLET_PASSWORD_FLAG: &str = "wallet-password";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
 pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
 pub const COUNT_FLAG: &str = "count";
@@ -34,8 +34,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name(WALLET_PASSPHRASE_FLAG)
-                .long(WALLET_PASSPHRASE_FLAG)
+            Arg::with_name(WALLET_PASSWORD_FLAG)
+                .long(WALLET_PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
                 .help("A path to a file containing the password which will unlock the wallet.")
                 .takes_value(true)
@@ -109,8 +109,7 @@ pub fn cli_run<T: EthSpec>(
     let spec = env.core_context().eth2_config.spec;
 
     let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;
-    let wallet_password_path: PathBuf =
-        clap_utils::parse_required(matches, WALLET_PASSPHRASE_FLAG)?;
+    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, WALLET_PASSWORD_FLAG)?;
     let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
         VALIDATOR_DIR_FLAG,

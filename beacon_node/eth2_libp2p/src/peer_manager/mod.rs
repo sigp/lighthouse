@@ -4,7 +4,7 @@ pub use self::peerdb::*;
 use crate::discovery::{Discovery, DiscoveryEvent};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
-use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId};
+use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
@@ -19,7 +19,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId};
+use types::EthSpec;
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -88,14 +88,14 @@ pub enum PeerManagerEvent {
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
-    pub fn new(
+    pub async fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         // start the discovery service
-        let mut discovery = Discovery::new(local_key, config, network_globals.clone(), log)?;
+        let mut discovery = Discovery::new(local_key, config, network_globals.clone(), log).await?;
 
         // start searching for peers
         discovery.discover_peers();
@@ -213,17 +213,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// A request to find peers on a given subnet.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
         // Extend the time to maintain peers if required.
-        if let Some(min_ttl) = min_ttl {
-            self.network_globals
-                .peers
-                .write()
-                .extend_peers_on_subnet(subnet_id, min_ttl);
+        for s in subnets_to_discover.iter() {
+            if let Some(min_ttl) = s.min_ttl {
+                self.network_globals
+                    .peers
+                    .write()
+                    .extend_peers_on_subnet(s.subnet_id, min_ttl);
+            }
         }
 
         // request the subnet query from discovery
-        self.discovery.discover_subnet_peers(subnet_id, min_ttl);
+        self.discovery.discover_subnet_peers(subnets_to_discover);
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -237,6 +239,27 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
+        // Decrement the PEERS_PER_CLIENT metric
+        if let Some(kind) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .and_then(|peer_info| {
+                if let Connected { .. } = peer_info.connection_status {
+                    Some(peer_info.client.kind.clone())
+                } else {
+                    None
+                }
+            })
+        {
+            if let Some(v) =
+                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+            {
+                v.dec()
+            };
+        }
+
         self.network_globals.peers.write().disconnect(peer_id);
 
         // remove the ping and status timer for the peer
@@ -294,8 +317,25 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            let previous_kind = peer_info.client.kind.clone();
             peer_info.client = client::Client::from_identify_info(info);
             peer_info.listening_addresses = info.listen_addrs.clone();
+
+            if previous_kind != peer_info.client.kind {
+                // update the peer client kind metric
+                if let Some(v) = metrics::get_int_gauge(
+                    &metrics::PEERS_PER_CLIENT,
+                    &[&peer_info.client.kind.to_string()],
+                ) {
+                    v.inc()
+                };
+                if let Some(v) = metrics::get_int_gauge(
+                    &metrics::PEERS_PER_CLIENT,
+                    &[&previous_kind.to_string()],
+                ) {
+                    v.dec()
+                };
+            }
         } else {
             crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
         }
@@ -539,11 +579,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is called by `connect_ingoing` and `connect_outgoing`.
     ///
-    /// This informs if the peer was accepted in to the db or not.
+    /// Informs if the peer was accepted in to the db or not.
     fn connect_peer(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
-        // TODO: remove after timed updates
-        //self.update_reputations();
-
         {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.connection_status(peer_id).map(|c| c.is_banned()) == Some(true) {
@@ -552,7 +589,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
 
             match connection {
-                ConnectingType::Dialing => peerdb.dialing_peer(peer_id),
+                ConnectingType::Dialing => {
+                    peerdb.dialing_peer(peer_id);
+                    return true;
+                }
                 ConnectingType::IngoingConnected => peerdb.connect_outgoing(peer_id),
                 ConnectingType::OutgoingConnected => peerdb.connect_ingoing(peer_id),
             }
@@ -568,6 +608,21 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             &metrics::PEERS_CONNECTED,
             self.network_globals.connected_peers() as i64,
         );
+
+        // Increment the PEERS_PER_CLIENT metric
+        if let Some(kind) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|peer_info| peer_info.client.kind.clone())
+        {
+            if let Some(v) =
+                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+            {
+                v.inc()
+            };
+        }
 
         true
     }
@@ -690,7 +745,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
         // TODO: Provide a back-off time for discovery queries. I.e Queue many initially, then only
-        // perform discoveries over a larger fixed interval. Perhaps one every 6 heartbeats
+        // perform discoveries over a larger fixed interval. Perhaps one every 6 heartbeats. This
+        // is achievable with a leaky bucket
         let peer_count = self.network_globals.connected_or_dialing_peers();
         if peer_count < self.target_peers {
             // If we need more peers, queue a discovery lookup.

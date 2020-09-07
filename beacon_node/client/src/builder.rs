@@ -135,6 +135,7 @@ where
         let eth_spec_instance = self.eth_spec_instance.clone();
         let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
+        let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
 
         let store =
@@ -153,6 +154,7 @@ where
             .store_migrator(store_migrator)
             .data_dir(data_dir)
             .custom_spec(spec.clone())
+            .chain_config(chain_config)
             .disabled_forks(disabled_forks)
             .graffiti(graffiti);
 
@@ -232,8 +234,8 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the networking stack.
-    pub fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    /// Starts the networking stack.
+    pub async fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -246,6 +248,7 @@ where
 
         let (network_globals, network_send) =
             NetworkService::start(beacon_chain, config, context.executor)
+                .await
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
@@ -581,7 +584,7 @@ where
     /// Specifies that the `BeaconChain` should cache eth1 blocks/logs from a remote eth1 node
     /// (e.g., Parity/Geth) and refer to that cache when collecting deposits or eth1 votes during
     /// block production.
-    pub fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
+    pub async fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -594,6 +597,17 @@ where
             .chain_spec
             .clone()
             .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
+
+        // Check if the eth1 endpoint we connect to is on the correct network id.
+        let network_id =
+            eth1::http::get_network_id(&config.endpoint, Duration::from_millis(15_000)).await?;
+
+        if network_id != config.network_id {
+            return Err(format!(
+                "Invalid eth1 network id. Expected {:?}, got {:?}",
+                config.network_id, network_id
+            ));
+        }
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;

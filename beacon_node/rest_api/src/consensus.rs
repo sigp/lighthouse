@@ -1,8 +1,7 @@
 use crate::helpers::*;
-use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, UrlQuery};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use hyper::{Body, Request};
+use crate::{ApiError, Context, UrlQuery};
+use beacon_chain::BeaconChainTypes;
+use hyper::Request;
 use rest_types::{IndividualVotesRequest, IndividualVotesResponse};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -50,38 +49,31 @@ impl Into<VoteCount> for TotalBalances {
 
 /// HTTP handler return a `VoteCount` for some given `Epoch`.
 pub fn get_vote_count<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<VoteCount, ApiError> {
     let query = UrlQuery::from_request(&req)?;
 
     let epoch = query.epoch()?;
     // This is the last slot of the given epoch (one prior to the first slot of the next epoch).
     let target_slot = (epoch + 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
 
-    let (_root, state) = state_at_slot(&beacon_chain, target_slot)?;
-    let spec = &beacon_chain.spec;
+    let (_root, state) = state_at_slot(&ctx.beacon_chain, target_slot)?;
+    let spec = &ctx.beacon_chain.spec;
 
     let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
     validator_statuses.process_attestations(&state, spec)?;
 
-    let report: VoteCount = validator_statuses.total_balances.into();
-
-    ResponseBuilder::new(&req)?.body(&report)
+    Ok(validator_statuses.total_balances.into())
 }
 
-pub async fn post_individual_votes<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let response_builder = ResponseBuilder::new(&req);
-
+pub fn post_individual_votes<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Vec<IndividualVotesResponse>, ApiError> {
     let body = req.into_body();
-    let chunks = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
 
-    serde_json::from_slice::<IndividualVotesRequest>(&chunks)
+    serde_json::from_slice::<IndividualVotesRequest>(&body)
         .map_err(|e| {
             ApiError::BadRequest(format!(
                 "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
@@ -94,8 +86,8 @@ pub async fn post_individual_votes<T: BeaconChainTypes>(
             // This is the last slot of the given epoch (one prior to the first slot of the next epoch).
             let target_slot = (epoch + 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
 
-            let (_root, mut state) = state_at_slot(&beacon_chain, target_slot)?;
-            let spec = &beacon_chain.spec;
+            let (_root, mut state) = state_at_slot(&ctx.beacon_chain, target_slot)?;
+            let spec = &ctx.beacon_chain.spec;
 
             let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
             validator_statuses.process_attestations(&state, spec)?;
@@ -135,5 +127,4 @@ pub async fn post_individual_votes<T: BeaconChainTypes>(
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
-        .and_then(|votes| response_builder?.body_no_ssz(&votes))
 }

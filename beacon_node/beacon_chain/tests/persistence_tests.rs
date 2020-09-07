@@ -44,7 +44,7 @@ fn finalizes_after_resuming_from_db() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
-    let harness = BeaconChainHarness::new_with_disk_store(
+    let mut harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
         store.clone(),
         KEYPAIRS[0..validator_count].to_vec(),
@@ -88,7 +88,7 @@ fn finalizes_after_resuming_from_db() {
     let data_dir = harness.data_dir;
     let original_chain = harness.chain;
 
-    let resumed_harness = BeaconChainHarness::resume_from_disk_store(
+    let mut resumed_harness = BeaconChainHarness::resume_from_disk_store(
         MinimalEthSpec,
         store,
         KEYPAIRS[0..validator_count].to_vec(),

@@ -50,7 +50,10 @@ pub struct Config {
     pub discv5_config: Discv5Config,
 
     /// List of nodes to initially connect to.
-    pub boot_nodes: Vec<Enr>,
+    pub boot_nodes_enr: Vec<Enr>,
+
+    /// List of nodes to initially connect to, on Multiaddr format.
+    pub boot_nodes_multiaddr: Vec<Multiaddr>,
 
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
@@ -96,8 +99,8 @@ impl Default for Config {
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_millis(700))
-            .mesh_n(6)
-            .mesh_n_low(5)
+            .mesh_n(8)
+            .mesh_n_low(6)
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
@@ -108,7 +111,8 @@ impl Default for Config {
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
             .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
-            .build();
+            .build()
+            .expect("valid gossipsub configuration");
 
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
@@ -136,7 +140,8 @@ impl Default for Config {
             target_peers: 50,
             gs_config,
             discv5_config,
-            boot_nodes: vec![],
+            boot_nodes_enr: vec![],
+            boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,

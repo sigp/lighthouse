@@ -220,6 +220,12 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     Invalid(AttestationValidationError),
+    /// The attestation head block is too far behind the attestation slot, causing many skip slots.
+    /// This is deemed a DoS risk.
+    TooManySkippedSlots {
+        head_block_slot: Slot,
+        attestation_slot: Slot,
+    },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -319,6 +325,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         }?;
 
         // Ensure the block being voted for (attestation.data.beacon_block_root) passes validation.
+        // Don't enforce the skip slot restriction for aggregates.
         //
         // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
         // choice. Any known, non-finalized, processed block should be in fork choice, so this
@@ -327,7 +334,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let shuffling_ids = verify_head_block_is_known(chain, &attestation)?;
+        let shuffling_ids = verify_head_block_is_known(chain, &attestation, None)?;
 
         // Ensure that the attestation has participants.
         if attestation.aggregation_bits.is_zero() {
@@ -433,7 +440,10 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let shuffling_ids = verify_head_block_is_known(chain, &attestation)?;
+        //
+        // Enforce a maximum skip distance for unaggregated attestations.
+        let shuffling_ids =
+            verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
 
         let (indexed_attestation, committees_per_slot) =
             obtain_indexed_attestation_and_committees_per_slot(
@@ -536,18 +546,32 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
+    max_skip_slots: Option<u64>,
 ) -> Result<BlockShufflingIds, Error> {
-    chain
+    if let Some(block) = chain
         .fork_choice
         .read()
         .get_block(&attestation.data.beacon_block_root)
-        .map(|block| BlockShufflingIds {
+    {
+        // Reject any block that exceeds our limit on skipped slots.
+        if let Some(max_skip_slots) = max_skip_slots {
+            if attestation.data.slot > block.slot + max_skip_slots {
+                return Err(Error::TooManySkippedSlots {
+                    head_block_slot: block.slot,
+                    attestation_slot: attestation.data.slot,
+                });
+            }
+        }
+
+        Ok(BlockShufflingIds {
             current: block.current_epoch_shuffling_id,
             next: block.next_epoch_shuffling_id,
         })
-        .ok_or_else(|| Error::UnknownHeadBlock {
+    } else {
+        Err(Error::UnknownHeadBlock {
             beacon_block_root: attestation.data.beacon_block_root,
         })
+    }
 }
 
 /// Verify that the `attestation` is within the acceptable gossip propagation range, with reference
@@ -807,7 +831,12 @@ where
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
         let mut state = chain
-            .get_state(&target_block.state_root, Some(target_block.slot))?
+            .store
+            .get_inconsistent_state_for_attestation_verification_only(
+                &target_block.state_root,
+                Some(target_block.slot),
+            )
+            .map_err(BeaconChainError::from)?
             .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block.state_root))?;
 
         metrics::stop_timer(state_read_timer);
