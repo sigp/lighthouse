@@ -244,8 +244,6 @@ pub enum Error {
         attestation: Hash256,
         expected: Option<Hash256>,
     },
-    /// There was an error while verifying the indexed attestation for the slasher.
-    SlasherVerificationError(BlockOperationError<IndexedAttestationInvalid>),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -258,6 +256,19 @@ pub enum Error {
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Error::BeaconChainError(e)
+    }
+}
+
+#[derive(Debug)]
+enum SlasherVerificationError {
+    /// There was an error while verifying the indexed attestation for the slasher.
+    SignatureError(BlockOperationError<IndexedAttestationInvalid>),
+    BeaconChainError(BeaconChainError),
+}
+
+impl From<BeaconChainError> for SlasherVerificationError {
+    fn from(e: BeaconChainError) -> Self {
+        Self::BeaconChainError(e)
     }
 }
 
@@ -351,9 +362,15 @@ fn process_slash_info<T: BeaconChainTypes>(
                     VerifySignatures::True,
                     &chain.spec,
                 )
-                .map_err(Error::SlasherVerificationError)
+                .map_err(SlasherVerificationError::SignatureError)
             }) {
-                return e;
+                // FIXME(sproul): differentiate error from invalid sig.
+                debug!(
+                    chain.log,
+                    "Signature verification for slasher failed";
+                    "error" => format!("{:?}", e),
+                );
+                return err;
             }
         }
 
