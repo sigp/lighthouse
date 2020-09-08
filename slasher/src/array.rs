@@ -1,9 +1,11 @@
 use crate::{Config, Error, SlasherDB, SlashingStatus};
+use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use lmdb::{RwTransaction, Transaction};
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::convert::TryFrom;
+use std::io::Read;
 use std::sync::Arc;
 use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
 
@@ -138,11 +140,15 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         config: &Config,
     ) -> Result<Option<Self>, Error> {
         let disk_key = config.disk_key(validator_chunk_index, chunk_index);
-        match txn.get(Self::select_db(db), &disk_key.to_be_bytes()) {
-            Ok(chunk_bytes) => Ok(Some(bincode::deserialize(chunk_bytes)?)),
-            Err(lmdb::Error::NotFound) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        let chunk_bytes = match txn.get(Self::select_db(db), &disk_key.to_be_bytes()) {
+            Ok(chunk_bytes) => chunk_bytes,
+            Err(lmdb::Error::NotFound) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+
+        let chunk = bincode::deserialize_from(ZlibDecoder::new(chunk_bytes))?;
+
+        Ok(Some(chunk))
     }
 
     fn store<E: EthSpec>(
@@ -155,10 +161,14 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
     ) -> Result<(), Error> {
         let disk_key = config.disk_key(validator_chunk_index, chunk_index);
         let value = bincode::serialize(self)?;
+        let mut encoder = ZlibEncoder::new(&value[..], flate2::Compression::default());
+        let mut compressed_value = vec![];
+        encoder.read_to_end(&mut compressed_value)?;
+
         txn.put(
             Self::select_db(db),
             &disk_key.to_be_bytes(),
-            &value,
+            &compressed_value,
             SlasherDB::<E>::write_flags(),
         )?;
         Ok(())
