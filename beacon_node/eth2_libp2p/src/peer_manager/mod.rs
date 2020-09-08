@@ -225,28 +225,42 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .extend_peers_on_subnet(s.subnet_id, min_ttl);
                 }
                 // Already have target number of peers, no need for subnet discovery
-                if self
+                let peers_on_subnet = self
                     .network_globals
                     .peers
                     .read()
                     .peers_on_subnet(s.subnet_id)
-                    .count()
-                    >= TARGET_SUBNET_PEERS
-                {
+                    .count();
+                if peers_on_subnet >= TARGET_SUBNET_PEERS {
+                    debug!(
+                        self.log,
+                        "Discovery query ignored";
+                        "subnet_id" => format!("{:?}",s.subnet_id),
+                        "reason" => "Already connected to desired peers",
+                        "connected_peers_on_subnet" => peers_on_subnet,
+                        "target_subnet_peers" => TARGET_SUBNET_PEERS,
+                    );
                     false
                 // No need for costly discovery query if we find required peers in cached enrs
                 // Attempt to dial the cached enrs in discovery for peers in subnet id
                 // and check if we got required number of peers.
                 } else {
                     self.dial_cached_enrs_in_subnet(s.subnet_id);
-                    if self
+                    let peers_on_subnet = self
                         .network_globals
                         .peers
                         .read()
                         .peers_on_subnet(s.subnet_id)
-                        .count()
-                        >= TARGET_SUBNET_PEERS
-                    {
+                        .count();
+                    if peers_on_subnet >= TARGET_SUBNET_PEERS {
+                        debug!(
+                            self.log,
+                            "Discovery query ignored";
+                            "subnet_id" => format!("{:?}",s.subnet_id),
+                            "reason" => "Found desired peers in cached_enrs",
+                            "connected_peers_on_subnet" => peers_on_subnet,
+                            "target_subnet_peers" => TARGET_SUBNET_PEERS,
+                        );
                         false
                     } else {
                         true
