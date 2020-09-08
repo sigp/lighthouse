@@ -862,7 +862,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // them?
                 per_slot_processing(mut_state, Some(Hash256::zero()), &self.spec)?;
             }
-            mut_state.build_committee_cache(RelativeEpoch::Next, &self.spec)?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         }
 
         let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
