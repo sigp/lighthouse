@@ -5892,7 +5892,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "serde_utils",
  "serde_yaml",
  "slog",
  "swap_or_not_shuffle",
