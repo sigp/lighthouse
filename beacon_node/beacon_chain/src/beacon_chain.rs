@@ -853,16 +853,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if state.slot > slot {
             return Err(Error::CannotAttestToFutureState);
-        } else if state.current_epoch() + 1 < epoch {
+        } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            while mut_state.current_epoch() + 1 < epoch {
+            while mut_state.current_epoch() < epoch {
                 // Note: here we provide `Hash256::zero()` as the root of the current state. This
                 // has the effect of setting the values of all historic state roots to the zero
                 // hash. This is an optimization, we don't need the state roots so why calculate
                 // them?
                 per_slot_processing(mut_state, Some(Hash256::zero()), &self.spec)?;
             }
-            mut_state.build_committee_cache(RelativeEpoch::Next, &self.spec)?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         }
 
         let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
