@@ -563,7 +563,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     .peers_on_subnet(subnet_query.subnet_id)
                     .count();
 
-                if peers_on_subnet > TARGET_SUBNET_PEERS {
+                if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     debug!(self.log, "Discovery ignored";
                         "reason" => "Already connected to desired peers",
                         "connected_peers_on_subnet" => peers_on_subnet,
