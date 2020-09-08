@@ -31,12 +31,12 @@ use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec, SubnetId};
 
 mod subnet_predicate;
-use subnet_predicate::subnet_predicate;
+pub use subnet_predicate::subnet_predicate;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
 /// Target number of peers we'd like to have connected to a given long-lived subnet.
-const TARGET_SUBNET_PEERS: usize = 3;
+pub const TARGET_SUBNET_PEERS: usize = 3;
 /// Target number of peers to search for given a grouped subnet query.
 const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// Number of times to attempt a discovery request.
@@ -285,6 +285,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// Return the nodes local ENR.
     pub fn local_enr(&self) -> Enr {
         self.discv5.local_enr()
+    }
+
+    /// Return the cached enrs.
+    pub fn cached_enrs(&self) -> impl Iterator<Item = (&PeerId, &Enr)> {
+        self.cached_enrs.iter()
     }
 
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
