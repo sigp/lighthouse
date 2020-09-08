@@ -526,10 +526,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Apply a function to the canonical head without cloning it.
-    pub fn with_head<U>(
+    pub fn with_head<U, E>(
         &self,
-        f: impl FnOnce(&BeaconSnapshot<T::EthSpec>) -> Result<U, Error>,
-    ) -> Result<U, Error> {
+        f: impl FnOnce(&BeaconSnapshot<T::EthSpec>) -> Result<U, E>,
+    ) -> Result<U, E>
+    where
+        E: From<Error>,
+    {
         let head_lock = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
