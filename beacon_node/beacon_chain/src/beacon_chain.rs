@@ -37,9 +37,8 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation, per_block_processing,
-    per_block_processing::errors::AttestationValidationError,
-    per_block_processing::verify_attester_slashing, per_slot_processing, BlockSignatureStrategy,
-    SigVerifiedOp, VerifySignatures,
+    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+    BlockSignatureStrategy, SigVerifiedOp, VerifyOperation,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -1096,22 +1095,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let slashings = slasher.get_attester_slashings();
             debug!(self.log, "Ingesting {} slashings", slashings.len());
             for slashing in slashings {
-                if let Err(e) =
-                    verify_attester_slashing(state, &slashing, VerifySignatures::True, &self.spec)
-                {
-                    error!(
-                        self.log,
-                        "Slashing from slasher failed verification";
-                        "error" => format!("{:?}", e),
-                        "slashing" => format!("{:?}", slashing),
-                    );
-                    continue;
-                }
+                let verified_slashing = match slashing.clone().validate(state, &self.spec) {
+                    Ok(verified) => verified,
+                    Err(e) => {
+                        error!(
+                            self.log,
+                            "Slashing from slasher failed verification";
+                            "error" => format!("{:?}", e),
+                            "slashing" => format!("{:?}", slashing),
+                        );
+                        continue;
+                    }
+                };
 
-                // FIXME(sproul): remove `trust_me`
-                if let Err(e) =
-                    self.import_attester_slashing(SigVerifiedOp::trust_me(slashing.clone()))
-                {
+                if let Err(e) = self.import_attester_slashing(verified_slashing) {
                     error!(
                         self.log,
                         "Slashing from slasher is invalid";
