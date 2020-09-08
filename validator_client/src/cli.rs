@@ -59,6 +59,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             )
         )
         .arg(
+            Arg::with_name("strict-slashing-protection")
+            .long("strict-slashing-protection")
+            .help(
+                "If present, do not create a new slashing database. This is to ensure that users \
+                do not accidentally get slashed in case their slashing protection db ends up in the \
+                wrong directory during directory restructure and vc creates a new empty db and \
+                re-registers all validators."
+            )
+        )
+        .arg(
             Arg::with_name("disable-auto-discover")
             .long("disable-auto-discover")
             .help(
