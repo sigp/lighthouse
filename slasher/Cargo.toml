@@ -10,6 +10,7 @@ blake2b_simd = "0.5.10"
 byte-slice-cast = "0.3.5"
 environment = { path = "../lighthouse/environment" }
 eth2_ssz = { path = "../consensus/ssz" }
+eth2_ssz_derive = { path = "../consensus/ssz_derive" }
 flate2 = { version = "1.0.17", features = ["zlib"], default-features = false }
 lmdb = "0.8"
 parking_lot = "0.11.0"

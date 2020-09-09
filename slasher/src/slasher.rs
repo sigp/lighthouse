@@ -131,6 +131,7 @@ impl<E: EthSpec> Slasher<E> {
         subqueue_id: usize,
         attestation: &IndexedAttestation<E>,
     ) -> Result<Vec<AttesterSlashing<E>>, Error> {
+        let attestation_data_hash = attestation.data.tree_hash_root();
         let indexed_attestation_hash = attestation.tree_hash_root();
 
         let mut slashings = vec![];
@@ -143,6 +144,7 @@ impl<E: EthSpec> Slasher<E> {
                 txn,
                 validator_index,
                 &attestation,
+                attestation_data_hash,
                 indexed_attestation_hash,
             )?;
 

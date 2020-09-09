@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{Epoch, EthSpec, Hash256, IndexedAttestation};
 
-/// Map from `(validator_index, target_epoch)` to `indexed_attestation_hash`.
+/// Map from `(validator_index, target_epoch)` to `AttesterRecord`.
 const ATTESTER_DB: &str = "attester";
 /// Map from `indexed_attestation_hash` to `IndexedAttestation`.
 const INDEXED_ATTESTATION_DB: &str = "indexed_attestations";
@@ -50,6 +50,14 @@ impl AsRef<[u8]> for AttesterKey {
     fn as_ref(&self) -> &[u8] {
         &self.data
     }
+}
+
+#[derive(Debug, ssz_derive::Encode, ssz_derive::Decode)]
+pub struct AttesterRecord {
+    /// The hash of the attestation data, for checking double-voting.
+    attestation_data_hash: Hash256,
+    /// The hash of the indexed attestation, so it can be loaded.
+    indexed_attestation_hash: Hash256,
 }
 
 impl<E: EthSpec> SlasherDB<E> {
@@ -124,35 +132,39 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
         attestation: &IndexedAttestation<E>,
+        attestation_data_hash: Hash256,
         indexed_attestation_hash: Hash256,
     ) -> Result<SlashingStatus<E>, Error> {
-        // See if there's an existing indexed attestation for this attester.
-        if let Some(existing_hash) = self.get_attestation_hash_for_validator(
-            txn,
-            validator_index,
-            attestation.data.target.epoch,
-        )? {
-            // If the existing indexed attestation is identical, then this attestation is not
+        // See if there's an existing attestation for this attester.
+        if let Some(existing_record) =
+            self.get_attester_record(txn, validator_index, attestation.data.target.epoch)?
+        {
+            // If the existing attestation data is identical, then this attestation is not
             // slashable and no update is required.
-            if existing_hash == indexed_attestation_hash {
+            if existing_record.attestation_data_hash == attestation_data_hash {
                 return Ok(SlashingStatus::NotSlashable);
             }
 
-            // Otherwise, load the indexed attestation so we can check if it's slashable against
-            // the new one.
-            let existing_attestation = self.get_indexed_attestation(txn, existing_hash)?;
+            // Otherwise, load the indexed attestation so we can confirm that it's slashable.
+            let existing_attestation =
+                self.get_indexed_attestation(txn, existing_record.indexed_attestation_hash)?;
             if attestation.is_double_vote(&existing_attestation) {
                 Ok(SlashingStatus::DoubleVote(Box::new(existing_attestation)))
             } else {
+                // FIXME(sproul): this could be an Err
                 Ok(SlashingStatus::NotSlashable)
             }
         }
-        // If no indexed attestation exists, insert one for this attester.
+        // If no attestation exists, insert a record for this validator.
         else {
             txn.put(
                 self.attester_db,
                 &AttesterKey::new(validator_index, attestation.data.target.epoch, &self.config),
-                &indexed_attestation_hash,
+                &AttesterRecord {
+                    attestation_data_hash,
+                    indexed_attestation_hash,
+                }
+                .as_ssz_bytes(),
                 Self::write_flags(),
             )?;
             Ok(SlashingStatus::NotSlashable)
@@ -165,28 +177,33 @@ impl<E: EthSpec> SlasherDB<E> {
         validator_index: u64,
         target: Epoch,
     ) -> Result<Option<IndexedAttestation<E>>, Error> {
-        if let Some(hash) = self.get_attestation_hash_for_validator(txn, validator_index, target)? {
-            Ok(Some(self.get_indexed_attestation(txn, hash)?))
+        if let Some(record) = self.get_attester_record(txn, validator_index, target)? {
+            Ok(Some(self.get_indexed_attestation(
+                txn,
+                record.indexed_attestation_hash,
+            )?))
         } else {
             Ok(None)
         }
     }
 
-    pub fn get_attestation_hash_for_validator(
+    pub fn get_attester_record(
         &self,
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
         target: Epoch,
-    ) -> Result<Option<Hash256>, Error> {
+    ) -> Result<Option<AttesterRecord>, Error> {
         let attester_key = AttesterKey::new(validator_index, target, &self.config);
         match txn.get(self.attester_db, &attester_key) {
-            Ok(hash_bytes) => Ok(Some(hash256_from_slice(hash_bytes)?)),
+            Ok(bytes) => Ok(Some(AttesterRecord::from_ssz_bytes(bytes)?)),
             Err(lmdb::Error::NotFound) => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
 }
 
+// FIXME(sproul): consider using this to avoid allocations
+#[allow(unused)]
 fn hash256_from_slice(data: &[u8]) -> Result<Hash256, Error> {
     if data.len() == 32 {
         Ok(Hash256::from_slice(data))

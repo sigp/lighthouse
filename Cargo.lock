@@ -5125,6 +5125,7 @@ dependencies = [
  "criterion",
  "environment",
  "eth2_ssz",
+ "eth2_ssz_derive",
  "flate2",
  "lmdb",
  "parking_lot 0.11.0",
