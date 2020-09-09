@@ -321,7 +321,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .now()
             .ok_or_else(|| "Could not get the current slot")?;
 
-        // Calculate the duration to the subscription event and the duration to the end event.
+        // Calculate the duration to the unsubscription event.
         // There are two main cases. Attempting to subscribe to the current slot and all others.
         let expected_end_subscription_duration = {
             let duration_to_next_slot = self
@@ -334,24 +334,15 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 duration_to_next_slot
             } else {
                 let slot_duration = self.beacon_chain.slot_clock.slot_duration();
-                let advance_subscription_duration = slot_duration
-                    .checked_div(ADVANCE_SUBSCRIBE_TIME)
-                    .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
 
-                // calculate the time to subscribe to the subnet
-                let duration_to_subscribe = self
+                // the duration until we no longer need this subscription. We assume a single slot is
+                // sufficient.
+                let expected_end_subscription_duration = self
                     .beacon_chain
                     .slot_clock
                     .duration_to_slot(exact_subnet.slot)
                     .ok_or_else(|| "Unable to determine duration to subscription slot")?
-                    .checked_sub(advance_subscription_duration)
-                    .unwrap_or_else(|| Duration::from_secs(0));
-
-                // the duration until we no longer need this subscription. We assume a single slot is
-                // sufficient.
-                let expected_end_subscription_duration = duration_to_subscribe
-                    + slot_duration
-                    + std::cmp::min(advance_subscription_duration, duration_to_next_slot);
+                    + slot_duration;
 
                 expected_end_subscription_duration
             }
