@@ -576,14 +576,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.events.push(PeerManagerEvent::SocketUpdated(multiaddr));
     }
 
-    /// Dial cached enrs in discovery service that are in the given `subnet_id`.
+    /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
+    /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet_id: SubnetId) {
         let predicate = subnet_predicate::<TSpec>(vec![subnet_id], &self.log);
         let peers_to_dial: Vec<PeerId> = self
             .discovery()
             .cached_enrs()
             .filter_map(|(peer_id, enr)| {
-                if predicate(enr) {
+                let peers = self.network_globals.peers.read();
+                if predicate(enr)
+                    && !peers.is_connected_or_dialing(peer_id)
+                    && !peers.is_banned(peer_id)
+                {
                     Some(peer_id.clone())
                 } else {
                     None
