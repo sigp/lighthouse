@@ -2,7 +2,7 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use futures::prelude::*;
 use rand::seq::SliceRandom;
-use slog::{crit, debug, error, o, trace, warn};
+use slog::{debug, error, o, trace, warn};
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::GossipKind, NetworkGlobals, SubnetDiscovery};
@@ -76,7 +76,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     random_subnets: HashSetDelay<SubnetId>,
 
     /// A collection of timeouts for when to subscribe to a shard subnet.
-    subscriptions: HashSetDelay<ExactSubnet>,
+    subscriptions: HashSet<ExactSubnet>,
 
     /// A collection of timeouts for when to unsubscribe from a shard subnet.
     unsubscriptions: HashSetDelay<ExactSubnet>,
@@ -128,7 +128,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             network_globals,
             beacon_chain,
             random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
-            subscriptions: HashSetDelay::new(default_timeout),
+            subscriptions: HashSet::new(),
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
             known_validators: HashSetDelay::new(last_seen_val_timeout),
@@ -323,7 +323,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         // Calculate the duration to the subscription event and the duration to the end event.
         // There are two main cases. Attempting to subscribe to the current slot and all others.
-        let (duration_to_subscribe, expected_end_subscription_duration) = {
+        let expected_end_subscription_duration = {
             let duration_to_next_slot = self
                 .beacon_chain
                 .slot_clock
@@ -331,7 +331,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .ok_or_else(|| "Unable to determine duration to next slot")?;
 
             if current_slot >= exact_subnet.slot {
-                (Duration::from_secs(0), duration_to_next_slot)
+                duration_to_next_slot
             } else {
                 let slot_duration = self.beacon_chain.slot_clock.slot_duration();
                 let advance_subscription_duration = slot_duration
@@ -353,7 +353,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     + slot_duration
                     + std::cmp::min(advance_subscription_duration, duration_to_next_slot);
 
-                (duration_to_subscribe, expected_end_subscription_duration)
+                expected_end_subscription_duration
             }
         };
 
@@ -375,8 +375,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
 
         // We are not currently subscribed and have no waiting subscription, create one
-        self.subscriptions
-            .insert_at(exact_subnet.clone(), duration_to_subscribe);
+        self.subscriptions.insert(exact_subnet.clone());
+        self.handle_subscriptions(exact_subnet.clone());
 
         // if there is an unsubscription event for the slot prior, we remove it to prevent
         // unsubscriptions immediately after the subscription. We also want to minimize
@@ -528,10 +528,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         debug!(self.log, "Unsubscribing from subnet"; "subnet" => *exact_subnet.subnet_id, "processed_slot" => exact_subnet.slot.as_u64());
 
-        // various logic checks
-        if self.subscriptions.contains(&exact_subnet) {
-            crit!(self.log, "Unsubscribing from a subnet in subscriptions");
-        }
+        // Remove the subscription from set of subscribed exact_subnets
+        self.subscriptions.remove(&exact_subnet);
         self.events
             .push_back(AttServiceMessage::Unsubscribe(exact_subnet.subnet_id));
     }
@@ -630,15 +628,6 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             }
         } else {
             self.waker = Some(cx.waker().clone());
-        }
-
-        // process any subscription events
-        match self.subscriptions.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok(exact_subnet))) => self.handle_subscriptions(exact_subnet),
-            Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for subnet subscription times"; "error"=> e);
-            }
-            Poll::Ready(None) | Poll::Pending => {}
         }
 
         // process any un-subscription events
