@@ -561,33 +561,17 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             &mut rand::thread_rng(),
             random_subnets_per_validator as usize,
         );
-        let current_slot = self.beacon_chain.slot_clock.now().ok_or_else(|| {
-            warn!(self.log, "Could not get the current slot");
-        })?;
 
         for subnet_id in to_remove_subnets {
-            // If a subscription is queued for two slots in the future, it's associated unsubscription
-            // will unsubscribe from the expired subnet.
-            // If there is no unsubscription for this subnet,slot it is safe to add one, without
-            // unsubscribing early from a required subnet
-            let subnet = ExactSubnet {
-                subnet_id: *subnet_id,
-                slot: current_slot + 2,
-            };
-            if self.unsubscriptions.get(&subnet).is_none() {
-                // set an unsubscribe event
-                let duration_to_next_slot = self
-                    .beacon_chain
-                    .slot_clock
-                    .duration_to_next_slot()
-                    .ok_or_else(|| {
-                        warn!(self.log, "Unable to determine duration to next slot");
-                    })?;
-                let slot_duration = self.beacon_chain.slot_clock.slot_duration();
-                // Set the unsubscription timeout
-                let unsubscription_duration = duration_to_next_slot + slot_duration * 2;
-                self.unsubscriptions
-                    .insert_at(subnet, unsubscription_duration);
+            // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
+            if self
+                .unsubscriptions
+                .keys()
+                .find(|s| s.subnet_id == *subnet_id)
+                .is_none()
+            {
+                self.events
+                    .push_back(AttServiceMessage::Unsubscribe(*subnet_id));
             }
             // as the long lasting subnet subscription is being removed, remove the subnet_id from
             // the ENR bitfield
