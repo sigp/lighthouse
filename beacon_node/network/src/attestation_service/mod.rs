@@ -319,29 +319,21 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         // Calculate the duration to the unsubscription event.
         // There are two main cases. Attempting to subscribe to the current slot and all others.
-        let expected_end_subscription_duration = {
-            let duration_to_next_slot = self
-                .beacon_chain
+        let expected_end_subscription_duration = if current_slot >= exact_subnet.slot {
+            self.beacon_chain
                 .slot_clock
                 .duration_to_next_slot()
-                .ok_or_else(|| "Unable to determine duration to next slot")?;
+                .ok_or_else(|| "Unable to determine duration to next slot")?
+        } else {
+            let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
-            if current_slot >= exact_subnet.slot {
-                duration_to_next_slot
-            } else {
-                let slot_duration = self.beacon_chain.slot_clock.slot_duration();
-
-                // the duration until we no longer need this subscription. We assume a single slot is
-                // sufficient.
-                let expected_end_subscription_duration = self
-                    .beacon_chain
-                    .slot_clock
-                    .duration_to_slot(exact_subnet.slot)
-                    .ok_or_else(|| "Unable to determine duration to subscription slot")?
-                    + slot_duration;
-
-                expected_end_subscription_duration
-            }
+            // the duration until we no longer need this subscription. We assume a single slot is
+            // sufficient.
+            self.beacon_chain
+                .slot_clock
+                .duration_to_slot(exact_subnet.slot)
+                .ok_or_else(|| "Unable to determine duration to subscription slot")?
+                + slot_duration
         };
 
         // Regardless of whether or not we have already subscribed to a subnet, track the expiration
