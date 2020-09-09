@@ -15,7 +15,8 @@ fn main() {
     for testnet in ETH2_NET_DIRS {
         let testnet_dir = testnet.dir();
         let archive_fullpath = testnet.archive_fullpath();
-
+        println!("archive fullpath: {:?}", archive_fullpath);
+        
         if !testnet_dir.exists() && archive_fullpath.exists() {
             //uncompress archive and continue            
             let archive_file = File::open(&archive_fullpath).unwrap();
