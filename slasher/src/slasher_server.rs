@@ -20,7 +20,8 @@ impl SlasherServer {
         let sub_executor = executor.clone();
         executor.spawn(
             async move {
-                // FIXME: read slot time from config, align to some fraction of each slot
+                // FIXME(sproul): read slot time from config, align to some fraction of each slot
+                // FIXME(sproul): queue updates, don't run them in parallel
                 let slot_clock = Arc::new(slot_clock);
                 let mut interval = interval_at(Instant::now(), Duration::from_secs(12));
                 while interval.next().await.is_some() {

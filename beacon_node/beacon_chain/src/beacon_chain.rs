@@ -1093,7 +1093,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn ingest_slashings_to_op_pool(&self, state: &BeaconState<T::EthSpec>) {
         if let Some(slasher) = self.slasher.as_ref() {
             let slashings = slasher.get_attester_slashings();
-            debug!(self.log, "Ingesting {} slashings", slashings.len());
+
+            if !slashings.is_empty() {
+                debug!(self.log, "Ingesting {} slashings", slashings.len());
+            }
+
             for slashing in slashings {
                 let verified_slashing = match slashing.clone().validate(state, &self.spec) {
                     Ok(verified) => verified,
@@ -1559,6 +1563,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(attestation_observation_timer);
 
+        // FIXME(sproul): add timer
+        if let Some(slasher) = self.slasher.as_ref() {
+            for attestation in &signed_block.message.body.attestations {
+                let committee =
+                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+                let indexed_attestation =
+                    get_indexed_attestation(&committee.committee, attestation)
+                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                slasher.accept_attestation(indexed_attestation);
+            }
+        }
+
         // If there are new validators in this block, update our pubkey cache.
         //
         // We perform this _before_ adding the block to fork choice because the pubkey cache is
@@ -2000,6 +2016,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             || is_reorg
         {
             self.persist_head_and_fork_choice()?;
+            self.ingest_slashings_to_op_pool(&new_head.beacon_state);
+            self.persist_op_pool()?;
         }
 
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
