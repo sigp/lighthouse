@@ -16,7 +16,7 @@ fn main() {
         let testnet_dir = testnet.dir();
         let archive_fullpath = testnet.archive_fullpath();
         println!("archive fullpath: {:?}", archive_fullpath);
-        
+
         if !testnet_dir.exists() && archive_fullpath.exists() {
             //uncompress archive and continue            
             let archive_file = File::open(&archive_fullpath).unwrap();
@@ -30,15 +30,19 @@ fn uncompress(archive_file: File) {
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).unwrap();
         let outpath = file.sanitized_name();
-
-        if let Some(p) = outpath.parent() {
-            if !p.exists() {
-                fs::create_dir_all(&p).unwrap();
-            }            
+        
+        if (file.name().ends_with('/')) {
+            fs::create_dir_all(&outpath).unwrap();
+        } else {
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    fs::create_dir_all(&p).unwrap();
+                }            
+            }
+    
+            let mut outfile = File::create(&outpath).unwrap();
+            io::copy(&mut file, &mut outfile).unwrap();
         }
-
-        let mut outfile = File::create(&outpath).unwrap();
-        io::copy(&mut file, &mut outfile).unwrap();
     }
 }
 
