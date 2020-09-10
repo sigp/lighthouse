@@ -84,7 +84,6 @@ macro_rules! unique_id {
     ($name: tt, $commit: tt) => {
         concat!("testnet_", $name, "_", $commit, ".zip");
     };
-    
 }
 
 macro_rules! define_net {

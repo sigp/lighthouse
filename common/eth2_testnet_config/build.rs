@@ -3,13 +3,14 @@
 use eth2_config::{altona, medalla, Eth2NetArchiveAndDirectory};
 use handlebars::Handlebars;
 use serde_json::json;
+use std::fs;
 use std::fs::File;
+use std::io;
 use std::io::Write;
 use zip::ZipArchive;
-use std::fs;
-use std::io;
 
-const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[altona::ETH2_NET_DIR, medalla::ETH2_NET_DIR];
+const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] =
+    &[altona::ETH2_NET_DIR, medalla::ETH2_NET_DIR];
 
 fn main() {
     for testnet in ETH2_NET_DIRS {
@@ -18,7 +19,7 @@ fn main() {
         println!("archive fullpath: {:?}", archive_fullpath);
 
         if !testnet_dir.exists() && archive_fullpath.exists() {
-            //uncompress archive and continue            
+            //uncompress archive and continue
             let archive_file = File::open(&archive_fullpath).unwrap();
             uncompress(archive_file);
         }
@@ -30,16 +31,16 @@ fn uncompress(archive_file: File) {
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).unwrap();
         let outpath = file.sanitized_name();
-        
+
         if (file.name().ends_with('/')) {
             fs::create_dir_all(&outpath).unwrap();
         } else {
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
                     fs::create_dir_all(&p).unwrap();
-                }            
+                }
             }
-    
+
             let mut outfile = File::create(&outpath).unwrap();
             io::copy(&mut file, &mut outfile).unwrap();
         }
