@@ -1,12 +1,9 @@
 //! Downloads a testnet configuration from Github.
 
 use eth2_config::{altona, medalla, Eth2NetArchiveAndDirectory};
-use handlebars::Handlebars;
-use serde_json::json;
 use std::fs;
 use std::fs::File;
 use std::io;
-use std::io::Write;
 use zip::ZipArchive;
 
 const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] =
