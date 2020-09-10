@@ -42,10 +42,7 @@ impl Deref for ErrorType {
 
 impl ToString for ErrorType {
     fn to_string(&self) -> String {
-        match std::str::from_utf8(self.0.deref()) {
-            Ok(s) => s.to_string(),
-            Err(_) => format!("{:?}", self.0.deref()), // Display raw bytes if not a UTF-8 string
-        }
+        String::from_utf8_lossy(self.0.deref()).into_owned()
     }
 }
 
