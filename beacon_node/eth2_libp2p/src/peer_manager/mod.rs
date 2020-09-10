@@ -241,30 +241,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     );
                     false
-                // No need for costly discovery query if we find required peers in cached enrs
-                // Attempt to dial the cached enrs in discovery for peers in subnet id
-                // and check if we got required number of peers.
+                // Queue an outgoing connection request to the cached peers that are on `s.subnet_id`.
+                // If we connect to the cached peers before the discovery query starts, then we potentially
+                // save a costly discovery query.
                 } else {
                     self.dial_cached_enrs_in_subnet(s.subnet_id);
-                    let peers_on_subnet = self
-                        .network_globals
-                        .peers
-                        .read()
-                        .peers_on_subnet(s.subnet_id)
-                        .count();
-                    if peers_on_subnet >= TARGET_SUBNET_PEERS {
-                        debug!(
-                            self.log,
-                            "Discovery query ignored";
-                            "subnet_id" => format!("{:?}",s.subnet_id),
-                            "reason" => "Found desired peers in cached_enrs",
-                            "connected_peers_on_subnet" => peers_on_subnet,
-                            "target_subnet_peers" => TARGET_SUBNET_PEERS,
-                        );
-                        false
-                    } else {
-                        true
-                    }
+                    true
                 }
             })
             .collect();
