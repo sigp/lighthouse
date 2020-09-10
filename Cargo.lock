@@ -1521,6 +1521,7 @@ dependencies = [
  "lru",
  "parking_lot 0.11.0",
  "rand 0.7.3",
+ "regex",
  "serde",
  "serde_derive",
  "sha2 0.9.1",
