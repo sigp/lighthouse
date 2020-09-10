@@ -53,7 +53,6 @@ pub struct Eth2NetArchiveAndDirectory<'a> {
     pub unique_id: &'a str,
     pub archive_name: &'a str,
     pub commit: &'a str,
-    pub url_template: &'a str,
     pub genesis_is_known: bool,
 }
 
@@ -87,7 +86,7 @@ macro_rules! unique_id {
 }
 
 macro_rules! define_net {
-    ($title: ident, $macro_title: tt, $name: tt, $commit: tt, $url_template: tt, $genesis_is_known: tt) => {
+    ($title: ident, $macro_title: tt, $name: tt, $commit: tt, $genesis_is_known: tt) => {
         #[macro_use]
         pub mod $title {
             use super::*;
@@ -97,7 +96,6 @@ macro_rules! define_net {
                 unique_id: unique_id!($name, $commit, $genesis_is_known),
                 archive_name: unique_id!($name, $commit),
                 commit: $commit,
-                url_template: $url_template,
                 genesis_is_known: $genesis_is_known,
             };
 
@@ -123,7 +121,6 @@ define_net!(
     include_altona_file,
     "altona",
     "a94e00c1a03df851f960fcf44a79f2a6b1d29af1",
-    "https://raw.githubusercontent.com/sigp/witti/{{ commit }}/altona/lighthouse/{{ file }}",
     true
 );
 
@@ -132,7 +129,6 @@ define_net!(
     include_medalla_file,
     "medalla",
     "09bbf2c9d108944ac934f94ec6a1d0684ca062a5",
-    "https://raw.githubusercontent.com/sigp/witti/{{ commit }}/medalla/{{ file }}",
     true
 );
 

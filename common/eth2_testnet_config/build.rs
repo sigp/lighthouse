@@ -16,81 +16,51 @@ fn main() {
     for testnet in ETH2_NET_DIRS {
         let testnet_dir = testnet.dir();
         let archive_fullpath = testnet.archive_fullpath();
-        println!("archive fullpath: {:?}", archive_fullpath);
+        //no need to do anything if archives have already been uncompressed before
+        if !testnet_dir.exists() {
+            if archive_fullpath.exists() {
+                //uncompress archive and continue
+                let archive_file = match File::open(&archive_fullpath) {
+                    Ok(f) => f,
+                    Err(e) => panic!("Problem opening archive file: {}", e)
+                };
 
-        if !testnet_dir.exists() && archive_fullpath.exists() {
-            //uncompress archive and continue
-            let archive_file = File::open(&archive_fullpath).unwrap();
-            uncompress(archive_file);
+                match uncompress(archive_file) {
+                    Ok(_) => (),
+                    Err(e) => panic!(e)
+                };               
+            } else {
+                panic!("Couldn't find testnet archive at this location: {:?}", archive_fullpath);
+            }
         }
     }
 }
 
-fn uncompress(archive_file: File) {
-    let mut archive = ZipArchive::new(archive_file).unwrap();
+fn uncompress(archive_file: File) -> Result<(), String> {
+    let mut archive = ZipArchive::new(archive_file).map_err(|e| format!("Error with zip file: {}", e))?;
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i).unwrap();
+        let mut file = archive.by_index(i)
+        .map_err(|e| format!("Error retrieving file {} inside zip: {}", i, e))?;
+
         let outpath = file.sanitized_name();
 
-        if (file.name().ends_with('/')) {
-            fs::create_dir_all(&outpath).unwrap();
+        if file.name().ends_with('/') {
+            fs::create_dir_all(&outpath)
+            .map_err(|e| format!("Error creating testnet directories: {}", e))?;
         } else {
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
-                    fs::create_dir_all(&p).unwrap();
+                    fs::create_dir_all(&p)
+                    .map_err(|e| format!("Error creating testnet directories: {}", e))?;
                 }
             }
 
-            let mut outfile = File::create(&outpath).unwrap();
-            io::copy(&mut file, &mut outfile).unwrap();
+            let mut outfile = File::create(&outpath)
+            .map_err(|e| format!("Error while creating file {:?}: {}", outpath, e))?;
+            io::copy(&mut file, &mut outfile)
+            .map_err(|e| format!("Error writing file {:?}: {}", outpath, e))?;
         }
     }
-}
-
-fn get_all_files(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
-    get_file(testnet, "boot_enr.yaml")?;
-    get_file(testnet, "config.yaml")?;
-    get_file(testnet, "deploy_block.txt")?;
-    get_file(testnet, "deposit_contract.txt")?;
-
-    if testnet.genesis_is_known {
-        get_file(testnet, "genesis.ssz")?;
-    } else {
-        File::create(testnet.dir().join("genesis.ssz")).unwrap();
-    }
-
-    Ok(())
-}
-
-fn get_file(testnet: &Eth2NetArchiveAndDirectory, filename: &str) -> Result<(), String> {
-    let url = Handlebars::new()
-        .render_template(
-            testnet.url_template,
-            &json!({"commit": testnet.commit, "file": filename}),
-        )
-        .unwrap();
-
-    let path = testnet.dir().join(filename);
-
-    let mut file =
-        File::create(path).map_err(|e| format!("Failed to create {}: {:?}", filename, e))?;
-
-    let request = reqwest::blocking::Client::builder()
-        .build()
-        .map_err(|_| "Could not build request client".to_string())?
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(120));
-
-    let contents = request
-        .send()
-        .map_err(|e| format!("Failed to download {}: {}", filename, e))?
-        .error_for_status()
-        .map_err(|e| format!("Error downloading {}: {}", filename, e))?
-        .bytes()
-        .map_err(|e| format!("Failed to read {} response bytes: {}", filename, e))?;
-
-    file.write(&contents)
-        .map_err(|e| format!("Failed to write to {}: {:?}", filename, e))?;
 
     Ok(())
 }
