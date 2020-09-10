@@ -1,6 +1,7 @@
 //! Available RPC methods types and ids.
 
 use crate::types::EnrBitfield;
+use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
@@ -42,10 +43,9 @@ impl Deref for ErrorType {
 
 impl ToString for ErrorType {
     fn to_string(&self) -> String {
-        match std::str::from_utf8(self.0.deref()) {
-            Ok(s) => s.to_string(),
-            Err(_) => format!("{:?}", self.0.deref()), // Display raw bytes if not a UTF-8 string
-        }
+        #[allow(clippy::invalid_regex)]
+        let re = Regex::new("\\p{C}").expect("Regex is valid");
+        String::from_utf8_lossy(&re.replace_all(self.0.deref(), &b""[..])).to_string()
     }
 }
 
