@@ -564,7 +564,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                  */
                 trace!(
                     self.log,
-                    "Attestation is not within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots ";
+                    "Attestation is not within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots";
                     "peer_id" => peer_id.to_string(),
                     "block" => format!("{}", beacon_block_root),
                     "type" => format!("{:?}", attestation_type),
