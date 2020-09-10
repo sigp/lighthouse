@@ -2,7 +2,7 @@
 
 An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
 
-[![Build Status]][Build Link] [![Book Status]][Book Link] [![RustDoc Status]][RustDoc Link] [![Chat Badge]][Chat Link]
+[![Build Status]][Build Link] [![Book Status]][Book Link] [![Chat Badge]][Chat Link]
 
 [Build Status]: https://github.com/sigp/lighthouse/workflows/test-suite/badge.svg?branch=master
 [Build Link]: https://github.com/sigp/lighthouse/actions
@@ -10,8 +10,6 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Chat Link]: https://discord.gg/cyAszAh
 [Book Status]:https://img.shields.io/badge/user--docs-master-informational
 [Book Link]: http://lighthouse-book.sigmaprime.io/
-[RustDoc Status]:https://img.shields.io/badge/code--docs-master-orange
-[RustDoc Link]: http://lighthouse-docs.sigmaprime.io/
 
 [Documentation](http://lighthouse-book.sigmaprime.io/)
 
@@ -58,9 +56,6 @@ Current development overview:
 
 The [Lighthouse Book](http://lighthouse-book.sigmaprime.io/) contains information
 for testnet users and developers.
-
-Code documentation is generated via `cargo doc` and hosted at
-[lighthouse-docs.sigmaprime.io](http://lighthouse-docs.sigmaprime.io/).
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or
