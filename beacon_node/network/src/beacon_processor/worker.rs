@@ -7,7 +7,7 @@ use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
-use eth2_libp2p::{MessageAcceptance, MessageId, PeerId};
+use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use ssz::Encode;
 use std::sync::Arc;
@@ -234,7 +234,12 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => e.to_string());
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
+                self.penalize_peer(peer_id, PeerAction::LowToleranceError);
                 return;
             }
         };
@@ -252,9 +257,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => peer_id.to_string()
                 );
 
-                // TODO: It would be better if we can run this _after_ we publish the block to
-                // reduce block propagation latency.
-                //
                 // The `MessageHandler` would be the place to put this, however it doesn't seem
                 // to have a reference to the `BeaconChain`. I will leave this for future
                 // works.
@@ -290,6 +292,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block root" => format!("{}", block.canonical_root()),
                     "block slot" => block.slot()
                 );
+                self.penalize_peer(peer_id, PeerAction::MidToleranceError);
                 trace!(
                     self.log,
                     "Invalid gossip beacon block ssz";
@@ -333,7 +336,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // These errors occur due to a fault in the beacon chain. It is not necessarily
                 // the fault on the peer.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
+                );
+                // We still penalize a peer slightly to prevent overuse of invalids.
+                self.penalize_peer(peer_id, PeerAction::HighToleranceError);
                 return;
             }
         };
@@ -382,7 +391,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
+                );
+
+                // Penalize peer slightly for invalids.
+                self.penalize_peer(peer_id, PeerAction::HighToleranceError);
                 return;
             }
         };
@@ -425,7 +441,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Ignore,
+                );
+                // Penalize peer slightly for invalids.
+                self.penalize_peer(peer_id, PeerAction::HighToleranceError);
                 return;
             }
         };
@@ -497,6 +519,18 @@ impl<T: BeaconChainTypes> Worker<T> {
             });
     }
 
+    /// Penalizes a peer for misbehaviour.
+    fn penalize_peer(&self, peer_id: PeerId, action: PeerAction) {
+        self.network_tx
+            .send(NetworkMessage::ReportPeer { peer_id, action })
+            .unwrap_or_else(|_| {
+                warn!(
+                    self.log,
+                    "Could not send peer action to the network service"
+                )
+            });
+    }
+
     /// Send a message to `sync_tx`.
     ///
     /// Creates a log if there is an interal error.
@@ -533,6 +567,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {
                 /*
@@ -545,6 +580,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::EmptyAggregationBitfield => {
                 /*
@@ -559,6 +595,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::AggregatorPubkeyUnknown(_) => {
                 /*
@@ -579,6 +616,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::AggregatorNotInCommittee { .. } => {
                 /*
@@ -599,6 +637,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::AttestationAlreadyKnown { .. } => {
                 /*
@@ -662,6 +701,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 // Note: its a little bit unclear as to whether or not this block is unknown or
@@ -714,6 +754,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::BadTargetEpoch => {
                 /*
@@ -727,6 +768,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::NoCommitteeForSlotAndIndex { .. } => {
                 /*
@@ -739,6 +781,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::NotExactlyOneAggregationBitSet(_) => {
                 /*
@@ -751,6 +794,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::AttestsToFutureBlock { .. } => {
                 /*
@@ -763,6 +807,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
 
             AttnError::InvalidSubnetId { received, expected } => {
@@ -780,6 +825,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::Invalid(_) => {
                 /*
@@ -792,6 +838,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::TooManySkippedSlots {
                 head_block_slot,
@@ -815,6 +862,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Reject,
                 );
+                self.penalize_peer(peer_id.clone(), PeerAction::MidToleranceError);
             }
             AttnError::BeaconChainError(e) => {
                 /*
@@ -835,6 +883,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id.clone(),
                     MessageAcceptance::Ignore,
                 );
+                // Penalize the peer slightly
+                self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
             }
         }
 
