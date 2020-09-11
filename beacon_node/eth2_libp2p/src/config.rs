@@ -85,9 +85,9 @@ impl Default for Config {
         ];
 
         // The function used to generate a gossipsub message id
-        // We use the first 20 bytes of SHA256(data) for content addressing
+        // We use the first 8 bytes of SHA256(data) for content addressing
         let gossip_message_id =
-            |message: &GossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..20]);
+            |message: &GossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..8]);
 
         // gossipsub configuration
         // Note: The topics by default are sent as plain strings. Hashes are an optional
