@@ -23,6 +23,7 @@ pub use eth2_wallet::PlainText;
 /// 62**48 is greater than 255**32, therefore this password has more bits of entropy than a byte
 /// array of length 32.
 const DEFAULT_PASSWORD_LEN: usize = 48;
+const MINIMUM_PASSWORD_LEN: usize = 8;
 
 /// Returns the "default" path where a wallet should store its password file.
 pub fn default_wallet_password_path<P: AsRef<Path>>(wallet_name: &str, secrets_dir: P) -> PathBuf {
@@ -124,6 +125,30 @@ pub fn read_mnemonic_from_user(use_stdin: bool) -> Result<String, String> {
     Ok(input)
 }
 
+/// Takes a string password and checks that it meets a minimum complexity requirement.
+///
+/// The current minimum password requirements are an 8 character length, one symbol, one uppercase
+/// character, and one lowercase character.
+pub fn is_password_sufficiently_complex(password: &[u8]) -> bool {
+    let mut has_symbol = false;
+    let mut has_uppercase = false;
+    let mut has_lowercase = false;
+
+    for c in password {
+        if !has_symbol && !(*c as char).is_alphanumeric() {
+            has_symbol = true;
+        };
+        if !has_uppercase && !(*c as char).is_uppercase() {
+            has_uppercase = true;
+        };
+        if !has_lowercase && !(*c as char).is_lowercase() {
+            has_lowercase = true;
+        };
+    };
+
+    has_symbol && has_uppercase && has_lowercase && password.len() >= MINIMUM_PASSWORD_LEN
+}
+
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
@@ -147,6 +172,7 @@ impl AsRef<[u8]> for ZeroizeString {
 #[cfg(test)]
 mod test {
     use super::strip_off_newlines;
+    use super::is_password_sufficiently_complex;
 
     #[test]
     fn test_strip_off() {
@@ -180,5 +206,30 @@ mod test {
             strip_off_newlines("hello world".as_bytes().to_vec()),
             expected
         );
+    }
+
+    #[test]
+    fn test_adequate_password() {
+        assert!(is_password_sufficiently_complex(b"TestPassword!"))
+    }
+
+    #[test]
+    fn test_password_too_short() {
+        assert!(!is_password_sufficiently_complex(b"TestPW!"))
+    }
+
+    #[test]
+    fn test_password_no_symbol() {
+        assert!(!is_password_sufficiently_complex(b"TestPassword"))
+    }
+
+    #[test]
+    fn test_password_no_uppercase() {
+        assert!(!is_password_sufficiently_complex(b"testpassword!"))
+    }
+
+    #[test]
+    fn test_password_no_lowercase() {
+        assert!(!is_password_sufficiently_complex(b"TESTPASSWORD!"))
     }
 }
