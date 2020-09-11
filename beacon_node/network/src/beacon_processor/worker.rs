@@ -562,12 +562,18 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
                  */
+                trace!(
+                    self.log,
+                    "Attestation is not within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots";
+                    "peer_id" => peer_id.to_string(),
+                    "block" => format!("{}", beacon_block_root),
+                    "type" => format!("{:?}", attestation_type),
+                );
                 self.propagate_validation_result(
                     message_id,
                     peer_id.clone(),
-                    MessageAcceptance::Reject,
+                    MessageAcceptance::Ignore,
                 );
-                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
             AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {
                 /*
