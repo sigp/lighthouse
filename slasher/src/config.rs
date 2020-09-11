@@ -6,6 +6,7 @@ use types::{Epoch, EthSpec, IndexedAttestation};
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
 pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
 pub const DEFAULT_HISTORY_LENGTH: usize = 54_000;
+pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -14,6 +15,8 @@ pub struct Config {
     pub validator_chunk_size: usize,
     /// Number of epochs of history to keep.
     pub history_length: usize,
+    /// Update frequency in seconds.
+    pub update_period: u64,
 }
 
 impl Config {
@@ -23,6 +26,7 @@ impl Config {
             chunk_size: DEFAULT_CHUNK_SIZE,
             validator_chunk_size: DEFAULT_VALIDATOR_CHUNK_SIZE,
             history_length: DEFAULT_HISTORY_LENGTH,
+            update_period: DEFAULT_UPDATE_PERIOD,
         }
     }
 

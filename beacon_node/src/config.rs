@@ -354,7 +354,15 @@ pub fn get_config<E: EthSpec>(
         } else {
             client_config.data_dir.join("slasher_db")
         };
-        client_config.slasher = Some(slasher::Config::new(slasher_dir));
+
+        let mut slasher_config = slasher::Config::new(slasher_dir);
+
+        if let Some(update_period) = clap_utils::parse_optional(cli_args, "slasher-update-period")?
+        {
+            slasher_config.update_period = update_period;
+        }
+
+        client_config.slasher = Some(slasher_config);
     }
 
     Ok(client_config)

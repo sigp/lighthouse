@@ -339,6 +339,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .value_name("DIR")
                 .takes_value(true)
+                .requires("slasher")
+        )
+        .arg(
+            Arg::with_name("slasher-update-period")
+                .long("slasher-update-period")
+                .help(
+                    "Configure how often the slasher runs batch processing."
+                )
+                .value_name("SECONDS")
+                .requires("slasher")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("wss-checkpoint")

@@ -23,12 +23,13 @@ impl SlasherServer {
         // don't need to burden them with more work (we can wait).
         let (sender, receiver) = sync_channel(1);
         let log = slasher.log.clone();
+        let update_period = slasher.config().update_period;
 
         executor.spawn(
             async move {
                 // FIXME(sproul): read slot time from config, align to some fraction of each slot
                 let slot_clock = Arc::new(slot_clock);
-                let mut interval = interval_at(Instant::now(), Duration::from_secs(12));
+                let mut interval = interval_at(Instant::now(), Duration::from_secs(update_period));
                 while interval.next().await.is_some() {
                     if let Some(current_slot) = slot_clock.clone().now() {
                         let current_epoch = current_slot.epoch(E::slots_per_epoch());
