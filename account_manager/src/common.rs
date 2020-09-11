@@ -1,4 +1,4 @@
-use account_utils::PlainText;
+use account_utils::{PlainText, read_password_from_user, ZeroizeString, is_password_sufficiently_complex};
 use account_utils::{read_mnemonic_from_user, strip_off_newlines};
 use clap::ArgMatches;
 use eth2_wallet::bip39::{Language, Mnemonic};
@@ -10,6 +10,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 pub const MNEMONIC_PROMPT: &str = "Enter the mnemonic phrase:";
+pub const WALLET_PASSWORD_PROMPT: &str = "Enter the wallet password:";
 
 pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
     let path = path.as_ref();
@@ -67,4 +68,30 @@ pub fn read_mnemonic_from_cli(
         },
     };
     Ok(mnemonic)
+}
+
+pub fn read_wallet_password_from_cli(
+    password_file_path: Option<PathBuf>,
+) -> Result<PlainText, String> {
+    let password = match password_file_path {
+        Some(path) => {
+            fs::read(&path)
+                .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
+                .map(|bytes|
+                         strip_off_newlines(bytes).into())?
+        },
+        None => {
+            loop {
+                eprintln!("");
+                eprintln!("{}", WALLET_PASSWORD_PROMPT);
+                let password =  PlainText::from(read_password_from_user(stdin_password)?.as_ref().into_vec());
+                if is_password_sufficiently_complex(password.as_bytes()) {
+                    break password
+                }
+                eprintln!("Please use at least ."); //TODO: add requirements
+            }
+        }
+    };
+
+
 }

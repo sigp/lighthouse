@@ -39,7 +39,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("WALLET_PASSWORD_PATH")
                 .help("A path to a file containing the password which will unlock the wallet.")
                 .takes_value(true)
-                .required(true),
         )
         .arg(
             Arg::with_name(VALIDATOR_DIR_FLAG)
@@ -109,7 +108,6 @@ pub fn cli_run<T: EthSpec>(
     let spec = env.core_context().eth2_config.spec;
 
     let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, WALLET_PASSWORD_FLAG)?;
     let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
         VALIDATOR_DIR_FLAG,
@@ -151,9 +149,9 @@ pub fn cli_run<T: EthSpec>(
         return Ok(());
     }
 
-    let wallet_password = fs::read(&wallet_password_path)
-        .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+    let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, WALLET_PASSWORD_FLAG)?;
+
+    let wallet_password =
 
     let mgr = WalletManager::open(&wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
