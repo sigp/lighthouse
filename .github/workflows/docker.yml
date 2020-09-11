@@ -21,7 +21,7 @@ jobs:
             -   name: Build Docker Buildx
                 run: |
                     export DOCKER_BUILDKIT=1;
-                    docker build --platform=local -o . moby/buildkit:master;
+                    docker build --platform=local -o . git://github.com/docker/buildx;
                     mkdir -p ~/.docker/cli-plugins;
                     mv buildx ~/.docker/cli-plugins/docker-buildx;
 
@@ -29,7 +29,7 @@ jobs:
                 env:
                     DOCKER_ARM_HOST: ${{ secrets.DOCKER_ARM_HOST }}
                 run: |
-                    docker buildx create --use --name cross-builder cross-node;
+                    docker buildx create --use --name cross-builder;
 
             -   name: Build dockerfile (with push)
                 run: |
