@@ -256,7 +256,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     .iter_mut()
                     .enumerate()
                     .find(|(iter_index, chain)| {
-                        *iter_index != index && chain.peer_pool.len() > syncing_chain_peer_count
+                        false
+                            && *iter_index != index
+                            && chain.peer_pool.len() > syncing_chain_peer_count
                     })
             {
                 // A chain has more peers. Swap the syncing chain
