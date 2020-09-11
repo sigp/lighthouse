@@ -1,9 +1,8 @@
-use crate::{Config, Error, SlashingStatus};
+use crate::{AttesterRecord, Config, Error, SlashingStatus};
 use lmdb::{Database, DatabaseFlags, Environment, RwTransaction, Transaction, WriteFlags};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{Epoch, EthSpec, Hash256, IndexedAttestation};
 
 /// Map from `(validator_index, target_epoch)` to `AttesterRecord`.
@@ -52,14 +51,6 @@ impl AsRef<[u8]> for AttesterKey {
     }
 }
 
-#[derive(Debug, ssz_derive::Encode, ssz_derive::Decode)]
-pub struct AttesterRecord {
-    /// The hash of the attestation data, for checking double-voting.
-    attestation_data_hash: Hash256,
-    /// The hash of the indexed attestation, so it can be loaded.
-    indexed_attestation_hash: Hash256,
-}
-
 impl<E: EthSpec> SlasherDB<E> {
     pub fn open(config: Arc<Config>) -> Result<Self, Error> {
         // TODO: open_with_permissions
@@ -99,9 +90,9 @@ impl<E: EthSpec> SlasherDB<E> {
     pub fn store_indexed_attestation(
         &self,
         txn: &mut RwTransaction<'_>,
+        indexed_attestation_hash: Hash256,
         indexed_attestation: &IndexedAttestation<E>,
     ) -> Result<(), Error> {
-        let indexed_attestation_hash = indexed_attestation.tree_hash_root();
         let data = indexed_attestation.as_ssz_bytes();
 
         txn.put(
@@ -132,8 +123,7 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
         attestation: &IndexedAttestation<E>,
-        attestation_data_hash: Hash256,
-        indexed_attestation_hash: Hash256,
+        record: AttesterRecord,
     ) -> Result<SlashingStatus<E>, Error> {
         // See if there's an existing attestation for this attester.
         if let Some(existing_record) =
@@ -141,7 +131,7 @@ impl<E: EthSpec> SlasherDB<E> {
         {
             // If the existing attestation data is identical, then this attestation is not
             // slashable and no update is required.
-            if existing_record.attestation_data_hash == attestation_data_hash {
+            if existing_record.attestation_data_hash == record.attestation_data_hash {
                 return Ok(SlashingStatus::NotSlashable);
             }
 
@@ -160,11 +150,7 @@ impl<E: EthSpec> SlasherDB<E> {
             txn.put(
                 self.attester_db,
                 &AttesterKey::new(validator_index, attestation.data.target.epoch, &self.config),
-                &AttesterRecord {
-                    attestation_data_hash,
-                    indexed_attestation_hash,
-                }
-                .as_ssz_bytes(),
+                &record.as_ssz_bytes(),
                 Self::write_flags(),
             )?;
             Ok(SlashingStatus::NotSlashable)

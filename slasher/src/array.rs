@@ -1,4 +1,4 @@
-use crate::{Config, Error, SlasherDB, SlashingStatus};
+use crate::{AttesterRecord, Config, Error, SlasherDB, SlashingStatus};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use lmdb::{RwTransaction, Transaction};
 use safe_arith::SafeArith;
@@ -447,7 +447,7 @@ pub fn update<E: EthSpec>(
     db: &SlasherDB<E>,
     txn: &mut RwTransaction<'_>,
     validator_chunk_index: usize,
-    batch: Vec<Arc<IndexedAttestation<E>>>,
+    batch: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<Vec<AttesterSlashing<E>>, Error> {
@@ -457,7 +457,7 @@ pub fn update<E: EthSpec>(
     let mut chunk_attestations = BTreeMap::new();
     for attestation in batch {
         chunk_attestations
-            .entry(config.chunk_index(attestation.data.source.epoch))
+            .entry(config.chunk_index(attestation.0.data.source.epoch))
             .or_insert_with(Vec::new)
             .push(attestation);
     }
@@ -485,7 +485,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     db: &SlasherDB<E>,
     txn: &mut RwTransaction<'_>,
     validator_chunk_index: usize,
-    chunk_attestations: &BTreeMap<usize, Vec<Arc<IndexedAttestation<E>>>>,
+    chunk_attestations: &BTreeMap<usize, Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>>,
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<Vec<AttesterSlashing<E>>, Error> {
@@ -496,7 +496,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     for attestations in chunk_attestations.values() {
         for attestation in attestations {
             for validator_index in
-                config.attesting_validators_for_chunk(attestation, validator_chunk_index)
+                config.attesting_validators_for_chunk(&attestation.0, validator_chunk_index)
             {
                 let slashing_status = apply_attestation_for_validator::<E, T>(
                     db,
@@ -504,11 +504,11 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
                     &mut updated_chunks,
                     validator_chunk_index,
                     validator_index,
-                    attestation,
+                    &attestation.0,
                     current_epoch,
                     config,
                 )?;
-                if let Some(slashing) = slashing_status.into_slashing(attestation) {
+                if let Some(slashing) = slashing_status.into_slashing(&attestation.0) {
                     slashings.push(slashing);
                 }
             }

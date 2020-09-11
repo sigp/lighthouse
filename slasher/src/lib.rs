@@ -2,12 +2,14 @@
 
 mod array;
 mod attestation_queue;
+mod attester_record;
 pub mod config;
 mod database;
 mod error;
 mod slasher;
 mod slasher_server;
 
+pub use crate::attester_record::AttesterRecord;
 pub use crate::slasher::Slasher;
 pub use attestation_queue::AttestationQueue;
 pub use config::Config;

@@ -1,3 +1,4 @@
+use crate::AttesterRecord;
 use parking_lot::Mutex;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -15,7 +16,7 @@ pub struct AttestationQueue<E: EthSpec> {
 #[derive(Debug)]
 pub struct AttestationQueueSnapshot<E: EthSpec> {
     /// All attestations (unique) for storage on disk.
-    pub attestations_to_store: Vec<Arc<IndexedAttestation<E>>>,
+    pub attestations_to_store: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
     /// Attestations group by validator index range.
     pub subqueues: Vec<SubQueue<E>>,
 }
@@ -23,7 +24,7 @@ pub struct AttestationQueueSnapshot<E: EthSpec> {
 /// A queue of attestations for a range of validator indices.
 #[derive(Debug, Default)]
 pub struct SubQueue<E: EthSpec> {
-    pub attestations: Vec<Arc<IndexedAttestation<E>>>,
+    pub attestations: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
 }
 
 impl<E: EthSpec> SubQueue<E> {
@@ -52,7 +53,8 @@ impl<E: EthSpec> AttestationQueue<E> {
 
     /// Add an attestation to all relevant queues, creating them if necessary.
     pub fn queue(&self, attestation: IndexedAttestation<E>) {
-        let attestation = Arc::new(attestation);
+        // FIXME(sproul): this burdens the beacon node with extra hashing :\
+        let attester_record = AttesterRecord::from(attestation.clone());
 
         let subqueue_ids = attestation
             .attesting_indices
@@ -60,9 +62,10 @@ impl<E: EthSpec> AttestationQueue<E> {
             .map(|validator_index| *validator_index as usize / self.validators_per_chunk)
             .collect::<BTreeSet<_>>();
 
-        let mut snapshot = self.snapshot.lock();
+        let arc_tuple = Arc::new((attestation, attester_record));
 
-        snapshot.attestations_to_store.push(attestation.clone());
+        let mut snapshot = self.snapshot.lock();
+        snapshot.attestations_to_store.push(arc_tuple.clone());
 
         if let Some(max_subqueue_id) = subqueue_ids.iter().max() {
             if *max_subqueue_id >= snapshot.subqueues.len() {
@@ -75,7 +78,7 @@ impl<E: EthSpec> AttestationQueue<E> {
         for subqueue_id in subqueue_ids {
             snapshot.subqueues[subqueue_id]
                 .attestations
-                .push(attestation.clone());
+                .push(arc_tuple.clone());
         }
     }
 

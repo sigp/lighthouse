@@ -22,6 +22,7 @@ slog = "2.5.2"
 slot_clock = { path = "../common/slot_clock" }
 tokio = { version = "0.2.21", features = ["full"] }
 tree_hash = { path = "../consensus/tree_hash" }
+tree_hash_derive = { path = "../consensus/tree_hash_derive" }
 types = { path = "../consensus/types" }
 
 [dev-dependencies]

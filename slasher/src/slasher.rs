@@ -1,9 +1,8 @@
-use crate::{array, AttestationQueue, Config, Error, SlasherDB};
+use crate::{array, AttestationQueue, AttesterRecord, Config, Error, SlasherDB};
 use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
 use slog::{debug, error, info, Logger};
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
 
 #[derive(Debug)]
@@ -52,8 +51,17 @@ impl<E: EthSpec> Slasher<E> {
         let mut txn = self.db.begin_rw_txn()?;
 
         // Insert attestations into database.
+        debug!(
+            self.log,
+            "Storing {} attestations in slasher DB",
+            snapshot.attestations_to_store.len()
+        );
         for attestation in snapshot.attestations_to_store {
-            self.db.store_indexed_attestation(&mut txn, &attestation)?;
+            self.db.store_indexed_attestation(
+                &mut txn,
+                attestation.1.indexed_attestation_hash,
+                &attestation.0,
+            )?;
         }
 
         // Dequeue attestations in batches and process them.
@@ -69,12 +77,12 @@ impl<E: EthSpec> Slasher<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
-        batch: Vec<Arc<IndexedAttestation<E>>>,
+        batch: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
         current_epoch: Epoch,
     ) {
         // First, check for double votes.
         for attestation in &batch {
-            match self.check_double_votes(txn, subqueue_id, &attestation) {
+            match self.check_double_votes(txn, subqueue_id, &attestation.0, attestation.1) {
                 Ok(slashings) => {
                     if !slashings.is_empty() {
                         info!(
@@ -130,10 +138,8 @@ impl<E: EthSpec> Slasher<E> {
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
         attestation: &IndexedAttestation<E>,
+        attester_record: AttesterRecord,
     ) -> Result<Vec<AttesterSlashing<E>>, Error> {
-        let attestation_data_hash = attestation.data.tree_hash_root();
-        let indexed_attestation_hash = attestation.tree_hash_root();
-
         let mut slashings = vec![];
 
         for validator_index in self
@@ -144,8 +150,7 @@ impl<E: EthSpec> Slasher<E> {
                 txn,
                 validator_index,
                 &attestation,
-                attestation_data_hash,
-                indexed_attestation_hash,
+                attester_record,
             )?;
 
             if let Some(slashing) = slashing_status.into_slashing(attestation) {
