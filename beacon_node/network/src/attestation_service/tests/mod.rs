@@ -298,17 +298,15 @@ mod tests {
 
         let events = get_events(&mut attestation_service, None, 3).await;
         let mut discover_peer_count = 0;
-        let mut subscribe_count = 0;
         let mut enr_add_count = 0;
         let mut unexpected_msg_count = 0;
 
-        // dbg!(&events);
         for event in &events {
             match event {
                 AttServiceMessage::DiscoverPeers(_) => {
                     discover_peer_count = discover_peer_count + 1
                 }
-                AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
+                AttServiceMessage::Subscribe(_any_subnet) => {}
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,
             }
@@ -360,7 +358,6 @@ mod tests {
 
         let events = get_events(&mut attestation_service, None, 3).await;
         let mut discover_peer_count = 0;
-        let mut subscribe_count = 0;
         let mut enr_add_count = 0;
         let mut unexpected_msg_count = 0;
 
@@ -369,7 +366,7 @@ mod tests {
                 AttServiceMessage::DiscoverPeers(_) => {
                     discover_peer_count = discover_peer_count + 1
                 }
-                AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
+                AttServiceMessage::Subscribe(_any_subnet) => {}
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,
             }
