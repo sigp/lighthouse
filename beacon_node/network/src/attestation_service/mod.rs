@@ -2,7 +2,7 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -13,7 +13,7 @@ use rand::seq::SliceRandom;
 use slog::{debug, error, o, trace, warn};
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{types::GossipKind, NetworkGlobals, SubnetDiscovery};
+use eth2_libp2p::SubnetDiscovery;
 use hashset_delay::HashSetDelay;
 use rest_types::ValidatorSubscription;
 use slot_clock::SlotClock;
@@ -66,14 +66,14 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// Queued events to return to the driving service.
     events: VecDeque<AttServiceMessage>,
 
-    /// A collection of public network variables.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-
     /// A reference to the beacon chain to process received attestations.
     beacon_chain: Arc<BeaconChain<T>>,
 
     /// The collection of currently subscribed random subnets mapped to their expiry deadline.
     random_subnets: HashSetDelay<SubnetId>,
+
+    /// The collection of all currently subscribed subnets(long-lived **and** short-lived).
+    subscriptions: HashSet<SubnetId>,
 
     /// A collection of timeouts for when to unsubscribe from a shard subnet.
     unsubscriptions: HashSetDelay<ExactSubnet>,
@@ -97,11 +97,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> AttestationService<T> {
     /* Public functions */
 
-    pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
-        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        log: &slog::Logger,
-    ) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: &slog::Logger) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
 
         // calculate the random subnet duration from the spec constants
@@ -122,15 +118,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         AttestationService {
             events: VecDeque::with_capacity(10),
-            network_globals,
             beacon_chain,
             random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
+            subscriptions: HashSet::new(),
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             log,
         }
+    }
+
+    /// Return count of all currently subscribed subnets(long-lived **and** short-lived).
+    pub fn subscription_count(&self) -> usize {
+        self.subscriptions.len()
     }
 
     /// Processes a list of validator subscriptions.
@@ -423,25 +424,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.random_subnets.insert(subnet_id);
 
             // if we are not already subscribed, then subscribe
-            let topic_kind = &GossipKind::Attestation(subnet_id);
-
-            let already_subscribed = self
-                .network_globals
-                .gossipsub_subscriptions
-                .read()
-                .iter()
-                .any(|topic| topic.kind() == topic_kind);
-
-            if !already_subscribed {
-                // send a discovery request and a subscription
-                self.events
-                    .push_back(AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-                        subnet_id,
-                        min_ttl: None,
-                    }]));
+            if !self.subscriptions.contains(&subnet_id) {
+                self.subscriptions.insert(subnet_id);
                 self.events
                     .push_back(AttServiceMessage::Subscribe(subnet_id));
             }
+            // send discovery request
+            // Note: it's wasteful to send a DiscoverPeers request if we already have peers for this subnet.
+            // However, subscribing to random subnets ideally shouldn't happen very often (once in ~27 hours) and
+            // this makes it easier to deterministically test the attestations service.
+            self.events
+                .push_back(AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                    subnet_id,
+                    min_ttl: None,
+                }]));
             // add the subnet to the ENR bitfield
             self.events.push_back(AttServiceMessage::EnrAdd(subnet_id));
         }
@@ -475,17 +471,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // we are also not un-subscribing from a subnet if the next slot requires us to be
             // subscribed. Therefore there could be the case that we are already still subscribed
             // to the required subnet. In which case we do not issue another subscription request.
-            let topic_kind = &GossipKind::Attestation(exact_subnet.subnet_id);
-            if self
-                .network_globals
-                .gossipsub_subscriptions
-                .read()
-                .iter()
-                .find(|topic| topic.kind() == topic_kind)
-                .is_none()
-            {
+            if !self.subscriptions.contains(&exact_subnet.subnet_id) {
                 // we are not already subscribed
                 debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "target_slot" => exact_subnet.slot.as_u64());
+                self.subscriptions.insert(exact_subnet.subnet_id);
                 self.events
                     .push_back(AttServiceMessage::Subscribe(exact_subnet.subnet_id));
             }
@@ -504,6 +493,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         debug!(self.log, "Unsubscribing from subnet"; "subnet" => *exact_subnet.subnet_id, "processed_slot" => exact_subnet.slot.as_u64());
 
+        // TODO(pawan): add a test for this case
+        self.subscriptions.remove(&exact_subnet.subnet_id);
         self.events
             .push_back(AttServiceMessage::Unsubscribe(exact_subnet.subnet_id));
     }
