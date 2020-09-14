@@ -205,6 +205,9 @@ mod tests {
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
+
+        // Should be subscribed to 1 long lived and one short lived subnet.
+        assert_eq!(attestation_service.subscription_count(), 2);
         // if there are fewer events than expected, there's been a collision
         if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);
@@ -258,6 +261,9 @@ mod tests {
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
+
+        // Should be subscribed to only 1 long lived subnet after unsubscription.
+        assert_eq!(attestation_service.subscription_count(), 1);
         // if there are fewer events than expected, there's been a collision
         if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);

@@ -496,7 +496,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         debug!(self.log, "Unsubscribing from subnet"; "subnet" => *exact_subnet.subnet_id, "processed_slot" => exact_subnet.slot.as_u64());
 
-        // TODO(pawan): add a test for this case
         self.subscriptions.remove(&exact_subnet.subnet_id);
         self.events
             .push_back(AttServiceMessage::Unsubscribe(exact_subnet.subnet_id));
