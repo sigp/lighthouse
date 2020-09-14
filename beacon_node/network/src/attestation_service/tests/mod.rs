@@ -266,9 +266,9 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_all_random_subnets() {
-        // subscribe 10 slots ahead so we do not produce any exact subnet messages
+        let attestation_subnet_count = MinimalEthSpec::default_spec().attestation_subnet_count;
         let subscription_slot = 10;
-        let subscription_count = 64;
+        let subscription_count = attestation_subnet_count;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -297,7 +297,7 @@ mod tests {
         let mut unexpected_msg_count = 0;
 
         // dbg!(&events);
-        for event in events {
+        for event in &events {
             match event {
                 AttServiceMessage::DiscoverPeers(_) => {
                     discover_peer_count = discover_peer_count + 1
@@ -308,8 +308,16 @@ mod tests {
             }
         }
 
+        // The bulk discovery request length should be equal to validator_count
+        let bulk_discovery_event = events.last().unwrap();
+        if let AttServiceMessage::DiscoverPeers(d) = bulk_discovery_event {
+            assert_eq!(d.len(), attestation_subnet_count as usize);
+        } else {
+            panic!("Unexpected event {:?}", bulk_discovery_event);
+        }
+
         // 64 `DiscoverPeer` requests of length 1 corresponding to random subnets
-        // and 1 `DiscoverPeer` request corresponding to subnet discovery.
+        // and 1 `DiscoverPeer` request corresponding to bulk subnet discovery.
         assert_eq!(discover_peer_count, subscription_count + 1);
         assert_eq!(attestation_service.subscription_count(), 64);
         assert_eq!(enr_add_count, 64);
@@ -319,10 +327,10 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_all_random_subnets_plus_one() {
-        // subscribe 10 slots ahead so we do not produce any exact subnet messages
+        let attestation_subnet_count = MinimalEthSpec::default_spec().attestation_subnet_count;
         let subscription_slot = 10;
         // the 65th subscription should result in no more messages than the previous scenario
-        let subscription_count = 65;
+        let subscription_count = attestation_subnet_count + 1;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -350,7 +358,7 @@ mod tests {
         let mut enr_add_count = 0;
         let mut unexpected_msg_count = 0;
 
-        for event in events {
+        for event in &events {
             match event {
                 AttServiceMessage::DiscoverPeers(_) => {
                     discover_peer_count = discover_peer_count + 1
@@ -361,46 +369,19 @@ mod tests {
             }
         }
 
+        // The bulk discovery request length shouldn't exceed max attestation_subnet_count
+        let bulk_discovery_event = events.last().unwrap();
+        if let AttServiceMessage::DiscoverPeers(d) = bulk_discovery_event {
+            assert_eq!(d.len(), attestation_subnet_count as usize);
+        } else {
+            panic!("Unexpected event {:?}", bulk_discovery_event);
+        }
         // 64 `DiscoverPeer` requests of length 1 corresponding to random subnets
-        // and 1 `DiscoverPeer` request corresponding to subnet discovery.
+        // and 1 `DiscoverPeer` request corresponding to the bulk subnet discovery.
         // For the 65th subscription, the call to `subscribe_to_random_subnets` is not made because we are at capacity.
         assert_eq!(discover_peer_count, 64 + 1);
         assert_eq!(attestation_service.subscription_count(), 64);
         assert_eq!(enr_add_count, 64);
         assert_eq!(unexpected_msg_count, 0);
-    }
-
-    #[tokio::test]
-    async fn test_discovery_peers_count() {
-        let subscription_slot = 10;
-        let validator_count = 32;
-        let committee_count = 1;
-
-        // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service();
-        let current_slot = attestation_service
-            .beacon_chain
-            .slot_clock
-            .now()
-            .expect("Could not get current slot");
-
-        let subscriptions = get_subscriptions(
-            validator_count,
-            current_slot + subscription_slot,
-            committee_count,
-        );
-
-        // submit sthe subscriptions
-        attestation_service
-            .validator_subscriptions(subscriptions)
-            .unwrap();
-
-        let events = get_events(&mut attestation_service, None, 3).await;
-        let event = events.last().unwrap();
-        if let AttServiceMessage::DiscoverPeers(d) = event {
-            assert_eq!(d.len(), validator_count as usize);
-        } else {
-            panic!("Unexpected event {:?}", event);
-        }
     }
 }
