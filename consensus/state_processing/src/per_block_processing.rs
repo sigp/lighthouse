@@ -450,10 +450,6 @@ pub fn process_deposit<T: EthSpec>(
     // depositing validator already exists in the registry.
     state.update_pubkey_cache()?;
 
-    let pubkey: PublicKey = match deposit.data.pubkey.decompress() {
-        Err(_) => return Ok(()), //bad public key => return early
-        Ok(k) => k,
-    };
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
     let validator_index = get_existing_validator_index(state, &deposit.data.pubkey)
@@ -473,7 +469,7 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey: pubkey.into(),
+            pubkey: deposit.data.pubkey.clone(),
             withdrawal_credentials: deposit.data.withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,

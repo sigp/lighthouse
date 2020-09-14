@@ -2,12 +2,10 @@
 
 _Documentation for Lighthouse users and developers._
 
-[![Doc Status]][Doc Link] [![Chat Badge]][Chat Link]
+[![Chat Badge]][Chat Link]
 
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
-[Doc Status]:https://img.shields.io/badge/rust--docs-master-orange
-[Doc Link]: http://lighthouse-docs.sigmaprime.io/
 
 Lighthouse is an **Ethereum 2.0 client** that connects to other Ethereum 2.0
 clients to form a resilient and decentralized proof-of-stake blockchain.
@@ -24,7 +22,6 @@ You may read this book from start to finish, or jump to some of these topics:
 - Utilize the whole stack by starting a [local testnet](./local-testnets.md).
 - Query the [RESTful HTTP API](./http.md) using `curl`.
 - Listen to events with the [JSON WebSocket API](./websockets.md).
-- View the [Rust code docs](http://lighthouse-docs.sigmaprime.io/).
 
 
 Prospective contributors can read the [Contributing](./contributing.md) section
