@@ -130,6 +130,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Return count of all currently subscribed subnets(long-lived **and** short-lived).
+    #[allow(dead_code)]
     pub fn subscription_count(&self) -> usize {
         self.subscriptions.len()
     }
@@ -423,12 +424,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // insert a new random subnet
             self.random_subnets.insert(subnet_id);
 
-            // if we are not already subscribed, then subscribe
-            if !self.subscriptions.contains(&subnet_id) {
-                self.subscriptions.insert(subnet_id);
-                self.events
-                    .push_back(AttServiceMessage::Subscribe(subnet_id));
-            }
             // send discovery request
             // Note: it's wasteful to send a DiscoverPeers request if we already have peers for this subnet.
             // However, subscribing to random subnets ideally shouldn't happen very often (once in ~27 hours) and
@@ -438,6 +433,14 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     subnet_id,
                     min_ttl: None,
                 }]));
+
+            // if we are not already subscribed, then subscribe
+            if !self.subscriptions.contains(&subnet_id) {
+                self.subscriptions.insert(subnet_id);
+                self.events
+                    .push_back(AttServiceMessage::Subscribe(subnet_id));
+            }
+
             // add the subnet to the ENR bitfield
             self.events.push_back(AttServiceMessage::EnrAdd(subnet_id));
         }

@@ -7,10 +7,7 @@ mod tests {
         events::NullEventHandler,
         migrate::NullMigrator,
     };
-    use eth2_libp2p::discovery::{build_enr, Keypair};
-    use eth2_libp2p::{
-        discovery::CombinedKey, CombinedKeyExt, NetworkConfig, NetworkGlobals, SubnetDiscovery,
-    };
+    use eth2_libp2p::SubnetDiscovery;
     use futures::Stream;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use lazy_static::lazy_static;
@@ -22,7 +19,7 @@ mod tests {
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
     use tempfile::tempdir;
-    use types::{CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
+    use types::{CommitteeIndex, EthSpec, MinimalEthSpec};
 
     const SLOT_DURATION_MILLIS: u64 = 200;
 
@@ -98,12 +95,7 @@ mod tests {
 
         let beacon_chain = CHAIN.chain.clone();
 
-        let config = NetworkConfig::default();
-        let enr_key = CombinedKey::from_libp2p(&Keypair::generate_secp256k1()).unwrap();
-        let enr = build_enr::<MinimalEthSpec>(&enr_key, &config, EnrForkId::default()).unwrap();
-
-        let network_globals: NetworkGlobals<MinimalEthSpec> = NetworkGlobals::new(enr, 0, 0, &log);
-        AttestationService::new(beacon_chain, Arc::new(network_globals), &log)
+        AttestationService::new(beacon_chain, &log)
     }
 
     fn get_subscription(
@@ -142,9 +134,9 @@ mod tests {
     // gets a number of events from the subscription service, or returns none if it times out after a number
     // of slots
     async fn get_events<S: Stream<Item = AttServiceMessage> + Unpin>(
-        mut stream: S,
-        no_events: usize,
-        no_slots_before_timeout: u32,
+        stream: &mut S,
+        num_events: Option<usize>,
+        num_slots_before_timeout: u32,
     ) -> Vec<AttServiceMessage> {
         let mut events = Vec::new();
 
@@ -152,8 +144,10 @@ mod tests {
             loop {
                 if let Some(result) = stream.next().await {
                     events.push(result);
-                    if events.len() == no_events {
-                        return;
+                    if let Some(num) = num_events {
+                        if events.len() == num {
+                            return;
+                        }
                     }
                 }
             }
@@ -162,7 +156,7 @@ mod tests {
         tokio::select! {
             _ = collect_stream_fut => {return events}
             _ = tokio::time::delay_for(
-            Duration::from_millis(SLOT_DURATION_MILLIS) * no_slots_before_timeout,
+            Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
         ) => { return events; }
             }
     }
@@ -173,7 +167,7 @@ mod tests {
         let validator_index = 1;
         let committee_index = 1;
         let subscription_slot = 0;
-        let no_events_expected = 4;
+        let num_events_expected = 4;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -207,13 +201,13 @@ mod tests {
             .unwrap(),
         )];
 
-        let events = get_events(attestation_service, no_events_expected, 1).await;
+        let events = get_events(&mut attestation_service, Some(num_events_expected), 1).await;
         assert_matches!(
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
-        if events.len() == no_events_expected {
+        if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);
         }
     }
@@ -224,7 +218,7 @@ mod tests {
         let validator_index = 1;
         let committee_index = 1;
         let subscription_slot = 0;
-        let no_events_expected = 5;
+        let num_events_expected = 5;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -260,13 +254,13 @@ mod tests {
             AttServiceMessage::Unsubscribe(subnet_id),
         ];
 
-        let events = get_events(attestation_service, no_events_expected, 2).await;
+        let events = get_events(&mut attestation_service, Some(num_events_expected), 2).await;
         assert_matches!(
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
-        if events.len() == no_events_expected {
+        if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);
         }
     }
@@ -277,7 +271,7 @@ mod tests {
         let validator_index = 1;
         let committee_index = 1;
         let subscription_slot = 5;
-        let no_events_expected = 4;
+        let num_events_expected = 5;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -316,18 +310,18 @@ mod tests {
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
-        let expected = vec![AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-            subnet_id,
-            min_ttl,
-        }])];
+        let expected = vec![
+            AttServiceMessage::Subscribe(subnet_id),
+            AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery { subnet_id, min_ttl }]),
+        ];
 
-        let events = get_events(attestation_service, no_events_expected, 1).await;
+        let events = get_events(&mut attestation_service, Some(num_events_expected), 1).await;
         assert_matches!(
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
-        if events.len() == no_events_expected {
+        if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);
         }
     }
@@ -338,7 +332,7 @@ mod tests {
         let validator_index = 1;
         let committee_index = 1;
         let subscription_slot = 5;
-        let no_events_expected = 5;
+        let num_events_expected = 5;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -378,17 +372,17 @@ mod tests {
         )
         .unwrap();
         let expected = vec![
-            AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery { subnet_id, min_ttl }]),
             AttServiceMessage::Subscribe(subnet_id),
+            AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery { subnet_id, min_ttl }]),
         ];
 
-        let events = get_events(attestation_service, no_events_expected, 5).await;
+        let events = get_events(&mut attestation_service, Some(num_events_expected), 5).await;
         assert_matches!(
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
-        if events.len() == no_events_expected {
+        if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);
         }
     }
@@ -399,7 +393,7 @@ mod tests {
         let validator_index = 1;
         let committee_index = 1;
         let subscription_slot = 7;
-        let no_events_expected = 3;
+        let num_events_expected = 3;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -425,14 +419,14 @@ mod tests {
         // ten slots ahead is before our target peer discover time, so expect no messages
         let expected: Vec<AttServiceMessage> = vec![];
 
-        let events = get_events(attestation_service, no_events_expected, 1).await;
+        let events = get_events(&mut attestation_service, Some(num_events_expected), 1).await;
 
         assert_matches!(
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
-        if events.len() == no_events_expected {
+        if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);
         }
     }
@@ -443,7 +437,7 @@ mod tests {
         let validator_index = 1;
         let committee_index = 1;
         let subscription_slot = 10;
-        let no_events_expected = 4;
+        let num_events_expected = 5;
         let committee_count = 1;
 
         // create the attestation service and subscriptions
@@ -484,20 +478,19 @@ mod tests {
         .unwrap();
 
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
-        let expected: Vec<AttServiceMessage> =
-            vec![AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-                subnet_id,
-                min_ttl,
-            }])];
+        let expected: Vec<AttServiceMessage> = vec![
+            AttServiceMessage::Subscribe(subnet_id),
+            AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery { subnet_id, min_ttl }]),
+        ];
 
-        let events = get_events(attestation_service, no_events_expected, 5).await;
+        let events = get_events(&mut attestation_service, Some(num_events_expected), 1).await;
 
         assert_matches!(
             events[..3],
             [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
-        if events.len() == no_events_expected {
+        if events.len() == num_events_expected {
             assert_eq!(expected[..], events[3..]);
         }
     }
@@ -528,12 +521,13 @@ mod tests {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
-        let events = get_events(attestation_service, 192, 3).await;
+        let events = get_events(&mut attestation_service, None, 3).await;
         let mut discover_peer_count = 0;
         let mut subscribe_count = 0;
         let mut enr_add_count = 0;
         let mut unexpected_msg_count = 0;
 
+        // dbg!(&events);
         for event in events {
             match event {
                 AttServiceMessage::DiscoverPeers(_) => {
@@ -545,8 +539,10 @@ mod tests {
             }
         }
 
-        assert_eq!(discover_peer_count, 64);
-        assert_eq!(subscribe_count, 64);
+        // 64 `DiscoverPeer` requests of length 1 corresponding to random subnets
+        // and 1 `DiscoverPeer` request corresponding to subnet discovery.
+        assert_eq!(discover_peer_count, subscription_count + 1);
+        assert_eq!(attestation_service.subscription_count(), 64);
         assert_eq!(enr_add_count, 64);
         assert_eq!(unexpected_msg_count, 0);
         // test completed successfully
@@ -579,7 +575,7 @@ mod tests {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
-        let events = get_events(attestation_service, 192, 3).await;
+        let events = get_events(&mut attestation_service, None, 3).await;
         let mut discover_peer_count = 0;
         let mut subscribe_count = 0;
         let mut enr_add_count = 0;
@@ -596,8 +592,11 @@ mod tests {
             }
         }
 
-        assert_eq!(discover_peer_count, 64);
-        assert_eq!(subscribe_count, 64);
+        // 64 `DiscoverPeer` requests of length 1 corresponding to random subnets
+        // and 1 `DiscoverPeer` request corresponding to subnet discovery.
+        // For the 65th subscription, the call to `subscribe_to_random_subnets` is not made because we are at capacity.
+        assert_eq!(discover_peer_count, 64 + 1);
+        assert_eq!(attestation_service.subscription_count(), 64);
         assert_eq!(enr_add_count, 64);
         assert_eq!(unexpected_msg_count, 0);
     }
@@ -607,7 +606,6 @@ mod tests {
         let subscription_slot = 10;
         let validator_count = 32;
         let committee_count = 1;
-        let expected_events = 97;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -628,10 +626,9 @@ mod tests {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
-        let events = get_events(attestation_service, expected_events, 3).await;
-
-        let event = events.get(96);
-        if let Some(AttServiceMessage::DiscoverPeers(d)) = event {
+        let events = get_events(&mut attestation_service, None, 3).await;
+        let event = events.last().unwrap();
+        if let AttServiceMessage::DiscoverPeers(d) = event {
             assert_eq!(d.len(), validator_count as usize);
         } else {
             panic!("Unexpected event {:?}", event);
