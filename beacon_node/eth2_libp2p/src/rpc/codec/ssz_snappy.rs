@@ -99,6 +99,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
+            // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
                     self.len = Some(length);
@@ -194,8 +195,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 }
             }
             Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet
-                // TODO: check if this is the only Error variant where we return `Ok(None)`
+                // Haven't received enough bytes to decode yet, wait for more
                 ErrorKind::UnexpectedEof => Ok(None),
                 _ => Err(e).map_err(RPCError::from),
             },
@@ -277,6 +277,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
+            // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
                     self.len = Some(length as usize);
@@ -364,8 +365,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 }
             }
             Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet
-                // TODO: check if this is the only Error variant where we return `Ok(None)`
+                // Haven't received enough bytes to decode yet, wait for more
                 ErrorKind::UnexpectedEof => Ok(None),
                 _ => Err(e).map_err(RPCError::from),
             },
@@ -409,8 +409,7 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
                 )?)))
             }
             Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet
-                // TODO: check if this is the only Error variant where we return `Ok(None)`
+                // Haven't received enough bytes to decode yet, wait for more
                 ErrorKind::UnexpectedEof => Ok(None),
                 _ => Err(e).map_err(RPCError::from),
             },
