@@ -132,22 +132,27 @@ pub fn create_wallet_from_mnemonic(
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
     // Create a random password if the file does not exist.
-    if wallet_password_path.is_some() && !wallet_password_path.exists() {
-        // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
-        // create a file with that name, we require that the password has a .pass suffix.
-        if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
-            return Err(format!(
-                "Only creates a password file if that file ends in .pass: {:?}",
-                wallet_password_path
-            ));
-        }
+    let wallet_password : PlainText = match wallet_password_path {
+        Some(path) => {
+            if !path.exists() {
+                // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
+                // create a file with that name, we require that the password has a .pass suffix.
+                if path.extension() != Some(&OsStr::new("pass")) {
+                    return Err(format!(
+                        "Only creates a password file if that file ends in .pass: {:?}",
+                        path
+                    ));
+                }
 
-        create_with_600_perms(&wallet_password_path, random_password().as_bytes())
-            .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
-    }
+                create_with_600_perms(&path, random_password().as_bytes())
+                    .map_err(|e| format!("Unable to write to {:?}: {:?}", path, e))?;
+            }
+            read_wallet_password_from_cli(Some(path), stdin_inputs)?
+        },
+        None => {read_wallet_password_from_cli(None, stdin_inputs)?}
+    };
 
     let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
-    let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
 
     let wallet = mgr
         .create_wallet(wallet_name, wallet_type, &mnemonic, wallet_password.as_bytes())

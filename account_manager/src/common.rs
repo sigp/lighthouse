@@ -78,12 +78,12 @@ pub fn read_wallet_password_from_cli(
 ) -> Result<PlainText, String> {
     match password_file_path {
         Some(path) => {
-            let password = fs::read(&path)
+            let password: PlainText = fs::read(&path)
                 .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
                 .map(|bytes|
-                    strip_off_newlines(bytes).into());
+                    strip_off_newlines(bytes).into())?;
             if is_password_sufficiently_complex(password.as_bytes()) {
-                password
+                Ok(password)
             } else {
                 Err(format!("Please use at least {} characters for your password.", MINIMUM_PASSWORD_LEN))
             }
@@ -92,12 +92,12 @@ pub fn read_wallet_password_from_cli(
             loop {
                 eprintln!("");
                 eprintln!("{}", WALLET_PASSWORD_PROMPT);
-                let password = PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().into_vec());
+                let password = PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
                 if is_password_sufficiently_complex(password.as_bytes()) {
                     eprintln!("{}", RETYPE_PASSWORD_PROMPT);
-                    let retyped_password = PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().into_vec());
+                    let retyped_password = PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
                     if retyped_password == password {
-                        break password;
+                        break Ok(password);
                     } else {
                         eprintln!("Passwords do not match.");
                     }
