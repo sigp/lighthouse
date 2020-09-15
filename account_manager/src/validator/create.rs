@@ -1,4 +1,6 @@
 use crate::{common::ensure_dir_exists, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use crate::wallet::create::STDIN_INPUTS_FLAG;
+
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
@@ -9,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
-use crate::common::read_wallet_password_from_cli;
+use crate::common::{read_wallet_password_from_cli, read_wallet_name_from_cli};
 
 pub const CMD: &str = "create";
 pub const BASE_DIR_FLAG: &str = "base-dir";
@@ -31,8 +33,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(WALLET_NAME_FLAG)
                 .value_name("WALLET_NAME")
                 .help("Use the wallet identified by this name")
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(WALLET_PASSWORD_FLAG)
@@ -99,6 +100,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("count")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
+        )
 }
 
 pub fn cli_run<T: EthSpec>(
@@ -108,7 +114,9 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
-    let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;
+    let name: Option<String> = clap_utils::parse_optional(matches, WALLET_NAME_FLAG)?;
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+
     let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
         VALIDATOR_DIR_FLAG,
@@ -152,13 +160,14 @@ pub fn cli_run<T: EthSpec>(
 
     let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, WALLET_PASSWORD_FLAG)?;
 
-    let wallet_password = read_wallet_password_from_cli(wallet_password_path);
+    let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
+    let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
 
     let mgr = WalletManager::open(&wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
     let mut wallet = mgr
-        .wallet_by_name(&name)
+        .wallet_by_name(&wallet_name)
         .map_err(|e| format!("Unable to open wallet: {:?}", e))?;
 
     for i in 0..n {

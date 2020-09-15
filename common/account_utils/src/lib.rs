@@ -110,7 +110,7 @@ pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String>
 }
 
 /// Reads a mnemonic phrase from TTY or stdin if `use_stdin == true`.
-pub fn read_mnemonic_from_user(use_stdin: bool) -> Result<String, String> {
+pub fn read_input_from_user(use_stdin: bool) -> Result<String, String> {
     let mut input = String::new();
     if use_stdin {
         io::stdin()

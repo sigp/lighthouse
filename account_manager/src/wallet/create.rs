@@ -11,7 +11,7 @@ use std::fs::{self, File};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use crate::common::read_wallet_password_from_cli;
+use crate::common::{read_wallet_password_from_cli, read_wallet_name_from_cli};
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -19,6 +19,7 @@ pub const NAME_FLAG: &str = "name";
 pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
+pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -31,8 +32,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
                 )
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(PASSWORD_FLAG)
@@ -66,6 +66,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
                 )
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
 }
 
@@ -113,9 +118,10 @@ pub fn create_wallet_from_mnemonic(
     base_dir: &Path,
     mnemonic: &Mnemonic,
 ) -> Result<LockedWallet, String> {
-    let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
+    let name: Option<String> = clap_utils::parse_optional(matches, NAME_FLAG)?;
     let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
     let wallet_type = match type_field.as_ref() {
         HD_TYPE => WalletType::Hd,
@@ -140,10 +146,11 @@ pub fn create_wallet_from_mnemonic(
             .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
     }
 
-    let wallet_password = read_wallet_password_from_cli(wallet_password_path)?;
+    let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
+    let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
 
     let wallet = mgr
-        .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())
+        .create_wallet(wallet_name, wallet_type, &mnemonic, wallet_password.as_bytes())
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
     Ok(wallet)
 }
