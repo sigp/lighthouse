@@ -1,4 +1,4 @@
-use safe_arith::SafeArith;
+use safe_arith::{SafeArith, SafeArithIter};
 use types::{BeaconStateError as Error, *};
 
 /// Process slashings.
@@ -10,7 +10,7 @@ pub fn process_slashings<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = state.current_epoch();
-    let sum_slashings = state.get_all_slashings().iter().sum::<u64>();
+    let sum_slashings = state.get_all_slashings().iter().copied().safe_sum()?;
 
     for (index, validator) in state.validators.iter().enumerate() {
         if validator.slashed
