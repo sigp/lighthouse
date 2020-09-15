@@ -3231,7 +3231,8 @@ checksum = "1255076139a83bb467426e7f8d0134968a8118844faa755985e077cf31850333"
 [[package]]
 name = "multistream-select"
 version = "0.8.2"
-source = "git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f#03f998022ce2f566a6c6e6c4206bc0ce4d45109f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9157e87afbc2ef0d84cc0345423d715f445edde00141c93721c162de35a05e5"
 dependencies = [
  "bytes 0.5.6",
  "futures 0.3.5",
@@ -3244,8 +3245,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9157e87afbc2ef0d84cc0345423d715f445edde00141c93721c162de35a05e5"
+source = "git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f#03f998022ce2f566a6c6e6c4206bc0ce4d45109f"
 dependencies = [
  "bytes 0.5.6",
  "futures 0.3.5",
