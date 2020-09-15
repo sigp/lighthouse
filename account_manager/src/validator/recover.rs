@@ -1,8 +1,8 @@
 use super::create::STORE_WITHDRAW_FLAG;
 use crate::common::{ensure_dir_exists, read_mnemonic_from_cli};
 use crate::validator::create::COUNT_FLAG;
-use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
 use crate::wallet::create::STDIN_INPUTS_FLAG;
+use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::random_password;
 use clap::{App, Arg, ArgMatches};

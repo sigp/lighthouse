@@ -1,5 +1,9 @@
+use crate::common::read_wallet_name_from_cli;
 use crate::BASE_DIR_FLAG;
-use account_utils::{random_password, strip_off_newlines};
+use account_utils::{
+    is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
+    MINIMUM_PASSWORD_LEN,
+};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
@@ -7,11 +11,11 @@ use eth2_wallet::{
 };
 use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use std::ffi::OsStr;
-use std::fs::{self, File};
+use std::fs;
+use std::fs::File;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use crate::common::{read_wallet_password_from_cli, read_wallet_name_from_cli};
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -20,6 +24,9 @@ pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
+pub const NEW_WALLET_PASSWORD_PROMPT: &str =
+    "Enter a password for your new wallet that is at least 12 characters long:";
+pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -132,7 +139,7 @@ pub fn create_wallet_from_mnemonic(
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
     // Create a random password if the file does not exist.
-    let wallet_password : PlainText = match wallet_password_path {
+    let wallet_password: PlainText = match wallet_password_path {
         Some(path) => {
             if !path.exists() {
                 // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
@@ -147,17 +154,67 @@ pub fn create_wallet_from_mnemonic(
                 create_with_600_perms(&path, random_password().as_bytes())
                     .map_err(|e| format!("Unable to write to {:?}: {:?}", path, e))?;
             }
-            read_wallet_password_from_cli(Some(path), stdin_inputs)?
-        },
-        None => {read_wallet_password_from_cli(None, stdin_inputs)?}
+            read_new_wallet_password_from_cli(Some(path), stdin_inputs)?
+        }
+        None => read_new_wallet_password_from_cli(None, stdin_inputs)?,
     };
 
     let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
 
     let wallet = mgr
-        .create_wallet(wallet_name, wallet_type, &mnemonic, wallet_password.as_bytes())
+        .create_wallet(
+            wallet_name,
+            wallet_type,
+            &mnemonic,
+            wallet_password.as_bytes(),
+        )
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
     Ok(wallet)
+}
+
+/// Used when a user is creating a new wallet. Read in a wallet password from a file if the password file
+/// path is provided. Otherwise, read from an interactive prompt using tty unless the `--stdin-inputs`
+/// flag is provided. This verifies the password complexity and verifies the password is correctly re-entered.
+pub fn read_new_wallet_password_from_cli(
+    password_file_path: Option<PathBuf>,
+    stdin_inputs: bool,
+) -> Result<PlainText, String> {
+    match password_file_path {
+        Some(path) => {
+            let password: PlainText = fs::read(&path)
+                .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
+                .map(|bytes| strip_off_newlines(bytes).into())?;
+            if is_password_sufficiently_complex(password.as_bytes()) {
+                Ok(password)
+            } else {
+                Err(format!(
+                    "Please use at least {} characters for your password.",
+                    MINIMUM_PASSWORD_LEN
+                ))
+            }
+        }
+        None => loop {
+            eprintln!("");
+            eprintln!("{}", NEW_WALLET_PASSWORD_PROMPT);
+            let password =
+                PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+            if is_password_sufficiently_complex(password.as_bytes()) {
+                eprintln!("{}", RETYPE_PASSWORD_PROMPT);
+                let retyped_password =
+                    PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+                if retyped_password == password {
+                    break Ok(password);
+                } else {
+                    eprintln!("Passwords do not match.");
+                }
+            } else {
+                eprintln!(
+                    "Please use at least {} characters for your password.",
+                    MINIMUM_PASSWORD_LEN
+                );
+            }
+        },
+    }
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.

@@ -155,8 +155,8 @@ impl AsRef<[u8]> for ZeroizeString {
 
 #[cfg(test)]
 mod test {
-    use super::strip_off_newlines;
     use super::is_password_sufficiently_complex;
+    use super::strip_off_newlines;
 
     #[test]
     fn test_strip_off() {

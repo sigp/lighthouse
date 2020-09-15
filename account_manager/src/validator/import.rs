@@ -1,5 +1,5 @@
-use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
 use crate::wallet::create::STDIN_INPUTS_FLAG;
+use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
 use account_utils::{
     eth2_keystore::Keystore,
     read_password_from_user,
