@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{Attestation, EthSpec, Hash256, Slot};
+use ssz_derive::{Decode, Encode};
 
 /// As a DoS protection measure, the maximum number of distinct `Attestations` that will be
 /// recorded for each slot.
@@ -46,8 +47,16 @@ pub enum Error {
 }
 
 /// A `HashSet` that contains entries related to some `Slot`.
+#[derive(Debug)]
 struct SlotHashSet {
     set: HashSet<Hash256>,
+    slot: Slot,
+}
+
+#[derive(Encode, Decode, Clone)]
+struct SszSlotSet {
+    set_capacity: usize,
+    set: Vec<Hash256>,
     slot: Slot,
 }
 
@@ -92,7 +101,7 @@ impl SlotHashSet {
             self.set.insert(root);
 
             Ok(ObserveOutcome::New)
-        }
+        }        
     }
 
     /// Indicates if `a` has been observed before.
@@ -111,14 +120,64 @@ impl SlotHashSet {
     pub fn len(&self) -> usize {
         self.set.len()
     }
+
+    /// Returns a `SszSlotSet`, which contains all necessary information to restore the state
+    /// of `Self` at some later point.
+    pub fn to_ssz_container(&self) -> SszSlotSet {
+        let set_capacity = self.set.capacity();
+
+        let set = self
+            .set
+            .iter()
+            .map(|hash| (*hash))
+            .collect();
+
+        let slot = self.slot;
+        
+        SszSlotSet {
+            set_capacity,
+            set,
+            slot,
+        }
+    }
+
+    /// Creates a new `Self` from the given `SszSlotSet`, restoring `Self` to the same state of
+    /// the `Self` that created the `SszSlotSet`.
+    pub fn from_ssz_container(ssz_container: &SszSlotSet) -> Self {
+        let slot = ssz_container.slot;
+        
+        let mut set = HashSet::with_capacity(ssz_container.set_capacity);
+        for hash in &ssz_container.set {
+            set.insert(hash.clone());
+        }
+
+        Self{
+            set,
+            slot,
+        }
+    }
+
+}
+
+impl PartialEq<SlotHashSet> for SlotHashSet {
+    fn eq(&self, other: &SlotHashSet) -> bool {
+        (self.set == other.set) && (self.slot == other.slot)
+    }
 }
 
 /// Stores the roots of `Attestation` objects for some number of `Slots`, so we can determine if
 /// these have previously been seen on the network.
+#[derive(Debug)]
 pub struct ObservedAttestations<E: EthSpec> {
     lowest_permissible_slot: RwLock<Slot>,
     sets: RwLock<Vec<SlotHashSet>>,
     _phantom: PhantomData<E>,
+}
+
+#[derive(Encode, Decode, Clone)]
+pub struct SszObservedAttestations {
+    lowest_permissible_slot: Slot,
+    sets: Vec<SszSlotSet>,
 }
 
 impl<E: EthSpec> Default for ObservedAttestations<E> {
@@ -239,14 +298,62 @@ impl<E: EthSpec> ObservedAttestations<E> {
 
         Ok(index)
     }
+
+    /// Returns a `SszObservedAttestations`, which contains all necessary information to restore the state
+    /// of `Self` at some later point.
+    pub fn to_ssz_container(&self) -> SszObservedAttestations {
+        let lowest_permissible_slot = self.lowest_permissible_slot.read();
+
+        let sets = self
+            .sets
+            .read()
+            .iter()
+            .map(|slot_hash_set| (slot_hash_set.to_ssz_container()))
+            .collect();
+
+        SszObservedAttestations {
+            lowest_permissible_slot: *lowest_permissible_slot,
+            sets,
+        }
+    }
+
+    /// Creates a new `Self` from the given `SszObservedAttestations`, restoring `Self` to the same state of
+    /// the `Self` that created the `SszObservedAttestations`.
+    pub fn from_ssz_container(ssz_container: &SszObservedAttestations) -> Self {
+        let lowest_permissible_slot = RwLock::new(ssz_container.lowest_permissible_slot);
+        
+        let sets = RwLock::new(
+            ssz_container
+            .sets
+            .clone()
+            .into_iter()
+            .map(|s| SlotHashSet::from_ssz_container(&s))
+            .collect()
+        );
+
+        Self{
+            lowest_permissible_slot,
+            sets,
+            _phantom: PhantomData,
+        }
+    }
+
+}
+
+impl<E: EthSpec> PartialEq<ObservedAttestations<E>> for ObservedAttestations<E> {
+    fn eq(&self, other: &ObservedAttestations<E>) -> bool {
+        (*self.sets.read() == *other.sets.read()) && 
+            (*self.lowest_permissible_slot.read() == *other.lowest_permissible_slot.read())
+    }
 }
 
 #[cfg(test)]
-#[cfg(not(debug_assertions))]
+//#[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
     use tree_hash::TreeHash;
     use types::{test_utils::test_random_instance, Hash256};
+    use ssz::{Decode, Encode};
 
     type E = types::MainnetEthSpec;
 
@@ -291,6 +398,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn single_slot_round_trip() {
+        let store = ObservedAttestations::default();
+        for i in 0..NUM_ELEMENTS as u64 {
+            let a = get_attestation(*store.lowest_permissible_slot.read(), i);
+            assert_eq!(
+                store.observe_attestation(&a, None),
+                Ok(ObserveOutcome::New),
+                "should observe new attestation"
+            )
+        }
+
+        let bytes = store.to_ssz_container().as_ssz_bytes();
+        
+        assert_eq!(
+            store,
+            ObservedAttestations::from_ssz_container(
+                &SszObservedAttestations::from_ssz_bytes(&bytes).expect("should decode")
+            ),
+            "single slot should encode/decode to/from SSZ"
+        )
+    }
     #[test]
     fn single_slot() {
         let store = ObservedAttestations::default();
