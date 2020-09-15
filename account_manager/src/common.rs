@@ -10,7 +10,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 pub const MNEMONIC_PROMPT: &str = "Enter the mnemonic phrase:";
-pub const WALLET_NAME_PROMPT: &str = "Enter a name for your wallet:";
+pub const WALLET_NAME_PROMPT: &str = "Enter wallet name:";
 
 pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
     let path = path.as_ref();
