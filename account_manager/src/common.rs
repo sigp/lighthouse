@@ -1,4 +1,4 @@
-use account_utils::{PlainText, read_password_from_user, ZeroizeString, is_password_sufficiently_complex};
+use account_utils::{MINIMUM_PASSWORD_LEN, PlainText, read_password_from_user, ZeroizeString, is_password_sufficiently_complex};
 use account_utils::{read_mnemonic_from_user, strip_off_newlines};
 use clap::ArgMatches;
 use eth2_wallet::bip39::{Language, Mnemonic};
@@ -73,25 +73,28 @@ pub fn read_mnemonic_from_cli(
 pub fn read_wallet_password_from_cli(
     password_file_path: Option<PathBuf>,
 ) -> Result<PlainText, String> {
-    let password = match password_file_path {
+    match password_file_path {
         Some(path) => {
-            fs::read(&path)
+            let password = fs::read(&path)
                 .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
                 .map(|bytes|
-                         strip_off_newlines(bytes).into())?
-        },
+                    strip_off_newlines(bytes).into());
+            if is_password_sufficiently_complex(password.as_bytes()) {
+                password
+            } else {
+                Err(format!("Please use at least {} characters for your password.", MINIMUM_PASSWORD_LEN))
+            }
+        }
         None => {
             loop {
                 eprintln!("");
                 eprintln!("{}", WALLET_PASSWORD_PROMPT);
-                let password =  PlainText::from(read_password_from_user(stdin_password)?.as_ref().into_vec());
+                let password = PlainText::from(read_password_from_user(stdin_password)?.as_ref().into_vec());
                 if is_password_sufficiently_complex(password.as_bytes()) {
-                    break password
+                    break password;
                 }
-                eprintln!("Please use at least ."); //TODO: add requirements
+                eprintln!("Please use at least {} characters for your password.", MINIMUM_PASSWORD_LEN);
             }
         }
-    };
-
-
+    }
 }

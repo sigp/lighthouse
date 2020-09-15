@@ -33,8 +33,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix.",
                 )
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(MNEMONIC_FLAG)

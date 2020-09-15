@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
+use crate::common::read_wallet_password_from_cli;
 
 pub const CMD: &str = "create";
 pub const BASE_DIR_FLAG: &str = "base-dir";
@@ -38,7 +39,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(WALLET_PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
                 .help("A path to a file containing the password which will unlock the wallet.")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(VALIDATOR_DIR_FLAG)
@@ -151,7 +152,7 @@ pub fn cli_run<T: EthSpec>(
 
     let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, WALLET_PASSWORD_FLAG)?;
 
-    let wallet_password =
+    let wallet_password = read_wallet_password_from_cli(wallet_password_path);
 
     let mgr = WalletManager::open(&wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;

@@ -11,6 +11,7 @@ use std::fs::{self, File};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use crate::common::read_wallet_password_from_cli;
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -43,8 +44,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix.",
                 )
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(TYPE_FLAG)
@@ -114,7 +114,7 @@ pub fn create_wallet_from_mnemonic(
     mnemonic: &Mnemonic,
 ) -> Result<LockedWallet, String> {
     let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSWORD_FLAG)?;
+    let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
 
     let wallet_type = match type_field.as_ref() {
@@ -126,7 +126,7 @@ pub fn create_wallet_from_mnemonic(
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
     // Create a random password if the file does not exist.
-    if !wallet_password_path.exists() {
+    if wallet_password_path.is_some() && !wallet_password_path.exists() {
         // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
         // create a file with that name, we require that the password has a .pass suffix.
         if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
@@ -140,9 +140,7 @@ pub fn create_wallet_from_mnemonic(
             .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
     }
 
-    let wallet_password = fs::read(&wallet_password_path)
-        .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+    let wallet_password = read_wallet_password_from_cli(wallet_password_path)?;
 
     let wallet = mgr
         .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())
