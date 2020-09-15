@@ -1,7 +1,7 @@
 //! Implementation of a Lighthouse's peer management system.
 
 pub use self::peerdb::*;
-use crate::discovery::{Discovery, DiscoveryEvent};
+use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
 use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
@@ -19,7 +19,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::EthSpec;
+use types::{EthSpec, SubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -214,18 +214,45 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A request to find peers on a given subnet.
     pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
-        // Extend the time to maintain peers if required.
-        for s in subnets_to_discover.iter() {
-            if let Some(min_ttl) = s.min_ttl {
-                self.network_globals
+        let filtered: Vec<SubnetDiscovery> = subnets_to_discover
+            .into_iter()
+            .filter(|s| {
+                // Extend min_ttl of connected peers on required subnets
+                if let Some(min_ttl) = s.min_ttl {
+                    self.network_globals
+                        .peers
+                        .write()
+                        .extend_peers_on_subnet(s.subnet_id, min_ttl);
+                }
+                // Already have target number of peers, no need for subnet discovery
+                let peers_on_subnet = self
+                    .network_globals
                     .peers
-                    .write()
-                    .extend_peers_on_subnet(s.subnet_id, min_ttl);
-            }
-        }
+                    .read()
+                    .peers_on_subnet(s.subnet_id)
+                    .count();
+                if peers_on_subnet >= TARGET_SUBNET_PEERS {
+                    debug!(
+                        self.log,
+                        "Discovery query ignored";
+                        "subnet_id" => format!("{:?}",s.subnet_id),
+                        "reason" => "Already connected to desired peers",
+                        "connected_peers_on_subnet" => peers_on_subnet,
+                        "target_subnet_peers" => TARGET_SUBNET_PEERS,
+                    );
+                    false
+                // Queue an outgoing connection request to the cached peers that are on `s.subnet_id`.
+                // If we connect to the cached peers before the discovery query starts, then we potentially
+                // save a costly discovery query.
+                } else {
+                    self.dial_cached_enrs_in_subnet(s.subnet_id);
+                    true
+                }
+            })
+            .collect();
 
         // request the subnet query from discovery
-        self.discovery.discover_subnet_peers(subnets_to_discover);
+        self.discovery.discover_subnet_peers(filtered);
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -529,6 +556,30 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // should handle this.
         multiaddr.push(MProtocol::Tcp(self.network_globals.listen_port_tcp()));
         self.events.push(PeerManagerEvent::SocketUpdated(multiaddr));
+    }
+
+    /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
+    /// in Connected, Dialing or Banned state.
+    fn dial_cached_enrs_in_subnet(&mut self, subnet_id: SubnetId) {
+        let predicate = subnet_predicate::<TSpec>(vec![subnet_id], &self.log);
+        let peers_to_dial: Vec<PeerId> = self
+            .discovery()
+            .cached_enrs()
+            .filter_map(|(peer_id, enr)| {
+                let peers = self.network_globals.peers.read();
+                if predicate(enr)
+                    && !peers.is_connected_or_dialing(peer_id)
+                    && !peers.is_banned(peer_id)
+                {
+                    Some(peer_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for peer in &peers_to_dial {
+            self.dial_peer(peer);
+        }
     }
 
     /// Peers that have been returned by discovery requests are dialed here if they are suitable.
