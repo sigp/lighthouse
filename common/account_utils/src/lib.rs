@@ -123,7 +123,17 @@ pub fn read_input_from_user(use_stdin: bool) -> Result<String, String> {
             .read_line(&mut input)
             .map_err(|e| format!("Error reading from tty: {}", e))?;
     }
+    trim_newline(&mut input);
     Ok(input)
+}
+
+fn trim_newline(s: &mut String) {
+    if s.ends_with('\n') {
+        s.pop();
+        if s.ends_with('\r') {
+            s.pop();
+        }
+    }
 }
 
 /// Takes a string password and checks that it meets minimum requirements.
