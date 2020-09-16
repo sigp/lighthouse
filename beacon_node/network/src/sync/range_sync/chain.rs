@@ -743,6 +743,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
+            let failed_peer = batch
+                .current_peer()
+                .expect("Batch is downloading from a peer");
+            self.peers
+                .get_mut(failed_peer)
+                .expect("Peer belongs to the chain")
+                .remove(&batch_id);
             batch.download_failed();
             self.retry_batch_download(network, batch_id)
         } else {
