@@ -6,6 +6,12 @@ use types::Slot;
 #[cfg(target_os = "linux")]
 use {procinfo::pid, psutil::process::Process};
 
+#[cfg(target_os = "macos")]
+use {
+    psutil::process::Process,
+    systemstat::{Platform, System},
+};
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 /// The current syncing status of the node.
 pub struct SyncingStatus {
@@ -64,9 +70,39 @@ pub struct Health {
 }
 
 impl Health {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     pub fn observe() -> Result<Self, String> {
-        Err("Health is only available on Linux".into())
+        let process =
+            Process::current().map_err(|e| format!("Unable to get current process: {:?}", e))?;
+
+        let process_mem = process
+            .memory_info()
+            .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
+
+        let vm = psutil::memory::virtual_memory()
+            .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
+
+        let sys = System::new();
+
+        let loadavg = sys
+            .load_average()
+            .map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
+
+        Ok(Self {
+            pid: process.pid() as u32,
+            //TODO: figure out how to get threads for a PID on mac
+            pid_num_threads: 0,
+            pid_mem_resident_set_size: process_mem.rss(),
+            pid_mem_virtual_memory_size: process_mem.vms(),
+            sys_virt_mem_total: vm.total(),
+            sys_virt_mem_available: vm.available(),
+            sys_virt_mem_used: vm.used(),
+            sys_virt_mem_free: vm.free(),
+            sys_virt_mem_percent: vm.percent(),
+            sys_loadavg_1: loadavg.one as f64,
+            sys_loadavg_5: loadavg.five as f64,
+            sys_loadavg_15: loadavg.fifteen as f64,
+        })
     }
 
     #[cfg(target_os = "linux")]
@@ -99,5 +135,10 @@ impl Health {
             sys_loadavg_5: loadavg.five,
             sys_loadavg_15: loadavg.fifteen,
         })
+    }
+
+    #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
+    pub fn observe() -> Result<Self, String> {
+        Err("Health is only available on Linux and MacOS".into())
     }
 }

@@ -25,3 +25,7 @@ serde_yaml = "0.8.11"
 [target.'cfg(target_os = "linux")'.dependencies]
 psutil = "3.1.0"
 procinfo = "0.4.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+systemstat = "0.1.5"
+psutil = "3.1.0"
