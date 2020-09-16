@@ -192,13 +192,13 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         for (id, chain) in self.finalized_chains.iter_mut() {
             if let ProcessingResult::RemoveChain = func(chain) {
-                to_remove.push((id.clone(), RangeSyncType::Finalized));
+                to_remove.push((*id, RangeSyncType::Finalized));
             }
         }
 
         for (id, chain) in self.head_chains.iter_mut() {
             if let ProcessingResult::RemoveChain = func(chain) {
-                to_remove.push((id.clone(), RangeSyncType::Head));
+                to_remove.push((*id, RangeSyncType::Head));
             }
         }
 
@@ -291,7 +291,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .finalized_chains
             .iter()
             .max_by_key(|(_, chain)| chain.available_peers())
-            .map(|(id, chain)| (id.clone(), chain.available_peers()))
+            .map(|(id, chain)| (*id, chain.available_peers()))
         {
             let old_id = self.finalized_syncing_chain().map(
                 |(currently_syncing_id, currently_syncing_chain)| {
@@ -300,7 +300,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     {
                         currently_syncing_chain.stop_syncing();
                         // we stop this chain and start syncing the one with more peers
-                        Some(currently_syncing_id.clone())
+                        Some(*currently_syncing_id)
                     } else {
                         // the best chain is already the syncing chain, advance it if possible
                         None
@@ -485,6 +485,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
     /// Adds a peer to a chain with the given target, or creates a new syncing chain if it doesn't
     /// exits.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_peer_or_create_chain(
         &mut self,
         start_epoch: Epoch,

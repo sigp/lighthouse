@@ -272,6 +272,7 @@ pub struct Attempt {
 }
 
 impl Attempt {
+    #[allow(clippy::ptr_arg)]
     fn new<T: EthSpec>(peer_id: PeerId, blocks: &Vec<SignedBeaconBlock<T>>) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         blocks.as_ssz_bytes().hash(&mut hasher);
@@ -296,17 +297,12 @@ impl<T: EthSpec> slog::KV for BatchInfo<T> {
         record: &slog::Record,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
-        use slog::{Key, Value};
-        Value::serialize(
-            &self.start_slot,
-            record,
-            Key::from("start_slot"),
-            serializer,
-        )?;
+        use slog::Value;
+        Value::serialize(&self.start_slot, record, "start_slot", serializer)?;
         Value::serialize(
             &(self.end_slot - 1), // NOTE: The -1 shows inclusive blocks
             record,
-            Key::from("end_slot"),
+            "end_slot",
             serializer,
         )?;
         serializer.emit_usize("downloaded", self.failed_download_attempts.len())?;

@@ -125,7 +125,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
 
-        let chain = SyncingChain {
+        SyncingChain {
             id,
             start_epoch,
             target_head_slot,
@@ -141,9 +141,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             beacon_processor_send,
             chain,
             log: log.new(o!("chain" => id)),
-        };
-
-        chain
+        }
     }
 
     /// Check if the chain has peers from which to process batches.
@@ -646,7 +644,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // remove the chain early
                 return ProcessingResult::RemoveChain;
             }
-            redownload_queue.push(id.clone());
+            redownload_queue.push(*id);
         }
 
         // no batch maxed out it process attempts, so now the chain's volatile progress must be
@@ -688,12 +686,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // advance the chain to the new validating epoch
         self.advance_chain(network, validating_epoch);
-        if self.optimistic_start.is_none() {
-            if optimistic_epoch > self.start_epoch
-                && !self.failed_optimistic_starts.contains(&optimistic_epoch)
-            {
-                self.optimistic_start = Some(optimistic_epoch);
-            }
+        if self.optimistic_start.is_none()
+            && optimistic_epoch > self.start_epoch
+            && !self.failed_optimistic_starts.contains(&optimistic_epoch)
+        {
+            self.optimistic_start = Some(optimistic_epoch);
         }
 
         // update the state
@@ -790,7 +787,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             self.send_batch(network, batch_id, peer)
         } else {
             // If we are here the chain has no more peers
-            return ProcessingResult::RemoveChain;
+            ProcessingResult::RemoveChain
         }
     }
 
@@ -922,18 +919,19 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
         // only request batches up to the buffer size limit
+        // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
+        // if the current range is contained in a long range of skip slots.
+        // TODO: check this
+        let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
+            matches!(
+                batch.state(),
+                BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
+            )
+        };
         if self
             .batches
             .iter()
-            .filter(|(_epoch, batch)| {
-                let state = batch.state();
-                // NOTE: we don't count batches in the AwaitingValidation state, to prevent
-                // stalling sync if the current range is contained in a long range of skip
-                // slots.
-                // TODO: check this
-                matches!(state, BatchState::Downloading(..))
-                    || matches!(state, BatchState::AwaitingProcessing(..))
-            })
+            .filter(|&(_epoch, batch)| in_buffer(batch))
             .count()
             > BATCH_BUFFER_SIZE as usize
         {
@@ -941,11 +939,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         let batch_id = self.to_be_downloaded;
-        if !self.batches.contains_key(&batch_id) {
-            // this batch could have been included already being an optimistic batch
-            self.batches
-                .insert(batch_id, BatchInfo::new(&batch_id, EPOCHS_PER_BATCH));
-        }
+        // this batch could have been included already being an optimistic batch
+        self.batches
+            .entry(batch_id)
+            .or_insert_with(|| BatchInfo::new(&batch_id, EPOCHS_PER_BATCH));
         self.to_be_downloaded += EPOCHS_PER_BATCH;
         Some(batch_id)
     }
