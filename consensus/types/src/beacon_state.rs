@@ -304,7 +304,10 @@ impl<T: EthSpec> BeaconState<T> {
     /// returns `None`.
     ///
     /// Requires a fully up-to-date `pubkey_cache`, returns an error if this is not the case.
-    pub fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
+    pub fn get_validator_index(&mut self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
+        // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
+        // depositing validator already exists in the registry.
+        self.update_pubkey_cache()?;
         if self.pubkey_cache.len() == self.validators.len() {
             Ok(self.pubkey_cache.get(pubkey))
         } else {
