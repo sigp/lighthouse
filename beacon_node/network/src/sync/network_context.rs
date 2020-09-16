@@ -85,8 +85,8 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRangeRequest,
-        chain: ChainId,
-        batch: BatchId,
+        chain_id: ChainId,
+        batch_id: BatchId,
     ) -> Result<(), &'static str> {
         trace!(
             self.log,
@@ -96,7 +96,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "peer" => %peer_id,
         );
         let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
-        self.range_requests.insert(req_id, (chain, batch));
+        self.range_requests.insert(req_id, (chain_id, batch_id));
         Ok(())
     }
 
@@ -106,6 +106,8 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         remove: bool,
     ) -> (ChainId, BatchId) {
         if remove {
+            // NOTE: RequestID is an internal accounting mechanism and cannot be altered
+            // externally. This can only panic if the eth2_libp2p crate is faulty.
             self.range_requests
                 .remove(&request_id)
                 .expect("should have the requested id")

@@ -227,7 +227,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
             match batch.download_completed() {
                 Ok(received) => {
-                    debug!(self.log, "Completed batch received"; "epoch" => batch_id, "blocks" => received);
+                    let awaiting_batches = batch_id.saturating_sub(
+                        self.optimistic_start
+                            .unwrap_or_else(|| self.processing_target),
+                    );
+                    debug!(self.log, "Completed batch received"; "epoch" => batch_id, "blocks" => received, "awaiting_batches" => awaiting_batches);
 
                     // pre-emptively request more blocks from peers whilst we process current blocks,
                     if let ProcessingResult::RemoveChain = self.request_batches(network) {
@@ -264,7 +268,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // for removing chains and checking completion is in the callback.
 
         let blocks = batch.start_processing();
-        let process_id = ProcessId::RangeBatchId(self.id, self.processing_target);
+        let process_id = ProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 
         if let Err(e) = self
@@ -308,13 +312,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         Some(epoch)
                     }
                     BatchState::Downloading(..) => {
-                        // Optimistic batch is not ready. Check the processing target
-                        None
+                        // The optimistic batch is being downloaded. We wait for this before
+                        // attempting to process other batches.
+                        return ProcessingResult::KeepChain;
                     }
                     BatchState::Processing(_)
+                    | BatchState::AwaitingDownload
                     | BatchState::Failed
                     | BatchState::Poisoned
-                    | BatchState::AwaitingDownload
                     | BatchState::AwaitingValidation(_) => {
                         // these are all inconsistent states:
                         // - Processing -> `self.current_processing_batch` is Some
@@ -421,7 +426,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 batch.processing_completed(true);
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
-                if !was_non_empty {
+                if *was_non_empty {
                     self.advance_chain(network, batch_id);
                 } else if let Some(epoch) = self.optimistic_start {
                     // check if this batch corresponds to an optimistic batch. In this case, we
@@ -433,6 +438,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // this batch is now treated as any other batch
                     }
                 }
+
                 self.processing_target += EPOCHS_PER_BATCH;
 
                 // check if the chain has completed syncing
@@ -492,12 +498,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Removes any batches previous to the given `validating_epoch` and updates de current
+    /// Removes any batches previous to the given `validating_epoch` and updates the current
     /// boundaries of the chain.
     ///
     /// The `validating_epoch` must align with batch boundaries.
     ///
-    /// If a previous batch has been validated and it had been re-processed, downvote the original
+    /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
     fn advance_chain(
         &mut self,
@@ -510,10 +516,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         // safety check for batch boundaries
-        assert_eq!(
-            validating_epoch % EPOCHS_PER_BATCH,
-            self.start_epoch % EPOCHS_PER_BATCH
-        );
+        if validating_epoch % EPOCHS_PER_BATCH != self.start_epoch % EPOCHS_PER_BATCH {
+            crit!(self.log, "Validating Epoch is not aligned");
+        }
 
         // batches in the range [BatchId, ..) (not yet validated)
         let remaining_batches = self.batches.split_off(&validating_epoch);
@@ -578,7 +583,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.processing_target = self.processing_target.max(validating_epoch);
         let old_start = self.start_epoch;
         self.start_epoch = validating_epoch;
-        self.to_be_downloaded = self.to_be_downloaded.max(validating_epoch);
+        self.to_be_downloaded = self
+            .to_be_downloaded
+            .max(validating_epoch + EPOCHS_PER_BATCH);
         if let Some(epoch) = self.optimistic_start {
             if epoch <= validating_epoch {
                 self.optimistic_start = None;
@@ -659,7 +666,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.state = ChainSyncingState::Stopped;
     }
 
-    // Either a new chain, or an old one with a peer list
+    /// Either a new chain, or an old one with a peer list
     /// This chain has been requested to start syncing.
     ///
     /// This could be new chain, or an old chain that is being resumed.
@@ -858,7 +865,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .collect::<Vec<_>>();
         idle_peers.shuffle(&mut rng);
 
-        // check if we have the batch for our optimistc start. If not, request it first.
+        // check if we have the batch for our optimistic start. If not, request it first.
+        // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
             if !self.batches.contains_key(&epoch) {
                 if let Some(peer) = idle_peers.pop() {
@@ -870,6 +878,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                 }
             }
+            return ProcessingResult::KeepChain;
         }
 
         while let Some(peer) = idle_peers.pop() {
