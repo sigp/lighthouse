@@ -114,10 +114,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         if length > self.max_packet_size {
             return Err(RPCError::InvalidData);
         }
+        let max_encoded_length = snap::raw::max_compress_len(length) as u64;
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
 
-        match reader.read_exact(&mut decoded_buffer) {
+        match read_exact(&mut reader, &mut decoded_buffer, max_encoded_length) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
@@ -292,9 +293,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
         if length > self.max_packet_size {
             return Err(RPCError::InvalidData);
         }
+        let max_encoded_length = snap::raw::max_compress_len(length) as u64;
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
-        match reader.read_exact(&mut decoded_buffer) {
+        match read_exact(&mut reader, &mut decoded_buffer, max_encoded_length) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
@@ -396,9 +398,10 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
         if length > self.max_packet_size {
             return Err(RPCError::InvalidData);
         }
+        let max_encoded_length = snap::raw::max_compress_len(length) as u64;
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
-        match reader.read_exact(&mut decoded_buffer) {
+        match read_exact(&mut reader, &mut decoded_buffer, max_encoded_length) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
@@ -414,5 +417,45 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
                 _ => Err(e).map_err(RPCError::from),
             },
         }
+    }
+}
+
+/// Wrapper over `read` implementation of `FrameDecoder`.
+///
+/// Works like the standard `read_exact` implementation, except that it returns an error if length of bytes
+/// read from the underlying reader is greater than `max_compressed_length`.  
+fn read_exact<T: std::convert::AsRef<[u8]>>(
+    reader: &mut FrameDecoder<Cursor<T>>,
+    mut buf: &mut [u8],
+    max_compressed_len: u64,
+) -> Result<(), std::io::Error> {
+    let mut i = reader.get_ref().position();
+    let mut count = 0;
+    while !buf.is_empty() {
+        match reader.read(buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let tmp = buf;
+                buf = &mut tmp[n..];
+            }
+            Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+        count += reader.get_ref().position() - i;
+        i = reader.get_ref().position();
+        if count > max_compressed_len {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "compressed data is > max_compressed_len",
+            ));
+        }
+    }
+    if !buf.is_empty() {
+        Err(std::io::Error::new(
+            ErrorKind::UnexpectedEof,
+            "failed to fill whole buffer",
+        ))
+    } else {
+        Ok(())
     }
 }
