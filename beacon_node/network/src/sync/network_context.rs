@@ -112,7 +112,8 @@ impl<T: EthSpec> SyncNetworkContext<T> {
                 .remove(&request_id)
                 .expect("should have the requested id")
         } else {
-            *self.range_requests
+            *self
+                .range_requests
                 .get(&request_id)
                 .expect("should have the requested id")
         }
