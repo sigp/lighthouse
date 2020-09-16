@@ -29,9 +29,9 @@
 //!
 //! Block Lookup
 //!
-//! To keep the logic maintained to the syncing thread (and manage the request_ids), when a block needs to be searched for (i.e
-//! if an attestation references an unknown block) this manager can search for the block and
-//! subsequently search for parents if needed.
+//! To keep the logic maintained to the syncing thread (and manage the request_ids), when a block
+//! needs to be searched for (i.e if an attestation references an unknown block) this manager can
+//! search for the block and subsequently search for parents if needed.
 
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
@@ -268,9 +268,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match local_peer_info.peer_sync_type(&remote) {
             PeerSyncType::FullySynced => {
                 trace!(self.log, "Peer synced to our head found";
-                "peer" => format!("{:?}", peer_id),
-                "peer_head_slot" => remote.head_slot,
-                "local_head_slot" => local_peer_info.head_slot,
+                    "peer" => %peer_id,
+                    "peer_head_slot" => remote.head_slot,
+                    "local_head_slot" => local_peer_info.head_slot,
                 );
                 self.synced_peer(&peer_id, remote);
                 // notify the range sync that a peer has been added
@@ -278,11 +278,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             PeerSyncType::Advanced => {
                 trace!(self.log, "Useful peer for sync found";
-                "peer" => format!("{:?}", peer_id),
-                "peer_head_slot" => remote.head_slot,
-                "local_head_slot" => local_peer_info.head_slot,
-                "peer_finalized_epoch" => remote.finalized_epoch,
-                "local_finalized_epoch" => local_peer_info.finalized_epoch,
+                    "peer" => %peer_id,
+                    "peer_head_slot" => remote.head_slot,
+                    "local_head_slot" => local_peer_info.head_slot,
+                    "peer_finalized_epoch" => remote.finalized_epoch,
+                    "local_finalized_epoch" => local_peer_info.finalized_epoch,
                 );
 
                 // There are few cases to handle here:

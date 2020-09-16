@@ -951,6 +951,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 }
 
+impl<T: BeaconChainTypes> slog::KV for &mut SyncingChain<T> {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        slog::KV::serialize(*self, record, serializer)
+    }
+}
+
 impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
     fn serialize(
         &self,

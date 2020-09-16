@@ -1,7 +1,7 @@
 //! This provides the logic for the finalized and head chains.
 //!
-//! Each chain type is stored in it's own vector. A variety of helper functions are given along
-//! with this struct to to simplify the logic of the other layers of sync.
+//! Each chain type is stored in it's own map. A variety of helper functions are given along with
+//! this struct to simplify the logic of the other layers of sync.
 
 use super::chain::{ChainId, ChainSyncingState, ProcessingResult, SyncingChain};
 use super::sync_type::RangeSyncType;
@@ -513,6 +513,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 }
             }
             Entry::Vacant(entry) => {
+                let peer_rpr = peer.to_string();
                 let new_chain = SyncingChain::new(
                     start_epoch,
                     target_head_slot,
@@ -523,7 +524,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     &self.log,
                 );
                 assert_eq!(new_chain.get_id(), id);
-                debug!(self.log, "New chain added to sync"; "peer_id" => %peer, "sync_type" => ?sync_type, &new_chain);
+                debug!(self.log, "New chain added to sync"; "peer_id" => peer_rpr, "sync_type" => ?sync_type, &new_chain);
                 entry.insert(new_chain);
             }
         }

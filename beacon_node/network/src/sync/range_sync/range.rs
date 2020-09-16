@@ -218,8 +218,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some(removed_chain) = removed_chain {
-                    // TODO: better logs
-                    debug!(self.log, "Chain removed after block respose"; "sync_type" => ?sync_type, "chain_id" => chain_id);
+                    debug!(self.log, "Chain removed after block response"; "sync_type" => ?sync_type, "chain_id" => chain_id);
                     removed_chain.status_peers(network);
                     // TODO: update & update_sync_state?
                 }
@@ -273,7 +272,6 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         // Remove non-syncing head chains and re-status the peers.  This removes a
                         // build-up of potentially duplicate head chains. Any legitimate head
                         // chains will be re-established
-                        // TODO: why would we have duplicated chains?
                         self.chains.clear_head_chains(network);
                         // update the state of the collection
                         self.chains.update(network);
@@ -341,7 +339,6 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         {
             Ok((removed_chain, sync_type)) => {
                 if let Some(removed_chain) = removed_chain {
-                    // TODO: better logs
                     debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
                     removed_chain.status_peers(network);
                     // TODO: update & update_sync_state?

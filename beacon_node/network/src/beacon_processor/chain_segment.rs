@@ -64,7 +64,7 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
                 );
             });
         }
-        // this a parent lookup request from the sync manager
+        // this is a parent lookup request from the sync manager
         ProcessId::ParentLookup(peer_id, chain_head) => {
             debug!(
                 log, "Processing parent lookup";
@@ -75,7 +75,7 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
             // reverse
             match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
                 (_, Err(e)) => {
-                    debug!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
+                    debug!(log, "Parent lookup failed"; "last_peer_id" => %peer_id, "error" => e);
                     sync_send
                         .send(SyncMessage::ParentLookupFailed{peer_id, chain_head})
                         .unwrap_or_else(|_| {
@@ -147,7 +147,7 @@ fn run_fork_choice<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>, log: &slog::
         Err(e) => error!(
             log,
             "Fork choice failed";
-            "error" => format!("{:?}", e),
+            "error" => ?e,
             "location" => "batch import error"
         ),
     }
@@ -213,7 +213,7 @@ fn handle_failed_chain_segment<T: EthSpec>(
             warn!(
                 log, "BlockProcessingFailure";
                 "msg" => "unexpected condition in processing block.",
-                "outcome" => format!("{:?}", e)
+                "outcome" => ?e,
             );
 
             Err(format!("Internal error whilst processing block: {:?}", e))
@@ -222,7 +222,7 @@ fn handle_failed_chain_segment<T: EthSpec>(
             debug!(
                 log, "Invalid block received";
                 "msg" => "peer sent invalid block",
-                "outcome" => format!("{:?}", other),
+                "outcome" => %other,
             );
 
             Err(format!("Peer sent invalid block. Reason: {:?}", other))
