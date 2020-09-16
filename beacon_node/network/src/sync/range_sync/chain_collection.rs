@@ -289,15 +289,17 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         local_head_epoch: Epoch,
     ) {
         // Find the chain with most peers and check if it is already syncing
-        if let Some(new_id) = self
+        if let Some((new_id, peers)) = self
             .finalized_chains
             .iter()
             .max_by_key(|(_, chain)| chain.available_peers())
-            .map(|(id, _)| id.clone())
+            .map(|(id, chain)| (id.clone(), chain.available_peers()))
         {
             let old_id = self.finalized_syncing_chain().map(
                 |(currently_syncing_id, currently_syncing_chain)| {
-                    if *currently_syncing_id != new_id {
+                    if *currently_syncing_id != new_id
+                        && peers > currently_syncing_chain.available_peers()
+                    {
                         currently_syncing_chain.stop_syncing();
                         // we stop this chain and start syncing the one with more peers
                         Some(Some(currently_syncing_id.clone()))
