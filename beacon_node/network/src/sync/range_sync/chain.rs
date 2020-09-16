@@ -807,7 +807,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             batch.start_downloading_from_peer(peer.clone());
             match network.blocks_by_range_request(peer.clone(), request, self.id, batch_id) {
                 Ok(()) => {
-                    debug!(self.log, "Requesting batch from peer"; "batch_id" => batch_id, "peer" => %peer, &batch);
+                    if self
+                        .optimistic_start
+                        .map(|epoch| epoch == batch_id)
+                        .unwrap_or(false)
+                    {
+                        debug!(self.log, "Requesting optimistic batch"; "epoch" => batch_id, &batch);
+                    } else {
+                        debug!(self.log, "Requesting batch"; "epoch" => batch_id, &batch);
+                    }
                     // register the batch for this peer
                     self.peers
                         .get_mut(&peer)
@@ -878,7 +886,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if !self.batches.contains_key(&epoch) {
                 if let Some(peer) = idle_peers.pop() {
                     let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH);
-                    debug!(self.log, "Requesting optimistic batch"; "epoch" => epoch, &optimistic_batch);
                     self.batches.insert(epoch, optimistic_batch);
                     if let ProcessingResult::RemoveChain = self.send_batch(network, epoch, peer) {
                         return ProcessingResult::RemoveChain;

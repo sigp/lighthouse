@@ -11,7 +11,7 @@ use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId};
 use fnv::FnvHashMap;
-use slog::{debug, error, info};
+use slog::{debug, error, info, trace};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -151,7 +151,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ///
     /// We could be awaiting a head sync. If we are in the head syncing state, without any head
     /// chains, then update the state to idle.
-    /// TODO: check this
     pub fn fully_synced_peer_found(&mut self) {
         if let RangeSyncState::Head { .. } = self.state {
             if self.head_chains.is_empty() {
@@ -165,7 +164,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// After a finalized chain completes this function is called. It ensures the state is set to
     /// `SyncState::Head` indicating we are awaiting new peers to connect before we can consider
     /// the state as idle.
-    /// TODO: check this
     pub fn set_head_sync(&mut self) {
         if let RangeSyncState::Idle = self.state {
             let current_slot = self
@@ -302,10 +300,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     {
                         currently_syncing_chain.stop_syncing();
                         // we stop this chain and start syncing the one with more peers
-                        Some(Some(currently_syncing_id.clone()))
+                        Some(currently_syncing_id.clone())
                     } else {
                         // the best chain is already the syncing chain, advance it if possible
-                        Some(None)
+                        None
                     }
                 },
             );
@@ -317,20 +315,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
             match old_id {
                 Some(Some(old_id)) => debug!(self.log, "Switching finalized chains";
-                        "new_chain" => new_id,
-                        "old_chain" => old_id,
-                        "new_target_root" => %chain.target_head_root,
-                        "new_end_slot" => chain.target_head_slot,
-                        "new_start_epoch"=> chain.start_epoch),
-                None => debug!(self.log, "Syncing new chain";
-                        "chain" => new_id,
-                        "new_target_root" => %chain.target_head_root,
-                        "new_end_slot" => chain.target_head_slot,
-                        "new_start_epoch"=> chain.start_epoch),
-                Some(None) => {
-                    debug!(self.log, "Trying to advance currently syncing chain");
-                    // this is the same chain. We try to advance it.
-                }
+                        "old_id" => old_id, &chain),
+                None => debug!(self.log, "Syncing new chain"; &chain),
+                Some(None) => trace!(self.log, "Advancing currently syncing chain"),
+                // this is the same chain. We try to advance it.
             }
             // update the state to a new finalized state
             let state = RangeSyncState::Finalized {
@@ -379,10 +367,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 .max_by_key(|(_id, chain)| chain.available_peers())
             {
                 // start syncing this chain
-                debug!(self.log, "New head chain started syncing";
-                    "new_target_root" => %chain.target_head_root,
-                    "new_end_slot" => chain.target_head_slot,
-                    "new_start_epoch"=> chain.start_epoch);
+                debug!(self.log, "New head chain started syncing"; &chain);
                 if let ProcessingResult::RemoveChain =
                     chain.start_syncing(network, local_epoch, local_head_epoch)
                 {
@@ -425,9 +410,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     pub fn clear_head_chains(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
         let log_ref = &self.log;
         self.head_chains.retain(|_id, chain| {
-            if !chain.is_syncing()
-                {
-                debug!(log_ref, "Removing old head chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
+            if !chain.is_syncing() {
+                debug!(log_ref, "Removing old head chain"; &chain);
                 chain.status_peers(network);
                 false
             } else {
@@ -476,7 +460,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     .read()
                     .contains_block(&chain.target_head_root)
             {
-                debug!(log_ref, "Purging out of finalized chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
+                debug!(log_ref, "Purging out of finalized chain"; &chain);
                 chain.status_peers(network);
                 false
             } else {
@@ -490,7 +474,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     .read()
                     .contains_block(&chain.target_head_root)
             {
-                debug!(log_ref, "Purging out of date head chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
+                debug!(log_ref, "Purging out of date head chain"; &chain);
                 chain.status_peers(network);
                 false
             } else {
@@ -520,8 +504,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         match collection.entry(id) {
             Entry::Occupied(mut entry) => {
                 let chain = entry.get_mut();
-                debug!(self.log, "Adding peer to known chain"; "peer_id" => %peer, "sync_type" => ?sync_type,
-                    "chain" => id, "target_root" => %chain.target_head_root, "targe_slot" => chain.target_head_slot);
+                debug!(self.log, "Adding peer to known chain"; "peer_id" => %peer, "sync_type" => ?sync_type, &chain);
                 assert_eq!(chain.target_head_root, target_head_root);
                 assert_eq!(chain.target_head_slot, target_head_slot);
                 if let ProcessingResult::RemoveChain = chain.add_peer(network, peer) {
@@ -530,8 +513,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 }
             }
             Entry::Vacant(entry) => {
-                debug!(self.log, "New chain added to sync"; "peer_id" => %peer, "sync_type" => ?sync_type,
-                    "chain" => id, "target_root" => %target_head_root, "end_slot" => target_head_slot);
                 let new_chain = SyncingChain::new(
                     start_epoch,
                     target_head_slot,
@@ -542,10 +523,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     &self.log,
                 );
                 assert_eq!(new_chain.get_id(), id);
+                debug!(self.log, "New chain added to sync"; "peer_id" => %peer, "sync_type" => ?sync_type, &new_chain);
                 entry.insert(new_chain);
             }
         }
-        debug!(self.log, "Finalization Peer added"; "number_of_finalized" => self.finalized_chains.len())
     }
 
     /// Returns the index of finalized chain that is currently syncing. Returns `None` if no
