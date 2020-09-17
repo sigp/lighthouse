@@ -984,6 +984,11 @@ fn load_parent<T: BeaconChainTypes>(
             .get_block(&block.parent_root())
             .map_err(BlockError::BeaconChainError)?
             .ok_or_else(|| {
+                // Return a `MissingBeaconBlock` error instead of a `ParentUnknown` error since
+                // we've already checked fork choice for this block.
+                //
+                // It's an internal error if the block exists in fork choice but not in the
+                // database.
                 BlockError::from(BeaconChainError::MissingBeaconBlock(block.parent_root()))
             })?;
 
