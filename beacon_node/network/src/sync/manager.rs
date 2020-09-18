@@ -118,7 +118,7 @@ pub enum SyncMessage<T: EthSpec> {
 // TODO: When correct batch error handling occurs, we will include an error type.
 #[derive(Debug)]
 pub enum BatchProcessResult {
-    /// The batch was completed successfully. It carries whether the processing imported any block.
+    /// The batch was completed successfully. It carries whether the sent batch contained blocks.
     Success(bool),
     /// The batch processing failed. It carries whether the processing imported any block.
     Failed(bool),
