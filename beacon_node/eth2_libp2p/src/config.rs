@@ -76,13 +76,9 @@ impl Default for Config {
         network_dir.push("network");
 
         // The function used to generate a gossipsub message id
-        // We use base64(SHA256(data)) for content addressing
-        let gossip_message_id = |message: &GossipsubMessage| {
-            MessageId::from(base64::encode_config(
-                &Sha256::digest(&message.data),
-                base64::URL_SAFE_NO_PAD,
-            ))
-        };
+        // We use the first 8 bytes of SHA256(data) for content addressing
+        let gossip_message_id =
+            |message: &GossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..8]);
 
         // gossipsub configuration
         // Note: The topics by default are sent as plain strings. Hashes are an optional
@@ -98,7 +94,7 @@ impl Default for Config {
             .history_length(6)
             .history_gossip(3)
             .validate_messages() // require validation before propagation
-            .validation_mode(ValidationMode::Permissive)
+            .validation_mode(ValidationMode::Anonymous)
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
             .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
