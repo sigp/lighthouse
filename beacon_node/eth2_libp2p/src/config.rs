@@ -103,7 +103,7 @@ impl Default for Config {
             .history_length(6)
             .history_gossip(3)
             .validate_messages() // require validation before propagation
-            .validation_mode(ValidationMode::Permissive)
+            .validation_mode(ValidationMode::Anonymous)
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
             .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
