@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     let awaiting_batches = batch_id.saturating_sub(
                         self.optimistic_start
                             .unwrap_or_else(|| self.processing_target),
-                    )/EPOCHS_PER_BATCH;
+                    ) / EPOCHS_PER_BATCH;
                     debug!(self.log, "Completed batch received"; "epoch" => batch_id, "blocks" => received, "awaiting_batches" => awaiting_batches);
 
                     // pre-emptively request more blocks from peers whilst we process current blocks,
@@ -429,11 +429,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 } else if let Some(epoch) = self.optimistic_start {
                     // check if this batch corresponds to an optimistic batch. In this case, we
                     // reject it as an optimistic candidate since the batch was empty
-                    debug!(self.log, "Rejected optimistic start due to empty batch"; "rejected" => batch_id);
                     if epoch == batch_id {
-                        self.optimistic_start = None;
-                        self.failed_optimistic_starts.insert(batch_id);
-                        // this batch is now treated as any other batch
+                        if let ProcessingResult::RemoveChain = self.reject_optimistic_batch(
+                            network,
+                            false, /* do not re-request */
+                            "batch was empty",
+                        ) {
+                            return ProcessingResult::RemoveChain;
+                        };
                     }
                 }
 
@@ -494,6 +497,33 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
         }
+    }
+
+    fn reject_optimistic_batch(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        redownload: bool,
+        reason: &str,
+    ) -> ProcessingResult {
+        if let Some(epoch) = self.optimistic_start {
+            self.optimistic_start = None;
+            self.failed_optimistic_starts.insert(epoch);
+            // if this batch is inside the current processing range, keep it, otherwise drop
+            // it. NOTE: this is done to prevent non-sequential batches coming from optimistic
+            // starts from filling up the buffer size
+            if epoch < self.to_be_downloaded {
+                debug!(self.log, "Rejected optimistic batch left for future use"; "epoch" => %epoch, "reason" => reason);
+                // this batch is now treated as any other batch, and re-requested for future use
+                if redownload {
+                    return self.retry_batch_download(network, epoch);
+                }
+            } else {
+                debug!(self.log, "Rejected optimistic batch"; "epoch" => %epoch, "reason" => reason);
+                self.batches.remove(&epoch);
+            }
+        }
+
+        ProcessingResult::KeepChain
     }
 
     /// Removes any batches previous to the given `validating_epoch` and updates the current
@@ -618,19 +648,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // results in successful processing, we downvote the original peer that sent us the batch.
 
         if let Some(epoch) = self.optimistic_start {
-            // If this batch is an optimistic batch, we reject this epoch as an optimistic candidate
+            // If this batch is an optimistic batch, we reject this epoch as an optimistic
+            // candidate and try to re download it
             if epoch == batch_id {
-                self.optimistic_start = None;
-                self.failed_optimistic_starts.insert(epoch);
-                // if this batch is inside the current processing range, keep it, otherwise drop
-                // it. NOTE: this is done to prevent non-sequential batches coming from optimistic
-                // starts from filling up the buffer size
-                if batch_id < self.to_be_downloaded {
-                    // this batch is now treated as any other batch, and re-requested for future use
-                    return self.retry_batch_download(network, batch_id);
-                } else {
-                    self.batches.remove(&batch_id);
-                    return ProcessingResult::KeepChain;
+                if let ProcessingResult::RemoveChain =
+                    self.reject_optimistic_batch(network, true, "batch was invalid")
+                {
+                    return ProcessingResult::RemoveChain;
                 }
             }
         }
