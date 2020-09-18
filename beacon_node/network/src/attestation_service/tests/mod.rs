@@ -8,6 +8,8 @@ mod tests {
         migrate::NullMigrator,
     };
     use eth2_libp2p::discovery::{build_enr, Keypair};
+    use eth2_libp2p::rpc::methods::MetaData;
+    use eth2_libp2p::types::EnrBitfield;
     use eth2_libp2p::{
         discovery::CombinedKey, CombinedKeyExt, NetworkConfig, NetworkGlobals, SubnetDiscovery,
     };
@@ -102,7 +104,14 @@ mod tests {
         let enr_key = CombinedKey::from_libp2p(&Keypair::generate_secp256k1()).unwrap();
         let enr = build_enr::<MinimalEthSpec>(&enr_key, &config, EnrForkId::default()).unwrap();
 
-        let network_globals: NetworkGlobals<MinimalEthSpec> = NetworkGlobals::new(enr, 0, 0, &log);
+        // Default metadata
+        let meta_data = MetaData {
+            seq_number: 0,
+            attnets: EnrBitfield::<MinimalEthSpec>::default(),
+        };
+
+        let network_globals: NetworkGlobals<MinimalEthSpec> =
+            NetworkGlobals::new(enr, 0, 0, meta_data, &log);
         AttestationService::new(beacon_chain, Arc::new(network_globals), &log)
     }
 
