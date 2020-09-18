@@ -114,11 +114,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         if length > self.max_packet_size {
             return Err(RPCError::InvalidData);
         }
-        let max_encoded_length = snap::raw::max_compress_len(length) as u64;
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
 
-        match read_exact(&mut reader, &mut decoded_buffer, max_encoded_length) {
+        match read_exact(&mut reader, &mut decoded_buffer, length) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
@@ -293,10 +292,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
         if length > self.max_packet_size {
             return Err(RPCError::InvalidData);
         }
-        let max_encoded_length = snap::raw::max_compress_len(length) as u64;
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
-        match read_exact(&mut reader, &mut decoded_buffer, max_encoded_length) {
+        match read_exact(&mut reader, &mut decoded_buffer, length) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
@@ -398,10 +396,9 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
         if length > self.max_packet_size {
             return Err(RPCError::InvalidData);
         }
-        let max_encoded_length = snap::raw::max_compress_len(length) as u64;
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
-        match read_exact(&mut reader, &mut decoded_buffer, max_encoded_length) {
+        match read_exact(&mut reader, &mut decoded_buffer, length) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
@@ -422,14 +419,18 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
 
 /// Wrapper over `read` implementation of `FrameDecoder`.
 ///
-/// Works like the standard `read_exact` implementation, except that it returns an error if length of bytes
-/// read from the underlying reader is greater than `max_compressed_length`.  
+/// Works like the standard `read_exact` implementation, except that it returns an error if length of
+// compressed bytes read from the underlying reader is greater than worst case compression length for snappy.
 fn read_exact<T: std::convert::AsRef<[u8]>>(
     reader: &mut FrameDecoder<Cursor<T>>,
     mut buf: &mut [u8],
-    max_compressed_len: u64,
+    uncompressed_length: usize,
 ) -> Result<(), std::io::Error> {
-    let mut i = reader.get_ref().position();
+    // Calculate worst case compression length for given uncompressed length
+    let max_compressed_len = snap::raw::max_compress_len(uncompressed_length) as u64;
+
+    // Initialize the position of the reader
+    let mut pos = reader.get_ref().position();
     let mut count = 0;
     while !buf.is_empty() {
         match reader.read(buf) {
@@ -441,12 +442,25 @@ fn read_exact<T: std::convert::AsRef<[u8]>>(
             Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
             Err(e) => return Err(e),
         }
-        count += reader.get_ref().position() - i;
-        i = reader.get_ref().position();
+        // Get current position of reader
+        let curr_pos = reader.get_ref().position();
+        // Note: reader should always advance forward. However, this behaviour
+        // depends on the implementation of `snap::FrameDecoder`, so it is better
+        // to check to avoid underflow panic.
+        if curr_pos > pos {
+            count += reader.get_ref().position() - pos;
+            pos = curr_pos;
+        } else {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "snappy: reader is not advanced forward while reading",
+            ));
+        }
+
         if count > max_compressed_len {
             return Err(std::io::Error::new(
                 ErrorKind::InvalidData,
-                "compressed data is > max_compressed_len",
+                "snappy: compressed data is > max_compressed_len",
             ));
         }
     }
