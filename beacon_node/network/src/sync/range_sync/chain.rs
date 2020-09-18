@@ -789,7 +789,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
     ) -> ProcessingResult {
         let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
+            Some(batch) => {
+                if let BatchState::Failed = batch.state() {
+                    return ProcessingResult::RemoveChain;
+                } else {
+                    batch
+                }
+            }
             None => return ProcessingResult::KeepChain,
         };
 
