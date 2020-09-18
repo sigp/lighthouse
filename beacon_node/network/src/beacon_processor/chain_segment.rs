@@ -32,14 +32,15 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
             let end_slot = downloaded_blocks.last().map(|b| b.message.slot.as_u64());
             let sent_blocks = downloaded_blocks.len();
 
-            debug!(log, "Processing batch"; "batch_epoch" => epoch, "blocks" => sent_blocks,  "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service" => "sync");
             let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                 (_, Ok(_)) => {
-                    debug!(log, "Batch processed"; "batch_epoch" => epoch , "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service"=> "sync");
+                    debug!(log, "Batch processed"; "batch_epoch" => epoch, "first_block_slot" => start_slot,
+                        "last_block_slot" => end_slot, "processed_blocks" => sent_blocks, "service"=> "sync");
                     BatchProcessResult::Success(sent_blocks > 0)
                 }
                 (imported_blocks, Err(e)) => {
-                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "error" => e, "imported_blocks" => imported_blocks, "service" => "sync");
+                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "first_block_slot" => start_slot,
+                        "last_block_slot" => end_slot, "error" => e, "imported_blocks" => imported_blocks, "service" => "sync");
                     BatchProcessResult::Failed(imported_blocks > 0)
                 }
             };
@@ -100,13 +101,7 @@ fn process_blocks<
     match chain.process_chain_segment(blocks) {
         ChainSegmentResult::Successful { imported_blocks } => {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
-            if imported_blocks == 0 {
-                debug!(log, "All blocks already known");
-            } else {
-                debug!(
-                    log, "Imported blocks from network";
-                    "count" => imported_blocks,
-                );
+            if imported_blocks > 0 {
                 // Batch completed successfully with at least one block, run fork choice.
                 run_fork_choice(chain, log);
             }
