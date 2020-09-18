@@ -15,6 +15,7 @@ rand = "0.7.2"
 eth2_keystore = { path = "../eth2_keystore" }
 eth2_key_derivation = { path = "../eth2_key_derivation" }
 tiny-bip39 = "0.7.3"
+num-bigint-dig = { version = "0.6.0", features = ["zeroize"] }
 
 [dev-dependencies]
 hex = "0.4.2"
