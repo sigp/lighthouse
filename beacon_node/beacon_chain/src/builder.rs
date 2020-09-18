@@ -1,5 +1,6 @@
 use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
+    SEEN_CACHES_KEY,
 };
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
@@ -7,6 +8,7 @@ use crate::head_tracker::HeadTracker;
 use crate::migrate::Migrate;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::persisted_seen_caches::PersistedSeenCaches;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
@@ -16,6 +18,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, EventHandler,
 };
+use crate::observed_attestations::ObservedAttestations;
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -104,6 +107,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
+    observed_attestations: Option<ObservedAttestations<T::EthSpec>>,
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
@@ -151,6 +155,7 @@ where
             genesis_block_root: None,
             fork_choice: None,
             op_pool: None,
+            observed_attestations: None,
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
@@ -323,6 +328,19 @@ where
         );
         self.validator_pubkey_cache = Some(pubkey_cache);
         self.fork_choice = Some(fork_choice);
+
+        let caches = store
+        .get_item::<PersistedSeenCaches>(&Hash256::from_slice(&SEEN_CACHES_KEY))
+        .map_err(|e| format!("DB error when reading persisted seen caches: {:?}", e))?
+        .ok_or_else(|| {
+            "No persisted seen caches found in store. Will continue with empty caches."
+                .to_string()
+        })?;
+
+        self.observed_attestations = Some(
+            ObservedAttestations::from_ssz_container(&caches.observed_attestations)
+                .map_err(|e| format!("Failed to decode observed attestations for database: {:?}", e))?
+        );
 
         Ok(self)
     }
@@ -548,7 +566,7 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
-            observed_attestations: <_>::default(),
+            observed_attestations: self.observed_attestations.unwrap_or_default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.

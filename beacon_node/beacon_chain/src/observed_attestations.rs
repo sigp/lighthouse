@@ -143,7 +143,7 @@ impl SlotHashSet {
 
     /// Creates a new `Self` from the given `SszSlotSet`, restoring `Self` to the same state of
     /// the `Self` that created the `SszSlotSet`.
-    pub fn from_ssz_container(ssz_container: &SszSlotSet) -> Self {
+    pub fn from_ssz_container(ssz_container: &SszSlotSet) -> Result<Self, Error> {
         let slot = ssz_container.slot;
         
         let mut set = HashSet::with_capacity(ssz_container.set_capacity);
@@ -151,10 +151,10 @@ impl SlotHashSet {
             set.insert(hash.clone());
         }
 
-        Self{
+        Ok(Self{
             set,
             slot,
-        }
+        })
     }
 
 }
@@ -319,23 +319,26 @@ impl<E: EthSpec> ObservedAttestations<E> {
 
     /// Creates a new `Self` from the given `SszObservedAttestations`, restoring `Self` to the same state of
     /// the `Self` that created the `SszObservedAttestations`.
-    pub fn from_ssz_container(ssz_container: &SszObservedAttestations) -> Self {
+    pub fn from_ssz_container(ssz_container: &SszObservedAttestations) -> Result<Self, Error> {
         let lowest_permissible_slot = RwLock::new(ssz_container.lowest_permissible_slot);
         
-        let sets = RwLock::new(
-            ssz_container
+        let translate_sets = ssz_container
             .sets
             .clone()
-            .into_iter()
-            .map(|s| SlotHashSet::from_ssz_container(&s))
-            .collect()
-        );
+            .iter()
+            .map(SlotHashSet::from_ssz_container)
+            .collect();
+        
+        let sets = match translate_sets {
+            Ok(s) => RwLock::new(s),
+            Err(e) => return Err(e)
+        };
 
-        Self{
+        Ok(Self{
             lowest_permissible_slot,
             sets,
             _phantom: PhantomData,
-        }
+        })
     }
 
 }
@@ -413,7 +416,7 @@ mod tests {
         let bytes = store.to_ssz_container().as_ssz_bytes();
         
         assert_eq!(
-            store,
+            Ok(store),
             ObservedAttestations::from_ssz_container(
                 &SszObservedAttestations::from_ssz_bytes(&bytes).expect("should decode")
             ),
