@@ -234,13 +234,13 @@ type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Persists the observed/seen caches
-    
+
     pub fn persist_seen_caches(&self) -> Result<(), Error> {
         self.store.put_item(
             &Hash256::from_slice(&SEEN_CACHES_KEY),
             &PersistedSeenCaches {
                 observed_attestations: self.observed_attestations.to_ssz_container(),
-            }
+            },
         )?;
 
         Ok(())

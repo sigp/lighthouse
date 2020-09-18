@@ -2,11 +2,11 @@
 //! we've already seen the aggregated attestation.
 
 use parking_lot::RwLock;
+use ssz_derive::{Decode, Encode};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{Attestation, EthSpec, Hash256, Slot};
-use ssz_derive::{Decode, Encode};
 
 /// As a DoS protection measure, the maximum number of distinct `Attestations` that will be
 /// recorded for each slot.
@@ -101,7 +101,7 @@ impl SlotHashSet {
             self.set.insert(root);
 
             Ok(ObserveOutcome::New)
-        }        
+        }
     }
 
     /// Indicates if `a` has been observed before.
@@ -126,14 +126,10 @@ impl SlotHashSet {
     pub fn to_ssz_container(&self) -> SszSlotSet {
         let set_capacity = self.set.capacity();
 
-        let set = self
-            .set
-            .iter()
-            .map(|hash| (*hash))
-            .collect();
+        let set = self.set.iter().map(|hash| (*hash)).collect();
 
         let slot = self.slot;
-        
+
         SszSlotSet {
             set_capacity,
             set,
@@ -145,18 +141,14 @@ impl SlotHashSet {
     /// the `Self` that created the `SszSlotSet`.
     pub fn from_ssz_container(ssz_container: &SszSlotSet) -> Result<Self, Error> {
         let slot = ssz_container.slot;
-        
+
         let mut set = HashSet::with_capacity(ssz_container.set_capacity);
         for hash in &ssz_container.set {
             set.insert(hash.clone());
         }
 
-        Ok(Self{
-            set,
-            slot,
-        })
+        Ok(Self { set, slot })
     }
-
 }
 
 impl PartialEq<SlotHashSet> for SlotHashSet {
@@ -321,32 +313,31 @@ impl<E: EthSpec> ObservedAttestations<E> {
     /// the `Self` that created the `SszObservedAttestations`.
     pub fn from_ssz_container(ssz_container: &SszObservedAttestations) -> Result<Self, Error> {
         let lowest_permissible_slot = RwLock::new(ssz_container.lowest_permissible_slot);
-        
+
         let translate_sets = ssz_container
             .sets
             .clone()
             .iter()
             .map(SlotHashSet::from_ssz_container)
             .collect();
-        
+
         let sets = match translate_sets {
             Ok(s) => RwLock::new(s),
-            Err(e) => return Err(e)
+            Err(e) => return Err(e),
         };
 
-        Ok(Self{
+        Ok(Self {
             lowest_permissible_slot,
             sets,
             _phantom: PhantomData,
         })
     }
-
 }
 
 impl<E: EthSpec> PartialEq<ObservedAttestations<E>> for ObservedAttestations<E> {
     fn eq(&self, other: &ObservedAttestations<E>) -> bool {
-        (*self.sets.read() == *other.sets.read()) && 
-            (*self.lowest_permissible_slot.read() == *other.lowest_permissible_slot.read())
+        (*self.sets.read() == *other.sets.read())
+            && (*self.lowest_permissible_slot.read() == *other.lowest_permissible_slot.read())
     }
 }
 
@@ -354,9 +345,9 @@ impl<E: EthSpec> PartialEq<ObservedAttestations<E>> for ObservedAttestations<E> 
 //#[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
+    use ssz::{Decode, Encode};
     use tree_hash::TreeHash;
     use types::{test_utils::test_random_instance, Hash256};
-    use ssz::{Decode, Encode};
 
     type E = types::MainnetEthSpec;
 
@@ -414,7 +405,7 @@ mod tests {
         }
 
         let bytes = store.to_ssz_container().as_ssz_bytes();
-        
+
         assert_eq!(
             Ok(store),
             ObservedAttestations::from_ssz_container(

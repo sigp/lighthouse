@@ -1,11 +1,11 @@
 use crate::beacon_chain::{
-    BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
-    SEEN_CACHES_KEY,
+    BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY, SEEN_CACHES_KEY,
 };
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::Migrate;
+use crate::observed_attestations::ObservedAttestations;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::persisted_seen_caches::PersistedSeenCaches;
@@ -18,7 +18,6 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, EventHandler,
 };
-use crate::observed_attestations::ObservedAttestations;
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -330,16 +329,22 @@ where
         self.fork_choice = Some(fork_choice);
 
         let caches = store
-        .get_item::<PersistedSeenCaches>(&Hash256::from_slice(&SEEN_CACHES_KEY))
-        .map_err(|e| format!("DB error when reading persisted seen caches: {:?}", e))?
-        .ok_or_else(|| {
-            "No persisted seen caches found in store. Will continue with empty caches."
-                .to_string()
-        })?;
+            .get_item::<PersistedSeenCaches>(&Hash256::from_slice(&SEEN_CACHES_KEY))
+            .map_err(|e| format!("DB error when reading persisted seen caches: {:?}", e))?
+            .ok_or_else(|| {
+                "No persisted seen caches found in store. Will continue with empty caches."
+                    .to_string()
+            })?;
 
         self.observed_attestations = Some(
-            ObservedAttestations::from_ssz_container(&caches.observed_attestations)
-                .map_err(|e| format!("Failed to decode observed attestations for database: {:?}", e))?
+            ObservedAttestations::from_ssz_container(&caches.observed_attestations).map_err(
+                |e| {
+                    format!(
+                        "Failed to decode observed attestations for database: {:?}",
+                        e
+                    )
+                },
+            )?,
         );
 
         Ok(self)
