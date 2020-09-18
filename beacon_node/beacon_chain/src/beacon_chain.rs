@@ -21,6 +21,7 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::persisted_seen_caches::PersistedSeenCaches;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
@@ -71,6 +72,7 @@ pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
 pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
 pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
+pub const SEEN_CACHES_KEY: [u8; 32] = [0; 32];
 
 /// The result of a chain segment processing.
 pub enum ChainSegmentResult<T: EthSpec> {
@@ -231,6 +233,18 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    /// Persists the observed/seen caches
+    
+    pub fn persist_seen_caches(&self) -> Result<(), Error> {
+        self.store.put_item(
+            &Hash256::from_slice(&SEEN_CACHES_KEY),
+            &PersistedSeenCaches {
+                observed_attestations: self.observed_attestations.to_ssz_container(),
+            }
+        )?;
+
+        Ok(())
+    }
     /// Persists the core `BeaconChain` components (including the head block) and the fork choice.
     ///
     /// ## Notes:
@@ -2181,7 +2195,8 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
         let drop = || -> Result<(), Error> {
             self.persist_head_and_fork_choice()?;
             self.persist_op_pool()?;
-            self.persist_eth1_cache()
+            self.persist_eth1_cache()?;
+            self.persist_seen_caches()
         };
 
         if let Err(e) = drop() {

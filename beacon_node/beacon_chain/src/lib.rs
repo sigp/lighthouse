@@ -26,6 +26,7 @@ mod observed_block_producers;
 pub mod observed_operations;
 mod persisted_beacon_chain;
 mod persisted_fork_choice;
+mod persisted_seen_caches;
 mod shuffling_cache;
 mod snapshot_cache;
 pub mod test_utils;
