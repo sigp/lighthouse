@@ -284,7 +284,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         NetworkMessage::SubscribeCoreTopics => {
                             let mut subscribed_topics: Vec<GossipKind> = vec![];
-                            let already_subscribed = service.network_globals.gossipsub_subscriptions.read();
+                            let already_subscribed = service.network_globals.gossipsub_subscriptions.read().clone();
                             let already_subscribed = already_subscribed.iter().map(|x| x.kind()).collect::<std::collections::HashSet<_>>();
                             for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter().filter(|topic| already_subscribed.get(topic).is_none()) {
                                 if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {

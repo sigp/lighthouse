@@ -130,11 +130,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             let mut peer_state = self.network_globals.sync_state.write();
             if new_state != *peer_state {
                 info!(self.log, "Sync state updated"; "old_state" => format!("{}",peer_state), "new_state" => format!("{}",new_state));
+                if new_state == SyncState::Synced {
+                    network.subscribe_core_topics();
+                }
+                *peer_state = new_state;
             }
-            if new_state == SyncState::Synced {
-                network.subscribe_core_topics();
-            }
-            *peer_state = new_state;
         } else {
             // The state is based on a range sync state, update it
             let mut node_sync_state = self.network_globals.sync_state.write();
