@@ -5,7 +5,7 @@ use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
 };
-use eth2_wallet_manager::{WalletManager, WalletType};
+use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::prelude::*;
@@ -70,46 +70,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
-    let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSWORD_FLAG)?;
     let mnemonic_output_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
-
-    let wallet_type = match type_field.as_ref() {
-        HD_TYPE => WalletType::Hd,
-        unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),
-    };
-
-    let mgr = WalletManager::open(&base_dir)
-        .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
     // Create a new random mnemonic.
     //
     // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
     let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
 
-    // Create a random password if the file does not exist.
-    if !wallet_password_path.exists() {
-        // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
-        // create a file with that name, we require that the password has a .pass suffix.
-        if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
-            return Err(format!(
-                "Only creates a password file if that file ends in .pass: {:?}",
-                wallet_password_path
-            ));
-        }
-
-        create_with_600_perms(&wallet_password_path, random_password().as_bytes())
-            .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
-    }
-
-    let wallet_password = fs::read(&wallet_password_path)
-        .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
-
-    let wallet = mgr
-        .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())
-        .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
+    let wallet = create_wallet_from_mnemonic(matches, &base_dir.as_path(), &mnemonic)?;
 
     if let Some(path) = mnemonic_output_path {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
@@ -138,6 +106,48 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     println!("You do not need to backup your UUID or keep it secret.");
 
     Ok(())
+}
+
+pub fn create_wallet_from_mnemonic(
+    matches: &ArgMatches,
+    base_dir: &Path,
+    mnemonic: &Mnemonic,
+) -> Result<LockedWallet, String> {
+    let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
+    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSWORD_FLAG)?;
+    let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
+
+    let wallet_type = match type_field.as_ref() {
+        HD_TYPE => WalletType::Hd,
+        unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),
+    };
+
+    let mgr = WalletManager::open(&base_dir)
+        .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
+
+    // Create a random password if the file does not exist.
+    if !wallet_password_path.exists() {
+        // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
+        // create a file with that name, we require that the password has a .pass suffix.
+        if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
+            return Err(format!(
+                "Only creates a password file if that file ends in .pass: {:?}",
+                wallet_password_path
+            ));
+        }
+
+        create_with_600_perms(&wallet_password_path, random_password().as_bytes())
+            .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
+    }
+
+    let wallet_password = fs::read(&wallet_password_path)
+        .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
+        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+
+    let wallet = mgr
+        .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())
+        .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
+    Ok(wallet)
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.

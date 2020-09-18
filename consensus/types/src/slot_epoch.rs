@@ -29,6 +29,7 @@ pub struct Slot(u64);
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);

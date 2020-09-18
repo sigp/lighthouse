@@ -1,6 +1,7 @@
 //! Available RPC methods types and ids.
 
 use crate::types::EnrBitfield;
+use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
@@ -19,7 +20,7 @@ type MaxErrorLen = U256;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
-pub struct ErrorType(VariableList<u8, MaxErrorLen>);
+pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
 
 impl From<String> for ErrorType {
     fn from(s: String) -> Self {
@@ -42,10 +43,9 @@ impl Deref for ErrorType {
 
 impl ToString for ErrorType {
     fn to_string(&self) -> String {
-        match std::str::from_utf8(self.0.deref()) {
-            Ok(s) => s.to_string(),
-            Err(_) => format!("{:?}", self.0.deref()), // Display raw bytes if not a UTF-8 string
-        }
+        #[allow(clippy::invalid_regex)]
+        let re = Regex::new("\\p{C}").expect("Regex is valid");
+        String::from_utf8_lossy(&re.replace_all(self.0.deref(), &b""[..])).to_string()
     }
 }
 
@@ -283,13 +283,13 @@ impl<T: EthSpec> RPCCodedResponse<T> {
     }
 
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
-    pub fn from_error(response_code: u8, err: String) -> Self {
+    pub fn from_error(response_code: u8, err: ErrorType) -> Self {
         let code = match response_code {
             1 => RPCResponseErrorCode::InvalidRequest,
             2 => RPCResponseErrorCode::ServerError,
             _ => RPCResponseErrorCode::Unknown,
         };
-        RPCCodedResponse::Error(code, err.into())
+        RPCCodedResponse::Error(code, err)
     }
 
     /// Specifies which response allows for multiple chunks for the stream handler.

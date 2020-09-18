@@ -15,7 +15,7 @@ mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use environment::EnvironmentBuilder;
-use log::Level;
+use log::LevelFilter;
 use parse_hex::run_parse_hex;
 use std::fs::File;
 use std::path::PathBuf;
@@ -25,7 +25,10 @@ use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
 
 fn main() {
-    simple_logger::init_with_level(Level::Info).expect("logger should initialize");
+    simple_logger::SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .init()
+        .expect("Logger should be initialised");
 
     let matches = App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)

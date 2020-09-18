@@ -745,12 +745,11 @@ where
 
     /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        self.proto_array.get_block(block_root).filter(|block| {
-            // If available, use the parent_root to perform the lookup since it will involve one
-            // less lookup. This involves making the assumption that the finalized block will
-            // always have `block.parent_root` of `None`.
-            self.is_descendant_of_finalized(block.parent_root.unwrap_or(block.root))
-        })
+        if self.is_descendant_of_finalized(*block_root) {
+            self.proto_array.get_block(block_root)
+        } else {
+            None
+        }
     }
 
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
