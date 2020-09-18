@@ -164,10 +164,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch_ids) = self.peers.remove(peer_id) {
             // fail the batches
             for id in batch_ids {
-                self.batches
+                if self
+                    .batches
                     .get_mut(&id)
                     .expect("registered batch exists")
-                    .download_failed();
+                    .download_failed()
+                {
+                    return ProcessingResult::RemoveChain;
+                }
                 if let ProcessingResult::RemoveChain = self.retry_batch_download(network, id) {
                     // drop the chain early
                     return ProcessingResult::RemoveChain;
@@ -237,7 +241,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                     self.process_completed_batches(network)
                 }
-                Err((expected, received)) => {
+                Err((expected, received, _is_failed)) => {
                     warn!(self.log, "Batch received out of range blocks";
                         "epoch" => batch_id, "expected" => expected, "received" => received);
                     // this batch can't be used, so we need to request it again.
@@ -421,7 +425,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     .batches
                     .get_mut(&batch_id)
                     .expect("Chain was expecting a known batch");
-                batch.processing_completed(true);
+                let _ = batch.processing_completed(true);
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
                 if *was_non_empty {
@@ -467,9 +471,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     .expect("batch is processing blocks from a peer");
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
-                batch.processing_completed(false);
-                // check that we have not exceeded the re-process retry counter
-                if let BatchState::Failed = batch.state() {
+                if batch.processing_completed(false) {
+                    // check that we have not exceeded the re-process retry counter
                     // If a batch has exceeded the invalid batch lookup attempts limit, it means
                     // that it is likely all peers in this chain are are sending invalid batches
                     // repeatedly and are either malicious or faulty. We drop the chain and
@@ -663,8 +666,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let mut redownload_queue = Vec::new();
 
         for (id, batch) in self.batches.range_mut(..batch_id) {
-            batch.validation_failed();
-            if let BatchState::Failed = batch.state() {
+            if batch.validation_failed() {
                 // remove the chain early
                 return ProcessingResult::RemoveChain;
             }
@@ -771,7 +773,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .get_mut(failed_peer)
                 .expect("Peer belongs to the chain")
                 .remove(&batch_id);
-            batch.download_failed();
+            if batch.download_failed() {
+                return ProcessingResult::RemoveChain;
+            }
             self.retry_batch_download(network, batch_id)
         } else {
             // this could be an error for an old batch, removed when the chain advances
@@ -855,12 +859,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => e, &batch);
                     // register the failed download and check if the batch can be retried
-                    batch.download_failed();
                     self.peers
                         .get_mut(&peer)
                         .expect("peer belongs to the peer pool")
                         .remove(&batch_id);
-                    if let BatchState::Failed = batch.state() {
+                    if batch.download_failed() {
                         return ProcessingResult::RemoveChain;
                     } else {
                         return self.retry_batch_download(network, batch_id);

@@ -13,6 +13,9 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
+/// Interface for clarity
+type IsFailed = bool;
+
 /// A segment of a chain.
 pub struct BatchInfo<T: EthSpec> {
     /// Start slot of the batch.
@@ -136,11 +139,16 @@ impl<T: EthSpec> BatchInfo<T> {
 
     /// Marks the batch as ready to be processed if the blocks are in the range. The number of
     /// received blocks is returned, or the wrong batch end on failure
+    #[must_use = "Batch may have failed"]
     pub fn download_completed(
         &mut self,
     ) -> Result<
         usize, /* Received blocks */
-        (Slot /* expected slot */, Slot /* received slot */),
+        (
+            Slot, /* expected slot */
+            Slot, /* received slot */
+            IsFailed,
+        ),
     > {
         match self.state.poison() {
             BatchState::Downloading(peer, blocks) => {
@@ -169,7 +177,7 @@ impl<T: EthSpec> BatchInfo<T> {
                             // drop the blocks
                             BatchState::AwaitingDownload
                         };
-                        return Err(range);
+                        return Err((range.0, range.1, matches!(self.state, BatchState::Failed)));
                     }
                 }
 
@@ -181,7 +189,8 @@ impl<T: EthSpec> BatchInfo<T> {
         }
     }
 
-    pub fn download_failed(&mut self) {
+    #[must_use = "Batch may have failed"]
+    pub fn download_failed(&mut self) -> IsFailed {
         match self.state.poison() {
             BatchState::Downloading(peer, _) => {
                 // register the attempt and check if the batch can be tried again
@@ -194,6 +203,7 @@ impl<T: EthSpec> BatchInfo<T> {
                     // drop the blocks
                     BatchState::AwaitingDownload
                 };
+                matches!(self.state, BatchState::Failed)
             }
             other => unreachable!("Download failed for batch in wrong state: {:?}", other),
         }
@@ -218,7 +228,8 @@ impl<T: EthSpec> BatchInfo<T> {
         }
     }
 
-    pub fn processing_completed(&mut self, was_sucessful: bool) {
+    #[must_use = "Batch may have failed"]
+    pub fn processing_completed(&mut self, was_sucessful: bool) -> IsFailed {
         match self.state.poison() {
             BatchState::Processing(attempt) => {
                 self.state = if !was_sucessful {
@@ -235,13 +246,15 @@ impl<T: EthSpec> BatchInfo<T> {
                     }
                 } else {
                     BatchState::AwaitingValidation(attempt)
-                }
+                };
+                matches!(self.state, BatchState::Failed)
             }
             other => unreachable!("Processing completed for batch in wrong state: {:?}", other),
         }
     }
 
-    pub fn validation_failed(&mut self) {
+    #[must_use = "Batch may have failed"]
+    pub fn validation_failed(&mut self) -> IsFailed {
         match self.state.poison() {
             BatchState::AwaitingValidation(attempt) => {
                 self.failed_processing_attempts.push(attempt);
@@ -254,6 +267,7 @@ impl<T: EthSpec> BatchInfo<T> {
                 } else {
                     BatchState::AwaitingDownload
                 };
+                matches!(self.state, BatchState::Failed)
             }
             other => unreachable!("Validation failed for batch in wrong state: {:?}", other),
         }
