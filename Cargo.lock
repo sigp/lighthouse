@@ -1615,7 +1615,6 @@ dependencies = [
  "eth2_key_derivation",
  "eth2_keystore",
  "hex 0.4.2",
- "num-bigint-dig",
  "rand 0.7.3",
  "serde",
  "serde_json",
