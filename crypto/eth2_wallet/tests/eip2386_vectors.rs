@@ -1,11 +1,5 @@
-use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use eth2_keystore::{keypair_from_secret, Uuid};
-use eth2_wallet::{
-    recover_validator_secret_from_mnemonic, DerivedKey, Error, KeyType, PlainText, ValidatorPath,
-    Wallet,
-};
-use num_bigint_dig::{BigInt, BigUint, Sign};
-use std::str::FromStr;
+use eth2_wallet::Wallet;
 
 const EXPECTED_SECRET: &str = "147addc7ec981eb2715a22603813271cce540e0b7f577126011eb06249d9227c";
 const PASSWORD: &str = "testpassword";
