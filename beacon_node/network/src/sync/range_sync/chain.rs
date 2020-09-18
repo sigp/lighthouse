@@ -164,7 +164,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch_ids) = self.peers.remove(peer_id) {
             // fail the batches
             for id in batch_ids {
-                if self
+                if let BatchState::Failed = self
                     .batches
                     .get_mut(&id)
                     .expect("registered batch exists")
@@ -241,9 +241,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                     self.process_completed_batches(network)
                 }
-                Err((expected, received, _is_failed)) => {
+                Err((expected, received, state)) => {
                     warn!(self.log, "Batch received out of range blocks";
                         "epoch" => batch_id, "expected" => expected, "received" => received);
+                    if let BatchState::Failed = state {
+                        return ProcessingResult::RemoveChain;
+                    }
                     // this batch can't be used, so we need to request it again.
                     self.retry_batch_download(network, batch_id)
                 }
@@ -471,7 +474,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     .expect("batch is processing blocks from a peer");
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
-                if batch.processing_completed(false) {
+                if let BatchState::Failed = batch.processing_completed(false) {
                     // check that we have not exceeded the re-process retry counter
                     // If a batch has exceeded the invalid batch lookup attempts limit, it means
                     // that it is likely all peers in this chain are are sending invalid batches
@@ -666,7 +669,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let mut redownload_queue = Vec::new();
 
         for (id, batch) in self.batches.range_mut(..batch_id) {
-            if batch.validation_failed() {
+            if let BatchState::Failed = batch.validation_failed() {
                 // remove the chain early
                 return ProcessingResult::RemoveChain;
             }
@@ -773,7 +776,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .get_mut(failed_peer)
                 .expect("Peer belongs to the chain")
                 .remove(&batch_id);
-            if batch.download_failed() {
+            if let BatchState::Failed = batch.download_failed() {
                 return ProcessingResult::RemoveChain;
             }
             self.retry_batch_download(network, batch_id)
@@ -784,22 +787,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Sends and registers the request of a batch awaiting download.
-    ///
-    /// If a batch has maxed out its download/processing attempts, returns
-    /// `ProcessingResult::RemoveChain`.
     pub fn retry_batch_download(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
     ) -> ProcessingResult {
         let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => {
-                if let BatchState::Failed = batch.state() {
-                    return ProcessingResult::RemoveChain;
-                } else {
-                    batch
-                }
-            }
+            Some(batch) => batch,
             None => return ProcessingResult::KeepChain,
         };
 
@@ -863,7 +857,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .get_mut(&peer)
                         .expect("peer belongs to the peer pool")
                         .remove(&batch_id);
-                    if batch.download_failed() {
+                    if let BatchState::Failed = batch.download_failed() {
                         return ProcessingResult::RemoveChain;
                     } else {
                         return self.retry_batch_download(network, batch_id);
