@@ -1,4 +1,4 @@
-use eth2_keystore::{keypair_from_secret, Uuid};
+use eth2_keystore::Uuid;
 use eth2_wallet::Wallet;
 
 const EXPECTED_SECRET: &str = "147addc7ec981eb2715a22603813271cce540e0b7f577126011eb06249d9227c";
