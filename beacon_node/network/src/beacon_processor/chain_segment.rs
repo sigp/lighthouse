@@ -28,23 +28,15 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
     match process_id {
         // this a request from the range sync
         ProcessId::RangeBatchId(chain_id, epoch) => {
-            let len = downloaded_blocks.len();
-            let start_slot = if len > 0 {
-                downloaded_blocks[0].message.slot.as_u64()
-            } else {
-                0
-            };
-            let end_slot = if len > 0 {
-                downloaded_blocks[len - 1].message.slot.as_u64()
-            } else {
-                0
-            };
+            let start_slot = downloaded_blocks.first().map(|b| b.message.slot.as_u64());
+            let end_slot = downloaded_blocks.last().map(|b| b.message.slot.as_u64());
+            let sent_blocks = downloaded_blocks.len();
 
-            debug!(log, "Processing batch"; "batch_epoch" => epoch, "blocks" => downloaded_blocks.len(),  "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service" => "sync");
+            debug!(log, "Processing batch"; "batch_epoch" => epoch, "blocks" => sent_blocks,  "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service" => "sync");
             let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                 (_, Ok(_)) => {
                     debug!(log, "Batch processed"; "batch_epoch" => epoch , "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service"=> "sync");
-                    BatchProcessResult::Success(!downloaded_blocks.is_empty())
+                    BatchProcessResult::Success(sent_blocks > 0)
                 }
                 (imported_blocks, Err(e)) => {
                     debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "error" => e, "imported_blocks" => imported_blocks, "service" => "sync");
