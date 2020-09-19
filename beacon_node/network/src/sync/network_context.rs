@@ -104,18 +104,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         request_id: usize,
         remove: bool,
-    ) -> (ChainId, BatchId) {
+    ) -> Option<(ChainId, BatchId)> {
+        // NOTE: we can't guarantee that the request must be registered as it could receive more
+        // than an error, and be removed after receiving the first one.
+        // FIXME: https://github.com/sigp/lighthouse/issues/1634
         if remove {
-            // NOTE: RequestID is an internal accounting mechanism and cannot be altered
-            // externally. This can only panic if the eth2_libp2p crate is faulty.
-            self.range_requests
-                .remove(&request_id)
-                .expect("should have the requested id")
+            self.range_requests.remove(&request_id)
         } else {
-            *self
-                .range_requests
-                .get(&request_id)
-                .expect("should have the requested id")
+            self.range_requests.get(&request_id).cloned()
         }
     }
 

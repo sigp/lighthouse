@@ -49,7 +49,7 @@ use crate::sync::PeerSyncInfo;
 use crate::sync::RequestId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{NetworkGlobals, PeerId};
-use slog::{debug, error, trace};
+use slog::{debug, error, trace, warn};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -209,23 +209,26 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         // get the chain and batch for which this response belongs
-        let (chain_id, batch_id) =
-            network.blocks_by_range_response(request_id, beacon_block.is_none());
-
-        // check if this chunk removes the chain
-        match self.chains.call_by_id(chain_id, |chain| {
-            chain.on_block_response(network, batch_id, beacon_block)
-        }) {
-            Ok((removed_chain, sync_type)) => {
-                if let Some(removed_chain) = removed_chain {
-                    debug!(self.log, "Chain removed after block response"; "sync_type" => ?sync_type, "chain_id" => chain_id);
-                    removed_chain.status_peers(network);
-                    // TODO: update & update_sync_state?
+        if let Some((chain_id, batch_id)) =
+            network.blocks_by_range_response(request_id, beacon_block.is_none())
+        {
+            // check if this chunk removes the chain
+            match self.chains.call_by_id(chain_id, |chain| {
+                chain.on_block_response(network, batch_id, beacon_block)
+            }) {
+                Ok((removed_chain, sync_type)) => {
+                    if let Some(removed_chain) = removed_chain {
+                        debug!(self.log, "Chain removed after block response"; "sync_type" => ?sync_type, "chain_id" => chain_id);
+                        removed_chain.status_peers(network);
+                        // TODO: update & update_sync_state?
+                    }
+                }
+                Err(_) => {
+                    debug!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
                 }
             }
-            Err(_) => {
-                debug!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
-            }
+        } else {
+            warn!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
         }
     }
 
@@ -315,7 +318,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .chains
             .call_all(|chain| chain.remove_peer(peer_id, network))
         {
-            debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
+            debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
             // TODO: anything else to do?
         }
     }
@@ -331,22 +334,25 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         request_id: RequestId,
     ) {
         // get the chain and batch for which this response belongs
-        let (chain_id, batch_id) = network.blocks_by_range_response(request_id, true);
-        // check that this request is pending
-        match self
-            .chains
-            .call_by_id(chain_id, |chain| chain.inject_error(network, batch_id))
-        {
-            Ok((removed_chain, sync_type)) => {
-                if let Some(removed_chain) = removed_chain {
-                    debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
-                    removed_chain.status_peers(network);
-                    // TODO: update & update_sync_state?
+        if let Some((chain_id, batch_id)) = network.blocks_by_range_response(request_id, true) {
+            // check that this request is pending
+            match self
+                .chains
+                .call_by_id(chain_id, |chain| chain.inject_error(network, batch_id))
+            {
+                Ok((removed_chain, sync_type)) => {
+                    if let Some(removed_chain) = removed_chain {
+                        debug!(self.log, "Chain removed on rpc error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
+                        removed_chain.status_peers(network);
+                        // TODO: update & update_sync_state?
+                    }
+                }
+                Err(_) => {
+                    debug!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
                 }
             }
-            Err(_) => {
-                debug!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
-            }
+        } else {
+            warn!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
         }
     }
 }
