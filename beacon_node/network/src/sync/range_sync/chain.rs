@@ -7,7 +7,7 @@ use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -973,15 +973,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         let batch_id = self.to_be_downloaded;
         // this batch could have been included already being an optimistic batch
-        if self.batches.contains_key(&batch_id) {
-            // this batch doesn't need downlading, let this same function decide the next batch
-            self.to_be_downloaded += EPOCHS_PER_BATCH;
-            self.include_next_batch()
-        } else {
-            self.batches
-                .insert(batch_id, BatchInfo::new(&batch_id, EPOCHS_PER_BATCH));
-            self.to_be_downloaded += EPOCHS_PER_BATCH;
-            Some(batch_id)
+        match self.batches.entry(batch_id) {
+            Entry::Occupied(_) => {
+                // this batch doesn't need downlading, let this same function decide the next batch
+                self.to_be_downloaded += EPOCHS_PER_BATCH;
+                self.include_next_batch()
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(BatchInfo::new(&batch_id, EPOCHS_PER_BATCH));
+                self.to_be_downloaded += EPOCHS_PER_BATCH;
+                Some(batch_id)
+            }
         }
     }
 }
