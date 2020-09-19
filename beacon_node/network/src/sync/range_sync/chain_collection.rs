@@ -517,7 +517,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 assert_eq!(chain.target_head_root, target_head_root);
                 assert_eq!(chain.target_head_slot, target_head_slot);
                 if let ProcessingResult::RemoveChain = chain.add_peer(network, peer) {
-                    debug!(self.log, "Chain removed"; "chain" => id);
+                    debug!(self.log, "Chain removed after adding peer"; "chain" => id);
                     entry.remove();
                 }
             }
