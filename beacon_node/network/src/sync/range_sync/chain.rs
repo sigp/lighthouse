@@ -661,6 +661,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.reject_optimistic_batch(network, true, "batch was invalid")
                 {
                     return ProcessingResult::RemoveChain;
+                } else {
+                    // since this is the optimistic batch, we can't consider previous batches as
+                    // invalid. 
+                    return ProcessingResult::KeepChain;
                 }
             }
         }
