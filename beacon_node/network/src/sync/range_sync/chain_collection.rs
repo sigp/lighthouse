@@ -11,7 +11,7 @@ use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId};
 use fnv::FnvHashMap;
-use slog::{debug, error, info, trace};
+use slog::{crit, debug, error, info, trace};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -498,8 +498,16 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ) {
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
         let collection = if let RangeSyncType::Finalized = sync_type {
+            if let Some(chain) = self.head_chains.get(&id) {
+                // sanity verification for chain duplication / purging issues
+                crit!(self.log, "Adding known head chain as finalized chain"; chain);
+            }
             &mut self.finalized_chains
         } else {
+            if let Some(chain) = self.finalized_chains.get(&id) {
+                // sanity verification for chain duplication / purging issues
+                crit!(self.log, "Adding known finalized chain as head chain"; chain);
+            }
             &mut self.head_chains
         };
         match collection.entry(id) {
