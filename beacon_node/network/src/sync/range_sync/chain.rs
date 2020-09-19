@@ -556,7 +556,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // batches in the range [BatchId, ..) (not yet validated)
         let remaining_batches = self.batches.split_off(&validating_epoch);
-        // batches less than `validating_batch`
+        // batches less than `validating_epoch`
         let removed_batches = std::mem::replace(&mut self.batches, remaining_batches);
 
         for (id, batch) in removed_batches.into_iter() {
@@ -617,9 +617,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.processing_target = self.processing_target.max(validating_epoch);
         let old_start = self.start_epoch;
         self.start_epoch = validating_epoch;
-        self.to_be_downloaded = self
-            .to_be_downloaded
-            .max(validating_epoch + EPOCHS_PER_BATCH);
+        self.to_be_downloaded = self.to_be_downloaded.max(validating_epoch);
+        if self.batches.contains_key(&self.to_be_downloaded) {
+            // if a chain is advanced by Range beyond the previous `seld.to_be_downloaded`, we
+            // won't have this batch, so we need to request it.
+            self.to_be_downloaded += EPOCHS_PER_BATCH;
+        }
         if let Some(epoch) = self.optimistic_start {
             if epoch <= validating_epoch {
                 self.optimistic_start = None;
@@ -663,7 +666,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     return ProcessingResult::RemoveChain;
                 } else {
                     // since this is the optimistic batch, we can't consider previous batches as
-                    // invalid. 
+                    // invalid.
                     return ProcessingResult::KeepChain;
                 }
             }
@@ -951,8 +954,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
         // only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
-        // if the current range is contained in a long range of skip slots.
-        // TODO: check this
+        // if the current processing window is contained in a long range of skip slots.
         let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
@@ -971,11 +973,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         let batch_id = self.to_be_downloaded;
         // this batch could have been included already being an optimistic batch
-        self.batches
-            .entry(batch_id)
-            .or_insert_with(|| BatchInfo::new(&batch_id, EPOCHS_PER_BATCH));
-        self.to_be_downloaded += EPOCHS_PER_BATCH;
-        Some(batch_id)
+        if self.batches.contains_key(&batch_id) {
+            // this batch doesn't need downlading, let this same function decide the next batch
+            self.to_be_downloaded += EPOCHS_PER_BATCH;
+            self.include_next_batch()
+        } else {
+            self.batches
+                .insert(batch_id, BatchInfo::new(&batch_id, EPOCHS_PER_BATCH));
+            self.to_be_downloaded += EPOCHS_PER_BATCH;
+            Some(batch_id)
+        }
     }
 }
 
