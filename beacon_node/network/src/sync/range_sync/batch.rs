@@ -130,7 +130,7 @@ impl<T: EthSpec> BatchInfo<T> {
                 blocks.push(block);
                 self.state = BatchState::Downloading(peer, blocks)
             }
-            other => unreachable!("Download completed for batch in wrong state: {:?}", other),
+            other => unreachable!("Add block for batch in wrong state: {:?}", other),
         }
     }
 

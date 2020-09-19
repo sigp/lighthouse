@@ -82,13 +82,11 @@ impl<T: BeaconChainTypes> Processor<T> {
     }
 
     fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
-        let msg_r = &format!("{:?}", message);
         self.sync_send.send(message).unwrap_or_else(|e| {
             warn!(
                 self.log,
                 "Could not send message to the sync service";
                 "error" => %e,
-                "message" => msg_r,
             )
         });
     }
