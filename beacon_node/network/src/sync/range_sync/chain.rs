@@ -200,6 +200,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
+        peer_id: PeerId,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
@@ -209,7 +210,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // A batch might get removed when the chain advances, so this is non fatal.
                 return ProcessingResult::KeepChain;
             }
-            Some(batch) => batch,
+            Some(batch) => {
+                // A batch could be retried without the peer failing the request (disconnecting/
+                // sending an error /timeout) if the peer is removed from the chain for other
+                // reasons. Check that this block belongs to the expected peer
+                if Some(&peer_id) != batch.current_peer() {
+                    return ProcessingResult::KeepChain;
+                }
+                batch
+            }
         };
 
         if let Some(block) = beacon_block {
@@ -773,8 +782,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
+        peer_id: PeerId,
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
+            // A batch could be retried without the peer failing the request (disconnecting/
+            // sending an error /timeout) if the peer is removed from the chain for other
+            // reasons. Check that this block belongs to the expected peer
+            if Some(&peer_id) != batch.current_peer() {
+                return ProcessingResult::KeepChain;
+            }
             debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
             let failed_peer = batch
                 .current_peer()

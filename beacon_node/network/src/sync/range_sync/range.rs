@@ -204,7 +204,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn blocks_by_range_response(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         request_id: RequestId,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         {
             // check if this chunk removes the chain
             match self.chains.call_by_id(chain_id, |chain| {
-                chain.on_block_response(network, batch_id, beacon_block)
+                chain.on_block_response(network, batch_id, peer_id, beacon_block)
             }) {
                 Ok((removed_chain, sync_type)) => {
                     if let Some(removed_chain) = removed_chain {
@@ -330,16 +330,15 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         request_id: RequestId,
     ) {
         // get the chain and batch for which this response belongs
         if let Some((chain_id, batch_id)) = network.blocks_by_range_response(request_id, true) {
             // check that this request is pending
-            match self
-                .chains
-                .call_by_id(chain_id, |chain| chain.inject_error(network, batch_id))
-            {
+            match self.chains.call_by_id(chain_id, |chain| {
+                chain.inject_error(network, batch_id, peer_id)
+            }) {
                 Ok((removed_chain, sync_type)) => {
                     if let Some(removed_chain) = removed_chain {
                         debug!(self.log, "Chain removed on rpc error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
