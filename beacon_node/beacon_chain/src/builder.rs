@@ -97,6 +97,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     store_migrator: Option<T::StoreMigrator>,
     pub canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
     genesis_block_root: Option<Hash256>,
+    #[allow(clippy::type_complexity)]
     fork_choice: Option<
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
     >,
@@ -404,7 +405,7 @@ where
             beacon_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &head);
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &head);
 
         self.fork_choice = Some(
             ForkChoice::from_genesis(fc_store, &head.beacon_block.message)
