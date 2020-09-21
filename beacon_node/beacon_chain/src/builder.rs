@@ -400,7 +400,7 @@ where
             beacon_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &genesis);
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
 
         let fork_choice = ForkChoice::from_genesis(fc_store, &genesis.beacon_block.message)
             .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
