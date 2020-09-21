@@ -26,6 +26,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 use store::{HotColdDB, ItemStore};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, Signature, SignedBeaconBlock,
@@ -97,11 +98,11 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
-    canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
-    /// The finalized checkpoint to anchor the chain. May be genesis or a higher
-    /// checkpoint.
-    pub finalized_snapshot: Option<BeaconSnapshot<T::EthSpec>>,
+    pub canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
     genesis_block_root: Option<Hash256>,
+    fork_choice: Option<
+        ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
+    >,
     op_pool: Option<OperationPool<T::EthSpec>>,
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
@@ -147,8 +148,8 @@ where
             store: None,
             store_migrator: None,
             canonical_head: None,
-            finalized_snapshot: None,
             genesis_block_root: None,
+            fork_choice: None,
             op_pool: None,
             eth1_chain: None,
             event_handler: None,
@@ -270,6 +271,10 @@ where
             .clone()
             .ok_or_else(|| "resume_from_db requires a store.".to_string())?;
 
+        /*
+         * Persisted beacon chain.
+         */
+
         let chain = store
             .get_item::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
@@ -279,10 +284,19 @@ where
             })?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
+
+        /*
+         * Head tracker
+         */
+
         self.head_tracker = Some(
             HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
         );
+
+        /*
+         * Canonical head
+         */
 
         let head_block_root = chain.canonical_head_block_root;
         let head_block = store
@@ -295,6 +309,17 @@ where
             .map_err(|e| format!("DB error when reading head state: {:?}", e))?
             .ok_or_else(|| "Head state not found in store".to_string())?;
 
+        self.canonical_head = Some(BeaconSnapshot {
+            beacon_block_root: head_block_root,
+            beacon_block: head_block,
+            beacon_state_root: head_state_root,
+            beacon_state: head_state,
+        });
+
+        /*
+         * Operations pool
+         */
+
         self.op_pool = Some(
             store
                 .get_item::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(&OP_POOL_DB_KEY))
@@ -303,35 +328,34 @@ where
                 .unwrap_or_else(OperationPool::new),
         );
 
-        let finalized_block_root = head_state.finalized_checkpoint.root;
-        let finalized_block = store
-            .get_item::<SignedBeaconBlock<TEthSpec>>(&finalized_block_root)
-            .map_err(|e| format!("DB error when reading finalized block: {:?}", e))?
-            .ok_or_else(|| "Finalized block not found in store".to_string())?;
-        let finalized_state_root = finalized_block.state_root();
-        let finalized_state = store
-            .get_state(&finalized_state_root, Some(finalized_block.slot()))
-            .map_err(|e| format!("DB error when reading finalized state: {:?}", e))?
-            .ok_or_else(|| "Finalized state not found in store".to_string())?;
-
-        self.finalized_snapshot = Some(BeaconSnapshot {
-            beacon_block_root: finalized_block_root,
-            beacon_block: finalized_block,
-            beacon_state_root: finalized_state_root,
-            beacon_state: finalized_state,
-        });
-
-        self.canonical_head = Some(BeaconSnapshot {
-            beacon_block_root: head_block_root,
-            beacon_block: head_block,
-            beacon_state_root: head_state_root,
-            beacon_state: head_state,
-        });
+        /*
+         * Validator public key cache
+         */
 
         let pubkey_cache = ValidatorPubkeyCache::load_from_file(pubkey_cache_path)
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.validator_pubkey_cache = Some(pubkey_cache);
+
+        /*
+         * Fork choice
+         */
+
+        let persisted_fork_choice = store
+            .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
+            .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
+            .ok_or_else(|| "Fork choice not found in store".to_string())?;
+
+        let fc_store = BeaconForkChoiceStore::from_persisted(
+            persisted_fork_choice.fork_choice_store,
+            store.clone(),
+        )
+        .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
+
+        self.fork_choice = Some(
+            ForkChoice::from_persisted(persisted_fork_choice.fork_choice, fc_store)
+                .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?,
+        );
 
         Ok(self)
     }
@@ -374,12 +398,32 @@ where
                 )
             })?;
 
-        self.finalized_snapshot = Some(BeaconSnapshot {
+        let head = BeaconSnapshot {
             beacon_block_root,
             beacon_block,
             beacon_state_root,
             beacon_state,
-        });
+        };
+
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &head);
+
+        self.fork_choice = Some(
+            // TODO: can I really use "from_genesis" here? maybe only allow genesis state.
+            ForkChoice::from_genesis(fc_store, &head.beacon_block.message)
+                .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?,
+        );
+
+        let pubkey_cache_path = self
+            .pubkey_cache_path
+            .as_ref()
+            .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
+
+        self.validator_pubkey_cache = Some(
+            ValidatorPubkeyCache::new(&head.beacon_state, pubkey_cache_path)
+                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))?,
+        );
+
+        self.canonical_head = Some(head);
 
         Ok(self.empty_op_pool())
     }
@@ -457,53 +501,54 @@ where
             .store
             .clone()
             .ok_or_else(|| "Cannot build without a store.".to_string())?;
+        let validator_pubkey_cache = self
+            .validator_pubkey_cache
+            .ok_or_else(|| "Cannot build without a validator pubkey cache.".to_string())?;
+        let fork_choice = self
+            .fork_choice
+            .ok_or_else(|| "Cannot build without a fork choice.".to_string())?;
+        let mut canonical_head = self
+            .canonical_head
+            .ok_or_else(|| "Cannot build without a canonical head.".to_string())?;
 
-        // If this beacon chain is being loaded from disk, use the stored head. Otherwise, just use
-        // the finalized checkpoint (which is probably genesis).
-        let mut canonical_head = if let Some(head) = self.canonical_head {
-            head
-        } else {
-            self.finalized_snapshot
-                .ok_or_else(|| "Cannot build without a state".to_string())?
-        };
+        info!(log, "Building head state caches");
+        let start = Instant::now();
 
         canonical_head
             .beacon_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
 
+        info!(
+            log,
+            "Built head state caches";
+            "elapsed" => format!("{:?}", Instant::now().duration_since(start))
+        );
+
         if canonical_head.beacon_block.state_root() != canonical_head.beacon_state_root {
             return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
-        let pubkey_cache_path = self
-            .pubkey_cache_path
-            .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
-
-        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-        })?;
-
-        let persisted_fork_choice = store
-            .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
-            .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
-
-        let fork_choice = if let Some(persisted) = persisted_fork_choice {
-            let fc_store =
-                BeaconForkChoiceStore::from_persisted(persisted.fork_choice_store, store.clone())
-                    .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
-
-            ForkChoice::from_persisted(persisted.fork_choice, fc_store)
-                .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?
-        } else {
-            let genesis = &canonical_head;
-
-            let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), genesis);
-
-            ForkChoice::from_genesis(fc_store, &genesis.beacon_block.message)
-                .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?
-        };
+        // Perform a check to ensure that the finalization points of the head and fork choice are
+        // consistent.
+        //
+        // This is a sanity check to detect database corruption.
+        let fc_finalized = fork_choice.finalized_checkpoint();
+        let head_finalized = canonical_head.beacon_state.finalized_checkpoint;
+        if fc_finalized != head_finalized {
+            if head_finalized.root == Hash256::zero()
+                && head_finalized.epoch == fc_finalized.epoch
+                && fc_finalized.root == canonical_head.beacon_block_root
+            {
+                // This is a legal edge-case encountered during genesis.
+            } else {
+                return Err(format!(
+                    "Database corrupt: fork choice is finalized at {:?} whilst head is finalized at \
+                    {:?}",
+                    fc_finalized, head_finalized
+                ));
+            }
+        }
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -634,9 +679,9 @@ where
     /// Requires the state to be initialized.
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
-            .finalized_snapshot
+            .canonical_head
             .as_ref()
-            .ok_or_else(|| "testing_slot_clock requires an initialized state")?
+            .ok_or_else(|| "testing_slot_clock requires a canonical head")?
             .beacon_state
             .genesis_time;
 

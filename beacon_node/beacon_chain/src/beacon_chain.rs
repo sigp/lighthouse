@@ -242,39 +242,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// We want to ensure that the head never out dates the fork choice to avoid having references
     /// to blocks that do not exist in fork choice.
     pub fn persist_head_and_fork_choice(&self) -> Result<(), Error> {
-        let canonical_head_block_root = self
+        let canonical_head = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
-            .beacon_block_root;
+            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
+        let fork_choice = self.fork_choice.read();
 
         let persisted_head = PersistedBeaconChain {
-            canonical_head_block_root,
+            canonical_head_block_root: canonical_head.beacon_block_root,
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
         };
 
-        let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+        let persisted_fork_choice = PersistedForkChoice {
+            fork_choice: fork_choice.to_persisted(),
+            fork_choice_store: fork_choice.fc_store().to_persisted(),
+        };
 
-        let fork_choice = self.fork_choice.read();
-
-        self.store.put_item(
-            &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
-            &PersistedForkChoice {
-                fork_choice: fork_choice.to_persisted(),
-                fork_choice_store: fork_choice.fc_store().to_persisted(),
-            },
-        )?;
-
+        drop(canonical_head);
         drop(fork_choice);
 
-        metrics::stop_timer(fork_choice_timer);
-        let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
+        {
+            let _timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+            self.store.put_item(
+                &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
+                &persisted_fork_choice,
+            )?;
+        }
 
-        self.store
-            .put_item(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
-
-        metrics::stop_timer(head_timer);
+        {
+            let _timer = metrics::start_timer(&metrics::PERSIST_HEAD);
+            self.store
+                .put_item(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
+        }
 
         Ok(())
     }
