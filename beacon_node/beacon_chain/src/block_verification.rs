@@ -636,23 +636,14 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         parent: BeaconSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        // Reject any block if its parent is not known to fork choice.
+        // Do not process a block that doesn't descend from the finalized root.
         //
-        // A block that is not in fork choice is either:
-        //
-        //  - Not yet imported: we should reject this block because we should only import a child
-        //  after its parent has been fully imported.
-        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-        //  because it will revert finalization. Note that the finalized block is stored in fork
-        //  choice, so we will not reject any child of the finalized block (this is relevant during
-        //  genesis).
-        if !chain
-            .fork_choice
-            .read()
-            .contains_block(&block.parent_root())
-        {
-            return Err(BlockError::ParentUnknown(Box::new(block)));
-        }
+        // We check this *before* we load the parent so that we can return a more detailed error.
+        let block = check_block_is_finalized_descendant::<T, _>(
+            block,
+            &chain.fork_choice.read(),
+            &chain.store,
+        )?;
 
         // Reject any block that exceeds our limit on skipped slots.
         check_block_skip_slots(chain, &parent.beacon_block.message, &block.message)?;
