@@ -84,6 +84,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             config.libp2p_port,
             config.discovery_port,
             meta_data,
+            vec![],
             &log,
         ));
 
