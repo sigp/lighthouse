@@ -600,7 +600,9 @@ where
 
         // Check if the eth1 endpoint we connect to is on the correct network id.
         let network_id =
-            eth1::http::get_network_id(&config.endpoint, Duration::from_millis(15_000)).await?;
+            eth1::http::get_network_id(&config.endpoint, Duration::from_millis(15_000))
+                .await
+                .map_err(|e| format!("Error connecting to eth1 node: {}", e))?;
 
         if network_id != config.network_id {
             return Err(format!(
