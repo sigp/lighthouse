@@ -111,7 +111,7 @@ mod tests {
         };
 
         let network_globals: NetworkGlobals<MinimalEthSpec> =
-            NetworkGlobals::new(enr, 0, 0, meta_data, &log);
+            NetworkGlobals::new(enr, 0, 0, meta_data, vec![], &log);
         AttestationService::new(beacon_chain, Arc::new(network_globals), &log)
     }
 

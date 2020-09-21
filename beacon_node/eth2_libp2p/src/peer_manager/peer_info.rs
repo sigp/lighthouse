@@ -106,9 +106,12 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    /// Add an f64 to the peer's score abiding by the limits.
+    #[cfg(test)]
+    /// Add an f64 to a non-trusted peer's score abiding by the limits.
     pub fn add_to_score(&mut self, score: f64) {
-        self.score.add(score)
+        if !self.is_trusted {
+            self.score.add(score)
+        }
     }
 }
 

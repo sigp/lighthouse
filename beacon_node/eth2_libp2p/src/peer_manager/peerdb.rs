@@ -943,4 +943,28 @@ mod tests {
         assert!(pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
     }
+
+    #[test]
+    fn test_trusted_peers_score() {
+        let trusted_peer = PeerId::random();
+        let log = build_log(slog::Level::Debug, false);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer.clone()], &log);
+
+        pdb.connect_ingoing(&trusted_peer);
+
+        // Check trusted status and score
+        assert!(pdb.peer_info(&trusted_peer).unwrap().is_trusted);
+        assert_eq!(
+            pdb.peer_info(&trusted_peer).unwrap().score().score(),
+            Score::max_score().score()
+        );
+
+        // Adding/Subtracting score should have no effect on a trusted peer
+        add_score(&mut pdb, &trusted_peer, -50.0);
+
+        assert_eq!(
+            pdb.peer_info(&trusted_peer).unwrap().score().score(),
+            Score::max_score().score()
+        );
+    }
 }
