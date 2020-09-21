@@ -1,8 +1,10 @@
-use crate::behaviour::{Behaviour, BehaviourEvent, PeerRequestId, Request, Response};
+use crate::behaviour::{
+    save_metadata_to_disk, Behaviour, BehaviourEvent, PeerRequestId, Request, Response,
+};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId};
-use crate::types::{error, GossipKind};
+use crate::rpc::{GoodbyeReason, MetaData, RPCResponseErrorCode, RequestId};
+use crate::types::{error, EnrBitfield, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction};
 use futures::prelude::*;
@@ -15,6 +17,7 @@ use libp2p::{
     PeerId, Swarm, Transport,
 };
 use slog::{crit, debug, info, o, trace, warn};
+use ssz::Decode;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
@@ -26,6 +29,8 @@ use types::{EnrForkId, EthSpec};
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
 const MAX_CONNECTIONS_PER_PEER: usize = 1;
+/// The filename to store our local metadata.
+pub const METADATA_FILENAME: &str = "metadata";
 
 /// The types of events than can be obtained from polling the libp2p service.
 ///
@@ -70,11 +75,15 @@ impl<TSpec: EthSpec> Service<TSpec> {
             enr::build_or_load_enr::<TSpec>(local_keypair.clone(), config, enr_fork_id, &log)?;
 
         let local_peer_id = enr.peer_id();
+
+        let meta_data = load_or_build_metadata(&config.network_dir, &log);
+
         // set up a collection of variables accessible outside of the network crate
         let network_globals = Arc::new(NetworkGlobals::new(
             enr.clone(),
             config.libp2p_port,
             config.discovery_port,
+            meta_data,
             &log,
         ));
 
@@ -419,4 +428,44 @@ fn strip_peer_id(addr: &mut Multiaddr) {
         Some(other) => addr.push(other),
         _ => {}
     }
+}
+
+/// Load metadata from persisted file. Return default metadata if loading fails.
+fn load_or_build_metadata<E: EthSpec>(
+    network_dir: &std::path::PathBuf,
+    log: &slog::Logger,
+) -> MetaData<E> {
+    // Default metadata
+    let mut meta_data = MetaData {
+        seq_number: 0,
+        attnets: EnrBitfield::<E>::default(),
+    };
+    // Read metadata from persisted file if available
+    let metadata_path = network_dir.join(METADATA_FILENAME);
+    if let Ok(mut metadata_file) = File::open(metadata_path) {
+        let mut metadata_ssz = Vec::new();
+        if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
+            match MetaData::<E>::from_ssz_bytes(&metadata_ssz) {
+                Ok(persisted_metadata) => {
+                    meta_data.seq_number = persisted_metadata.seq_number;
+                    // Increment seq number if persisted attnet is not default
+                    if persisted_metadata.attnets != meta_data.attnets {
+                        meta_data.seq_number += 1;
+                    }
+                    debug!(log, "Loaded metadata from disk");
+                }
+                Err(e) => {
+                    debug!(
+                        log,
+                        "Metadata from file could not be decoded";
+                        "error" => format!("{:?}", e),
+                    );
+                }
+            }
+        }
+    };
+
+    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number);
+    save_metadata_to_disk(network_dir, meta_data.clone(), &log);
+    meta_data
 }
