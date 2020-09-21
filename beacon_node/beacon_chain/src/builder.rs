@@ -463,9 +463,16 @@ where
             .genesis_block_root
             .ok_or_else(|| "Cannot build without a genesis block root".to_string())?;
 
-        let current_slot = slot_clock
-            .now()
-            .ok_or_else(|| "Unable to read slot".to_string())?;
+        let current_slot = if slot_clock
+            .is_prior_to_genesis()
+            .ok_or_else(|| "Unable to read slot clock".to_string())?
+        {
+            self.spec.genesis_slot
+        } else {
+            slot_clock
+                .now()
+                .ok_or_else(|| "Unable to read slot".to_string())?
+        };
 
         let head_block_root = fork_choice
             .get_head(current_slot)
