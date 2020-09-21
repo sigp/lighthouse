@@ -56,11 +56,12 @@ Start your beacon node with:
 > following commands in this document.
 
 >Note:  the `--staking` flag is an alias for `--eth1 --http`. It is required only if you wish to run a staking validator.
-`--http` flag enables the HTTP API for the validator client. And the `--eth1` flag tells the beacon node that it should sync with an Ethereum1 node (e.g. Geth).
+`--http` flag enables the HTTP API for the validator client. And the `--eth1` flag tells the beacon node that it should sync with an Ethereum1 node (e.g. Geth) on `http://localhost:8545`.
 
-You can also pass an external http address for the Ethereum 1 server using
+
+You can also pass an external http server for the Ethereum 1 node using the `--staking-with-ext-eth1-endpoint` flag:
 ```bash
- lighthouse --testnet medalla beacon --staking-with-eth1-endpoint <ETH1-SERVER>
+ lighthouse --testnet medalla beacon --staking-with-ext-eth1-endpoint <ETH1-SERVER>
 ```
 
 

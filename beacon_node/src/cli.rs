@@ -201,8 +201,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("staking-with-external-eth1-endpoint")
         )
         .arg(
-            Arg::with_name("staking-with-eth1-endpoint")
-                .long("staking-with-eth1-endpoint")
+            Arg::with_name("staking-with-ext-eth1-endpoint")
+                .long("staking-with-ext-eth1-endpoint")
                 .help("Standard option for a staking beacon node with an external eth1 endpoint.\
                 Equivalent to `lighthouse bn --http --eth1-endpoint <ENDPOINT>`. \
                 This will enable the http server on localhost:5052 \

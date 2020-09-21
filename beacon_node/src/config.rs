@@ -93,7 +93,7 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
     }
 
-    if let Some(val) = cli_args.value_of("staking-with-eth1-endpoint") {
+    if let Some(val) = cli_args.value_of("staking-with-ext-eth1-endpoint") {
         client_config.rest_api.enabled = true;
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoint = val.to_string();
@@ -130,7 +130,7 @@ pub fn get_config<E: EthSpec>(
 
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
     // (e.g. using the --staking flag).
-    if cli_args.is_present("staking") || cli_args.is_present("staking-with-eth1-endpoint") {
+    if cli_args.is_present("staking") || cli_args.is_present("staking-with-ext-eth1-endpoint") {
         warn!(
             log,
             "Running HTTP server on port {}", client_config.rest_api.port
