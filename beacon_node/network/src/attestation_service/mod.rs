@@ -72,7 +72,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// The collection of currently subscribed random subnets mapped to their expiry deadline.
     random_subnets: HashSetDelay<SubnetId>,
 
-    /// The collection of all currently subscribed subnets(long-lived **and** short-lived).
+    /// The collection of all currently subscribed subnets (long-lived **and** short-lived).
     subscriptions: HashSet<SubnetId>,
 
     /// A collection of timeouts for when to unsubscribe from a shard subnet.
@@ -129,8 +129,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
     }
 
-    /// Return count of all currently subscribed subnets(long-lived **and** short-lived).
-    #[allow(dead_code)]
+    /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
+    #[cfg(test)]
     pub fn subscription_count(&self) -> usize {
         self.subscriptions.len()
     }
