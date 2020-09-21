@@ -21,7 +21,7 @@ use fork_choice::ForkChoice;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{info, Logger};
-use slot_clock::{SlotClock, SystemTimeSlotClock, TestingSlotClock};
+use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -97,7 +97,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
-    pub canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
+    pub genesis_time: Option<u64>,
     genesis_block_root: Option<Hash256>,
     #[allow(clippy::type_complexity)]
     fork_choice: Option<
@@ -147,7 +147,7 @@ where
         Self {
             store: None,
             store_migrator: None,
-            canonical_head: None,
+            genesis_time: None,
             genesis_block_root: None,
             fork_choice: None,
             op_pool: None,
@@ -290,7 +290,7 @@ where
         )
         .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
 
-        let mut fork_choice =
+        let fork_choice =
             ForkChoice::from_persisted(persisted_fork_choice.fork_choice, fc_store)
                 .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?;
 
@@ -303,28 +303,7 @@ where
             .map_err(|e| format!("DB error when reading genesis state: {:?}", e))?
             .ok_or_else(|| "Genesis block not found in store".to_string())?;
 
-        let slot_clock = SystemTimeSlotClock::new(
-            self.spec.genesis_slot,
-            Duration::from_secs(genesis_state.genesis_time),
-            Duration::from_millis(self.spec.milliseconds_per_slot),
-        );
-        let current_slot = slot_clock
-            .now()
-            .ok_or_else(|| "Unable to read slot".to_string())?;
-
-        let head_block_root = fork_choice
-            .get_head(current_slot)
-            .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
-
-        let head_block = store
-            .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
-            .map_err(|e| format!("DB error when reading head block: {:?}", e))?
-            .ok_or_else(|| "Head block not found in store".to_string())?;
-        let head_state_root = head_block.state_root();
-        let head_state = store
-            .get_state(&head_state_root, Some(head_block.slot()))
-            .map_err(|e| format!("DB error when reading head state: {:?}", e))?
-            .ok_or_else(|| "Head state not found in store".to_string())?;
+        self.genesis_time = Some(genesis_state.genesis_time);
 
         self.op_pool = Some(
             store
@@ -333,13 +312,6 @@ where
                 .map(PersistedOperationPool::into_operation_pool)
                 .unwrap_or_else(OperationPool::new),
         );
-
-        self.canonical_head = Some(BeaconSnapshot {
-            beacon_block_root: head_block_root,
-            beacon_block: head_block,
-            beacon_state_root: head_state_root,
-            beacon_state: head_state,
-        });
 
         let pubkey_cache = ValidatorPubkeyCache::load_from_file(pubkey_cache_path)
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
@@ -406,7 +378,7 @@ where
             .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
-        self.canonical_head = Some(genesis);
+        self.genesis_time = Some(genesis.beacon_state.genesis_time);
 
         Ok(self.empty_op_pool())
     }
@@ -484,16 +456,46 @@ where
             .store
             .clone()
             .ok_or_else(|| "Cannot build without a store.".to_string())?;
-        let mut canonical_head = self
-            .canonical_head
-            .clone()
-            .ok_or_else(|| "Cannot build without a canonical head.".to_string())?;
-        let fork_choice = self
+        let mut fork_choice = self
             .fork_choice
             .ok_or_else(|| "Cannot build without fork choice.".to_string())?;
         let genesis_block_root = self
             .genesis_block_root
             .ok_or_else(|| "Cannot build without a genesis block root".to_string())?;
+
+        let current_slot = slot_clock
+            .now()
+            .ok_or_else(|| "Unable to read slot".to_string())?;
+
+        let head_block_root = fork_choice
+            .get_head(current_slot)
+            .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
+
+        let head_block = store
+            .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
+            .map_err(|e| format!("DB error when reading head block: {:?}", e))?
+            .ok_or_else(|| "Head block not found in store".to_string())?;
+        let head_state_root = head_block.state_root();
+        let head_state = store
+            .get_state(&head_state_root, Some(head_block.slot()))
+            .map_err(|e| format!("DB error when reading head state: {:?}", e))?
+            .ok_or_else(|| "Head state not found in store".to_string())?;
+
+        let mut canonical_head = BeaconSnapshot {
+            beacon_block_root: head_block_root,
+            beacon_block: head_block,
+            beacon_state_root: head_state_root,
+            beacon_state: head_state,
+        };
+
+        if canonical_head.beacon_block.state_root() != canonical_head.beacon_state_root {
+            return Err("beacon_block.state_root != beacon_state".to_string());
+        }
+
+        canonical_head
+            .beacon_state
+            .build_all_caches(&self.spec)
+            .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
 
         // Perform a check to ensure that the finalization points of the head and fork choice are
         // consistent.
@@ -514,15 +516,6 @@ where
                     fc_finalized, head_finalized
                 ));
             }
-        }
-
-        canonical_head
-            .beacon_state
-            .build_all_caches(&self.spec)
-            .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
-
-        if canonical_head.beacon_block.state_root() != canonical_head.beacon_state_root {
-            return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
         let pubkey_cache_path = self
@@ -661,11 +654,8 @@ where
     /// Requires the state to be initialized.
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
-            .canonical_head
-            .as_ref()
-            .ok_or_else(|| "testing_slot_clock requires an initialized state")?
-            .beacon_state
-            .genesis_time;
+            .genesis_time
+            .ok_or_else(|| "testing_slot_clock requires an initialized state")?;
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
