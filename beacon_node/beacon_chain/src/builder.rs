@@ -305,10 +305,11 @@ where
             ForkChoice::from_persisted(chain.persisted_fork_choice.fork_choice, fc_store)
                 .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?;
 
-        let current_slot = chain.genesis_time / (self.spec.milliseconds_per_slot / 1_000);
+        let current_slot = Slot::new(chain.genesis_time * 1_000 / self.spec.milliseconds_per_slot)
+            + self.spec.genesis_slot;
 
         let head_block_root = fork_choice
-            .get_head(current_slot.into())
+            .get_head(current_slot)
             .map_err(|e| format!("Unable to find head block: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
@@ -406,7 +407,6 @@ where
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &head);
 
         self.fork_choice = Some(
-            // TODO: can I really use "from_genesis" here? maybe only allow genesis state.
             ForkChoice::from_genesis(fc_store, &head.beacon_block.message)
                 .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?,
         );
