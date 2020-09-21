@@ -1,5 +1,5 @@
 use crate::types::GossipKind;
-use crate::Enr;
+use crate::{Enr, PeerIdSerialized};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
@@ -59,7 +59,7 @@ pub struct Config {
     pub libp2p_nodes: Vec<Multiaddr>,
 
     /// List of trusted libp2p nodes which are not scored.
-    pub trusted_peers: Vec<Multiaddr>,
+    pub trusted_peers: Vec<PeerIdSerialized>,
 
     /// Client version
     pub client_version: String,

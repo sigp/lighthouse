@@ -14,6 +14,50 @@ pub mod rpc;
 mod service;
 pub mod types;
 
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use std::str::FromStr;
+
+/// Wrapper over a libp2p `PeerId` which implements `Serialize` and `Deserialize`
+#[derive(Clone, Debug)]
+pub struct PeerIdSerialized(libp2p::PeerId);
+
+impl From<PeerIdSerialized> for PeerId {
+    fn from(peer_id: PeerIdSerialized) -> Self {
+        peer_id.0
+    }
+}
+
+impl FromStr for PeerIdSerialized {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(
+            PeerId::from_str(s).map_err(|e| format!("Invalid peer id: {}", e))?,
+        ))
+    }
+}
+
+impl Serialize for PeerIdSerialized {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for PeerIdSerialized {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+        Ok(Self(PeerId::from_str(&s).map_err(|e| {
+            de::Error::custom(format!("Failed to deserialise peer id: {:?}", e))
+        })?))
+    }
+}
+
 pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage, SubnetDiscovery};
 pub use behaviour::{BehaviourEvent, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;

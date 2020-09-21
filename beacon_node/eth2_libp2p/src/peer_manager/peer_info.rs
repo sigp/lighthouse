@@ -57,6 +57,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
 }
 
 impl<T: EthSpec> PeerInfo<T> {
+    /// Return a PeerInfo struct for a trusted peer.
     pub fn trusted_peer_info() -> Self {
         PeerInfo {
             score: Score::max_score(),
@@ -64,6 +65,7 @@ impl<T: EthSpec> PeerInfo<T> {
             ..Default::default()
         }
     }
+
     /// Returns if the peer is subscribed to a given `SubnetId`
     pub fn on_subnet(&self, subnet_id: SubnetId) -> bool {
         if let Some(meta_data) = &self.meta_data {
