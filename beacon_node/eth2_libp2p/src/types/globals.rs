@@ -1,5 +1,6 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::peer_manager::PeerDB;
+use crate::rpc::MetaData;
 use crate::types::SyncState;
 use crate::Client;
 use crate::EnrExt;
@@ -22,6 +23,8 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     pub listen_port_udp: AtomicU16,
     /// The collection of known peers.
     pub peers: RwLock<PeerDB<TSpec>>,
+    // The local meta data of our node.
+    pub local_metadata: RwLock<MetaData<TSpec>>,
     /// The current gossipsub topic subscriptions.
     pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
     /// The current sync status of the node.
@@ -29,7 +32,13 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
-    pub fn new(enr: Enr, tcp_port: u16, udp_port: u16, log: &slog::Logger) -> Self {
+    pub fn new(
+        enr: Enr,
+        tcp_port: u16,
+        udp_port: u16,
+        local_metadata: MetaData<TSpec>,
+        log: &slog::Logger,
+    ) -> Self {
         NetworkGlobals {
             local_enr: RwLock::new(enr.clone()),
             peer_id: RwLock::new(enr.peer_id()),
@@ -37,6 +46,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             listen_port_tcp: AtomicU16::new(tcp_port),
             listen_port_udp: AtomicU16::new(udp_port),
             peers: RwLock::new(PeerDB::new(log)),
+            local_metadata: RwLock::new(local_metadata),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
         }

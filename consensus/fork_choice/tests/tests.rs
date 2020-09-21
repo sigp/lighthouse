@@ -377,6 +377,26 @@ impl ForkChoiceTest {
 
         self
     }
+
+    /// Check to ensure that we can read the finalized block. This is a regression test.
+    pub fn check_finalized_block_is_accessible(self) -> Self {
+        self.harness
+            .chain
+            .fork_choice
+            .write()
+            .get_block(
+                &self
+                    .harness
+                    .chain
+                    .head_info()
+                    .unwrap()
+                    .finalized_checkpoint
+                    .root,
+            )
+            .unwrap();
+
+        self
+    }
 }
 
 fn is_safe_to_update(slot: Slot) -> bool {
@@ -878,4 +898,12 @@ fn valid_attestation_skip_across_epoch() {
             },
             |result| result.unwrap(),
         );
+}
+
+#[test]
+fn can_read_finalized_block() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .apply_blocks(1)
+        .check_finalized_block_is_accessible();
 }
