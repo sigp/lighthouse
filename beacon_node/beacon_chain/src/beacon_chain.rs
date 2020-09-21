@@ -19,8 +19,7 @@ use crate::observed_attestations::{Error as AttestationObservationError, Observe
 use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
-use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::persisted_beacon_chain::{PersistedBeaconChain, PersistedForkChoice};
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
@@ -242,33 +241,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// We want to ensure that the head never out dates the fork choice to avoid having references
     /// to blocks that do not exist in fork choice.
     pub fn persist_head_and_fork_choice(&self) -> Result<(), Error> {
-        let canonical_head = self
-            .canonical_head
-            .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
         let fork_choice = self.fork_choice.read();
-
-        let persisted_head = PersistedBeaconChain {
-            canonical_head_block_root: canonical_head.beacon_block_root,
-            genesis_block_root: self.genesis_block_root,
-            ssz_head_tracker: self.head_tracker.to_ssz_container(),
-        };
 
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
             fork_choice_store: fork_choice.fc_store().to_persisted(),
         };
 
-        drop(canonical_head);
-        drop(fork_choice);
+        let persisted_head = PersistedBeaconChain {
+            genesis_time: self.slot_clock.genesis_duration().as_secs(),
+            genesis_block_root: self.genesis_block_root,
+            ssz_head_tracker: self.head_tracker.to_ssz_container(),
+            persisted_fork_choice,
+        };
 
-        {
-            let _timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
-            self.store.put_item(
-                &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
-                &persisted_fork_choice,
-            )?;
-        }
+        drop(fork_choice);
 
         {
             let _timer = metrics::start_timer(&metrics::PERSIST_HEAD);

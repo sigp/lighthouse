@@ -1,12 +1,9 @@
-use crate::beacon_chain::{
-    BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
-};
+use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::Migrate;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
@@ -295,10 +292,31 @@ where
         );
 
         /*
+         * Fork choice
+         */
+
+        let fc_store = BeaconForkChoiceStore::from_persisted(
+            chain.persisted_fork_choice.fork_choice_store,
+            store.clone(),
+        )
+        .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
+
+        let mut fork_choice =
+            ForkChoice::from_persisted(chain.persisted_fork_choice.fork_choice, fc_store)
+                .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?;
+
+        let current_slot = chain.genesis_time / (self.spec.milliseconds_per_slot / 1_000);
+
+        let head_block_root = fork_choice
+            .get_head(current_slot.into())
+            .map_err(|e| format!("Unable to find head block: {:?}", e))?;
+
+        self.fork_choice = Some(fork_choice);
+
+        /*
          * Canonical head
          */
 
-        let head_block_root = chain.canonical_head_block_root;
         let head_block = store
             .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
             .map_err(|e| format!("DB error when reading head block: {:?}", e))?
@@ -336,26 +354,6 @@ where
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.validator_pubkey_cache = Some(pubkey_cache);
-
-        /*
-         * Fork choice
-         */
-
-        let persisted_fork_choice = store
-            .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
-            .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
-            .ok_or_else(|| "Fork choice not found in store".to_string())?;
-
-        let fc_store = BeaconForkChoiceStore::from_persisted(
-            persisted_fork_choice.fork_choice_store,
-            store.clone(),
-        )
-        .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
-
-        self.fork_choice = Some(
-            ForkChoice::from_persisted(persisted_fork_choice.fork_choice, fc_store)
-                .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?,
-        );
 
         Ok(self)
     }
