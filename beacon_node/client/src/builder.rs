@@ -604,10 +604,10 @@ where
         let network_id =
             eth1::http::check_eth1_endpoint(&config.endpoint, Duration::from_millis(15_000))
                 .await
-                .map_err(|_| format!("Error connecting to eth1 node.\n\
-                                    Please ensure that you have an eth1 http server running locally on localhost:8545 \
-                                    or pass an external endpoint using `--eth1-endpoint <SERVER-ADDRESS>`.\n\
-                                    Also ensure that `eth` and `net` apis are enabled on the eth1 http server."))?;
+                .map_err(|_| "Error connecting to eth1 node.\n\
+                    Please ensure that you have an eth1 http server running locally on localhost:8545 \
+                    or pass an external endpoint using `--eth1-endpoint <SERVER-ADDRESS>`.\n\
+                    Also ensure that `eth` and `net` apis are enabled on the eth1 http server.".to_string())?;
 
         if network_id != config.network_id {
             return Err(format!(
