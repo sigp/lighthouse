@@ -131,7 +131,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
                 .takes_value(false),
         )
-
+        .arg(
+            Arg::with_name("trusted-peers")
+                .long("trusted-peers")
+                .value_name("TRUSTED_PEERS")
+                .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
+                .takes_value(true),
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

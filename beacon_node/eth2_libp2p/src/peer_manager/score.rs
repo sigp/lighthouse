@@ -145,6 +145,13 @@ impl std::fmt::Display for ScoreState {
 }
 
 impl Score {
+    /// Return max possible score.
+    pub fn max_score() -> Self {
+        Score {
+            score: MAX_SCORE,
+            last_updated: Instant::now(),
+        }
+    }
     /// Access to the underlying score.
     pub fn score(&self) -> f64 {
         self.score

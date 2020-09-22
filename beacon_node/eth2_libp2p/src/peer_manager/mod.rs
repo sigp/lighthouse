@@ -133,9 +133,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
         // get the peer info
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            debug!(self.log, "Sending goodbye to peer"; "peer_id" => peer_id.to_string(), "reason" => reason.to_string(), "score" => info.score.to_string());
+            debug!(self.log, "Sending goodbye to peer"; "peer_id" => peer_id.to_string(), "reason" => reason.to_string(), "score" => info.score().to_string());
             // Goodbye's are fatal
-            info.score.apply_peer_action(PeerAction::Fatal);
+            info.apply_peer_action_to_score(PeerAction::Fatal);
             if info.connection_status.is_connected_or_dialing() {
                 self.events
                     .push(PeerManagerEvent::DisconnectPeer(peer_id.clone(), reason));
@@ -155,12 +155,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut unban_peer = None;
 
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let previous_state = info.score.state();
-            info.score.apply_peer_action(action);
-            if previous_state != info.score.state() {
-                match info.score.state() {
+            let previous_state = info.score_state();
+            info.apply_peer_action_to_score(action);
+            if previous_state != info.score_state() {
+                match info.score_state() {
                     ScoreState::Banned => {
-                        debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string());
+                        debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
                         ban_peer = Some(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
                             self.events.push(PeerManagerEvent::DisconnectPeer(
@@ -170,7 +170,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         }
                     }
                     ScoreState::Disconnected => {
-                        debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string(), "past_state" => previous_state.to_string());
+                        debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // disconnect the peer if it's currently connected or dialing
                         unban_peer = Some(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
@@ -182,13 +182,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         // TODO: Update the peer manager to inform that the peer is disconnecting.
                     }
                     ScoreState::Healthy => {
-                        debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string(), "past_state" => previous_state.to_string());
+                        debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // unban the peer if it was previously banned.
                         unban_peer = Some(peer_id.clone());
                     }
                 }
             } else {
-                debug!(self.log, "Peer score adjusted"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string());
+                debug!(self.log, "Peer score adjusted"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
             }
         }
 
@@ -689,9 +689,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut to_unban_peers = Vec::new();
 
         for (peer_id, info) in pdb.peers_mut() {
-            let previous_state = info.score.state();
+            let previous_state = info.score_state();
             // Update scores
-            info.score.update();
+            info.score_update();
 
             /* TODO: Implement logic about connection lifetimes
             match info.connection_status {
@@ -746,10 +746,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             */
 
             // handle score transitions
-            if previous_state != info.score.state() {
-                match info.score.state() {
+            if previous_state != info.score_state() {
+                match info.score_state() {
                     ScoreState::Banned => {
-                        debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string());
+                        debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
                         to_ban_peers.push(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
                             self.events.push(PeerManagerEvent::DisconnectPeer(
@@ -759,7 +759,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         }
                     }
                     ScoreState::Disconnected => {
-                        debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string(), "past_state" => previous_state.to_string());
+                        debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // disconnect the peer if it's currently connected or dialing
                         to_unban_peers.push(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
@@ -771,7 +771,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         // TODO: Update peer manager to report that it's disconnecting.
                     }
                     ScoreState::Healthy => {
-                        debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string(), "past_state" => previous_state.to_string());
+                        debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // unban the peer if it was previously banned.
                         to_unban_peers.push(peer_id.clone());
                     }
@@ -821,7 +821,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .take(connected_peer_count - self.target_peers)
                 //we only need to disconnect peers with healthy scores, since the others got already
                 //disconnected in update_peer_scores
-                .filter(|(_, info)| info.score.state() == ScoreState::Healthy)
+                .filter(|(_, info)| info.score_state() == ScoreState::Healthy)
             {
                 self.events.push(PeerManagerEvent::DisconnectPeer(
                     (*peer_id).clone(),
