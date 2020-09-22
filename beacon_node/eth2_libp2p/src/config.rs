@@ -1,8 +1,8 @@
 use crate::types::GossipKind;
+use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_TESTNET, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use crate::{Enr, PeerIdSerialized};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
