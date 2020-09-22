@@ -79,3 +79,9 @@ repeats until the queue is cleared.
 
 Once a validator has been activated, there's no more waiting! It's time to
 produce blocks and attestations!
+
+## What are POAP badges and how do I use graffiti?
+
+You can learn more about [POAP Badges](https://beaconcha.in/poap) and acquire your POAP graffiti by visiting [beaconcha.in](https://beaconcha.in/poap) and following the steps there.  In order to use your graffiti on your lighthouse beacon please use the `--graffiti` flag when starting your beacon remembering to replace our graffiti with yours. 
+
+`lighthouse --testnet medalla beacon --eth1 --http --graffiti "poap2URO7yXgcPusVjaIS9PKKL0zgLEB"`

@@ -12,8 +12,10 @@ If you don't have Rust installed already, visit [rustup.rs](https://rustup.rs/) 
 
 Once you have Rust installed, you can install Lighthouse with the following commands:
 
-1.  `git clone https://github.com/sigp/lighthouse.git`
-2.  `cd lighthouse`
+1.  `sudo apt update`
+2.  `sudo apt install -y git gcc g++ make cmake pkg-config libssl-dev`
+2.  `git clone https://github.com/sigp/lighthouse.git`
+3.  `cd lighthouse`
 4.  `make`
 
 You may need to open a new terminal window before running `make`.
@@ -78,6 +80,10 @@ slot: 16835, ...
 
 
 ## 4. Generate your validator key
+
+If you deposited via [the medalla launchpad](https://medalla.launchpad.ethereum.org/)
+please follow our [ETH Launchpad instructions](validator-import-launchpad.html) then continue
+with step 5 below.
 
 First, [create a wallet](./wallet-create.md) that can be used to generate
 validator keys. Then, from that wallet [create a
