@@ -36,19 +36,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
-    let base_dir = if matches.value_of("datadir").is_some() {
+    let validator_base_dir = if matches.value_of("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_VALIDATOR_DIR)
     } else {
         parse_path_or_default_with_flag(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?
     };
-    eprintln!("validator-dir path: {:?}", base_dir);
+    eprintln!("validator-dir path: {:?}", validator_base_dir);
 
     match matches.subcommand() {
-        (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, base_dir),
-        (deposit::CMD, Some(matches)) => deposit::cli_run::<T>(matches, env, base_dir),
-        (import::CMD, Some(matches)) => import::cli_run(matches, base_dir),
-        (list::CMD, Some(_)) => list::cli_run(base_dir),
+        (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, validator_base_dir),
+        (deposit::CMD, Some(matches)) => deposit::cli_run::<T>(matches, env, validator_base_dir),
+        (import::CMD, Some(matches)) => import::cli_run(matches, validator_base_dir),
+        (list::CMD, Some(_)) => list::cli_run(validator_base_dir),
+        (recover::CMD, Some(matches)) => recover::cli_run(matches, validator_base_dir),
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown

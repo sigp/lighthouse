@@ -69,7 +69,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
+pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
     let mnemonic_output_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
 
     // Create a new random mnemonic.
@@ -77,7 +77,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
     let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
 
-    let wallet = create_wallet_from_mnemonic(matches, &base_dir.as_path(), &mnemonic)?;
+    let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir.as_path(), &mnemonic)?;
 
     if let Some(path) = mnemonic_output_path {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
@@ -110,7 +110,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
 pub fn create_wallet_from_mnemonic(
     matches: &ArgMatches,
-    base_dir: &Path,
+    wallet_base_dir: &Path,
     mnemonic: &Mnemonic,
 ) -> Result<LockedWallet, String> {
     let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
@@ -122,7 +122,7 @@ pub fn create_wallet_from_mnemonic(
         unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),
     };
 
-    let mgr = WalletManager::open(&base_dir)
+    let mgr = WalletManager::open(&wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
     // Create a random password if the file does not exist.
