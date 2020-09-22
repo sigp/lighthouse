@@ -368,7 +368,7 @@ pub fn process_attestations<T: EthSpec>(
         let pending_attestation = PendingAttestation {
             aggregation_bits: attestation.aggregation_bits.clone(),
             data: attestation.data.clone(),
-            inclusion_delay: (state.slot - attestation.data.slot).as_u64(),
+            inclusion_delay: state.slot.safe_sub(attestation.data.slot)?.as_u64(),
             proposer_index,
         };
 
@@ -444,7 +444,7 @@ pub fn process_deposit<T: EthSpec>(
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    state.eth1_deposit_index.increment()?;
+    state.eth1_deposit_index.safe_add_assign(1)?;
 
     // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
     // depositing validator already exists in the registry.

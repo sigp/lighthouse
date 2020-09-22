@@ -1,9 +1,17 @@
 use crate::*;
+use safe_arith::{ArithError, SafeArith};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Error {
     EpochTooLow { base: Epoch, other: Epoch },
     EpochTooHigh { base: Epoch, other: Epoch },
+    ArithError(ArithError),
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Self::ArithError(e)
+    }
 }
 
 #[cfg(feature = "arbitrary-fuzz")]
@@ -32,8 +40,8 @@ impl RelativeEpoch {
         match self {
             // Due to saturating nature of epoch, check for current first.
             RelativeEpoch::Current => base,
-            RelativeEpoch::Previous => base - 1,
-            RelativeEpoch::Next => base + 1,
+            RelativeEpoch::Previous => base.saturating_sub(1u64),
+            RelativeEpoch::Next => base.saturating_add(1u64),
         }
     }
 
@@ -46,12 +54,11 @@ impl RelativeEpoch {
     ///
     /// Spec v0.12.1
     pub fn from_epoch(base: Epoch, other: Epoch) -> Result<Self, Error> {
-        // Due to saturating nature of epoch, check for current first.
         if other == base {
             Ok(RelativeEpoch::Current)
-        } else if other == base - 1 {
+        } else if other.safe_add(1)? == base {
             Ok(RelativeEpoch::Previous)
-        } else if other == base + 1 {
+        } else if other == base.safe_add(1)? {
             Ok(RelativeEpoch::Next)
         } else if other < base {
             Err(Error::EpochTooLow { base, other })

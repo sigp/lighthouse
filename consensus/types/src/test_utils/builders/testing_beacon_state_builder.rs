@@ -143,11 +143,11 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
         state.slot = slot;
 
-        state.previous_justified_checkpoint.epoch = epoch - 3;
-        state.current_justified_checkpoint.epoch = epoch - 2;
+        state.previous_justified_checkpoint.epoch = epoch.saturating_sub(3u64);
+        state.current_justified_checkpoint.epoch = epoch.saturating_sub(2u64);
         state.justification_bits = BitVector::from_bytes(vec![0b0000_1111]).unwrap();
 
-        state.finalized_checkpoint.epoch = epoch - 3;
+        state.finalized_checkpoint.epoch = state.previous_justified_checkpoint.epoch;
     }
 
     /// Creates a full set of attestations for the `BeaconState`. Each attestation has full

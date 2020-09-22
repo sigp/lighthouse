@@ -93,6 +93,10 @@ cargo-fmt:
 check-benches:
 	cargo check --all --benches
 
+# Typechecks consensus code *without* allowing deprecated legacy arithmetic
+check-consensus:
+	cargo check --manifest-path=consensus/state_processing/Cargo.toml --no-default-features
+
 # Runs only the ef-test vectors.
 run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
