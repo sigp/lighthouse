@@ -1,5 +1,5 @@
 use crate::types::GossipKind;
-use crate::Enr;
+use crate::{Enr, PeerIdSerialized};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
@@ -57,6 +57,9 @@ pub struct Config {
 
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
+
+    /// List of trusted libp2p nodes which are not scored.
+    pub trusted_peers: Vec<PeerIdSerialized>,
 
     /// Client version
     pub client_version: String,
@@ -139,6 +142,7 @@ impl Default for Config {
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
+            trusted_peers: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             topics,
