@@ -1,13 +1,11 @@
+use crate::common::read_wallet_name_from_cli;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{common::ensure_dir_exists, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
-
-use crate::common::read_wallet_name_from_cli;
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
 };
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
-
 use eth2_wallet_manager::WalletManager;
 use std::ffi::OsStr;
 use std::fs;

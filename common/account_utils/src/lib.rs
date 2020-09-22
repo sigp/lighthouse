@@ -139,8 +139,15 @@ fn trim_newline(s: &mut String) {
 /// Takes a string password and checks that it meets minimum requirements.
 ///
 /// The current minimum password requirement is a 12 character length character length.
-pub fn is_password_sufficiently_complex(password: &[u8]) -> bool {
-    password.len() >= MINIMUM_PASSWORD_LEN
+pub fn is_password_sufficiently_complex(password: &[u8]) -> Result<(), String> {
+    if password.len() >= MINIMUM_PASSWORD_LEN {
+        Ok(())
+    } else {
+        Err(format!(
+            "Please use at least {} characters for your password.",
+            MINIMUM_PASSWORD_LEN
+        ))
+    }
 }
 
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
@@ -204,16 +211,17 @@ mod test {
 
     #[test]
     fn test_password_over_min_length() {
-        assert!(is_password_sufficiently_complex(b"TestPasswordLong"))
+        is_password_sufficiently_complex(b"TestPasswordLong").unwrap();
     }
 
     #[test]
     fn test_password_exactly_min_length() {
-        assert!(is_password_sufficiently_complex(b"TestPassword"))
+        is_password_sufficiently_complex(b"TestPassword").unwrap();
     }
 
     #[test]
+    #[should_panic]
     fn test_password_too_short() {
-        assert!(!is_password_sufficiently_complex(b"TestPass"))
+        is_password_sufficiently_complex(b"TestPass").unwrap();
     }
 }

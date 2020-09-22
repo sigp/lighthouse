@@ -2,7 +2,6 @@ use crate::common::read_wallet_name_from_cli;
 use crate::BASE_DIR_FLAG;
 use account_utils::{
     is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
-    MINIMUM_PASSWORD_LEN,
 };
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
@@ -138,9 +137,9 @@ pub fn create_wallet_from_mnemonic(
     let mgr = WalletManager::open(&base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
-    // Create a random password if the file does not exist.
     let wallet_password: PlainText = match wallet_password_path {
         Some(path) => {
+            // Create a random password if the file does not exist.
             if !path.exists() {
                 // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
                 // create a file with that name, we require that the password has a .pass suffix.
@@ -184,34 +183,30 @@ pub fn read_new_wallet_password_from_cli(
             let password: PlainText = fs::read(&path)
                 .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
                 .map(|bytes| strip_off_newlines(bytes).into())?;
-            if is_password_sufficiently_complex(password.as_bytes()) {
-                Ok(password)
-            } else {
-                Err(format!(
-                    "Please use at least {} characters for your password.",
-                    MINIMUM_PASSWORD_LEN
-                ))
-            }
+
+            // Ensure the password meets the minimum requirements.
+            is_password_sufficiently_complex(password.as_bytes())?;
+            Ok(password)
         }
         None => loop {
             eprintln!("");
             eprintln!("{}", NEW_WALLET_PASSWORD_PROMPT);
             let password =
                 PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
-            if is_password_sufficiently_complex(password.as_bytes()) {
-                eprintln!("{}", RETYPE_PASSWORD_PROMPT);
-                let retyped_password =
-                    PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
-                if retyped_password == password {
-                    break Ok(password);
-                } else {
-                    eprintln!("Passwords do not match.");
+
+            // Ensure the password meets the minimum requirements.
+            match is_password_sufficiently_complex(password.as_bytes()) {
+                Ok(_) => {
+                    eprintln!("{}", RETYPE_PASSWORD_PROMPT);
+                    let retyped_password =
+                        PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+                    if retyped_password == password {
+                        break Ok(password);
+                    } else {
+                        eprintln!("Passwords do not match.");
+                    }
                 }
-            } else {
-                eprintln!(
-                    "Please use at least {} characters for your password.",
-                    MINIMUM_PASSWORD_LEN
-                );
+                Err(message) => eprintln!("{}", message),
             }
         },
     }
