@@ -126,7 +126,8 @@ impl SlotHashSet {
     pub fn to_ssz_container(&self) -> SszSlotSet {
         let set_capacity = self.set.capacity();
 
-        let set = self.set.iter().map(|hash| (*hash)).collect();
+        use std::iter::FromIterator;
+        let set = Vec::from_iter(self.set.clone());
 
         let slot = self.slot;
 
@@ -144,7 +145,7 @@ impl SlotHashSet {
 
         let mut set = HashSet::with_capacity(ssz_container.set_capacity);
         for hash in &ssz_container.set {
-            set.insert(hash.clone());
+            set.insert(*hash);
         }
 
         Ok(Self { set, slot })
@@ -403,6 +404,34 @@ mod tests {
                 "should observe new attestation"
             )
         }
+
+        let bytes = store.to_ssz_container().as_ssz_bytes();
+
+        assert_eq!(
+            Ok(store),
+            ObservedAttestations::from_ssz_container(
+                &SszObservedAttestations::from_ssz_bytes(&bytes).expect("should decode")
+            ),
+            "single slot should encode/decode to/from SSZ"
+        )
+    }
+
+    #[test]
+    fn multi_slot_round_trip() {
+        let store = ObservedAttestations::default();
+        let max_cap = store.max_capacity();
+
+        for i in 0..max_cap {
+            let slot = Slot::new(i);
+            for j in 0..NUM_ELEMENTS as u64 {
+                let a = get_attestation(slot, j);
+                assert_eq!(
+                    store.observe_attestation(&a, None),
+                    Ok(ObserveOutcome::New),
+                    "should observe new attestation"
+                )
+            }
+        }        
 
         let bytes = store.to_ssz_container().as_ssz_bytes();
 
