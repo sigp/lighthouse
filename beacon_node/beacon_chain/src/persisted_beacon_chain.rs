@@ -6,6 +6,13 @@ use types::Hash256;
 
 #[derive(Clone, Encode, Decode)]
 pub struct PersistedBeaconChain {
+    /// This value is ignored to resolve the issue described here:
+    ///
+    /// https://github.com/sigp/lighthouse/pull/1639
+    ///
+    /// The following PR will clean-up and remove this field:
+    ///
+    /// https://github.com/sigp/lighthouse/pull/1638
     pub canonical_head_block_root: Hash256,
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
