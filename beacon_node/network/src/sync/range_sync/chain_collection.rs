@@ -248,15 +248,17 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         // Check if any chains become the new syncing chain
         if let Some(index) = self.finalized_syncing_index() {
             // There is a current finalized chain syncing
-            let syncing_chain_peer_count = self.finalized_chains[index].peer_pool.len();
+            let _syncing_chain_peer_count = self.finalized_chains[index].peer_pool.len();
 
             // search for a chain with more peers
             if let Some((new_index, chain)) =
                 self.finalized_chains
                     .iter_mut()
                     .enumerate()
-                    .find(|(iter_index, chain)| {
-                        *iter_index != index && chain.peer_pool.len() > syncing_chain_peer_count
+                    .find(|(_iter_index, _chain)| {
+                        false
+                        //    && *iter_index != index
+                        //    && chain.peer_pool.len() > syncing_chain_peer_count
                     })
             {
                 // A chain has more peers. Swap the syncing chain

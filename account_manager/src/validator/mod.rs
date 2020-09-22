@@ -2,6 +2,7 @@ pub mod create;
 pub mod deposit;
 pub mod import;
 pub mod list;
+pub mod recover;
 
 use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
@@ -31,6 +32,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(deposit::cli_app())
         .subcommand(import::cli_app())
         .subcommand(list::cli_app())
+        .subcommand(recover::cli_app())
 }
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {

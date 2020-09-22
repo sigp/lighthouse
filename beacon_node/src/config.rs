@@ -3,7 +3,7 @@ use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
-use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig};
+use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, Logger};
 use ssz::Encode;
@@ -339,6 +339,17 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
             })
             .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
+        config.trusted_peers = trusted_peers_str
+            .split(',')
+            .map(|peer_id| {
+                peer_id
+                    .parse()
+                    .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
+            })
+            .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {

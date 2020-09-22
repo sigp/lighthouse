@@ -48,22 +48,29 @@ impl Eth2Config {
 /// Used by the `eth2_testnet_config` crate to initialize testnet directories during build and
 /// access them at runtime.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Eth2NetDirectory<'a> {
+pub struct Eth2NetArchiveAndDirectory<'a> {
     pub name: &'a str,
     pub unique_id: &'a str,
+    pub archive_name: &'a str,
     pub commit: &'a str,
-    pub url_template: &'a str,
     pub genesis_is_known: bool,
 }
 
-impl<'a> Eth2NetDirectory<'a> {
+impl<'a> Eth2NetArchiveAndDirectory<'a> {
     /// The directory that should be used to store files downloaded for this net.
-    pub fn dir(&self) -> PathBuf {
+    fn pwd(&self) -> PathBuf {
         env::var("CARGO_MANIFEST_DIR")
             .expect("should know manifest dir")
             .parse::<PathBuf>()
             .expect("should parse manifest dir as path")
-            .join(self.unique_id)
+    }
+
+    pub fn dir(&self) -> PathBuf {
+        self.pwd().join(self.unique_id)
+    }
+
+    pub fn archive_fullpath(&self) -> PathBuf {
+        self.pwd().join(self.archive_name)
     }
 }
 
@@ -72,19 +79,23 @@ macro_rules! unique_id {
     ($name: tt, $commit: tt, $genesis_is_known: tt) => {
         concat!("testnet_", $name, "_", $commit, "_", $genesis_is_known);
     };
+
+    ($name: tt, $commit: tt) => {
+        concat!("testnet_", $name, "_", $commit, ".zip");
+    };
 }
 
 macro_rules! define_net {
-    ($title: ident, $macro_title: tt, $name: tt, $commit: tt, $url_template: tt, $genesis_is_known: tt) => {
+    ($title: ident, $macro_title: tt, $name: tt, $commit: tt, $genesis_is_known: tt) => {
         #[macro_use]
         pub mod $title {
             use super::*;
 
-            pub const ETH2_NET_DIR: Eth2NetDirectory = Eth2NetDirectory {
+            pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
                 name: $name,
                 unique_id: unique_id!($name, $commit, $genesis_is_known),
+                archive_name: unique_id!($name, $commit),
                 commit: $commit,
-                url_template: $url_template,
                 genesis_is_known: $genesis_is_known,
             };
 
@@ -110,7 +121,6 @@ define_net!(
     include_altona_file,
     "altona",
     "a94e00c1a03df851f960fcf44a79f2a6b1d29af1",
-    "https://raw.githubusercontent.com/sigp/witti/{{ commit }}/altona/lighthouse/{{ file }}",
     true
 );
 
@@ -119,7 +129,6 @@ define_net!(
     include_medalla_file,
     "medalla",
     "09bbf2c9d108944ac934f94ec6a1d0684ca062a5",
-    "https://raw.githubusercontent.com/sigp/witti/{{ commit }}/medalla/{{ file }}",
     true
 );
 

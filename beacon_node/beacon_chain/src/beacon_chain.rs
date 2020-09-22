@@ -31,6 +31,7 @@ use fork_choice::ForkChoice;
 use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use regex::bytes::Regex;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
@@ -852,16 +853,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if state.slot > slot {
             return Err(Error::CannotAttestToFutureState);
-        } else if state.current_epoch() + 1 < epoch {
+        } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            while mut_state.current_epoch() + 1 < epoch {
+            while mut_state.current_epoch() < epoch {
                 // Note: here we provide `Hash256::zero()` as the root of the current state. This
                 // has the effect of setting the values of all historic state roots to the zero
                 // hash. This is an optimization, we don't need the state roots so why calculate
                 // them?
                 per_slot_processing(mut_state, Some(Hash256::zero()), &self.spec)?;
             }
-            mut_state.build_committee_cache(RelativeEpoch::Next, &self.spec)?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         }
 
         let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
@@ -1319,8 +1320,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let slot = block.message.slot;
-        let graffiti_string = String::from_utf8(block.message.body.graffiti[..].to_vec())
-            .unwrap_or_else(|_| format!("{:?}", &block.message.body.graffiti[..]));
+        #[allow(clippy::invalid_regex)]
+        let re = Regex::new("\\p{C}").expect("regex is valid");
+        let graffiti_string =
+            String::from_utf8_lossy(&re.replace_all(&block.message.body.graffiti[..], &b""[..]))
+                .to_string();
 
         match GossipVerifiedBlock::new(block, self) {
             Ok(verified) => {
