@@ -525,7 +525,7 @@ dependencies = [
 [[package]]
 name = "blst"
 version = "0.1.1"
-source = "git+https://github.com/supranational/blst.git?rev=a8398ed284b0d78858302ad1ceb25a80e7bbe535#a8398ed284b0d78858302ad1ceb25a80e7bbe535"
+source = "git+https://github.com/sigp/blst.git?rev=284f7059642851c760a09fb1708bcb59c7ca323c#284f7059642851c760a09fb1708bcb59c7ca323c"
 dependencies = [
  "cc",
  "glob",

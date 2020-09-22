@@ -17,7 +17,7 @@ eth2_hashing = "0.1.0"
 ethereum-types = "0.9.1"
 arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
 zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
-blst = { git = "https://github.com/supranational/blst.git", rev = "a8398ed284b0d78858302ad1ceb25a80e7bbe535" }
+blst = { git = "https://github.com/sigp/blst.git", rev = "284f7059642851c760a09fb1708bcb59c7ca323c" }
 
 [features]
 default = ["supranational"]
@@ -25,4 +25,3 @@ fake_crypto = []
 milagro = []
 supranational = []
 supranational-portable = ["supranational", "blst/portable"]
-supranational-force-adx = ["supranational", "blst/force-adx"]
