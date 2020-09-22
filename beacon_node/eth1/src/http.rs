@@ -57,7 +57,10 @@ impl FromStr for Eth1NetworkId {
 
 /// Checks that the provided eth1 node has all the relevant api endpoints open
 /// and returns the network id.
-pub async fn check_eth1_endpoint(endpoint: &str, timeout: Duration) -> Result<Eth1NetworkId, String> {
+pub async fn check_eth1_endpoint(
+    endpoint: &str,
+    timeout: Duration,
+) -> Result<Eth1NetworkId, String> {
     // Checks that the "eth" api works as expected.
     let _block_number = get_block_number(endpoint, timeout).await?;
     // Checks that the "net" api works as expected.
