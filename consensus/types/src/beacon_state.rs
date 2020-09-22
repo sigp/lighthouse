@@ -300,22 +300,12 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
-    /// If a validator pubkey exists in the validator registry, returns `Some(i)`, otherwise
-    /// returns `None`.
-    ///
-    /// Requires a fully up-to-date `pubkey_cache`, returns an error if this is not the case.
+    /// This method ensures the state's pubkey cache is fully up-to-date before checking if the validator
+    /// exists in the registry. If a validator pubkey exists in the validator registry, returns `Some(i)`,
+    /// otherwise returns `None`.
     pub fn get_validator_index(&mut self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
-        // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
-        // depositing validator already exists in the registry.
         self.update_pubkey_cache()?;
-        if self.pubkey_cache.len() == self.validators.len() {
-            Ok(self.pubkey_cache.get(pubkey))
-        } else {
-            Err(Error::PubkeyCacheIncomplete {
-                cache_len: self.pubkey_cache.len(),
-                registry_len: self.validators.len(),
-            })
-        }
+        Ok(self.pubkey_cache.get(pubkey))
     }
 
     /// The epoch corresponding to `self.slot`.
