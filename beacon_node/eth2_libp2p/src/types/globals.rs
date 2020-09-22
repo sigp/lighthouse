@@ -37,6 +37,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         tcp_port: u16,
         udp_port: u16,
         local_metadata: MetaData<TSpec>,
+        trusted_peers: Vec<PeerId>,
         log: &slog::Logger,
     ) -> Self {
         NetworkGlobals {
@@ -45,8 +46,8 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             listen_multiaddrs: RwLock::new(Vec::new()),
             listen_port_tcp: AtomicU16::new(tcp_port),
             listen_port_udp: AtomicU16::new(udp_port),
-            peers: RwLock::new(PeerDB::new(log)),
             local_metadata: RwLock::new(local_metadata),
+            peers: RwLock::new(PeerDB::new(trusted_peers, log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
         }

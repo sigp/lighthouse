@@ -84,6 +84,11 @@ impl<TSpec: EthSpec> Service<TSpec> {
             config.libp2p_port,
             config.discovery_port,
             meta_data,
+            config
+                .trusted_peers
+                .iter()
+                .map(|x| PeerId::from(x.clone()))
+                .collect(),
             &log,
         ));
 

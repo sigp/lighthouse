@@ -86,12 +86,17 @@ impl BannedPeersCount {
 }
 
 impl<TSpec: EthSpec> PeerDB<TSpec> {
-    pub fn new(log: &slog::Logger) -> Self {
+    pub fn new(trusted_peers: Vec<PeerId>, log: &slog::Logger) -> Self {
+        // Initialize the peers hashmap with trusted peers
+        let peers = trusted_peers
+            .into_iter()
+            .map(|peer_id| (peer_id, PeerInfo::trusted_peer_info()))
+            .collect();
         Self {
             log: log.clone(),
             disconnected_peers: 0,
             banned_peers_count: BannedPeersCount::new(),
-            peers: HashMap::new(),
+            peers,
         }
     }
 
@@ -101,7 +106,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn score(&self, peer_id: &PeerId) -> Score {
         self.peers
             .get(peer_id)
-            .map_or(Score::default(), |info| info.score)
+            .map_or(Score::default(), |info| info.score())
     }
 
     /// Returns an iterator over all peers in the db.
@@ -159,7 +164,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns true if the Peer is banned.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
-            match peer.score.state() {
+            match peer.score().state() {
                 ScoreState::Banned => true,
                 _ => self.ip_is_banned(peer),
             }
@@ -181,7 +186,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns true if the Peer is either banned or in the disconnected state.
     pub fn is_banned_or_disconnected(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
-            match peer.score.state() {
+            match peer.score().state() {
                 ScoreState::Banned | ScoreState::Disconnected => true,
                 _ => self.ip_is_banned(peer),
             }
@@ -264,7 +269,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .collect::<Vec<_>>();
 
         connected.shuffle(&mut rand::thread_rng());
-        connected.sort_by_key(|(_, info)| info.score);
+        connected.sort_by_key(|(_, info)| info.score());
         connected
     }
 
@@ -279,7 +284,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .iter()
             .filter(|(_, info)| is_status(&info.connection_status))
             .collect::<Vec<_>>();
-        by_status.sort_by_key(|(_, info)| info.score);
+        by_status.sort_by_key(|(_, info)| info.score());
         by_status.into_iter().rev().collect()
     }
 
@@ -291,7 +296,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(|(_, info)| is_status(&info.connection_status))
-            .max_by_key(|(_, info)| info.score)
+            .max_by_key(|(_, info)| info.score())
             .map(|(id, _)| id)
     }
 
@@ -455,8 +460,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .filter(|(_, info)| info.connection_status.is_banned())
                 .min_by(|(_, info_a), (_, info_b)| {
                     info_a
-                        .score
-                        .partial_cmp(&info_b.score)
+                        .score()
+                        .partial_cmp(&info_b.score())
                         .unwrap_or(std::cmp::Ordering::Equal)
                 }) {
                 self.banned_peers_count
@@ -485,8 +490,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .filter(|(_, info)| info.connection_status.is_disconnected())
                 .min_by(|(_, info_a), (_, info_b)| {
                     info_a
-                        .score
-                        .partial_cmp(&info_b.score)
+                        .score()
+                        .partial_cmp(&info_b.score())
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map(|(id, _)| id.clone())
@@ -543,13 +548,13 @@ mod tests {
 
     fn add_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {
-            info.score.add(score);
+            info.add_to_score(score);
         }
     }
 
     fn get_db() -> PeerDB<M> {
         let log = build_log(slog::Level::Debug, false);
-        PeerDB::new(&log)
+        PeerDB::new(vec![], &log)
     }
 
     #[test]
@@ -937,5 +942,29 @@ mod tests {
         //ip1 is banned
         assert!(pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
+    }
+
+    #[test]
+    fn test_trusted_peers_score() {
+        let trusted_peer = PeerId::random();
+        let log = build_log(slog::Level::Debug, false);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer.clone()], &log);
+
+        pdb.connect_ingoing(&trusted_peer);
+
+        // Check trusted status and score
+        assert!(pdb.peer_info(&trusted_peer).unwrap().is_trusted);
+        assert_eq!(
+            pdb.peer_info(&trusted_peer).unwrap().score().score(),
+            Score::max_score().score()
+        );
+
+        // Adding/Subtracting score should have no effect on a trusted peer
+        add_score(&mut pdb, &trusted_peer, -50.0);
+
+        assert_eq!(
+            pdb.peer_info(&trusted_peer).unwrap().score().score(),
+            Score::max_score().score()
+        );
     }
 }

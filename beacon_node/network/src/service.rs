@@ -149,8 +149,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         // attestation service
-        let attestation_service =
-            AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
+        let attestation_service = AttestationService::new(beacon_chain.clone(), &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
