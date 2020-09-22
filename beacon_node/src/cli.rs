@@ -204,16 +204,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
                 and try connecting to an eth1 node on localhost:8545")
                 .takes_value(false)
-                .conflicts_with("staking-with-external-eth1-endpoint")
-        )
-        .arg(
-            Arg::with_name("staking-with-ext-eth1-endpoint")
-                .long("staking-with-ext-eth1-endpoint")
-                .help("Standard option for a staking beacon node with an external eth1 endpoint.\
-                Equivalent to `lighthouse bn --http --eth1-endpoint <ENDPOINT>`. \
-                This will enable the http server on localhost:5052 \
-                and try connecting to an eth1 node on the provided the external endpoint")
-                .takes_value(true)
         )
 
         /*
