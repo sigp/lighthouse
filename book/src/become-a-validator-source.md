@@ -127,7 +127,7 @@ Create a validator from the wallet with:
 lighthouse --testnet medalla account validator create --count 1
 ```
 
-Enter your wallet's name and the password you used to create it when prompted. The output will look like this:
+Enter your wallet's name and password when prompted. The output will look like this:
 
 ```bash
 1/1	0x80f3dce8d6745a725d8442c9bc3ca0852e772394b898c95c134b94979ebb0af6f898d5c5f65b71be6889185c486918a7
