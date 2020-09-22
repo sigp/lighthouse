@@ -91,7 +91,7 @@ Create a wallet with:
 lighthouse --testnet medalla account wallet create
 ```
 
-You will be prompted for a wallet name and a password. The passwod should be at least 12 characters long. The output will look like this:
+You will be prompted for a wallet name and a password. The output will look like this:
 
 ```
 Your wallet's 12-word BIP-39 mnemonic is:
