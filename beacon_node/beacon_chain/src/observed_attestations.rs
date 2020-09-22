@@ -431,7 +431,7 @@ mod tests {
                     "should observe new attestation"
                 )
             }
-        }        
+        }
 
         let bytes = store.to_ssz_container().as_ssz_bytes();
 

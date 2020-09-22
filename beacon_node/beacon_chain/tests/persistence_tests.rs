@@ -84,6 +84,10 @@ fn finalizes_after_resuming_from_db() {
         .chain
         .persist_eth1_cache()
         .expect("should persist the eth1 cache");
+    harness
+        .chain
+        .persist_seen_caches()
+        .expect("should persist the seen/observed caches");
 
     let data_dir = harness.data_dir;
     let original_chain = harness.chain;
