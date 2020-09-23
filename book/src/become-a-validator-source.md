@@ -88,10 +88,10 @@ validator](./validator-create.md). A two-step example follows:
 Create a wallet with:
 
 ```bash
-lighthouse --testnet medalla account wallet create --name my-validators --password-file my-validators.pass
+lighthouse --testnet medalla account wallet create
 ```
 
-The output will look like this:
+You will be prompted for a wallet name and a password. The output will look like this:
 
 ```
 Your wallet's 12-word BIP-39 mnemonic is:
@@ -124,10 +124,10 @@ used to restore your validator if there is a data loss.
 Create a validator from the wallet with:
 
 ```bash
-lighthouse --testnet medalla account validator create --wallet-name my-validators --wallet-password my-validators.pass --count 1
+lighthouse --testnet medalla account validator create --count 1
 ```
 
-The output will look like this:
+Enter your wallet's name and password when prompted. The output will look like this:
 
 ```bash
 1/1	0x80f3dce8d6745a725d8442c9bc3ca0852e772394b898c95c134b94979ebb0af6f898d5c5f65b71be6889185c486918a7

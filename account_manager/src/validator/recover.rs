@@ -1,7 +1,7 @@
 use super::create::STORE_WITHDRAW_FLAG;
-use super::import::STDIN_PASSWORD_FLAG;
 use crate::common::{ensure_dir_exists, read_mnemonic_from_cli};
 use crate::validator::create::COUNT_FLAG;
+use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::random_password;
@@ -78,9 +78,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 ),
         )
         .arg(
-            Arg::with_name(STDIN_PASSWORD_FLAG)
-                .long(STDIN_PASSWORD_FLAG)
-                .help("If present, read passwords from stdin instead of tty."),
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
 }
 
@@ -98,7 +98,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;
@@ -107,7 +107,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
     eprintln!("");
 
-    let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_password)?;
+    let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
     let seed = Seed::new(&mnemonic, "");
 
