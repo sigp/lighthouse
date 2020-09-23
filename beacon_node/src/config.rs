@@ -87,26 +87,26 @@ pub fn get_config<E: EthSpec>(
      */
 
     if cli_args.is_present("staking") {
-        client_config.rest_api.enabled = true;
+        client_config.http_api.enabled = true;
         client_config.sync_eth1_chain = true;
     }
 
     /*
-     * Http server
+     * Http API server
      */
 
     if cli_args.is_present("http") {
-        client_config.rest_api.enabled = true;
+        client_config.http_api.enabled = true;
     }
 
     if let Some(address) = cli_args.value_of("http-address") {
-        client_config.rest_api.listen_address = address
+        client_config.http_api.listen_addr = address
             .parse::<Ipv4Addr>()
             .map_err(|_| "http-address is not a valid IPv4 address.")?;
     }
 
     if let Some(port) = cli_args.value_of("http-port") {
-        client_config.rest_api.port = port
+        client_config.http_api.listen_port = port
             .parse::<u16>()
             .map_err(|_| "http-port is not a valid u16.")?;
     }
@@ -117,7 +117,36 @@ pub fn get_config<E: EthSpec>(
         hyper::header::HeaderValue::from_str(allow_origin)
             .map_err(|_| "Invalid allow-origin value")?;
 
-        client_config.rest_api.allow_origin = allow_origin.to_string();
+        client_config.http_api.allow_origin = Some(allow_origin.to_string());
+    }
+
+    /*
+     * Prometheus metrics HTTP server
+     */
+
+    if cli_args.is_present("metrics") {
+        client_config.http_metrics.enabled = true;
+    }
+
+    if let Some(address) = cli_args.value_of("metrics-address") {
+        client_config.http_metrics.listen_addr = address
+            .parse::<Ipv4Addr>()
+            .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+    }
+
+    if let Some(port) = cli_args.value_of("metrics-port") {
+        client_config.http_metrics.listen_port = port
+            .parse::<u16>()
+            .map_err(|_| "metrics-port is not a valid u16.")?;
+    }
+
+    if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
+        hyper::header::HeaderValue::from_str(allow_origin)
+            .map_err(|_| "Invalid allow-origin value")?;
+
+        client_config.http_metrics.allow_origin = Some(allow_origin.to_string());
     }
 
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
@@ -125,7 +154,7 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("staking") {
         warn!(
             log,
-            "Running HTTP server on port {}", client_config.rest_api.port
+            "Running HTTP server on port {}", client_config.http_api.listen_port
         );
     }
 
@@ -219,7 +248,8 @@ pub fn get_config<E: EthSpec>(
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
         client_config.network.discovery_port =
             unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
-        client_config.rest_api.port = 0;
+        client_config.http_api.listen_port = 0;
+        client_config.http_metrics.listen_port = 0;
         client_config.websocket_server.port = 0;
     }
 
@@ -230,6 +260,11 @@ pub fn get_config<E: EthSpec>(
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
+    let spec_contract_address = format!("{:?}", spec.deposit_contract_address);
+    if client_config.eth1.deposit_contract_address != spec_contract_address {
+        return Err("Testnet contract address does not match spec".into());
+    }
+
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
@@ -265,7 +300,7 @@ pub fn get_config<E: EthSpec>(
     };
 
     let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
-    client_config.graffiti[..trimmed_graffiti_len]
+    client_config.graffiti.0[..trimmed_graffiti_len]
         .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
 
     if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {

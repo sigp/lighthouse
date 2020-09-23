@@ -351,7 +351,7 @@ impl ForkChoiceTest {
         let mut verified_attestation = self
             .harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
+            .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
             .expect("precondition: should gossip verify attestation");
 
         if let MutationDelay::Blocks(slots) = delay {

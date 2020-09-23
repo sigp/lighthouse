@@ -561,6 +561,7 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
+            genesis_state_root: canonical_head.beacon_state_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
             fork_choice: RwLock::new(fork_choice),

@@ -4,7 +4,7 @@ mod votes;
 
 use crate::proto_array_fork_choice::{Block, ProtoArrayForkChoice};
 use serde_derive::{Deserialize, Serialize};
-use types::{Epoch, Hash256, Slot};
+use types::{Epoch, Hash256, ShufflingId, Slot};
 
 pub use ffg_updates::*;
 pub use no_votes::*;
@@ -125,6 +125,14 @@ impl ForkChoiceTestDefinition {
                         parent_root: Some(parent_root),
                         state_root: Hash256::zero(),
                         target_root: Hash256::zero(),
+                        current_epoch_shuffling_id: ShufflingId::from_components(
+                            Epoch::new(0),
+                            Hash256::zero(),
+                        ),
+                        next_epoch_shuffling_id: ShufflingId::from_components(
+                            Epoch::new(0),
+                            Hash256::zero(),
+                        ),
                         justified_epoch,
                         finalized_epoch,
                     };

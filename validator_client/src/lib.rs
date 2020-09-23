@@ -7,6 +7,7 @@ mod fork_service;
 mod initialized_validators;
 mod is_synced;
 mod notifier;
+mod validator_duty;
 mod validator_store;
 
 pub use cli::cli_app;
@@ -18,18 +19,18 @@ use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
-use eth2_config::Eth2Config;
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
 use fork_service::{ForkService, ForkServiceBuilder};
 use futures::channel::mpsc;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
-use remote_beacon_node::RemoteBeaconNode;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Hash256, YamlConfig};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -61,7 +62,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
-    pub async fn new(mut context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
+    pub async fn new(context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
         let log = context.log().clone();
 
         info!(
@@ -104,32 +105,35 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "enabled" => validators.num_enabled(),
         );
 
+        let beacon_node_url: Url = config
+            .http_server
+            .parse()
+            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
+        let beacon_node_http_client = ClientBuilder::new()
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
         let beacon_node =
-            RemoteBeaconNode::new_with_timeout(config.http_server.clone(), HTTP_TIMEOUT)
-                .map_err(|e| format!("Unable to init beacon node http client: {}", e))?;
+            BeaconNodeHttpClient::from_components(beacon_node_url, beacon_node_http_client);
 
         // Perform some potentially long-running initialization tasks.
-        let (eth2_config, genesis_time, genesis_validators_root) = tokio::select! {
+        let (yaml_config, genesis_time, genesis_validators_root) = tokio::select! {
             tuple = init_from_beacon_node(&beacon_node, &context) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
+        let beacon_node_spec = yaml_config.apply_to_chain_spec::<T>(&T::default_spec())
+            .ok_or_else(||
+                    "The minimal/mainnet spec type of the beacon node does not match the validator client. \
+                    See the --testnet command.".to_string()
+            )?;
 
-        // Do not permit a connection to a beacon node using different spec constants.
-        if context.eth2_config.spec_constants != eth2_config.spec_constants {
-            return Err(format!(
-                "Beacon node is using an incompatible spec. Got {}, expected {}",
-                eth2_config.spec_constants, context.eth2_config.spec_constants
-            ));
+        if context.eth2_config.spec != beacon_node_spec {
+            return Err(
+                "The beacon node is using a different Eth2 specification to this validator client. \
+                See the --testnet command."
+                    .to_string(),
+            );
         }
-
-        // Note: here we just assume the spec variables of the remote node. This is very useful
-        // for testnets, but perhaps a security issue when it comes to mainnet.
-        //
-        // A damaging attack would be for a beacon node to convince the validator client of a
-        // different `SLOTS_PER_EPOCH` variable. This could result in slashable messages being
-        // produced. We are safe from this because `SLOTS_PER_EPOCH` is a type-level constant
-        // for Lighthouse.
-        context.eth2_config = eth2_config;
 
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
@@ -203,7 +207,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.duties_service
             .clone()
-            .start_update_service(block_service_tx, &self.context.eth2_config.spec)
+            .start_update_service(
+                block_service_tx,
+                Arc::new(self.context.eth2_config.spec.clone()),
+            )
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
 
         self.fork_service
@@ -228,80 +235,85 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 }
 
 async fn init_from_beacon_node<E: EthSpec>(
-    beacon_node: &RemoteBeaconNode<E>,
+    beacon_node: &BeaconNodeHttpClient,
     context: &RuntimeContext<E>,
-) -> Result<(Eth2Config, u64, Hash256), String> {
+) -> Result<(YamlConfig, u64, Hash256), String> {
     // Wait for the beacon node to come online.
     wait_for_node(beacon_node, context.log()).await?;
 
-    let eth2_config = beacon_node
-        .http
-        .spec()
-        .get_eth2_config()
+    let yaml_config = beacon_node
+        .get_config_spec()
         .await
-        .map_err(|e| format!("Unable to read eth2 config from beacon node: {:?}", e))?;
-    let genesis_time = beacon_node
-        .http
-        .beacon()
-        .get_genesis_time()
-        .await
-        .map_err(|e| format!("Unable to read genesis time from beacon node: {:?}", e))?;
+        .map_err(|e| format!("Unable to read spec from beacon node: {:?}", e))?
+        .data;
+
+    let genesis = loop {
+        match beacon_node.get_beacon_genesis().await {
+            Ok(genesis) => break genesis.data,
+            Err(e) => {
+                // A 404 error on the genesis endpoint indicates that genesis has not yet occurred.
+                if e.status() == Some(StatusCode::NOT_FOUND) {
+                    info!(
+                        context.log(),
+                        "Waiting for genesis";
+                    );
+                } else {
+                    error!(
+                        context.log(),
+                        "Error polling beacon node";
+                        "error" => format!("{:?}", e)
+                    );
+                }
+            }
+        }
+
+        delay_for(RETRY_DELAY).await;
+    };
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("Unable to read system time: {:?}", e))?;
-    let genesis = Duration::from_secs(genesis_time);
+    let genesis_time = Duration::from_secs(genesis.genesis_time);
 
     // If the time now is less than (prior to) genesis, then delay until the
     // genesis instant.
     //
     // If the validator client starts before genesis, it will get errors from
     // the slot clock.
-    if now < genesis {
+    if now < genesis_time {
         info!(
             context.log(),
             "Starting node prior to genesis";
-            "seconds_to_wait" => (genesis - now).as_secs()
+            "seconds_to_wait" => (genesis_time - now).as_secs()
         );
 
-        delay_for(genesis - now).await;
+        delay_for(genesis_time - now).await;
     } else {
         info!(
             context.log(),
             "Genesis has already occurred";
-            "seconds_ago" => (now - genesis).as_secs()
+            "seconds_ago" => (now - genesis_time).as_secs()
         );
     }
-    let genesis_validators_root = beacon_node
-        .http
-        .beacon()
-        .get_genesis_validators_root()
-        .await
-        .map_err(|e| {
-            format!(
-                "Unable to read genesis validators root from beacon node: {:?}",
-                e
-            )
-        })?;
 
-    Ok((eth2_config, genesis_time, genesis_validators_root))
+    Ok((
+        yaml_config,
+        genesis.genesis_time,
+        genesis.genesis_validators_root,
+    ))
 }
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn wait_for_node<E: EthSpec>(
-    beacon_node: &RemoteBeaconNode<E>,
-    log: &Logger,
-) -> Result<(), String> {
+async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Result<(), String> {
     // Try to get the version string from the node, looping until success is returned.
     loop {
         let log = log.clone();
         let result = beacon_node
-            .clone()
-            .http
-            .node()
-            .get_version()
+            .get_node_version()
             .await
-            .map_err(|e| format!("{:?}", e));
+            .map_err(|e| format!("{:?}", e))
+            .map(|body| body.data.version);
 
         match result {
             Ok(version) => {
