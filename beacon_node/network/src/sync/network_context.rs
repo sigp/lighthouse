@@ -1,11 +1,14 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
+use super::range_sync::{BatchId, ChainId};
+use super::RequestId as SyncRequestId;
 use crate::router::processor::status_message;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
 use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, Request};
+use fnv::FnvHashMap;
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -21,7 +24,11 @@ pub struct SyncNetworkContext<T: EthSpec> {
     network_globals: Arc<NetworkGlobals<T>>,
 
     /// A sequential ID for all RPC requests.
-    request_id: usize,
+    request_id: SyncRequestId,
+
+    /// BlocksByRange requests made by range syncing chains.
+    range_requests: FnvHashMap<SyncRequestId, (ChainId, BatchId)>,
+
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
@@ -36,6 +43,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             network_send,
             network_globals,
             request_id: 1,
+            range_requests: FnvHashMap::default(),
             log,
         }
     }
@@ -50,24 +58,26 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             .unwrap_or_default()
     }
 
-    pub fn status_peer<U: BeaconChainTypes>(
+    pub fn status_peers<U: BeaconChainTypes>(
         &mut self,
         chain: Arc<BeaconChain<U>>,
-        peer_id: PeerId,
+        peers: impl Iterator<Item = PeerId>,
     ) {
         if let Some(status_message) = status_message(&chain) {
-            debug!(
-                self.log,
-                "Sending Status Request";
-                "peer" => format!("{:?}", peer_id),
-                "fork_digest" => format!("{:?}", status_message.fork_digest),
-                "finalized_root" => format!("{:?}", status_message.finalized_root),
-                "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
-                "head_root" => format!("{}", status_message.head_root),
-                "head_slot" => format!("{}", status_message.head_slot),
-            );
+            for peer_id in peers {
+                debug!(
+                    self.log,
+                    "Sending Status Request";
+                    "peer" => %peer_id,
+                    "fork_digest" => ?status_message.fork_digest,
+                    "finalized_root" => ?status_message.finalized_root,
+                    "finalized_epoch" => ?status_message.finalized_epoch,
+                    "head_root" => %status_message.head_root,
+                    "head_slot" => %status_message.head_slot,
+                );
 
-            let _ = self.send_rpc_request(peer_id, Request::Status(status_message));
+                let _ = self.send_rpc_request(peer_id, Request::Status(status_message.clone()));
+            }
         }
     }
 
@@ -75,15 +85,34 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRangeRequest,
-    ) -> Result<usize, &'static str> {
+        chain_id: ChainId,
+        batch_id: BatchId,
+    ) -> Result<(), &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRange Request";
             "method" => "BlocksByRange",
             "count" => request.count,
-            "peer" => format!("{:?}", peer_id)
+            "peer" => %peer_id,
         );
-        self.send_rpc_request(peer_id, Request::BlocksByRange(request))
+        let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
+        self.range_requests.insert(req_id, (chain_id, batch_id));
+        Ok(())
+    }
+
+    pub fn blocks_by_range_response(
+        &mut self,
+        request_id: usize,
+        remove: bool,
+    ) -> Option<(ChainId, BatchId)> {
+        // NOTE: we can't guarantee that the request must be registered as it could receive more
+        // than an error, and be removed after receiving the first one.
+        // FIXME: https://github.com/sigp/lighthouse/issues/1634
+        if remove {
+            self.range_requests.remove(&request_id)
+        } else {
+            self.range_requests.get(&request_id).cloned()
+        }
     }
 
     pub fn blocks_by_root_request(

@@ -82,10 +82,11 @@ impl<T: BeaconChainTypes> Processor<T> {
     }
 
     fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
-        self.sync_send.send(message).unwrap_or_else(|_| {
+        self.sync_send.send(message).unwrap_or_else(|e| {
             warn!(
                 self.log,
                 "Could not send message to the sync service";
+                "error" => %e,
             )
         });
     }
@@ -691,9 +692,10 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
 
     /// Sends a message to the network task.
     fn inform_network(&mut self, msg: NetworkMessage<T>) {
+        let msg_r = &format!("{:?}", msg);
         self.network_send
             .send(msg)
-            .unwrap_or_else(|_| warn!(self.log, "Could not send message to the network service"))
+            .unwrap_or_else(|e| warn!(self.log, "Could not send message to the network service"; "error" => %e, "message" => msg_r))
     }
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
