@@ -16,6 +16,8 @@ use types::EthSpec;
 use warp::Filter;
 use warp_utils::task::blocking_json_task;
 
+mod tests;
+
 #[derive(Debug)]
 pub enum Error {
     Warp(warp::Error),
@@ -38,7 +40,7 @@ impl From<String> for Error {
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<E: EthSpec> {
-    pub validator_store: Option<ValidatorStore<SystemTimeSlotClock, E>>,
+    pub initialized_validators: Option<Arc<RwLock<InitializedValidators>>>,
     pub config: Config,
     pub log: Logger,
     pub _phantom: PhantomData<E>,
@@ -111,10 +113,7 @@ pub fn serve<T: EthSpec>(
     */
 
     // Create a `warp` filter that provides access to the network globals.
-    let inner_initialized_validators = ctx
-        .validator_store
-        .as_ref()
-        .map(|s| s.initialized_validators());
+    let inner_initialized_validators = ctx.initialized_validators.clone();
     let initialized_validators_filter = warp::any()
         .map(move || inner_initialized_validators.clone())
         .and_then(|initialized_validators| async move {

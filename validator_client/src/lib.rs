@@ -4,12 +4,13 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
-mod http_api;
 mod initialized_validators;
 mod is_synced;
 mod notifier;
 mod validator_duty;
 mod validator_store;
+
+pub mod http_api;
 
 pub use cli::cli_app;
 pub use config::Config;
@@ -240,7 +241,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx: Arc<http_api::Context<T>> = Arc::new(http_api::Context {
-                validator_store: Some(self.validator_store.clone()),
+                initialized_validators: Some(self.validator_store.initialized_validators()),
                 config: self.config.http_api.clone(),
                 log: log.clone(),
                 _phantom: PhantomData,

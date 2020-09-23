@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["time", "rt-threaded", "macros"] }
+tempfile = "3.1.0"
 
 [dependencies]
 eth2_ssz = "0.1.2"
