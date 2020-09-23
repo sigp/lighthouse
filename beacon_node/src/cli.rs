@@ -131,7 +131,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
                 .takes_value(false),
         )
-
+        .arg(
+            Arg::with_name("trusted-peers")
+                .long("trusted-peers")
+                .value_name("TRUSTED_PEERS")
+                .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
+                .takes_value(true),
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
@@ -185,6 +191,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the listen TCP port for the websocket server.")
                 .default_value("5053")
                 .takes_value(true),
+        )
+
+        /*
+         * Standard staking flags
+         */
+
+        .arg(
+            Arg::with_name("staking")
+                .long("staking")
+                .help("Standard option for a staking beacon node. Equivalent to \
+                `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
+                and try connecting to an eth1 node on localhost:8545")
+                .takes_value(false)
         )
 
         /*

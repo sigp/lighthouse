@@ -980,14 +980,17 @@ fn load_parent<T: BeaconChainTypes>(
         // exist in fork choice but not in the database yet. In such a case we simply
         // indicate that we don't yet know the parent.
         let root = block.parent_root();
-        let parent_block = if let Some(block) = chain
+        let parent_block = chain
             .get_block(&block.parent_root())
             .map_err(BlockError::BeaconChainError)?
-        {
-            block
-        } else {
-            return Err(BlockError::ParentUnknown(Box::new(block)));
-        };
+            .ok_or_else(|| {
+                // Return a `MissingBeaconBlock` error instead of a `ParentUnknown` error since
+                // we've already checked fork choice for this block.
+                //
+                // It's an internal error if the block exists in fork choice but not in the
+                // database.
+                BlockError::from(BeaconChainError::MissingBeaconBlock(block.parent_root()))
+            })?;
 
         // Load the parent blocks state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.

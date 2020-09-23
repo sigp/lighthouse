@@ -192,12 +192,11 @@ pub fn get_all_validators<T: BeaconChainTypes>(
     };
 
     let mut state = get_state_from_root_opt(&ctx.beacon_chain, state_root_opt)?;
-    state.update_pubkey_cache()?;
 
-    state
-        .validators
+    let validators = state.validators.clone();
+    validators
         .iter()
-        .map(|validator| validator_response_by_pubkey(&state, validator.pubkey.clone()))
+        .map(|validator| validator_response_by_pubkey(&mut state, validator.pubkey.clone()))
         .collect::<Result<Vec<_>, _>>()
 }
 
@@ -215,13 +214,14 @@ pub fn get_active_validators<T: BeaconChainTypes>(
     };
 
     let mut state = get_state_from_root_opt(&ctx.beacon_chain, state_root_opt)?;
-    state.update_pubkey_cache()?;
 
-    state
-        .validators
+    let validators = state.validators.clone();
+    let current_epoch = state.current_epoch();
+
+    validators
         .iter()
-        .filter(|validator| validator.is_active_at(state.current_epoch()))
-        .map(|validator| validator_response_by_pubkey(&state, validator.pubkey.clone()))
+        .filter(|validator| validator.is_active_at(current_epoch))
+        .map(|validator| validator_response_by_pubkey(&mut state, validator.pubkey.clone()))
         .collect::<Result<Vec<_>, _>>()
 }
 
@@ -279,11 +279,10 @@ fn validator_responses_by_pubkey<T: BeaconChainTypes>(
     validator_pubkeys: Vec<PublicKeyBytes>,
 ) -> Result<Vec<ValidatorResponse>, ApiError> {
     let mut state = get_state_from_root_opt(beacon_chain, state_root_opt)?;
-    state.update_pubkey_cache()?;
 
     validator_pubkeys
         .into_iter()
-        .map(|validator_pubkey| validator_response_by_pubkey(&state, validator_pubkey))
+        .map(|validator_pubkey| validator_response_by_pubkey(&mut state, validator_pubkey))
         .collect::<Result<Vec<_>, ApiError>>()
 }
 
@@ -291,7 +290,7 @@ fn validator_responses_by_pubkey<T: BeaconChainTypes>(
 ///
 /// The provided `state` must have a fully up-to-date pubkey cache.
 fn validator_response_by_pubkey<E: EthSpec>(
-    state: &BeaconState<E>,
+    state: &mut BeaconState<E>,
     validator_pubkey: PublicKeyBytes,
 ) -> Result<ValidatorResponse, ApiError> {
     let validator_index_opt = state

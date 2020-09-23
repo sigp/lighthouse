@@ -1,12 +1,11 @@
 use crate::common::read_mnemonic_from_cli;
-use crate::wallet::create::create_wallet_from_mnemonic;
+use crate::wallet::create::{create_wallet_from_mnemonic, STDIN_INPUTS_FLAG};
 use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSWORD_FLAG, TYPE_FLAG};
 use clap::{App, Arg, ArgMatches};
 use std::path::PathBuf;
 
 pub const CMD: &str = "recover";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
-pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -19,8 +18,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
                 )
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(PASSWORD_FLAG)
@@ -33,8 +31,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix.",
                 )
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(MNEMONIC_FLAG)
@@ -56,21 +53,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value(HD_TYPE),
         )
         .arg(
-            Arg::with_name(STDIN_PASSWORD_FLAG)
-                .long(STDIN_PASSWORD_FLAG)
-                .help("If present, read passwords from stdin instead of tty."),
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
 }
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
     eprintln!("");
     eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
     eprintln!("");
 
-    let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_password)?;
+    let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
     let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir.as_path(), &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;

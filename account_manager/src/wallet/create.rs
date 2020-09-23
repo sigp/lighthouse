@@ -1,5 +1,8 @@
+use crate::common::read_wallet_name_from_cli;
 use crate::BASE_DIR_FLAG;
-use account_utils::{random_password, strip_off_newlines};
+use account_utils::{
+    is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
+};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
@@ -7,7 +10,8 @@ use eth2_wallet::{
 };
 use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use std::ffi::OsStr;
-use std::fs::{self, File};
+use std::fs;
+use std::fs::File;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -18,6 +22,10 @@ pub const NAME_FLAG: &str = "name";
 pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
+pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
+pub const NEW_WALLET_PASSWORD_PROMPT: &str =
+    "Enter a password for your new wallet that is at least 12 characters long:";
+pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -30,8 +38,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
                 )
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(PASSWORD_FLAG)
@@ -43,8 +50,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix.",
                 )
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(TYPE_FLAG)
@@ -66,6 +72,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
                 )
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
 }
 
@@ -113,9 +124,10 @@ pub fn create_wallet_from_mnemonic(
     base_dir: &Path,
     mnemonic: &Mnemonic,
 ) -> Result<LockedWallet, String> {
-    let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSWORD_FLAG)?;
+    let name: Option<String> = clap_utils::parse_optional(matches, NAME_FLAG)?;
+    let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
     let wallet_type = match type_field.as_ref() {
         HD_TYPE => WalletType::Hd,
@@ -125,29 +137,79 @@ pub fn create_wallet_from_mnemonic(
     let mgr = WalletManager::open(&base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
-    // Create a random password if the file does not exist.
-    if !wallet_password_path.exists() {
-        // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
-        // create a file with that name, we require that the password has a .pass suffix.
-        if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
-            return Err(format!(
-                "Only creates a password file if that file ends in .pass: {:?}",
-                wallet_password_path
-            ));
+    let wallet_password: PlainText = match wallet_password_path {
+        Some(path) => {
+            // Create a random password if the file does not exist.
+            if !path.exists() {
+                // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
+                // create a file with that name, we require that the password has a .pass suffix.
+                if path.extension() != Some(&OsStr::new("pass")) {
+                    return Err(format!(
+                        "Only creates a password file if that file ends in .pass: {:?}",
+                        path
+                    ));
+                }
+
+                create_with_600_perms(&path, random_password().as_bytes())
+                    .map_err(|e| format!("Unable to write to {:?}: {:?}", path, e))?;
+            }
+            read_new_wallet_password_from_cli(Some(path), stdin_inputs)?
         }
+        None => read_new_wallet_password_from_cli(None, stdin_inputs)?,
+    };
 
-        create_with_600_perms(&wallet_password_path, random_password().as_bytes())
-            .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
-    }
-
-    let wallet_password = fs::read(&wallet_password_path)
-        .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+    let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
 
     let wallet = mgr
-        .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())
+        .create_wallet(
+            wallet_name,
+            wallet_type,
+            &mnemonic,
+            wallet_password.as_bytes(),
+        )
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
     Ok(wallet)
+}
+
+/// Used when a user is creating a new wallet. Read in a wallet password from a file if the password file
+/// path is provided. Otherwise, read from an interactive prompt using tty unless the `--stdin-inputs`
+/// flag is provided. This verifies the password complexity and verifies the password is correctly re-entered.
+pub fn read_new_wallet_password_from_cli(
+    password_file_path: Option<PathBuf>,
+    stdin_inputs: bool,
+) -> Result<PlainText, String> {
+    match password_file_path {
+        Some(path) => {
+            let password: PlainText = fs::read(&path)
+                .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
+                .map(|bytes| strip_off_newlines(bytes).into())?;
+
+            // Ensure the password meets the minimum requirements.
+            is_password_sufficiently_complex(password.as_bytes())?;
+            Ok(password)
+        }
+        None => loop {
+            eprintln!("");
+            eprintln!("{}", NEW_WALLET_PASSWORD_PROMPT);
+            let password =
+                PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+
+            // Ensure the password meets the minimum requirements.
+            match is_password_sufficiently_complex(password.as_bytes()) {
+                Ok(_) => {
+                    eprintln!("{}", RETYPE_PASSWORD_PROMPT);
+                    let retyped_password =
+                        PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+                    if retyped_password == password {
+                        break Ok(password);
+                    } else {
+                        eprintln!("Passwords do not match.");
+                    }
+                }
+                Err(message) => eprintln!("{}", message),
+            }
+        },
+    }
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.
