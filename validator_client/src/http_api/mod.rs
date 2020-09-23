@@ -11,6 +11,7 @@ use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::path::PathBuf;
 use std::sync::Arc;
 use types::EthSpec;
 use warp::Filter;
@@ -41,6 +42,7 @@ impl From<String> for Error {
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<E: EthSpec> {
     pub initialized_validators: Option<Arc<RwLock<InitializedValidators>>>,
+    pub data_dir: Option<PathBuf>,
     pub config: Config,
     pub log: Logger,
     pub _phantom: PhantomData<E>,
@@ -112,7 +114,6 @@ pub fn serve<T: EthSpec>(
         });
     */
 
-    // Create a `warp` filter that provides access to the network globals.
     let inner_initialized_validators = ctx.initialized_validators.clone();
     let initialized_validators_filter = warp::any()
         .map(move || inner_initialized_validators.clone())
@@ -124,6 +125,19 @@ pub fn serve<T: EthSpec>(
                 )),
             }
         });
+
+    let inner_data_dir = ctx.data_dir.clone();
+    let data_dir_filter =
+        warp::any()
+            .map(move || inner_data_dir.clone())
+            .and_then(|data_dir| async move {
+                match data_dir {
+                    Some(dir) => Ok(dir),
+                    None => Err(warp_utils::reject::custom_not_found(
+                        "data_dir directory is not initialized.".to_string(),
+                    )),
+                }
+            });
 
     // GET node/version
     let get_node_version = warp::path("lighthouse")
@@ -168,6 +182,25 @@ pub fn serve<T: EthSpec>(
                         .collect::<Vec<_>>();
 
                     Ok(api_types::GenericResponse::from(validators))
+                })
+            },
+        );
+
+    // POST lighthouse/validator/hd
+    let post_validator_beacon_committee_subscriptions = warp::path("lighthouse")
+        .and(warp::path("validator"))
+        .and(warp::path("hd"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(data_dir_filter.clone())
+        .and(initialized_validators_filter.clone())
+        .and_then(
+            |body: api_types::CreateHdValidatorPostData,
+             data_dir: PathBuf,
+             initialized_validators: Arc<RwLock<InitializedValidators>>| {
+                blocking_json_task(move || {
+                    // TODO
+                    Ok(())
                 })
             },
         );
