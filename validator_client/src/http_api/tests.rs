@@ -5,25 +5,22 @@ use crate::{
     InitializedValidators, ValidatorDefinitions,
 };
 use environment::null_logger;
-use eth2::{types::*, BeaconNodeHttpClient, Url};
+use eth2::{
+    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
+    Url,
+};
 use parking_lot::RwLock;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tree_hash::TreeHash;
-use types::{
-    test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
-    EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
-};
 
 type E = MainnetEthSpec;
 
 struct ApiTester {
     datadir: TempDir,
+    client: ValidatorClientHttpClient,
     _server_shutdown: oneshot::Sender<()>,
 }
 
@@ -65,7 +62,7 @@ impl ApiTester {
 
         tokio::spawn(async { server.await });
 
-        let client = BeaconNodeHttpClient::new(
+        let client = ValidatorClientHttpClient::new(
             Url::parse(&format!(
                 "http://{}:{}",
                 listening_socket.ip(),
@@ -76,7 +73,44 @@ impl ApiTester {
 
         Self {
             datadir,
+            client,
             _server_shutdown: shutdown_tx,
         }
     }
+
+    pub async fn test_get_lighthouse_version(self) -> Self {
+        let result = self.client.get_lighthouse_version().await.unwrap().data;
+
+        let expected = VersionData {
+            version: lighthouse_version::version_with_platform(),
+        };
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    #[cfg(target_os = "linux")]
+    pub async fn test_get_lighthouse_health(self) -> Self {
+        self.client.get_lighthouse_health().await.unwrap();
+
+        self
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub async fn test_get_lighthouse_health(self) -> Self {
+        self.client.get_lighthouse_health().await.unwrap_err();
+
+        self
+    }
+}
+
+#[tokio::test(core_threads = 2)]
+async fn simple_getters() {
+    ApiTester::new()
+        .await
+        .test_get_lighthouse_version()
+        .await
+        .test_get_lighthouse_health()
+        .await;
 }

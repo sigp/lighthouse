@@ -28,18 +28,6 @@ impl ValidatorClientHttpClient {
         Self { client, server }
     }
 
-    /// Return the path with the standard `/eth1/v1` prefix applied.
-    fn eth_path(&self) -> Result<Url, Error> {
-        let mut path = self.server.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("eth")
-            .push("v1");
-
-        Ok(path)
-    }
-
     /// Perform a HTTP GET request.
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
@@ -80,11 +68,11 @@ impl ValidatorClientHttpClient {
 
     /// `GET lighthouse/version`
     pub async fn get_lighthouse_version(&self) -> Result<GenericResponse<VersionData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.server.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("node")
+            .push("lighthouse")
             .push("version");
 
         self.get(path).await
