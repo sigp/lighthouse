@@ -93,7 +93,7 @@ pub fn serve<T: EthSpec>(
     }
 
     // GET node/version
-    let get_node_version = warp::path("node")
+    let get_node_version = warp::path("lighthouse")
         .and(warp::path("version"))
         .and(warp::path::end())
         .and_then(|| {
@@ -104,8 +104,22 @@ pub fn serve<T: EthSpec>(
             })
         });
 
+    // GET lighthouse/health
+    let get_lighthouse_health = warp::path("lighthouse")
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                eth2::lighthouse::Health::observe()
+                    .map(api_types::GenericResponse::from)
+                    .map_err(warp_utils::reject::custom_bad_request)
+            })
+        });
+
     let routes = warp::get()
-        .and(get_node_version)
+        .and(get_node_version.or(get_lighthouse_health))
+        // Maps errors into HTTP responses.
+        .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         // Maybe add some CORS headers.
