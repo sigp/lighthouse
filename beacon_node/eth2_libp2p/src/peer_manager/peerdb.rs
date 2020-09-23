@@ -174,13 +174,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     fn ip_is_banned(&self, peer: &PeerInfo<TSpec>) -> bool {
-        peer.seen_addresses.iter().any(|addr| {
-            addr.iter().any(|p| match p {
-                Protocol::Ip4(ip) => self.banned_peers_count.ip_is_banned(&ip.into()),
-                Protocol::Ip6(ip) => self.banned_peers_count.ip_is_banned(&ip.into()),
-                _ => false,
-            })
-        })
+        peer.seen_addresses
+            .iter()
+            .any(|addr| self.banned_peers_count.ip_is_banned(addr))
+    }
+
+    /// Returns true if the IP is banned.
+    pub fn is_ip_banned(&self, ip: &IpAddr) -> bool {
+        self.banned_peers_count.ip_is_banned(ip)
     }
 
     /// Returns true if the Peer is either banned or in the disconnected state.
@@ -371,8 +372,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .remove_banned_peer(&info.connection_status);
         info.connection_status.connect_ingoing();
 
-        // Add the seen multiaddr to the peer's info
-        info.seen_addresses.insert(multiaddr);
+        // Add the seen ip address to the peer's info
+        if let Some(ip_addr) = multiaddr.iter().find_map(|p| match p {
+            Protocol::Ip4(ip) => Some(ip.into()),
+            Protocol::Ip6(ip) => Some(ip.into()),
+            _ => None,
+        }) {
+            info.seen_addresses.insert(ip_addr);
+        }
     }
 
     /// Sets a peer as connected with an outgoing connection.
@@ -386,7 +393,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .remove_banned_peer(&info.connection_status);
         info.connection_status.connect_outgoing();
 
-        info.seen_addresses.insert(multiaddr);
+        // Add the seen ip address to the peer's info
+        if let Some(ip_addr) = multiaddr.iter().find_map(|p| match p {
+            Protocol::Ip4(ip) => Some(ip.into()),
+            Protocol::Ip6(ip) => Some(ip.into()),
+            _ => None,
+        }) {
+            info.seen_addresses.insert(ip_addr);
+        }
     }
 
     /// Sets the peer as disconnected. A banned peer remains banned
@@ -416,16 +430,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
         if !info.connection_status.is_banned() {
             info.connection_status
-                .ban(info.seen_addresses.iter().fold(Vec::new(), |mut v, a| {
-                    for p in a {
-                        match p {
-                            Protocol::Ip4(ip) => v.push(ip.into()),
-                            Protocol::Ip6(ip) => v.push(ip.into()),
-                            _ => (),
-                        }
-                    }
-                    v
-                }));
+                .ban(info.seen_addresses.iter().cloned().collect());
             self.banned_peers_count
                 .add_banned_peer(&info.connection_status);
         }
@@ -889,7 +894,7 @@ mod tests {
         for p in &peers {
             let seen_addresses = pdb.peers.get_mut(p).unwrap().seen_addresses;
             seen_addresses.clear();
-            seen_addresses.insert(Multiaddr::empty().with(Protocol::from(ip2)));
+            seen_addresses.insert(ip1);
         }
 
         //check still the same ip is banned
@@ -920,9 +925,9 @@ mod tests {
 
         //change ips back again
         for p in &peers {
-            let seen_addresses = pdb.peers.get_mut(p).unwrap().seen_addresses;
+            let seen_addresses = &mut pdb.peers.get_mut(p).unwrap().seen_addresses;
             seen_addresses.clear();
-            seen_addresses.insert(Multiaddr::empty().with(Protocol::from(ip1)));
+            seen_addresses.insert(ip1);
         }
 
         //reban every peer except one
@@ -950,7 +955,7 @@ mod tests {
         let log = build_log(slog::Level::Debug, false);
         let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer.clone()], &log);
 
-        pdb.connect_ingoing(&trusted_peer);
+        pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap());
 
         // Check trusted status and score
         assert!(pdb.peer_info(&trusted_peer).unwrap().is_trusted);

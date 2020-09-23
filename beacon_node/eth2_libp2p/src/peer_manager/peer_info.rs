@@ -28,10 +28,9 @@ pub struct PeerInfo<T: EthSpec> {
     /// The known listening addresses of this peer. This is given by identify and can be arbitrary
     /// (including local IPs).
     pub listening_addresses: Vec<Multiaddr>,
-
     /// This is addresses we have physically seen and this is what we use for banning/un-banning
     /// peers.
-    pub seen_addresses: HashSet<Multiaddr>,
+    pub seen_addresses: HashSet<IpAddr>,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
     pub sync_status: PeerSyncStatus,

@@ -801,21 +801,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn ban_peer(&mut self, peer_id: &PeerId) {
         let mut peer_db = self.network_globals.peers.write();
         peer_db.ban(peer_id);
-        let seen_ip_addresses = peer_db
+        let banned_ip_addresses = peer_db
             .peer_info(peer_id)
-            .map(|info| info.seen_addresses.iter().collect::<Vec<_>>())
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|multiaddr| {
-                multiaddr.iter().find_map(|p| match p {
-                    MProtocol::Ip4(ip) => Some(std::net::IpAddr::from(ip)),
-                    MProtocol::Ip6(ip) => Some(std::net::IpAddr::from(ip)),
-                    _ => None,
-                })
+            .map(|info| {
+                info.seen_addresses
+                    .iter()
+                    .filter(|ip| peer_db.is_ip_banned(ip))
+                    .cloned()
+                    .collect::<Vec<_>>()
             })
-            .collect();
+            .unwrap_or_default();
 
-        self.discovery.ban_peer(&peer_id, seen_ip_addresses);
+        self.discovery.ban_peer(&peer_id, banned_ip_addresses);
     }
 
     /// Unbans a peer.
@@ -828,17 +825,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let seen_ip_addresses = peer_db
             .peer_info(peer_id)
-            .map(|info| info.seen_addresses.iter().collect::<Vec<_>>())
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|multiaddr| {
-                multiaddr.iter().find_map(|p| match p {
-                    MProtocol::Ip4(ip) => Some(std::net::IpAddr::from(ip)),
-                    MProtocol::Ip6(ip) => Some(std::net::IpAddr::from(ip)),
-                    _ => None,
-                })
-            })
-            .collect();
+            .map(|info| info.seen_addresses.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
 
         self.discovery.unban_peer(&peer_id, seen_ip_addresses);
     }
