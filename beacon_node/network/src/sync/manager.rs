@@ -29,9 +29,9 @@
 //!
 //! Block Lookup
 //!
-//! To keep the logic maintained to the syncing thread (and manage the request_ids), when a block needs to be searched for (i.e
-//! if an attestation references an unknown block) this manager can search for the block and
-//! subsequently search for parents if needed.
+//! To keep the logic maintained to the syncing thread (and manage the request_ids), when a block
+//! needs to be searched for (i.e if an attestation references an unknown block) this manager can
+//! search for the block and subsequently search for parents if needed.
 
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
@@ -106,7 +106,6 @@ pub enum SyncMessage<T: EthSpec> {
     BatchProcessed {
         chain_id: ChainId,
         epoch: Epoch,
-        downloaded_blocks: Vec<SignedBeaconBlock<T>>,
         result: BatchProcessResult,
     },
 
@@ -123,12 +122,10 @@ pub enum SyncMessage<T: EthSpec> {
 // TODO: When correct batch error handling occurs, we will include an error type.
 #[derive(Debug)]
 pub enum BatchProcessResult {
-    /// The batch was completed successfully.
-    Success,
-    /// The batch processing failed.
-    Failed,
-    /// The batch processing failed but managed to import at least one block.
-    Partial,
+    /// The batch was completed successfully. It carries whether the sent batch contained blocks.
+    Success(bool),
+    /// The batch processing failed. It carries whether the processing imported any block.
+    Failed(bool),
 }
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
@@ -275,9 +272,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match local_peer_info.peer_sync_type(&remote) {
             PeerSyncType::FullySynced => {
                 trace!(self.log, "Peer synced to our head found";
-                "peer" => format!("{:?}", peer_id),
-                "peer_head_slot" => remote.head_slot,
-                "local_head_slot" => local_peer_info.head_slot,
+                    "peer" => %peer_id,
+                    "peer_head_slot" => remote.head_slot,
+                    "local_head_slot" => local_peer_info.head_slot,
                 );
                 self.synced_peer(&peer_id, remote);
                 // notify the range sync that a peer has been added
@@ -285,11 +282,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             PeerSyncType::Advanced => {
                 trace!(self.log, "Useful peer for sync found";
-                "peer" => format!("{:?}", peer_id),
-                "peer_head_slot" => remote.head_slot,
-                "local_head_slot" => local_peer_info.head_slot,
-                "peer_finalized_epoch" => remote.finalized_epoch,
-                "local_finalized_epoch" => local_peer_info.finalized_epoch,
+                    "peer" => %peer_id,
+                    "peer_head_slot" => remote.head_slot,
+                    "local_head_slot" => local_peer_info.head_slot,
+                    "peer_finalized_epoch" => remote.finalized_epoch,
+                    "local_finalized_epoch" => local_peer_info.finalized_epoch,
                 );
 
                 // There are few cases to handle here:
@@ -908,14 +905,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     SyncMessage::BatchProcessed {
                         chain_id,
                         epoch,
-                        downloaded_blocks,
                         result,
                     } => {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
                             chain_id,
                             epoch,
-                            downloaded_blocks,
                             result,
                         );
                     }
