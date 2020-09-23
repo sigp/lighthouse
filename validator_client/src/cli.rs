@@ -97,4 +97,35 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("GRAFFITI")
                 .takes_value(true)
         )
+        /* REST API related arguments */
+        .arg(
+            Arg::with_name("http")
+                .long("http")
+                .help("Enable the RESTful HTTP API server. Disabled by default.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("http-address")
+                .long("http-address")
+                .value_name("ADDRESS")
+                .help("Set the listen address for the RESTful HTTP API server.")
+                .default_value("127.0.0.1")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-port")
+                .long("http-port")
+                .value_name("PORT")
+                .help("Set the listen TCP port for the RESTful HTTP API server.")
+                .default_value("5062")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-allow-origin")
+                .long("http-allow-origin")
+                .value_name("ORIGIN")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
+                .default_value("")
+                .takes_value(true),
+        )
 }

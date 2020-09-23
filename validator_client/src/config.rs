@@ -1,3 +1,4 @@
+use crate::http_api;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use directory::{
@@ -6,6 +7,7 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
 
@@ -33,6 +35,8 @@ pub struct Config {
     pub strict_slashing_protection: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
+    /// Configuration for the HTTP REST API.
+    pub http_api: http_api::Config,
 }
 
 impl Default for Config {
@@ -55,6 +59,7 @@ impl Default for Config {
             disable_auto_discover: false,
             strict_slashing_protection: false,
             graffiti: None,
+            http_api: <_>::default(),
         }
     }
 }
@@ -127,6 +132,35 @@ impl Config {
 
                 config.graffiti = Some(graffiti.into());
             }
+        }
+
+        /*
+         * Http API server
+         */
+
+        if cli_args.is_present("http") {
+            config.http_api.enabled = true;
+        }
+
+        if let Some(address) = cli_args.value_of("http-address") {
+            config.http_api.listen_addr = address
+                .parse::<Ipv4Addr>()
+                .map_err(|_| "http-address is not a valid IPv4 address.")?;
+        }
+
+        if let Some(port) = cli_args.value_of("http-port") {
+            config.http_api.listen_port = port
+                .parse::<u16>()
+                .map_err(|_| "http-port is not a valid u16.")?;
+        }
+
+        if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+            // Pre-validate the config value to give feedback to the user on node startup, instead of
+            // as late as when the first API response is produced.
+            hyper::header::HeaderValue::from_str(allow_origin)
+                .map_err(|_| "Invalid allow-origin value")?;
+
+            config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
         Ok(config)

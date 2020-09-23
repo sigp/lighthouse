@@ -28,6 +28,8 @@ use notifier::spawn_notifier;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
+use std::marker::PhantomData;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
@@ -46,6 +48,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
+    http_api_listen_addr: Option<SocketAddr>,
     config: Config,
 }
 
@@ -196,6 +199,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             block_service,
             attestation_service,
             config,
+            http_api_listen_addr: None,
         })
     }
 
@@ -205,6 +209,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // whole epoch!
         let channel_capacity = T::slots_per_epoch() as usize;
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
+        let log = self.context.log();
 
         self.duties_service
             .clone()
@@ -230,6 +235,29 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
+
+        self.http_api_listen_addr = if self.config.http_api.enabled {
+            let ctx: Arc<http_api::Context<T>> = Arc::new(http_api::Context {
+                config: self.config.http_api.clone(),
+                log: log.clone(),
+                _phantom: PhantomData,
+            });
+
+            let exit = self.context.executor.exit();
+
+            let (listen_addr, server) = http_api::serve(ctx, exit)
+                .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+
+            self.context
+                .clone()
+                .executor
+                .spawn_without_exit(async move { server.await }, "http-api");
+
+            Some(listen_addr)
+        } else {
+            info!(log, "HTTP API server is disabled");
+            None
+        };
 
         Ok(())
     }

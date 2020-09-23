@@ -50,3 +50,4 @@ account_utils = { path = "../common/account_utils" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
 warp = "0.2.5"
+hyper = "0.13.5"

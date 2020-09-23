@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use types::EthSpec;
 use warp::{http::Response, Filter};
-use warp_utils::task::{blocking_json_task, blocking_task};
+use warp_utils::task::blocking_json_task;
 
 #[derive(Debug)]
 pub enum Error {
@@ -104,7 +104,6 @@ pub fn serve<T: EthSpec>(
             })
         });
 
-    let inner_ctx = ctx.clone();
     let routes = warp::get()
         .and(get_node_version)
         // Add a `Server` header.
@@ -121,7 +120,7 @@ pub fn serve<T: EthSpec>(
 
     info!(
         log,
-        "Metrics HTTP server started";
+        "HTTP API started";
         "listen_address" => listening_socket.to_string(),
     );
 
