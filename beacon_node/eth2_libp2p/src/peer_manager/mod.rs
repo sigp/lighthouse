@@ -694,7 +694,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut to_ban_peers = Vec::new();
         let mut to_unban_peers = Vec::new();
 
-        for (peer_id, info) in pdb.peers_mut() {
+        for (peer_id, info) in self.network_globals.peers.write().peers_mut() {
             let previous_state = info.score_state();
             // Update scores
             info.score_update();
@@ -799,7 +799,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Records updates the peers connection status and updates the peer db as well as blocks the
     /// peer from participating in discovery and removes them from the routing table.
     fn ban_peer(&mut self, peer_id: &PeerId) {
-        let peer_db = self.network_globals.peers.write();
+        let mut peer_db = self.network_globals.peers.write();
         peer_db.ban(peer_id);
         let seen_ip_addresses = peer_db
             .peer_info(peer_id)
@@ -812,7 +812,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     MProtocol::Ip6(ip) => Some(std::net::IpAddr::from(ip)),
                     _ => None,
                 })
-            });
+            })
+            .collect();
 
         self.discovery.ban_peer(&peer_id, seen_ip_addresses);
     }
@@ -822,7 +823,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Records updates the peers connection status and updates the peer db as well as removes
     /// previous bans from discovery.
     fn unban_peer(&mut self, peer_id: &PeerId) {
-        let peer_db = self.network_globals.peers.write();
+        let mut peer_db = self.network_globals.peers.write();
         peer_db.unban(&peer_id);
 
         let seen_ip_addresses = peer_db
@@ -836,7 +837,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     MProtocol::Ip6(ip) => Some(std::net::IpAddr::from(ip)),
                     _ => None,
                 })
-            });
+            })
+            .collect();
 
         self.discovery.unban_peer(&peer_id, seen_ip_addresses);
     }
