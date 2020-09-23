@@ -140,13 +140,20 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
 
         // Check BLS setting here before SSZ deserialization, as most types require signatures
         // to be valid.
-        let operation = if metadata.bls_setting.unwrap_or_default().check().is_ok() {
-            Some(ssz_decode_file(&path.join(O::filename()))?)
+        let (operation, bls_error) = if metadata.bls_setting.unwrap_or_default().check().is_ok() {
+            match ssz_decode_file(&path.join(O::filename())) {
+                Ok(op) => (Some(op), None),
+                Err(Error::InvalidBLSInput(error)) => (None, Some(error)),
+                Err(e) => return Err(e),
+            }
         } else {
-            None
+            (None, None)
         };
         let post_filename = path.join("post.ssz");
         let post = if post_filename.is_file() {
+            if let Some(bls_error) = bls_error {
+                panic!("input is unexpectedly invalid: {}", bls_error);
+            }
             Some(ssz_decode_file(&post_filename)?)
         } else {
             None
