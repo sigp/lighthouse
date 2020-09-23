@@ -55,13 +55,11 @@ Start your beacon node with:
 > Current values are either `altona` or `medalla`. This is true for all the
 > following commands in this document.
 
-
 You can also pass an external http endpoint (e.g. Infura) for the Eth1 node using the `--eth1-endpoint` flag:
 
 ```bash
  lighthouse --testnet medalla beacon --staking --eth1-endpoint <ETH1-SERVER>
 ```
-
 
 Your beacon node has started syncing when you see the following (truncated)
 log:
