@@ -78,15 +78,6 @@ impl Default for Config {
         network_dir.push(".lighthouse");
         network_dir.push("network");
 
-        // The default topics that we will initially subscribe to
-        let topics = vec![
-            GossipKind::BeaconBlock,
-            GossipKind::BeaconAggregateAndProof,
-            GossipKind::VoluntaryExit,
-            GossipKind::ProposerSlashing,
-            GossipKind::AttesterSlashing,
-        ];
-
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing
         let gossip_message_id =
@@ -145,7 +136,7 @@ impl Default for Config {
             trusted_peers: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
-            topics,
+            topics: Vec::new(),
         }
     }
 }

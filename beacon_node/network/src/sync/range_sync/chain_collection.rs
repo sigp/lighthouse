@@ -113,7 +113,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     }
 
     /// Updates the global sync state and logs any changes.
-    pub fn update_sync_state(&mut self) {
+    pub fn update_sync_state(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
         // if there is no range sync occurring, the state is either synced or not based on
         // connected peers.
 
@@ -130,8 +130,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             let mut peer_state = self.network_globals.sync_state.write();
             if new_state != *peer_state {
                 info!(self.log, "Sync state updated"; "old_state" => format!("{}",peer_state), "new_state" => format!("{}",new_state));
+                if new_state == SyncState::Synced {
+                    network.subscribe_core_topics();
+                }
+                *peer_state = new_state;
             }
-            *peer_state = new_state;
         } else {
             // The state is based on a range sync state, update it
             let mut node_sync_state = self.network_globals.sync_state.write();
@@ -148,12 +151,12 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ///
     /// We could be awaiting a head sync. If we are in the head syncing state, without any head
     /// chains, then update the state to idle.
-    pub fn fully_synced_peer_found(&mut self) {
+    pub fn fully_synced_peer_found(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
         if let RangeSyncState::Head { .. } = self.state {
             if self.head_chains.is_empty() {
                 // Update the global network state to either synced or stalled.
                 self.state = RangeSyncState::Idle;
-                self.update_sync_state();
+                self.update_sync_state(network);
             }
         }
     }
