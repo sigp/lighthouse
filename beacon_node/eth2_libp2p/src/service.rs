@@ -207,7 +207,9 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
             }
         }
-        info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
+        if !subscribed_topics.is_empty() {
+            info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
+        }
 
         let service = Service {
             local_peer_id,

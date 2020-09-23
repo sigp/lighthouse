@@ -35,6 +35,9 @@ pub enum NetworkMessage<T: EthSpec> {
     Subscribe {
         subscriptions: Vec<ValidatorSubscription>,
     },
+    /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
+    /// synced or close to the head slot.
+    SubscribeCoreTopics,
     /// Send an RPC request to the libp2p service.
     SendRequest {
         peer_id: PeerId,
@@ -277,6 +280,21 @@ fn spawn_service<T: BeaconChainTypes>(
                                 .validator_subscriptions(subscriptions) {
                                     warn!(service.log, "Validator subscription failed"; "error" => e);
                                 }
+                        }
+                        NetworkMessage::SubscribeCoreTopics => {
+                            let mut subscribed_topics: Vec<GossipKind> = vec![];
+                            let already_subscribed = service.network_globals.gossipsub_subscriptions.read().clone();
+                            let already_subscribed = already_subscribed.iter().map(|x| x.kind()).collect::<std::collections::HashSet<_>>();
+                            for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter().filter(|topic| already_subscribed.get(topic).is_none()) {
+                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
+                                    subscribed_topics.push(topic_kind.clone());
+                                } else {
+                                    warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                                }
+                            }
+                            if !subscribed_topics.is_empty() {
+                                info!(service.log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
+                            }
                         }
                     }
                 }

@@ -14,6 +14,14 @@ pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 
+pub const CORE_TOPICS: [GossipKind; 5] = [
+    GossipKind::BeaconBlock,
+    GossipKind::BeaconAggregateAndProof,
+    GossipKind::VoluntaryExit,
+    GossipKind::ProposerSlashing,
+    GossipKind::AttesterSlashing,
+];
+
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]

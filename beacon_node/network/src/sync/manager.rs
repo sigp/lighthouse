@@ -57,7 +57,11 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
 /// fully sync'd peer.
-pub const SLOT_IMPORT_TOLERANCE: usize = 20;
+///
+/// This means that we consider ourselves synced (and hence subscribe to all subnets and block
+/// gossip if no peers are further than this range ahead of us that we have not already downloaded
+/// blocks for.
+pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 /// How many attempts we try to find a parent of a block before we give up trying .
 const PARENT_FAIL_TOLERANCE: usize = 5;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
@@ -137,7 +141,7 @@ struct ParentRequests<T: EthSpec> {
     failed_attempts: usize,
 
     /// The peer who last submitted a block. If the chain ends or fails, this is the peer that is
-    /// downvoted.
+    /// penalized.
     last_submitted_peer: PeerId,
 
     /// The request ID of this lookup is in progress.
@@ -277,7 +281,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
                 self.synced_peer(&peer_id, remote);
                 // notify the range sync that a peer has been added
-                self.range_sync.fully_synced_peer_found();
+                self.range_sync.fully_synced_peer_found(&mut self.network);
             }
             PeerSyncType::Advanced => {
                 trace!(self.log, "Useful peer for sync found";
@@ -303,7 +307,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 {
                     self.synced_peer(&peer_id, remote);
                     // notify the range sync that a peer has been added
-                    self.range_sync.fully_synced_peer_found();
+                    self.range_sync.fully_synced_peer_found(&mut self.network);
                 } else {
                     // Add the peer to our RangeSync
                     self.range_sync
@@ -675,6 +679,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn update_sync_state(&mut self) {
         if let Some((old_state, new_state)) = self.network_globals.update_sync_state() {
             info!(self.log, "Sync state updated"; "old_state" => format!("{}", old_state), "new_state" => format!("{}",new_state));
+            // If we have become synced - Subscribe to all the core subnet topics
+            if new_state == eth2_libp2p::types::SyncState::Synced {
+                self.network.subscribe_core_topics();
+            }
         }
     }
 
