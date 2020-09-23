@@ -9,9 +9,6 @@ edition = "2018"
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
 portable = ["bls/supranational-portable"]
-# Compiles BLST so that it always uses ADX instructions.
-# Compatible with processors from 2013 onwards.
-modern = ["bls/supranational-force-adx"]
 # Uses the slower Milagro BLS library, which is written in native Rust.
 milagro = ["bls/milagro"]
 

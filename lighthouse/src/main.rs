@@ -16,8 +16,6 @@ pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
         "blst-portable"
-    } else if cfg!(feature = "modern") {
-        "blst-modern"
     } else if cfg!(feature = "milagro") {
         "milagro"
     } else {
@@ -180,13 +178,6 @@ fn run<E: EthSpec>(
         return Err(format!(
             "{}bit architecture is not supported (64bit only).",
             std::mem::size_of::<usize>() * 8
-        ));
-    }
-
-    #[cfg(all(feature = "modern", target_arch = "x86_64"))]
-    if !std::is_x86_feature_detected!("adx") {
-        return Err(format!(
-            "CPU incompatible with optimized binary, please try Lighthouse portable build"
         ));
     }
 
