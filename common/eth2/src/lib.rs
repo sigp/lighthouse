@@ -9,6 +9,7 @@
 
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
+pub mod lighthouse_vc;
 pub mod types;
 
 use self::types::*;

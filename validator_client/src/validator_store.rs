@@ -91,6 +91,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
+    pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
+        self.validators.clone()
+    }
+
     /// Register all known validators with the slashing protection database.
     ///
     /// Registration is required to protect against a lost or missing slashing database,

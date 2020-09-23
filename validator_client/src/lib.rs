@@ -48,6 +48,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
+    validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
 }
@@ -187,7 +188,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock)
-            .validator_store(validator_store)
+            .validator_store(validator_store.clone())
             .beacon_node(beacon_node)
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
@@ -198,6 +199,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             fork_service,
             block_service,
             attestation_service,
+            validator_store,
             config,
             http_api_listen_addr: None,
         })
@@ -238,6 +240,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx: Arc<http_api::Context<T>> = Arc::new(http_api::Context {
+                validator_store: Some(self.validator_store.clone()),
                 config: self.config.http_api.clone(),
                 log: log.clone(),
                 _phantom: PhantomData,

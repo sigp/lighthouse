@@ -1,17 +1,19 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
-use eth2::types as api_types;
+use crate::{InitializedValidators, ValidatorStore};
+use eth2::lighthouse_vc::types::{self as api_types, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
+use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
 use std::sync::Arc;
 use types::EthSpec;
-use warp::{http::Response, Filter};
+use warp::Filter;
 use warp_utils::task::blocking_json_task;
 
 #[derive(Debug)]
@@ -36,6 +38,7 @@ impl From<String> for Error {
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<E: EthSpec> {
+    pub validator_store: Option<ValidatorStore<SystemTimeSlotClock, E>>,
     pub config: Config,
     pub log: Logger,
     pub _phantom: PhantomData<E>,
@@ -92,6 +95,37 @@ pub fn serve<T: EthSpec>(
         ));
     }
 
+    /*
+    // Create a `warp` filter that provides access to the network globals.
+    let inner_validator_store = ctx.validator_store.clone();
+    let validator_store_filter = warp::any()
+        .map(move || inner_validator_store.clone())
+        .and_then(|validator_store| async move {
+            match validator_store {
+                Some(store) => Ok(store),
+                None => Err(warp_utils::reject::custom_not_found(
+                    "validator store is not initialized.".to_string(),
+                )),
+            }
+        });
+    */
+
+    // Create a `warp` filter that provides access to the network globals.
+    let inner_initialized_validators = ctx
+        .validator_store
+        .as_ref()
+        .map(|s| s.initialized_validators());
+    let initialized_validators_filter = warp::any()
+        .map(move || inner_initialized_validators.clone())
+        .and_then(|initialized_validators| async move {
+            match initialized_validators {
+                Some(store) => Ok(store),
+                None => Err(warp_utils::reject::custom_not_found(
+                    "validator store is not initialized.".to_string(),
+                )),
+            }
+        });
+
     // GET node/version
     let get_node_version = warp::path("lighthouse")
         .and(warp::path("version"))
@@ -116,8 +150,35 @@ pub fn serve<T: EthSpec>(
             })
         });
 
+    // GET lighthouse/validators
+    let get_lighthouse_validators = warp::path("lighthouse")
+        .and(warp::path("validators"))
+        .and(warp::path::end())
+        .and(initialized_validators_filter.clone())
+        .and_then(
+            |initialized_validators: Arc<RwLock<InitializedValidators>>| {
+                blocking_json_task(move || {
+                    let validators = initialized_validators
+                        .read()
+                        .validator_definitions()
+                        .iter()
+                        .map(|def| api_types::ValidatorData {
+                            enabled: def.enabled,
+                            voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
+                        })
+                        .collect::<Vec<_>>();
+
+                    Ok(api_types::GenericResponse::from(validators))
+                })
+            },
+        );
+
     let routes = warp::get()
-        .and(get_node_version.or(get_lighthouse_health))
+        .and(
+            get_node_version
+                .or(get_lighthouse_health)
+                .or(get_lighthouse_validators),
+        )
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

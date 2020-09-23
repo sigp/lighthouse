@@ -322,6 +322,11 @@ impl InitializedValidators {
             .map(|v| v.voting_keypair())
     }
 
+    /// Returns a slice of all defined validators (regardless of their enabled state).
+    pub fn validator_definitions(&self) -> &[ValidatorDefinition] {
+        self.definitions.as_slice()
+    }
+
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
     ///
     /// ## Notes
