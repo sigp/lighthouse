@@ -113,8 +113,8 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         debug!(self.log, "Sync reporting peer"; "peer_id" => peer_id.to_string(), "action" => action.to_string());
         self.network_send
             .send(NetworkMessage::ReportPeer { peer_id, action })
-            .unwrap_or_else(|_| {
-                warn!(self.log, "Could not report peer, channel failed");
+            .unwrap_or_else(|e| {
+                warn!(self.log, "Could not report peer, channel failed"; "error"=> e.to_string());
             });
     }
 
@@ -131,6 +131,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             request,
         })?;
         Ok(request_id)
+    }
+
+    pub fn subscribe_core_topics(&mut self) {
+        self.network_send
+            .send(NetworkMessage::SubscribeCoreTopics)
+            .unwrap_or_else(|e| {
+                warn!(self.log, "Could not subscribe to core topics."; "error" => e.to_string());
+            });
     }
 
     fn send_network_msg(&mut self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
