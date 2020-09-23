@@ -47,7 +47,7 @@ the internet and maintains a view of the chain.
 Start your beacon node with:
 
 ```bash
- lighthouse --testnet medalla beacon --eth1 --http
+ lighthouse --testnet medalla beacon --staking
 ```
 
 > The `--testnet` parameter is optional. Omitting it will default to the
@@ -55,8 +55,11 @@ Start your beacon node with:
 > Current values are either `altona` or `medalla`. This is true for all the
 > following commands in this document.
 
->Note:  the `--http` flag enables the HTTP API for the validator client. And the `--eth1` flag tells the beacon node that it should sync with an Ethereum1 node (e.g. Geth). These flags are only required if you wish to run a validator.
+You can also pass an external http endpoint (e.g. Infura) for the Eth1 node using the `--eth1-endpoint` flag:
 
+```bash
+ lighthouse --testnet medalla beacon --staking --eth1-endpoint <ETH1-SERVER>
+```
 
 Your beacon node has started syncing when you see the following (truncated)
 log:

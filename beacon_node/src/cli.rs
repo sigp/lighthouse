@@ -194,6 +194,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
+         * Standard staking flags
+         */
+
+        .arg(
+            Arg::with_name("staking")
+                .long("staking")
+                .help("Standard option for a staking beacon node. Equivalent to \
+                `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
+                and try connecting to an eth1 node on localhost:8545")
+                .takes_value(false)
+        )
+
+        /*
          * Eth1 Integration
          */
         .arg(

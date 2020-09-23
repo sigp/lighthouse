@@ -4,7 +4,7 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use ssz::Encode;
 use std::cmp;
 use std::fs;
@@ -84,6 +84,16 @@ pub fn get_config<E: EthSpec>(
     )?;
 
     /*
+     * Staking flag
+     * Note: the config values set here can be overwritten by other more specific cli params
+     */
+
+    if cli_args.is_present("staking") {
+        client_config.rest_api.enabled = true;
+        client_config.sync_eth1_chain = true;
+    }
+
+    /*
      * Http server
      */
 
@@ -110,6 +120,15 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "Invalid allow-origin value")?;
 
         client_config.rest_api.allow_origin = allow_origin.to_string();
+    }
+
+    // Log a warning indicating an open HTTP server if it wasn't specified explicitly
+    // (e.g. using the --staking flag).
+    if cli_args.is_present("staking") {
+        warn!(
+            log,
+            "Running HTTP server on port {}", client_config.rest_api.port
+        );
     }
 
     /*
@@ -426,7 +445,7 @@ pub fn set_network_config(
 
     if cli_args.is_present("disable-discovery") {
         config.disable_discovery = true;
-        slog::warn!(log, "Discovery is disabled. New peers will not be found");
+        warn!(log, "Discovery is disabled. New peers will not be found");
     }
 
     Ok(())
