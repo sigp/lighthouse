@@ -1489,7 +1489,6 @@ name = "eth2_key_derivation"
 version = "0.1.0"
 dependencies = [
  "bls",
- "byteorder",
  "hex 0.4.2",
  "num-bigint-dig",
  "ring",

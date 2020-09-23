@@ -1,8 +1,8 @@
 use crate::{lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, ZeroizeHash};
-use byteorder::{BigEndian, ByteOrder};
 use num_bigint_dig::BigUint;
 use ring::hkdf::{KeyType, Prk, Salt, HKDF_SHA256};
 use sha2::{Digest, Sha256};
+use std::convert::TryFrom;
 use zeroize::Zeroize;
 
 /// The byte size of a SHA256 hash.
@@ -87,23 +87,22 @@ fn hkdf_mod_r(ikm: &[u8]) -> ZeroizeHash {
     ikm_with_postfix.as_mut_bytes()[..ikm.len()].copy_from_slice(ikm);
 
     // info = "" + I2OSP(L, 2)
-    let mut info = [0; 2];
-    BigEndian::write_int(&mut info, MOD_R_L as i64, 2);
+    let info = u16::try_from(MOD_R_L)
+        .expect("MOD_R_L too large")
+        .to_be_bytes();
 
     let mut output = ZeroizeHash::zero();
     let zero_hash = ZeroizeHash::zero();
 
     let mut salt = b"BLS-SIG-KEYGEN-SALT-".to_vec();
-    let mut hashed_salt = [0; HASH_SIZE];
     while output.as_bytes() == zero_hash.as_bytes() {
         let mut hasher = Sha256::new();
         hasher.update(salt.as_slice());
-        hashed_salt.copy_from_slice(&hasher.finalize());
+        salt = hasher.finalize().to_vec();
 
-        let prk = hkdf_extract(&hashed_salt, ikm_with_postfix.as_bytes());
+        let prk = hkdf_extract(&salt, ikm_with_postfix.as_bytes());
         let okm = &hkdf_expand(prk, &info, MOD_R_L);
 
-        salt = hashed_salt.to_vec();
         output = mod_r(okm.as_bytes());
     }
     output
