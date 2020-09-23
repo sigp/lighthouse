@@ -1,5 +1,5 @@
 use crate::types::GossipKind;
-use crate::Enr;
+use crate::{Enr, PeerIdSerialized};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
@@ -58,6 +58,9 @@ pub struct Config {
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
 
+    /// List of trusted libp2p nodes which are not scored.
+    pub trusted_peers: Vec<PeerIdSerialized>,
+
     /// Client version
     pub client_version: String,
 
@@ -74,15 +77,6 @@ impl Default for Config {
         let mut network_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         network_dir.push(".lighthouse");
         network_dir.push("network");
-
-        // The default topics that we will initially subscribe to
-        let topics = vec![
-            GossipKind::BeaconBlock,
-            GossipKind::BeaconAggregateAndProof,
-            GossipKind::VoluntaryExit,
-            GossipKind::ProposerSlashing,
-            GossipKind::AttesterSlashing,
-        ];
 
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing
@@ -139,9 +133,10 @@ impl Default for Config {
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
+            trusted_peers: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
-            topics,
+            topics: Vec::new(),
         }
     }
 }

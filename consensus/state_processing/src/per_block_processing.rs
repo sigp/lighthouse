@@ -446,10 +446,6 @@ pub fn process_deposit<T: EthSpec>(
 
     state.eth1_deposit_index.increment()?;
 
-    // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
-    // depositing validator already exists in the registry.
-    state.update_pubkey_cache()?;
-
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
     let validator_index = get_existing_validator_index(state, &deposit.data.pubkey)

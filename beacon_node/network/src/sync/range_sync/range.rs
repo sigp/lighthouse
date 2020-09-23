@@ -98,8 +98,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// On re-status, a peer that has no head to download indicates that this state can be set to
     /// idle as there are in fact no head chains to download. This function notifies the chain
     /// collection that the state can safely be set to idle.
-    pub fn fully_synced_peer_found(&mut self) {
-        self.chains.fully_synced_peer_found()
+    pub fn fully_synced_peer_found(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
+        self.chains.fully_synced_peer_found(network)
     }
 
     /// A useful peer has been added. The SyncManager has identified this peer as needing either
@@ -160,7 +160,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
                 self.chains.update(network);
                 // update the global sync state
-                self.chains.update_sync_state();
+                self.chains.update_sync_state(network);
             }
             RangeSyncType::Head => {
                 // This peer requires a head chain sync
@@ -192,7 +192,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     network,
                 );
                 self.chains.update(network);
-                self.chains.update_sync_state();
+                self.chains.update_sync_state(network);
             }
         }
     }
@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         // the manager that we are awaiting a head chain.
                         self.chains.set_head_sync();
                         // Update the global variables
-                        self.chains.update_sync_state();
+                        self.chains.update_sync_state(network);
                         // if there are no more finalized chains, re-status all known peers
                         // awaiting a head sync
                         match self.chains.state() {
@@ -279,7 +279,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         // update the state of the collection
                         self.chains.update(network);
                         // update the global state and log any change
-                        self.chains.update_sync_state();
+                        self.chains.update_sync_state(network);
                     }
                 }
             }
@@ -306,7 +306,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // update the state of the collection
         self.chains.update(network);
         // update the global state and inform the user
-        self.chains.update_sync_state();
+        self.chains.update_sync_state(network);
     }
 
     /// When a peer gets removed, both the head and finalized chains need to be searched to check

@@ -16,4 +16,4 @@ pub use globals::NetworkGlobals;
 pub use pubsub::PubsubMessage;
 pub use subnet::SubnetDiscovery;
 pub use sync_state::SyncState;
-pub use topics::{GossipEncoding, GossipKind, GossipTopic};
+pub use topics::{GossipEncoding, GossipKind, GossipTopic, CORE_TOPICS};
