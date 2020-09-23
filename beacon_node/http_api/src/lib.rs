@@ -428,7 +428,12 @@ pub fn serve<T: BeaconChainTypes>(
                                         validator: validator.clone(),
                                     })
                                 })
-                                .ok_or_else(warp::reject::not_found)
+                                .ok_or_else(|| {
+                                    warp_utils::reject::custom_not_found(format!(
+                                        "unknown validator: {}",
+                                        validator_id
+                                    ))
+                                })
                         })
                         .map(api_types::GenericResponse::from)
                 })
