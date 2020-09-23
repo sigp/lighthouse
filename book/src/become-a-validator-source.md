@@ -56,7 +56,8 @@ Start your beacon node with:
 > following commands in this document.
 
 
-You can also pass an external http endpoint(e.g. infura) for the Ethereum 1 node using the `--eth1-endpoint` flag:
+You can also pass an external http endpoint (e.g. Infura) for the Eth1 node using the `--eth1-endpoint` flag:
+
 ```bash
  lighthouse --testnet medalla beacon --staking --eth1-endpoint <ETH1-SERVER>
 ```
