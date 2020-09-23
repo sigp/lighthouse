@@ -589,9 +589,25 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         let mut validator_subscriptions = vec![];
         for pubkey in self.validator_store.voting_pubkeys() {
-            let remote_duties =
-                ValidatorDuty::download(&self.beacon_node, current_epoch, request_epoch, pubkey)
-                    .await?;
+            let remote_duties = match ValidatorDuty::download(
+                &self.beacon_node,
+                current_epoch,
+                request_epoch,
+                pubkey,
+            )
+            .await
+            {
+                Ok(duties) => duties,
+                Err(e) => {
+                    error!(
+                        log,
+                        "Failed to download validator duties";
+                        "error" => e
+                    );
+                    continue;
+                }
+            };
+
             // Convert the remote duties into our local representation.
             let duties: DutyAndProof = remote_duties.clone().into();
 
