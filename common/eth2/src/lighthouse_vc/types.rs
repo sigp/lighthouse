@@ -1,3 +1,4 @@
+use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
@@ -36,4 +37,12 @@ pub struct CreateHdValidatorResponseData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct ValidatorPatchRequest {
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeystoreValidatorsPostRequest {
+    // TODO: zeroize
+    pub password: String,
+    pub enable: bool,
+    pub keystore: Keystore,
 }

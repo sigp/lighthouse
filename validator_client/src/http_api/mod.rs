@@ -194,6 +194,37 @@ pub fn serve<T: EthSpec>(
             },
         );
 
+    // GET lighthouse/validators/{validator_pubkey}
+    let get_lighthouse_validators_pubkey = warp::path("lighthouse")
+        .and(warp::path("validators"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path::end())
+        .and(initialized_validators_filter.clone())
+        .and_then(
+            |validator_pubkey: PublicKey,
+             initialized_validators: Arc<RwLock<InitializedValidators>>| {
+                blocking_json_task(move || {
+                    let validator = initialized_validators
+                        .read()
+                        .validator_definitions()
+                        .iter()
+                        .find(|def| def.voting_public_key == validator_pubkey)
+                        .map(|def| api_types::ValidatorData {
+                            enabled: def.enabled,
+                            voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
+                        })
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "no validator for {:?}",
+                                validator_pubkey
+                            ))
+                        })?;
+
+                    Ok(api_types::GenericResponse::from(validator))
+                })
+            },
+        );
+
     // POST lighthouse/validators/hd
     let post_validator_hd = warp::path("lighthouse")
         .and(warp::path("validators"))
@@ -331,6 +362,68 @@ pub fn serve<T: EthSpec>(
             },
         );
 
+    // POST lighthouse/validators/keystore
+    let post_validator_keystore = warp::path("lighthouse")
+        .and(warp::path("validators"))
+        .and(warp::path("keystore"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(data_dir_filter.clone())
+        .and(initialized_validators_filter.clone())
+        .and_then(
+            |body: api_types::KeystoreValidatorsPostRequest,
+             data_dir: PathBuf,
+             initialized_validators: Arc<RwLock<InitializedValidators>>| {
+                blocking_json_task(move || {
+                    // Check to ensure the password is correct.
+                    body.keystore
+                        .decrypt_keypair(body.password.as_bytes())
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "invalid keystore: {:?}",
+                                e
+                            ))
+                        })?;
+
+                    let validator_dir = ValidatorDirBuilder::new(data_dir.clone())
+                        .voting_keystore(body.keystore.clone(), body.password.as_bytes())
+                        .build()
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "failed to build validator directory: {:?}",
+                                e
+                            ))
+                        })?;
+
+                    let voting_password = ZeroizeString::from(body.password.clone());
+
+                    let mut validator_def = ValidatorDefinition::new_keystore_with_password(
+                        validator_dir.voting_keystore_path(),
+                        Some(voting_password),
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to create validator definitions: {:?}",
+                            e
+                        ))
+                    })?;
+
+                    validator_def.enabled = body.enable;
+
+                    tokio::runtime::Handle::current()
+                        .block_on(initialized_validators.write().add_definition(validator_def))
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "failed to initialize validator: {:?}",
+                                e
+                            ))
+                        })?;
+
+                    Ok(())
+                })
+            },
+        );
+
     // PATCH lighthouse/validators
     let patch_validator_hd = warp::path("lighthouse")
         .and(warp::path("validators"))
@@ -375,9 +468,10 @@ pub fn serve<T: EthSpec>(
         .and(
             get_node_version
                 .or(get_lighthouse_health)
-                .or(get_lighthouse_validators),
+                .or(get_lighthouse_validators)
+                .or(get_lighthouse_validators_pubkey),
         )
-        .or(warp::post().and(post_validator_hd))
+        .or(warp::post().and(post_validator_hd.or(post_validator_keystore)))
         .or(warp::patch().and(patch_validator_hd))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)

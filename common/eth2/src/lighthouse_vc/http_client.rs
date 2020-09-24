@@ -124,6 +124,22 @@ impl ValidatorClientHttpClient {
         self.get(path).await
     }
 
+    /// `GET lighthouse/validators/{validator_pubkey}`
+    pub async fn get_lighthouse_validators_pubkey(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Result<Option<GenericResponse<ValidatorData>>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators")
+            .push(&validator_pubkey.to_string());
+
+        self.get_opt(path).await
+    }
+
     /// `POST lighthouse/validators/hd`
     pub async fn post_lighthouse_validators_hd(
         &self,
@@ -140,7 +156,23 @@ impl ValidatorClientHttpClient {
         self.post(path, &request).await
     }
 
-    /// `PATCH lighthouse/validators
+    /// `POST lighthouse/validators/keystore`
+    pub async fn post_lighthouse_validators_keystore(
+        &self,
+        request: &KeystoreValidatorsPostRequest,
+    ) -> Result<GenericResponse<ValidatorData>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators")
+            .push("keystore");
+
+        self.post(path, &request).await
+    }
+
+    /// `PATCH lighthouse/validators/{validator_pubkey}`
     pub async fn patch_lighthouse_validators(
         &self,
         voting_pubkey: &PublicKeyBytes,

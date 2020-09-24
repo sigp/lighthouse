@@ -4,12 +4,13 @@ use crate::{
     http_api::{Config, Context},
     InitializedValidators, ValidatorDefinitions,
 };
-use account_utils::random_mnemonic;
+use account_utils::{random_mnemonic, random_password};
 use environment::null_logger;
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     Url,
 };
+use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
@@ -181,6 +182,60 @@ impl ApiTester {
         self
     }
 
+    pub async fn create_keystore_validators(self, s: KeystoreValidatorScenario) -> Self {
+        let initial_vals = self.vals_total();
+        let initial_enabled_vals = self.vals_enabled();
+
+        let password = random_password();
+        let keypair = Keypair::random();
+        let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), String::new())
+            .unwrap()
+            .build()
+            .unwrap();
+
+        if !s.correct_password {
+            let request = KeystoreValidatorsPostRequest {
+                enable: s.enabled,
+                password: String::from_utf8(random_password().as_ref().to_vec()).unwrap(),
+                keystore,
+            };
+
+            self.client
+                .post_lighthouse_validators_keystore(&request)
+                .await
+                .unwrap_err();
+
+            return self;
+        }
+
+        let request = KeystoreValidatorsPostRequest {
+            enable: s.enabled,
+            password: String::from_utf8(password.as_ref().to_vec()).unwrap(),
+            keystore,
+        };
+
+        let response = self
+            .client
+            .post_lighthouse_validators_keystore(&request)
+            .await
+            .unwrap()
+            .data;
+
+        let num_enabled = s.enabled as usize;
+
+        assert_eq!(self.vals_total(), initial_vals + 1);
+        assert_eq!(self.vals_enabled(), initial_enabled_vals + num_enabled);
+
+        let server_vals = self.client.get_lighthouse_validators().await.unwrap().data;
+
+        assert_eq!(server_vals.len(), self.vals_total());
+
+        assert_eq!(response.voting_pubkey, keypair.pk.into());
+        assert_eq!(response.enabled, s.enabled);
+
+        self
+    }
+
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
@@ -197,17 +252,27 @@ impl ApiTester {
             enabled
         );
 
-        assert!(
+        assert!(self
+            .client
+            .get_lighthouse_validators()
+            .await
+            .unwrap()
+            .data
+            .into_iter()
+            .find(|v| v.voting_pubkey == validator.voting_pubkey)
+            .map(|v| v.enabled == enabled)
+            .unwrap());
+
+        // Check the server via an individual request.
+        assert_eq!(
             self.client
-                .get_lighthouse_validators()
+                .get_lighthouse_validators_pubkey(&validator.voting_pubkey)
                 .await
                 .unwrap()
+                .unwrap()
                 .data
-                .into_iter()
-                .find(|v| v.voting_pubkey == validator.voting_pubkey)
-                .map(|v| v.enabled == enabled)
-                .unwrap(),
-            "the server should indicate the correct enabled value"
+                .enabled,
+            enabled
         );
 
         self
@@ -218,6 +283,11 @@ struct HdValidatorScenario {
     count: usize,
     specify_mnemonic: bool,
     disabled: Vec<usize>,
+}
+
+struct KeystoreValidatorScenario {
+    enabled: bool,
+    correct_password: bool,
 }
 
 #[tokio::test(core_threads = 2)]
@@ -231,7 +301,7 @@ async fn simple_getters() {
 }
 
 #[tokio::test(core_threads = 2)]
-async fn validator_creation() {
+async fn hd_validator_creation() {
     ApiTester::new()
         .await
         .assert_enabled_validators_count(0)
@@ -260,6 +330,35 @@ async fn validator_creation() {
         .await
         .assert_enabled_validators_count(2)
         .assert_validators_count(3);
+}
+
+#[tokio::test(core_threads = 2)]
+async fn keystore_validator_creation() {
+    ApiTester::new()
+        .await
+        .assert_enabled_validators_count(0)
+        .assert_validators_count(0)
+        .create_keystore_validators(KeystoreValidatorScenario {
+            correct_password: true,
+            enabled: true,
+        })
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(1)
+        .create_keystore_validators(KeystoreValidatorScenario {
+            correct_password: false,
+            enabled: true,
+        })
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(1)
+        .create_keystore_validators(KeystoreValidatorScenario {
+            correct_password: true,
+            enabled: false,
+        })
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2);
 }
 
 #[tokio::test(core_threads = 2)]
