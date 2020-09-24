@@ -2,16 +2,15 @@
 //!
 //! E.g., `0` serializes as `"0x00"`.
 
+use crate::hex::PrefixedHexVisitor;
 use serde::de::Error;
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{Deserializer, Serializer};
 
 pub fn serialize<S>(byte: &u8, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let mut hex: String = "0x".to_string();
-    hex.push_str(&hex::encode(&[*byte]));
-
+    let hex = format!("0x{}", hex::encode([*byte]));
     serializer.serialize_str(&hex)
 }
 
@@ -19,11 +18,12 @@ pub fn deserialize<'de, D>(deserializer: D) -> Result<u8, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s: String = Deserialize::deserialize(deserializer)?;
-
-    let start = match s.as_str().get(2..) {
-        Some(start) => start,
-        None => return Err(D::Error::custom("string length too small")),
-    };
-    u8::from_str_radix(&start, 16).map_err(D::Error::custom)
+    let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+    if bytes.len() != 1 {
+        return Err(D::Error::custom(format!(
+            "expected 1 byte for u8, got {}",
+            bytes.len()
+        )));
+    }
+    Ok(bytes[0])
 }

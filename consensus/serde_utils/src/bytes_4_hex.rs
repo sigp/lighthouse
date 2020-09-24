@@ -2,8 +2,9 @@
 //!
 //! E.g., `[0, 1, 2, 3]` serializes as `"0x00010203"`.
 
+use crate::hex::PrefixedHexVisitor;
 use serde::de::Error;
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{Deserializer, Serializer};
 
 const BYTES_LEN: usize = 4;
 
@@ -21,24 +22,17 @@ pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; BYTES_LEN], D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s: String = Deserialize::deserialize(deserializer)?;
-    let mut array = [0 as u8; BYTES_LEN];
-
-    let start = s
-        .as_str()
-        .get(2..)
-        .ok_or_else(|| D::Error::custom("string length too small"))?;
-    let decoded: Vec<u8> = hex::decode(&start).map_err(D::Error::custom)?;
+    let decoded = deserializer.deserialize_str(PrefixedHexVisitor)?;
 
     if decoded.len() != BYTES_LEN {
-        return Err(D::Error::custom("Fork length too long"));
+        return Err(D::Error::custom(format!(
+            "expected {} bytes for array, got {}",
+            BYTES_LEN,
+            decoded.len()
+        )));
     }
 
-    for (i, item) in array.iter_mut().enumerate() {
-        if i > decoded.len() {
-            break;
-        }
-        *item = decoded[i];
-    }
+    let mut array = [0; BYTES_LEN];
+    array.copy_from_slice(&decoded);
     Ok(array)
 }
