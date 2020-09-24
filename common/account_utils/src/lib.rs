@@ -2,7 +2,10 @@
 //! Lighthouse project.
 
 use eth2_keystore::Keystore;
-use eth2_wallet::Wallet;
+use eth2_wallet::{
+    bip39::{Language, Mnemonic, MnemonicType},
+    Wallet,
+};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_derive::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -15,6 +18,7 @@ use zeroize::Zeroize;
 pub mod validator_definitions;
 
 pub use eth2_keystore;
+pub use eth2_wallet;
 pub use eth2_wallet::PlainText;
 
 /// The minimum number of characters required for a wallet password.
@@ -148,6 +152,11 @@ pub fn is_password_sufficiently_complex(password: &[u8]) -> Result<(), String> {
             MINIMUM_PASSWORD_LEN
         ))
     }
+}
+
+/// Returns a random 24-word english mnemonic.
+pub fn random_mnemonic() -> Mnemonic {
+    Mnemonic::new(MnemonicType::Words24, Language::English)
 }
 
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.

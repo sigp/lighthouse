@@ -12,13 +12,13 @@ pub struct ValidatorData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateValidatorData {
-    validator_desc: String,
-    deposit_gwei: u64,
+    pub validator_desc: String,
+    pub deposit_gwei: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateHdValidatorPostData {
-    mnemonic: Option<String>,
-    offset: u64,
-    validators: Vec<CreateValidatorData>,
+    pub mnemonic: Option<String>,
+    pub key_derivation_path_offset: u64,
+    pub validators: Vec<CreateValidatorData>,
 }

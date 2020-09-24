@@ -2,6 +2,7 @@
 //!
 //! For other endpoints, see the `http_api` crate.
 use crate::{InitializedValidators, ValidatorStore};
+use account_utils::{eth2_wallet::WalletBuilder, random_mnemonic, random_password};
 use eth2::lighthouse_vc::types::{self as api_types, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
@@ -199,8 +200,76 @@ pub fn serve<T: EthSpec>(
              data_dir: PathBuf,
              initialized_validators: Arc<RwLock<InitializedValidators>>| {
                 blocking_json_task(move || {
-                    // TODO
-                    Ok(())
+                    let mnemonic = if let Some(mnemonic_string) = body.mnemonic.as_ref() {
+                        todo!()
+                    } else {
+                        random_mnemonic()
+                    };
+
+                    let wallet_password = random_password();
+                    let wallet = WalletBuilder::from_mnemonic(
+                        &mnemonic,
+                        wallet_password.as_bytes(),
+                        String::new(),
+                    )
+                    .and_then(|builder| builder.build())
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "unable to create EIP-2386 wallet: {:?}",
+                            e
+                        ))
+                    })?;
+
+                    let mut validators = Vec::with_capacity(body.validators.len());
+
+                    for request in &body.validators {
+                        let voting_password = random_password();
+                        let withdrawal_password = random_password();
+
+                        let keystores = wallet
+                            .next_validator(
+                                wallet_password.as_bytes(),
+                                voting_password.as_bytes(),
+                                withdrawal_password.as_bytes(),
+                            )
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "unable to create validator keys: {:?}",
+                                    e
+                                ))
+                            })?;
+
+                        let voting_pubkey = serde_json::from_str(keystores.voting.pubkey())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "created invalid public key: {:?}",
+                                    e
+                                ))
+                            })?;
+
+                        ValidatorDirBuilder::new(validator_dir.clone(), secrets_dir.clone())
+                            .voting_keystore(keystores.voting, voting_password.as_bytes())
+                            .withdrawal_keystore(
+                                keystores.withdrawal,
+                                withdrawal_password.as_bytes(),
+                            )
+                            .create_eth1_tx_data(request.deposit_gwei, &spec)
+                            .store_withdrawal_keystore(false)
+                            .build()
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to build validator directory: {:?}",
+                                    e
+                                ))
+                            })?;
+
+                        validators.push(api_types::ValidatorData {
+                            enabled: true,
+                            voting_pubkey: voting_pubkey,
+                        });
+                    }
+
+                    Ok(validators)
                 })
             },
         );
