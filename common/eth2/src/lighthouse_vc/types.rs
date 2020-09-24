@@ -13,6 +13,7 @@ pub struct ValidatorData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct HdValidator {
+    pub enable: bool,
     pub validator_desc: String,
     pub deposit_gwei: u64,
 }
@@ -30,4 +31,9 @@ pub struct HdValidatorsPostRequest {
 pub struct CreateHdValidatorResponseData {
     pub mnemonic: Option<String>,
     pub validators: Vec<ValidatorData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+pub struct ValidatorPatchRequest {
+    pub enabled: bool,
 }

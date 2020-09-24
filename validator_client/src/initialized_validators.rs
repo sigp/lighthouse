@@ -351,6 +351,15 @@ impl InitializedValidators {
         self.definitions.as_slice()
     }
 
+    /// Indicates if the `voting_public_key` exists in self and if it is enabled.
+    pub fn is_enabled(&self, voting_public_key: &PublicKey) -> Option<bool> {
+        self.definitions
+            .as_slice()
+            .iter()
+            .find(|def| def.voting_public_key == *voting_public_key)
+            .map(|def| def.enabled)
+    }
+
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
     ///
     /// ## Notes

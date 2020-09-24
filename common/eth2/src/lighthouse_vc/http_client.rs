@@ -73,6 +73,19 @@ impl ValidatorClientHttpClient {
             .map_err(Error::Reqwest)
     }
 
+    /// Perform a HTTP PATCH request.
+    async fn patch<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
+        let response = self
+            .client
+            .patch(url)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_error(response).await?;
+        Ok(())
+    }
+
     /// `GET lighthouse/version`
     pub async fn get_lighthouse_version(&self) -> Result<GenericResponse<VersionData>, Error> {
         let mut path = self.server.clone();
@@ -125,6 +138,25 @@ impl ValidatorClientHttpClient {
             .push("hd");
 
         self.post(path, &request).await
+    }
+
+    /// `PATCH lighthouse/validators
+    pub async fn patch_lighthouse_validators(
+        &self,
+        voting_pubkey: &PublicKeyBytes,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators")
+            .push(&voting_pubkey.to_string());
+
+        dbg!(&path);
+
+        self.patch(path, &ValidatorPatchRequest { enabled }).await
     }
 }
 

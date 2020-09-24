@@ -6,7 +6,7 @@ use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
     validator_definitions::ValidatorDefinition, ZeroizeString,
 };
-use eth2::lighthouse_vc::types::{self as api_types, PublicKeyBytes};
+use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -194,7 +194,7 @@ pub fn serve<T: EthSpec>(
             },
         );
 
-    // POST lighthouse/validator/hd
+    // POST lighthouse/validators/hd
     let post_validator_hd = warp::path("lighthouse")
         .and(warp::path("validators"))
         .and(warp::path("hd"))
@@ -289,7 +289,7 @@ pub fn serve<T: EthSpec>(
                             )?,
                         );
 
-                        let validator_def = ValidatorDefinition::new_keystore_with_password(
+                        let mut validator_def = ValidatorDefinition::new_keystore_with_password(
                             validator_dir.voting_keystore_path(),
                             Some(voting_password),
                         )
@@ -299,6 +299,8 @@ pub fn serve<T: EthSpec>(
                                 e
                             ))
                         })?;
+
+                        validator_def.enabled = request.enable;
 
                         tokio::runtime::Handle::current()
                             .block_on(initialized_validators.write().add_definition(validator_def))
@@ -329,13 +331,54 @@ pub fn serve<T: EthSpec>(
             },
         );
 
+    // PATCH lighthouse/validators
+    let patch_validator_hd = warp::path("lighthouse")
+        .and(warp::path("validators"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(initialized_validators_filter.clone())
+        .and_then(
+            |validator_pubkey: PublicKey,
+             body: api_types::ValidatorPatchRequest,
+             initialized_validators: Arc<RwLock<InitializedValidators>>| {
+                blocking_json_task(move || {
+                    let mut initialized_validators = initialized_validators.write();
+
+                    match initialized_validators.is_enabled(&validator_pubkey) {
+                        None => Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator for {:?}",
+                            validator_pubkey
+                        ))),
+                        Some(enabled) if enabled == body.enabled => Ok(()),
+                        Some(_) => {
+                            tokio::runtime::Handle::current()
+                                .block_on(
+                                    initialized_validators
+                                        .set_validator_status(&validator_pubkey, body.enabled),
+                                )
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "unable to set validator status: {:?}",
+                                        e
+                                    ))
+                                })?;
+
+                            Ok(())
+                        }
+                    }
+                })
+            },
+        );
+
     let routes = warp::get()
         .and(
             get_node_version
                 .or(get_lighthouse_health)
                 .or(get_lighthouse_validators),
         )
-        .or(post_validator_hd)
+        .or(warp::post().and(post_validator_hd))
+        .or(warp::patch().and(patch_validator_hd))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

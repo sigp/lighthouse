@@ -110,7 +110,6 @@ impl ApiTester {
 
         self
     }
-
     pub fn vals_total(&self) -> usize {
         self.initialized_validators.read().num_total()
     }
@@ -137,6 +136,7 @@ impl ApiTester {
         let key_derivation_path_offset = 0;
         let validators = (0..s.count)
             .map(|i| HdValidator {
+                enable: !s.disabled.contains(&i),
                 validator_desc: format!("boi #{}", i),
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
@@ -162,7 +162,10 @@ impl ApiTester {
 
         assert_eq!(response.validators.len(), s.count);
         assert_eq!(self.vals_total(), initial_vals + s.count);
-        assert_eq!(self.vals_enabled(), initial_enabled_vals + s.count);
+        assert_eq!(
+            self.vals_enabled(),
+            initial_enabled_vals + s.count - s.disabled.len()
+        );
 
         let server_vals = self.client.get_lighthouse_validators().await.unwrap().data;
 
@@ -177,11 +180,44 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(&validator.voting_pubkey, enabled)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            self.initialized_validators
+                .read()
+                .is_enabled(&validator.voting_pubkey.decompress().unwrap())
+                .unwrap(),
+            enabled
+        );
+
+        assert!(
+            self.client
+                .get_lighthouse_validators()
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|v| v.voting_pubkey == validator.voting_pubkey)
+                .map(|v| v.enabled == enabled)
+                .unwrap(),
+            "the server should indicate the correct enabled value"
+        );
+
+        self
+    }
 }
 
 struct HdValidatorScenario {
     count: usize,
     specify_mnemonic: bool,
+    disabled: Vec<usize>,
 }
 
 #[tokio::test(core_threads = 2)]
@@ -203,6 +239,7 @@ async fn validator_creation() {
         .create_hd_validators(HdValidatorScenario {
             count: 2,
             specify_mnemonic: true,
+            disabled: vec![],
         })
         .await
         .assert_enabled_validators_count(2)
@@ -210,15 +247,39 @@ async fn validator_creation() {
         .create_hd_validators(HdValidatorScenario {
             count: 1,
             specify_mnemonic: false,
+            disabled: vec![0],
         })
         .await
-        .assert_enabled_validators_count(3)
+        .assert_enabled_validators_count(2)
         .assert_validators_count(3)
         .create_hd_validators(HdValidatorScenario {
             count: 0,
             specify_mnemonic: true,
+            disabled: vec![],
         })
         .await
-        .assert_enabled_validators_count(3)
+        .assert_enabled_validators_count(2)
         .assert_validators_count(3);
+}
+
+#[tokio::test(core_threads = 2)]
+async fn validator_enabling() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2);
 }
