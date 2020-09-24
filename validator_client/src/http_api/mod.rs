@@ -14,7 +14,8 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::Arc;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
+use validator_dir::Builder as ValidatorDirBuilder;
 use warp::Filter;
 use warp_utils::task::blocking_json_task;
 
@@ -44,6 +45,7 @@ impl From<String> for Error {
 pub struct Context<E: EthSpec> {
     pub initialized_validators: Option<Arc<RwLock<InitializedValidators>>>,
     pub data_dir: Option<PathBuf>,
+    pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
     pub _phantom: PhantomData<E>,
@@ -140,6 +142,9 @@ pub fn serve<T: EthSpec>(
                 }
             });
 
+    let inner_spec = Arc::new(ctx.spec.clone());
+    let spec_filter = warp::any().map(move || inner_spec.clone());
+
     // GET node/version
     let get_node_version = warp::path("lighthouse")
         .and(warp::path("version"))
@@ -195,10 +200,12 @@ pub fn serve<T: EthSpec>(
         .and(warp::body::json())
         .and(data_dir_filter.clone())
         .and(initialized_validators_filter.clone())
+        .and(spec_filter.clone())
         .and_then(
             |body: api_types::CreateHdValidatorPostData,
              data_dir: PathBuf,
-             initialized_validators: Arc<RwLock<InitializedValidators>>| {
+             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             spec: Arc<ChainSpec>| {
                 blocking_json_task(move || {
                     let mnemonic = if let Some(mnemonic_string) = body.mnemonic.as_ref() {
                         todo!()
@@ -207,7 +214,7 @@ pub fn serve<T: EthSpec>(
                     };
 
                     let wallet_password = random_password();
-                    let wallet = WalletBuilder::from_mnemonic(
+                    let mut wallet = WalletBuilder::from_mnemonic(
                         &mnemonic,
                         wallet_password.as_bytes(),
                         String::new(),
@@ -247,7 +254,7 @@ pub fn serve<T: EthSpec>(
                                 ))
                             })?;
 
-                        ValidatorDirBuilder::new(validator_dir.clone(), secrets_dir.clone())
+                        ValidatorDirBuilder::new(data_dir.clone())
                             .voting_keystore(keystores.voting, voting_password.as_bytes())
                             .withdrawal_keystore(
                                 keystores.withdrawal,
