@@ -7,7 +7,7 @@ mod config;
 pub use beacon_chain;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_data_dir, get_eth2_testnet_config, set_network_config};
+pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_config};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;
@@ -17,7 +17,6 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
-use config::get_config;
 use environment::RuntimeContext;
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
@@ -54,7 +53,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: &ArgMatches<'_>,
+        matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(
             &matches,
