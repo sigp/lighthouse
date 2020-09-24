@@ -445,6 +445,7 @@ mod tests {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct YamlConfig {
+    #[serde(default)]
     config_name: String,
     // ChainSpec
     max_committees_per_slot: usize,
@@ -462,6 +463,8 @@ pub struct YamlConfig {
     hysteresis_quotient: u64,
     hysteresis_downward_multiplier: u64,
     hysteresis_upward_multiplier: u64,
+    // Proportional slashing multiplier defaults to 3 for compatibility with Altona and Medalla.
+    #[serde(default = "default_proportional_slashing_multiplier")]
     proportional_slashing_multiplier: u64,
     #[serde(
         serialize_with = "fork_to_hex_str",
@@ -544,6 +547,11 @@ pub struct YamlConfig {
     deposit_network_id: u64,
     deposit_contract_address: String,
     */
+}
+
+// Compatibility shim for proportional slashing multpilier on Altona and Medalla.
+fn default_proportional_slashing_multiplier() -> u64 {
+    3
 }
 
 impl Default for YamlConfig {
@@ -801,7 +809,7 @@ mod yaml_tests {
         let yamlconfig = YamlConfig::from_spec::<MinimalEthSpec>(&spec);
 
         // modifying the original spec
-        spec.deposit_contract_tree_depth += 1;
+        spec.max_committees_per_slot += 1;
         // Applying a yaml config with incorrect EthSpec should fail
         let res = yamlconfig.apply_to_chain_spec::<MainnetEthSpec>(&spec);
         assert_eq!(res, None);
