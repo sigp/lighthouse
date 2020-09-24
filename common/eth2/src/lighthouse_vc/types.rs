@@ -1,24 +1,33 @@
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 pub use crate::lighthouse::Health;
 pub use crate::types::{GenericResponse, VersionData};
 pub use types::*;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct ValidatorData {
     pub enabled: bool,
     pub voting_pubkey: PublicKeyBytes,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CreateValidatorData {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+pub struct HdValidator {
     pub validator_desc: String,
     pub deposit_gwei: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CreateHdValidatorPostData {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+pub struct HdValidatorsPostRequest {
     pub mnemonic: Option<String>,
     pub key_derivation_path_offset: u64,
-    pub validators: Vec<CreateValidatorData>,
+    pub validators: Vec<HdValidator>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+pub struct CreateHdValidatorResponseData {
+    pub mnemonic: Option<String>,
+    pub validators: Vec<ValidatorData>,
 }

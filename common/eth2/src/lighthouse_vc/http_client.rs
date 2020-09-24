@@ -54,7 +54,11 @@ impl ValidatorClientHttpClient {
     }
 
     /// Perform a HTTP POST request.
-    async fn post<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
+    async fn post<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
+        &self,
+        url: U,
+        body: &T,
+    ) -> Result<V, Error> {
         let response = self
             .client
             .post(url)
@@ -62,8 +66,11 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::Reqwest)?;
-        ok_or_error(response).await?;
-        Ok(())
+        ok_or_error(response)
+            .await?
+            .json()
+            .await
+            .map_err(Error::Reqwest)
     }
 
     /// `GET lighthouse/version`
@@ -90,24 +97,35 @@ impl ValidatorClientHttpClient {
         self.get(path).await
     }
 
-    /*
-    /// `POST validator/aggregate_and_proofs`
-    pub async fn post_validator_aggregate_and_proof<T: EthSpec>(
+    /// `GET lighthouse/validators`
+    pub async fn get_lighthouse_validators(
         &self,
-        aggregate: &SignedAggregateAndProof<T>,
-    ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+    ) -> Result<GenericResponse<Vec<ValidatorData>>, Error> {
+        let mut path = self.server.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("validator")
-            .push("aggregate_and_proofs");
+            .push("lighthouse")
+            .push("validators");
 
-        self.post(path, aggregate).await?;
-
-        Ok(())
+        self.get(path).await
     }
-    */
+
+    /// `POST lighthouse/validators/hd`
+    pub async fn post_lighthouse_validators_hd(
+        &self,
+        request: &HdValidatorsPostRequest,
+    ) -> Result<GenericResponse<CreateHdValidatorResponseData>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators")
+            .push("hd");
+
+        self.post(path, &request).await
+    }
 }
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an

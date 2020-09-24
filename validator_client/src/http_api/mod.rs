@@ -1,14 +1,16 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
-use crate::{InitializedValidators, ValidatorStore};
-use account_utils::{eth2_wallet::WalletBuilder, random_mnemonic, random_password};
+use crate::InitializedValidators;
+use account_utils::{
+    eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
+    validator_definitions::ValidatorDefinition, ZeroizeString,
+};
 use eth2::lighthouse_vc::types::{self as api_types, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
-use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -193,8 +195,8 @@ pub fn serve<T: EthSpec>(
         );
 
     // POST lighthouse/validator/hd
-    let post_validator_beacon_committee_subscriptions = warp::path("lighthouse")
-        .and(warp::path("validator"))
+    let post_validator_hd = warp::path("lighthouse")
+        .and(warp::path("validators"))
         .and(warp::path("hd"))
         .and(warp::path::end())
         .and(warp::body::json())
@@ -202,13 +204,18 @@ pub fn serve<T: EthSpec>(
         .and(initialized_validators_filter.clone())
         .and(spec_filter.clone())
         .and_then(
-            |body: api_types::CreateHdValidatorPostData,
+            |body: api_types::HdValidatorsPostRequest,
              data_dir: PathBuf,
              initialized_validators: Arc<RwLock<InitializedValidators>>,
              spec: Arc<ChainSpec>| {
                 blocking_json_task(move || {
-                    let mnemonic = if let Some(mnemonic_string) = body.mnemonic.as_ref() {
-                        todo!()
+                    let mnemonic = if let Some(mnemonic_str) = body.mnemonic.as_ref() {
+                        mnemonic_from_phrase(mnemonic_str).map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "invalid mnemonic: {:?}",
+                                e
+                            ))
+                        })?
                     } else {
                         random_mnemonic()
                     };
@@ -246,7 +253,8 @@ pub fn serve<T: EthSpec>(
                                 ))
                             })?;
 
-                        let voting_pubkey = serde_json::from_str(keystores.voting.pubkey())
+                        let voting_pubkey = format!("0x{}", keystores.voting.pubkey())
+                            .parse()
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "created invalid public key: {:?}",
@@ -254,7 +262,7 @@ pub fn serve<T: EthSpec>(
                                 ))
                             })?;
 
-                        ValidatorDirBuilder::new(data_dir.clone())
+                        let validator_dir = ValidatorDirBuilder::new(data_dir.clone())
                             .voting_keystore(keystores.voting, voting_password.as_bytes())
                             .withdrawal_keystore(
                                 keystores.withdrawal,
@@ -270,13 +278,53 @@ pub fn serve<T: EthSpec>(
                                 ))
                             })?;
 
+                        let voting_password = ZeroizeString::from(
+                            String::from_utf8(voting_password.as_bytes().to_vec()).map_err(
+                                |e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "locally generated password is not utf8: {:?}",
+                                        e
+                                    ))
+                                },
+                            )?,
+                        );
+
+                        let validator_def = ValidatorDefinition::new_keystore_with_password(
+                            validator_dir.voting_keystore_path(),
+                            Some(voting_password),
+                        )
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "failed to create validator definitions: {:?}",
+                                e
+                            ))
+                        })?;
+
+                        tokio::runtime::Handle::current()
+                            .block_on(initialized_validators.write().add_definition(validator_def))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to initialize validator: {:?}",
+                                    e
+                                ))
+                            })?;
+
                         validators.push(api_types::ValidatorData {
                             enabled: true,
                             voting_pubkey: voting_pubkey,
                         });
                     }
 
-                    Ok(validators)
+                    let response = api_types::CreateHdValidatorResponseData {
+                        mnemonic: if body.mnemonic.is_some() {
+                            None
+                        } else {
+                            Some(mnemonic.phrase().to_string())
+                        },
+                        validators,
+                    };
+
+                    Ok(api_types::GenericResponse::from(response))
                 })
             },
         );
@@ -287,6 +335,7 @@ pub fn serve<T: EthSpec>(
                 .or(get_lighthouse_health)
                 .or(get_lighthouse_validators),
         )
+        .or(post_validator_hd)
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

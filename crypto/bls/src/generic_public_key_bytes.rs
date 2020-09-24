@@ -11,6 +11,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
+use zeroize::Zeroize;
 
 /// A wrapper around some bytes that may or may not be a `PublicKey` in compressed form.
 ///
@@ -22,6 +23,12 @@ use tree_hash::TreeHash;
 pub struct GenericPublicKeyBytes<Pub> {
     bytes: [u8; PUBLIC_KEY_BYTES_LEN],
     _phantom: PhantomData<Pub>,
+}
+
+impl<Pub> Zeroize for GenericPublicKeyBytes<Pub> {
+    fn zeroize(&mut self) {
+        self.bytes.zeroize()
+    }
 }
 
 impl<Pub> GenericPublicKeyBytes<Pub>

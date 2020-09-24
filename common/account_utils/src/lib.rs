@@ -159,6 +159,11 @@ pub fn random_mnemonic() -> Mnemonic {
     Mnemonic::new(MnemonicType::Words24, Language::English)
 }
 
+/// Attempts to parse a mnemonic phrase.
+pub fn mnemonic_from_phrase(phrase: &str) -> Result<Mnemonic, String> {
+    Mnemonic::from_phrase(phrase, Language::English).map_err(|e| e.to_string())
+}
+
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
