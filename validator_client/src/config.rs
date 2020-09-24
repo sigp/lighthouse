@@ -24,8 +24,8 @@ pub struct Config {
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
-    /// If true, refuse to unlock a keypair that is guarded by a lockfile.
-    pub strict_lockfiles: bool,
+    /// If true, delete any validator keystore lockfiles that would prevent starting.
+    pub delete_lockfiles: bool,
     /// If true, don't scan the validators dir for new keystores.
     pub disable_auto_discover: bool,
     /// Graffiti to be inserted everytime we create a block.
@@ -46,7 +46,7 @@ impl Default for Config {
             secrets_dir,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
-            strict_lockfiles: false,
+            delete_lockfiles: false,
             disable_auto_discover: false,
             graffiti: None,
         }
@@ -77,7 +77,7 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
-        config.strict_lockfiles = cli_args.is_present("strict-lockfiles");
+        config.delete_lockfiles = cli_args.is_present("delete-lockfiles");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
 
         if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
