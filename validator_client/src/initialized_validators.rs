@@ -54,6 +54,10 @@ pub enum Error {
     PasswordUnknown(PathBuf),
     /// There was an error reading from stdin.
     UnableToReadPasswordFromUser(String),
+    /// There was an error running a tokio async task.
+    TokioJoin(tokio::task::JoinError),
+    /// There was a filesystem error when deleting a lockfile.
+    UnableToDeleteLockfile(io::Error),
 }
 
 /// A method used by a validator to sign messages.
@@ -86,7 +90,7 @@ impl InitializedValidator {
     /// If the validator is unable to be initialized for whatever reason.
     pub fn from_definition(
         def: ValidatorDefinition,
-        strict_lockfiles: bool,
+        delete_lockfiles: bool,
         log: &Logger,
     ) -> Result<Self, Error> {
         if !def.enabled {
@@ -150,16 +154,17 @@ impl InitializedValidator {
                     })?;
 
                 if voting_keystore_lockfile_path.exists() {
-                    if strict_lockfiles {
-                        return Err(Error::LockfileExists(voting_keystore_lockfile_path));
-                    } else {
-                        // If **not** respecting lockfiles, just raise a warning if the voting
-                        // keypair cannot be unlocked.
+                    if delete_lockfiles {
                         warn!(
                             log,
-                            "Ignoring validator lockfile";
+                            "Deleting validator lockfile";
                             "file" => format!("{:?}", voting_keystore_lockfile_path)
                         );
+
+                        fs::remove_file(&voting_keystore_lockfile_path)
+                            .map_err(Error::UnableToDeleteLockfile)?;
+                    } else {
+                        return Err(Error::LockfileExists(voting_keystore_lockfile_path));
                     }
                 } else {
                     // Create a new lockfile.
@@ -279,7 +284,7 @@ pub struct InitializedValidators {
 
 impl InitializedValidators {
     /// Instantiates `Self`, initializing all validators in `definitions`.
-    pub fn from_definitions(
+    pub async fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
         strict_lockfiles: bool,
@@ -292,7 +297,7 @@ impl InitializedValidators {
             validators: HashMap::default(),
             log,
         };
-        this.update_validators()?;
+        this.update_validators().await?;
         Ok(this)
     }
 
@@ -328,7 +333,7 @@ impl InitializedValidators {
     /// validator will be removed from `self.validators`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    pub fn set_validator_status(
+    pub async fn set_validator_status(
         &mut self,
         voting_public_key: &PublicKey,
         enabled: bool,
@@ -342,7 +347,7 @@ impl InitializedValidators {
             def.enabled = enabled;
         }
 
-        self.update_validators()?;
+        self.update_validators().await?;
 
         self.definitions
             .save(&self.validators_dir)
@@ -362,7 +367,7 @@ impl InitializedValidators {
     /// A validator is considered "already known" and skipped if the public key is already known.
     /// I.e., if there are two different definitions with the same public key then the second will
     /// be ignored.
-    fn update_validators(&mut self) -> Result<(), Error> {
+    async fn update_validators(&mut self) -> Result<(), Error> {
         for def in self.definitions.as_slice() {
             if def.enabled {
                 match &def.signing_definition {
@@ -371,11 +376,23 @@ impl InitializedValidators {
                             continue;
                         }
 
-                        match InitializedValidator::from_definition(
-                            def.clone(),
-                            self.strict_lockfiles,
-                            &self.log,
-                        ) {
+                        // Decoding a local keystore can take several seconds, therefore it's best
+                        // to keep if off the core executor. This also has the fortunate effect of
+                        // interrupting the potentially long-running task during shut down.
+                        let inner_def = def.clone();
+                        let strict_lockfiles = self.strict_lockfiles;
+                        let inner_log = self.log.clone();
+                        let result = tokio::task::spawn_blocking(move || {
+                            InitializedValidator::from_definition(
+                                inner_def,
+                                strict_lockfiles,
+                                &inner_log,
+                            )
+                        })
+                        .await
+                        .map_err(Error::TokioJoin)?;
+
+                        match result {
                             Ok(init) => {
                                 self.validators
                                     .insert(init.voting_public_key().clone(), init);
