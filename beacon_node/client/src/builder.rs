@@ -598,24 +598,6 @@ where
             .clone()
             .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
 
-        // Check if the eth1 endpoint we connect to is on the correct network id.
-        // Note: This check also effectively checks the eth1 http connection before the beacon chain
-        // is completely started and fails loudly if there is an issue.
-        let network_id =
-            eth1::http::check_eth1_endpoint(&config.endpoint, Duration::from_millis(15_000))
-                .await
-                .map_err(|_| "Error connecting to eth1 node.\n\
-                    Please ensure that you have an eth1 http server running locally on localhost:8545 \
-                    or pass an external endpoint using `--eth1-endpoint <SERVER-ADDRESS>`.\n\
-                    Also ensure that `eth` and `net` apis are enabled on the eth1 http server.".to_string())?;
-
-        if network_id != config.network_id {
-            return Err(format!(
-                "Invalid eth1 network id. Expected {:?}, got {:?}",
-                config.network_id, network_id
-            ));
-        }
-
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;
 
