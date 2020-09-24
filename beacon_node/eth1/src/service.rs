@@ -11,7 +11,7 @@ use crate::{
 use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
-use slog::{debug, error, info, trace, Logger};
+use slog::{crit, debug, error, info, trace, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -29,6 +29,8 @@ const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
 const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
+
+const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -365,18 +367,23 @@ impl Service {
         match result {
             Ok(network_id) => {
                 if network_id != config_network {
-                    error!(
+                    crit!(
                         self.log,
-                        "Failed to update eth1 cache";
-                        "reason" => "Invalid eth1 network id",
+                        "Invalid eth1 network. Please switch to correct network";
                         "expected" => format!("{:?}",DEFAULT_NETWORK_ID),
-                        "got" => format!("{:?}",network_id),
+                        "received" => format!("{:?}",network_id),
+                        "warning" => WARNING_MSG,
                     );
                     return Ok(());
                 }
             }
-            Err(e) => {
-                error!(self.log, "Failed to get eth1 network id"; "error" => e);
+            Err(_) => {
+                crit!(
+                    self.log,
+                    "Error connecting to eth1 node. Please ensure that you have an eth1 http server running locally on http://localhost:8545 or \
+                    pass an external endpoint using `--eth1-endpoint <SERVER-ADDRESS>`. Also ensure that `eth` and `net` apis are enabled on the eth1 http server";
+                    "warning" => WARNING_MSG,
+                );
                 return Ok(());
             }
         }
