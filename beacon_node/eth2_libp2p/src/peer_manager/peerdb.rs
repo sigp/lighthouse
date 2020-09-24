@@ -570,10 +570,10 @@ mod tests {
 
         let (n_in, n_out) = (10, 20);
         for _ in 0..n_in {
-            pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
+            pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         }
         for _ in 0..n_out {
-            pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
+            pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         }
 
         // the peer is known
@@ -598,7 +598,7 @@ mod tests {
 
         for _ in 0..MAX_DC_PEERS + 1 {
             let p = PeerId::random();
-            pdb.connect_ingoing(&p, "/ip4/0.0.0.0/".parse().unwrap());
+            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap());
         }
         assert_eq!(pdb.disconnected_peers, 0);
 
@@ -615,7 +615,7 @@ mod tests {
 
         for _ in 0..MAX_BANNED_PEERS + 1 {
             let p = PeerId::random();
-            pdb.connect_ingoing(&p, "/ip4/0.0.0.0/".parse().unwrap());
+            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap());
         }
         assert_eq!(pdb.banned_peers_count.banned_peers(), 0);
 
@@ -633,9 +633,9 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0/".parse().unwrap());
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0/".parse().unwrap());
-        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap());
         add_score(&mut pdb, &p0, 70.0);
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
@@ -655,9 +655,9 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0/".parse().unwrap());
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0/".parse().unwrap());
-        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap());
         add_score(&mut pdb, &p0, 70.0);
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
@@ -675,18 +675,18 @@ mod tests {
 
         let random_peer = PeerId::random();
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
         pdb.disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
 
-        pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
         pdb.disconnect(&random_peer);
@@ -717,20 +717,20 @@ mod tests {
         let random_peer2 = PeerId::random();
         let random_peer3 = PeerId::random();
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
-        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0/".parse().unwrap());
-        pdb.connect_ingoing(&random_peer2, "/ip4/0.0.0.0/".parse().unwrap());
-        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&random_peer2, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         pdb.disconnect(&random_peer1);
         pdb.ban(&random_peer2);
-        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -743,7 +743,7 @@ mod tests {
             pdb.banned_peers().count()
         );
 
-        pdb.connect_outgoing(&random_peer2, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_outgoing(&random_peer2, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -757,10 +757,10 @@ mod tests {
         );
 
         pdb.ban(&random_peer3);
-        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0".parse().unwrap());
         pdb.disconnect(&random_peer2);
         pdb.ban(&random_peer3);
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0/".parse().unwrap());
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -783,14 +783,12 @@ mod tests {
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
     }
 
-    fn connect_peer_with_ips(pdb: &mut PeerDB<M>, ips: Vec<Vec<IpAddr>>) -> PeerId {
+    fn connect_peer_with_ips(pdb: &mut PeerDB<M>, ips: Vec<IpAddr>) -> PeerId {
         let p = PeerId::random();
 
-        for ip_list in ips {
+        for ip in ips {
             let mut addr = Multiaddr::empty();
-            for ip_address in ip_list {
-                addr.push(Protocol::from(ip_address));
-            }
+            addr.push(Protocol::from(ip));
             pdb.connect_ingoing(&p, addr);
         }
         p
@@ -811,18 +809,18 @@ mod tests {
             peers.push(connect_peer_with_ips(
                 &mut pdb,
                 if i == 0 {
-                    vec![vec![ip1, ip2]]
+                    vec![ip1, ip2]
                 } else {
-                    vec![vec![ip1, ip2], vec![ip3, ip4]]
+                    vec![ip1, ip2, ip3, ip4]
                 },
             ));
         }
 
-        let p1 = connect_peer_with_ips(&mut pdb, vec![vec![ip1]]);
-        let p2 = connect_peer_with_ips(&mut pdb, vec![vec![ip2, ip5]]);
-        let p3 = connect_peer_with_ips(&mut pdb, vec![vec![ip3], vec![ip5]]);
-        let p4 = connect_peer_with_ips(&mut pdb, vec![vec![ip5, ip4]]);
-        let p5 = connect_peer_with_ips(&mut pdb, vec![vec![ip5]]);
+        let p1 = connect_peer_with_ips(&mut pdb, vec![ip1]);
+        let p2 = connect_peer_with_ips(&mut pdb, vec![ip2, ip5]);
+        let p3 = connect_peer_with_ips(&mut pdb, vec![ip3, ip5]);
+        let p4 = connect_peer_with_ips(&mut pdb, vec![ip5, ip4]);
+        let p5 = connect_peer_with_ips(&mut pdb, vec![ip5]);
 
         for p in &peers[..BANNED_PEERS_PER_IP_THRESHOLD + 1] {
             pdb.ban(p);
@@ -875,68 +873,63 @@ mod tests {
 
         let mut peers = Vec::new();
         for _ in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
-            peers.push(connect_peer_with_ips(&mut pdb, vec![vec![ip1]]));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip1]));
         }
 
-        let p1 = connect_peer_with_ips(&mut pdb, vec![vec![ip1]]);
-        let p2 = connect_peer_with_ips(&mut pdb, vec![vec![ip2]]);
+        let p1 = connect_peer_with_ips(&mut pdb, vec![ip1]);
+        let p2 = connect_peer_with_ips(&mut pdb, vec![ip2]);
 
-        //ban all peers
+        // ban all peers
         for p in &peers {
             pdb.ban(p);
         }
 
-        //check ip is banned
+        // check ip is banned
         assert!(pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
 
-        //change addresses of banned peers
+        // change addresses of banned peers
         for p in &peers {
             let seen_addresses = &mut pdb.peers.get_mut(p).unwrap().seen_addresses;
             seen_addresses.clear();
-            seen_addresses.insert(ip1);
+            seen_addresses.insert(ip2);
         }
 
-        //check still the same ip is banned
+        // check still the same ip is banned
         assert!(pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
 
-        //unban a peer
+        // unban a peer
         pdb.unban(&peers[0]);
 
-        //check not banned anymore
+        // check not banned anymore
         assert!(!pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
 
-        //check still not banned after new ban
-        pdb.ban(&peers[0]);
-        assert!(!pdb.is_banned(&p1));
-        assert!(!pdb.is_banned(&p2));
-
-        //unban and reban all peers
+        // unban and reban all peers
         for p in &peers {
             pdb.unban(p);
             pdb.ban(p);
         }
 
-        //ip2 is now banned
+        // ip2 is now banned
         assert!(!pdb.is_banned(&p1));
         assert!(pdb.is_banned(&p2));
 
-        //change ips back again
+        // change ips back again
         for p in &peers {
             let seen_addresses = &mut pdb.peers.get_mut(p).unwrap().seen_addresses;
             seen_addresses.clear();
             seen_addresses.insert(ip1);
         }
 
-        //reban every peer except one
+        // reban every peer except one
         for p in &peers[1..] {
             pdb.unban(p);
             pdb.ban(p);
         }
 
-        //nothing is banned
+        // nothing is banned
         assert!(!pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
 
