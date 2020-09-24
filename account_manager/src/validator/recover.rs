@@ -124,7 +124,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
         let voting_pubkey = keystores.voting.pubkey().to_string();
 
-        ValidatorDirBuilder::new(validator_dir.clone(), secrets_dir.clone())
+        ValidatorDirBuilder::new(validator_dir.clone())
+            .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
