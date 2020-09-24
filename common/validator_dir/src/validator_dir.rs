@@ -188,12 +188,17 @@ impl ValidatorDir {
 
     /// Attempts to read files in `self.dir` and return an `Eth1DepositData` that can be used for
     /// submitting an Eth1 deposit.
+    /// Also takes in an optional deposit amount value. If present, we set the deposit amount to be
+    /// the value, else we try to read from the `ETH1_DEPOSIT_AMOUNT_FILE`.
     ///
     /// ## Errors
     ///
     /// If there is a file-system error, not all required files exist or the files are
     /// inconsistent.
-    pub fn eth1_deposit_data(&self) -> Result<Option<Eth1DepositData>, Error> {
+    pub fn eth1_deposit_data(
+        &self,
+        deposit_amount: Option<u64>,
+    ) -> Result<Option<Eth1DepositData>, Error> {
         // Read and parse `ETH1_DEPOSIT_DATA_FILE`.
         let path = self.dir.join(ETH1_DEPOSIT_DATA_FILE);
         if !path.exists() {
@@ -215,11 +220,14 @@ impl ValidatorDir {
         if !path.exists() {
             return Err(Error::DepositAmountDoesNotExist(path));
         }
-        let deposit_amount: u64 =
+        let deposit_amount: u64 = if let Some(amount) = deposit_amount {
+            amount
+        } else {
             String::from_utf8(read(path).map_err(Error::UnableToReadDepositAmount)?)
                 .map_err(Error::DepositAmountIsNotUtf8)?
                 .parse()
-                .map_err(Error::UnableToParseDepositAmount)?;
+                .map_err(Error::UnableToParseDepositAmount)?
+        };
 
         let (deposit_data, root) = decode_eth1_tx_data(&deposit_data_rlp, deposit_amount)
             .map_err(Error::UnableToParseDepositData)?;

@@ -26,6 +26,8 @@ pub const ETH1_HTTP_FLAG: &str = "eth1-http";
 pub const FROM_ADDRESS_FLAG: &str = "from-address";
 pub const CONFIRMATION_COUNT_FLAG: &str = "confirmation-count";
 pub const CONFIRMATION_BATCH_SIZE_FLAG: &str = "confirmation-batch-size";
+pub const TOPUP_FLAG: &str = "topup";
+pub const TOPUP_AMOUNT: &str = "topup-amount";
 
 const GWEI: u64 = 1_000_000_000;
 
@@ -106,6 +108,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true)
                 .default_value("10"),
+        )
+        .arg(
+            Arg::with_name(TOPUP_FLAG)
+                .long(TOPUP_FLAG)
+                .value_name("TOPUP-FLAG")
+                .help("Topup existing validator")
+                .takes_value(false)
+                .requires(TOPUP_AMOUNT),
+        )
+        .arg(
+            Arg::with_name(TOPUP_AMOUNT)
+                .long(TOPUP_AMOUNT)
+                .value_name("TOPUP-AMOUNT")
+                .help("Amount that you want to topup the given validator with in GWEI")
+                .takes_value(true),
         )
 }
 
@@ -238,10 +255,13 @@ pub fn cli_run<T: EthSpec>(
         }
     }?;
 
+    let is_topup = matches.is_present(TOPUP_FLAG);
+    let topup_amount: Option<u64> = clap_utils::parse_optional(matches, TOPUP_AMOUNT)?;
+
     let eth1_deposit_datas = validators
         .into_iter()
-        .filter(|v| !v.eth1_deposit_tx_hash_exists())
-        .map(|v| match v.eth1_deposit_data() {
+        .filter(|v| is_topup || !v.eth1_deposit_tx_hash_exists())
+        .map(|v| match v.eth1_deposit_data(topup_amount) {
             Ok(Some(data)) => Ok((v, data)),
             Ok(None) => Err(format!(
                 "Validator is missing deposit data file: {:?}",
@@ -270,7 +290,7 @@ pub fn cli_run<T: EthSpec>(
         log,
         "Starting deposits";
         "deposit_count" => eth1_deposit_datas.len(),
-        "total_eth" => total_gwei / GWEI,
+        "total_eth" => total_gwei as f64 / GWEI as f64,
     );
 
     let deposit_contract = env
