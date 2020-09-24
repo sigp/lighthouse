@@ -892,7 +892,7 @@ mod tests {
 
         //change addresses of banned peers
         for p in &peers {
-            let seen_addresses = pdb.peers.get_mut(p).unwrap().seen_addresses;
+            let seen_addresses = &mut pdb.peers.get_mut(p).unwrap().seen_addresses;
             seen_addresses.clear();
             seen_addresses.insert(ip1);
         }
