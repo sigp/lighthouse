@@ -37,6 +37,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
+use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
@@ -225,6 +226,21 @@ pub enum Error {
     TooManySkippedSlots {
         head_block_slot: Slot,
         attestation_slot: Slot,
+    },
+    /// The attestation has an invalid target epoch.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    InvalidTargetEpoch { slot: Slot, epoch: Epoch },
+    /// The attestation has pointed to a target root from a different chain to its head.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    InvalidTargetRoot {
+        attestation: Hash256,
+        block: Hash256,
     },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
@@ -425,6 +441,16 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         subnet_id: SubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
+        let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // Check the attestation's epoch matches its target.
+        if attestation_epoch != attestation.data.target.epoch {
+            return Err(Error::InvalidTargetEpoch {
+                slot: attestation.data.slot,
+                epoch: attestation.data.target.epoch,
+            });
+        }
+
         // Ensure attestation is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
@@ -433,16 +459,31 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
-        let num_aggreagtion_bits = attestation.aggregation_bits.num_set_bits();
-        if num_aggreagtion_bits != 1 {
-            return Err(Error::NotExactlyOneAggregationBitSet(num_aggreagtion_bits));
+        let num_aggregation_bits = attestation.aggregation_bits.num_set_bits();
+        if num_aggregation_bits != 1 {
+            return Err(Error::NotExactlyOneAggregationBitSet(num_aggregation_bits));
         }
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
         //
         // Enforce a maximum skip distance for unaggregated attestations.
-        verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
+        let head_block =
+            verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
+
+        // The attestation's target block is an ancestor of the block named in the LMD vote.
+        let target_root =
+            if head_block.slot.epoch(T::EthSpec::slots_per_epoch()) < attestation_epoch {
+                head_block.root
+            } else {
+                head_block.target_root
+            };
+        if attestation.data.target.root != target_root {
+            return Err(Error::InvalidTargetRoot {
+                attestation: attestation.data.target.root,
+                block: target_root,
+            });
+        }
 
         let (indexed_attestation, committees_per_slot) =
             obtain_indexed_attestation_and_committees_per_slot(chain, &attestation)?;
@@ -541,7 +582,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
     max_skip_slots: Option<u64>,
-) -> Result<(), Error> {
+) -> Result<ProtoBlock, Error> {
     if let Some(block) = chain
         .fork_choice
         .read()
@@ -556,7 +597,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
                 });
             }
         }
-        Ok(())
+        Ok(block)
     } else {
         Err(Error::UnknownHeadBlock {
             beacon_block_root: attestation.data.beacon_block_root,

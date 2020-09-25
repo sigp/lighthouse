@@ -18,6 +18,7 @@ pub struct VoteTracker {
 /// A block that is to be applied to the fork choice.
 ///
 /// A simplified version of `types::BeaconBlock`.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Block {
     pub slot: Slot,
     pub root: Hash256,

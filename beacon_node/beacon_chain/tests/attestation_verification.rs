@@ -642,6 +642,7 @@ fn unaggregated_gossip_verification() {
         {
             let mut a = valid_attestation.clone();
             a.data.slot = early_slot;
+            a.data.target.epoch = early_slot.epoch(E::slots_per_epoch());
             a
         },
         subnet_id,
@@ -652,6 +653,27 @@ fn unaggregated_gossip_verification() {
             earliest_permissible_slot,
         }
         if attestation_slot == early_slot && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
+    );
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.12.3
+     *
+     * The attestation's epoch matches its target -- i.e. `attestation.data.target.epoch ==
+     *   compute_epoch_at_slot(attestation.data.slot)`
+     *
+     */
+
+    assert_invalid!(
+        "attestation without invalid target epoch",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.target.epoch += 1;
+            a
+        },
+        subnet_id,
+        AttnError::InvalidTargetEpoch { .. }
     );
 
     /*
@@ -715,6 +737,26 @@ fn unaggregated_gossip_verification() {
             beacon_block_root,
         }
         if beacon_block_root == unknown_root
+    );
+
+    /*
+     * The following test ensures that:
+     *
+     * Spec v0.12.3
+     *
+     * The attestation's target block is an ancestor of the block named in the LMD vote
+     */
+
+    let unknown_root = Hash256::from_low_u64_le(424242);
+    assert_invalid!(
+        "attestation with invalid target root",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.target.root = unknown_root;
+            a
+        },
+        subnet_id,
+        AttnError::InvalidTargetRoot { .. }
     );
 
     /*
