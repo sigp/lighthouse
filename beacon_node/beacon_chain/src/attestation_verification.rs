@@ -759,7 +759,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
         get_indexed_attestation(committee.committee, &attestation)
             .map(|attestation| (attestation, committees_per_slot))
-            .map_err(|e| BeaconChainError::from(e).into())
+            .map_err(Error::Invalid)
     })
 }
 

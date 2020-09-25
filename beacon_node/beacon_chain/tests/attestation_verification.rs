@@ -11,13 +11,15 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use int_to_bytes::int_to_bytes32;
-use state_processing::per_slot_processing;
+use state_processing::{
+    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+};
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BitList, EthSpec,
-    Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof,
-    SignedBeaconBlock, SubnetId, Unsigned,
+    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
+    BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -590,19 +592,22 @@ fn unaggregated_gossip_verification() {
      * The committee index is within the expected range -- i.e. `data.index <
      * get_committee_count_per_slot(state, data.target.epoch)`.
      */
-    let mut a = valid_attestation.clone();
-    a.data.index = harness
-        .chain
-        .head()
-        .unwrap()
-        .beacon_state
-        .get_committee_count_at_slot(a.data.slot)
-        .unwrap();
-    harness
-        .chain
-        .verify_unaggregated_attestation_for_gossip(a, subnet_id)
-        .err()
-        .expect("invalid index");
+    assert_invalid!(
+        "attestation with invalid committee index",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.index = harness
+                .chain
+                .head()
+                .unwrap()
+                .beacon_state
+                .get_committee_count_at_slot(a.data.slot)
+                .unwrap();
+            a
+        },
+        subnet_id,
+        AttnError::NoCommitteeForSlotAndIndex { .. }
+    );
 
     /*
      * The following test ensures:
@@ -747,17 +752,22 @@ fn unaggregated_gossip_verification() {
      *   `len(attestation.aggregation_bits) == len(get_beacon_committee(state, data.slot,
      *   data.index))`.
      */
-    let mut a = valid_attestation.clone();
-    let bits = a.aggregation_bits.iter().collect::<Vec<_>>();
-    a.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
-    for (i, bit) in bits.into_iter().enumerate() {
-        a.aggregation_bits.set(i, bit).unwrap();
-    }
-    harness
-        .chain
-        .verify_unaggregated_attestation_for_gossip(a, subnet_id)
-        .err()
-        .expect("invalid committee length");
+    assert_invalid!(
+        "attestation with invalid bitfield",
+        {
+            let mut a = valid_attestation.clone();
+            let bits = a.aggregation_bits.iter().collect::<Vec<_>>();
+            a.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
+            for (i, bit) in bits.into_iter().enumerate() {
+                a.aggregation_bits.set(i, bit).unwrap();
+            }
+            a
+        },
+        subnet_id,
+        AttnError::Invalid(AttestationValidationError::BeaconStateError(
+            BeaconStateError::InvalidBitfield
+        ))
+    );
 
     /*
      * The following test ensures that:
