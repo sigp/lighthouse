@@ -100,6 +100,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_fork_update: Option<Delay>,
     /// A timer for updating various network metrics.
     metrics_update: tokio::time::Interval,
+    /// gossipsub_parameter_update timer
+    gossipsub_parameter_update: tokio::time::Interval,
     /// The logger for the network service.
     log: slog::Logger,
 }
@@ -128,7 +130,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
-            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log).await?;
+            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log, &beacon_chain.spec).await?;
 
         // Repopulate the DHT with stored ENR's.
         let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
@@ -157,6 +159,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
 
+        // create a timer for updating gossipsub parameters
+        let gossipsub_parameter_update = tokio::time::interval(Duration::from_secs(60));
+
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
@@ -169,6 +174,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_globals: network_globals.clone(),
             next_fork_update,
             metrics_update,
+            gossipsub_parameter_update,
             log: network_log,
         };
 
@@ -227,6 +233,27 @@ fn spawn_service<T: BeaconChainTypes>(
                             .map(|gauge| gauge.reset());
                     }
                     update_gossip_metrics::<T::EthSpec>(&service.libp2p.swarm.gs());
+                }
+                _ = service.gossipsub_parameter_update.next() => {
+                    if let Ok(current_epoch) = service.beacon_chain.epoch() {
+                        if let Ok(active_validators) = service.beacon_chain.with_head(|head| {
+                            Ok(head
+                            .beacon_state
+                            .validators
+                            .iter()
+                            .filter(|validator| validator.is_active_at(current_epoch))
+                            .count())
+                        }) {
+                            if let Err(_) = (*service.libp2p.swarm)
+                            .update_gossipsub_parameters(active_validators) {
+                                error!(
+                                    service.log,
+                                    "Failed to update gossipsub parameters";
+                                    "active_validators" => active_validators
+                                );
+                            }
+                        }
+                    }
                 }
                 // handle a message sent to the network
                 Some(message) = service.network_recv.recv() => {

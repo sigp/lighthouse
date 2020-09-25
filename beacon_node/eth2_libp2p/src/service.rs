@@ -24,7 +24,7 @@ use std::io::{Error, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{EnrForkId, EthSpec};
+use types::{EnrForkId, EthSpec, ChainSpec};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -63,6 +63,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
+        chain_spec: &ChainSpec,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
         trace!(log, "Libp2p Service starting");
@@ -106,7 +107,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
             let behaviour =
-                Behaviour::new(&local_keypair, config, network_globals.clone(), &log).await?;
+                Behaviour::new(&local_keypair, config, network_globals.clone(), &log, chain_spec).await?;
 
             // use the executor for libp2p
             struct Executor(environment::TaskExecutor);

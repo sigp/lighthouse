@@ -34,7 +34,12 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
+use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId, ChainSpec};
+use libp2p::gossipsub::{PeerScoreParams, PeerScoreThresholds, TopicScoreParams};
+use std::collections::HashMap;
+use std::time::Duration;
+use libp2p::gossipsub::time_cache::DuplicateCache;
+use std::cmp::max;
 
 mod handler;
 
@@ -123,7 +128,37 @@ pub struct Behaviour<TSpec: EthSpec> {
     network_dir: PathBuf,
     /// Logger for behaviour actions.
     log: slog::Logger,
+
+    /// remembers the messages we published ourself for punishing replay attacks
+    published_message_ids: DuplicateCache<MessageId>,
+
+    score_settings: PeerScoreSettings,
 }
+
+pub struct PeerScoreSettings {
+    slot: Duration,
+    epoch: Duration,
+
+    beacon_attestation_subnet_weight: f64,
+    max_positive_score: f64,
+
+    decay_interval: Duration,
+    decay_to_zero: f64,
+
+    mesh_n: usize,
+    max_committees_per_slot: usize,
+    target_committee_size: usize,
+    target_aggregators_per_committee: usize,
+    attestation_subnet_count: u64
+}
+
+const MAX_IN_MESH_SCORE: f64 = 10.0;
+const MAX_FIRST_MESSAGE_DELIVERIES_SCORE: f64 = 40.0;
+const BEACON_BLOCK_WEIGHT: f64 = 0.5;
+const BEACON_AGGREGATE_PROOF_WEIGHT: f64 = 0.5;
+const VOLUNTARY_EXIT_WEIGHT: f64 = 0.05;
+const PROPOSER_SLASHING_WEIGHT: f64 = 0.05;
+const ATTESTER_SLASHING_WEIGHT: f64 = 0.05;
 
 /// Implements the combined behaviour for the libp2p service.
 impl<TSpec: EthSpec> Behaviour<TSpec> {
@@ -132,6 +167,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
+        chain_spec: &ChainSpec
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
 
@@ -146,15 +182,51 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let gossipsub = Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
+        let mut gossipsub = Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
             .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
-        // Temporarily disable scoring until parameters are tested.
-        /*
+        let active_validators = TSpec::minimum_validator_count();
+
+        let thresholds = PeerScoreThresholds {
+            gossip_threshold: -4000.0,
+            publish_threshold: -8000.0,
+            graylist_threshold: -16000.0,
+            accept_px_threshold: 100.0,
+            opportunistic_graft_threshold: 5.0,
+        };
+
+        let slot = Duration::from_millis(chain_spec.milliseconds_per_slot);
+        let beacon_attestation_subnet_weight = 1.0 / chain_spec.attestation_subnet_count as f64;
+        let max_positive_score = (MAX_IN_MESH_SCORE + MAX_FIRST_MESSAGE_DELIVERIES_SCORE) * (
+            BEACON_BLOCK_WEIGHT + BEACON_AGGREGATE_PROOF_WEIGHT +
+            beacon_attestation_subnet_weight * chain_spec.attestation_subnet_count as f64 +
+            VOLUNTARY_EXIT_WEIGHT + PROPOSER_SLASHING_WEIGHT + ATTESTER_SLASHING_WEIGHT
+        );
+
+        let score_settings = PeerScoreSettings {
+            slot,
+            epoch: slot * TSpec::slots_per_epoch() as u32,
+            beacon_attestation_subnet_weight,
+            max_positive_score,
+            decay_interval: slot,
+            decay_to_zero: 0.01,
+            mesh_n: net_conf.gs_config.mesh_n(),
+            max_committees_per_slot: chain_spec.max_committees_per_slot,
+            target_committee_size: chain_spec.target_committee_size,
+            target_aggregators_per_committee: chain_spec.target_aggregators_per_committee as usize,
+            attestation_subnet_count: chain_spec.attestation_subnet_count,
+        };
+
+        //Prepare scoring parameters
+        let params = Self::get_peer_score_params(active_validators, &thresholds,
+                                                 &enr_fork_id, &score_settings)?;
+
+        debug!(behaviour_log, "Using peer score params"; "params" => format!("{:?}", params));
+
         gossipsub
-            .with_peer_score(PeerScoreParams::default(), PeerScoreThresholds::default())
+            .with_peer_score(params.clone(), thresholds)
             .expect("Valid score params and thresholds");
-        */
+
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
@@ -169,7 +241,276 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             waker: None,
             network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
+            published_message_ids: DuplicateCache::new(Duration::from_secs(10)),
+            score_settings
         })
+    }
+
+    pub fn get_beacon_aggregate_proof_and_attestation_subnet_params(
+        active_validators: usize,
+        score_settings: &PeerScoreSettings,
+    ) -> error::Result<(TopicScoreParams, TopicScoreParams)> {
+        let (aggregators_per_slot, committees_per_slot) = Self::expected_aggregator_count_per_slot(
+            active_validators,
+            score_settings
+        )?;
+        let multiple_bursts_per_subnet_per_epoch = committees_per_slot as u64 >=
+            2 * score_settings.attestation_subnet_count / TSpec::slots_per_epoch();
+        let beacon_aggregate_proof_params = Self::get_topic_params(
+            score_settings,
+            BEACON_AGGREGATE_PROOF_WEIGHT,
+            aggregators_per_slot,
+            score_settings.epoch,
+            Some((score_settings.epoch * 2, 4.0, score_settings.epoch))
+        );
+        let beacon_attestation_subnet_params = Self::get_topic_params(
+            score_settings,
+            score_settings.beacon_attestation_subnet_weight,
+            active_validators as f64 / score_settings.attestation_subnet_count as f64 /
+                TSpec::slots_per_epoch() as f64,
+            score_settings.epoch * (if multiple_bursts_per_subnet_per_epoch {1} else {4}),
+            Some((
+                score_settings.epoch * (if multiple_bursts_per_subnet_per_epoch {4} else {16}),
+                16.0,
+                if multiple_bursts_per_subnet_per_epoch {
+                    score_settings.slot * (TSpec::slots_per_epoch() as u32 / 2 + 1)
+                } else {
+                    score_settings.epoch * 3
+                }
+            ))
+        );
+        
+        Ok((beacon_aggregate_proof_params, beacon_attestation_subnet_params))
+    }
+
+    pub fn update_gossipsub_parameters(&mut self, active_validators: usize) -> error::Result<()> {
+        let (beacon_aggregate_proof_params, beacon_attestation_subnet_params) = 
+            Self::get_beacon_aggregate_proof_and_attestation_subnet_params(
+                active_validators,
+                &self.score_settings,
+            )?;
+
+        let fork_digest = self.enr_fork_id.fork_digest;
+        let get_topic = |kind: GossipKind| -> Topic {
+            GossipTopic::new(kind, GossipEncoding::default(), fork_digest).into()
+        };
+
+        debug!(self.log, "Updating gossipsub scores";
+            "active_validators" => active_validators,
+            "beacon_aggregate_proof_params" => format!("{:?}", beacon_aggregate_proof_params),
+            "beacon_attestation_subnet_params" => format!("{:?}", beacon_attestation_subnet_params),
+        );
+
+        self.gossipsub.set_topic_params(
+            get_topic(GossipKind::BeaconAggregateAndProof),
+            beacon_aggregate_proof_params
+        )?;
+
+        for i in 0..self.score_settings.attestation_subnet_count {
+            self.gossipsub.set_topic_params(
+                get_topic(GossipKind::Attestation(SubnetId::new(i))),
+                beacon_attestation_subnet_params.clone()
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn score_parameter_decay_with_base(decay_time: Duration, decay_interval: Duration,
+                                       decay_to_zero: f64) -> f64 {
+        let ticks = decay_time.as_secs_f64() / decay_interval.as_secs_f64();
+        decay_to_zero.powf(1.0 / ticks)
+    }
+
+    fn decay_convergence(decay: f64, rate: f64) -> f64 {
+        rate / (1.0 - decay)
+    }
+
+    fn threshold(decay: f64, rate: f64) -> f64 {
+        Self::decay_convergence(decay, rate) * decay
+    }
+
+    fn expected_aggregator_count_per_slot(
+        active_validators: usize,
+        score_settings: &PeerScoreSettings
+    ) -> error::Result<(f64, usize)> {
+        let committees = TSpec::get_committee_count_per_slot_with(
+            active_validators,
+            score_settings.max_committees_per_slot,
+            score_settings.target_committee_size,
+        )
+            .map_err(|e| format!("Could not get committee count from spec: {:?}", e))?
+            * TSpec::slots_per_epoch() as usize;
+
+        let smaller_committee_size = active_validators / committees;
+        let num_larger_committees = active_validators - smaller_committee_size * committees;
+
+        let modulo_smaller = max(1, smaller_committee_size /
+            score_settings.target_aggregators_per_committee as usize);
+        let modulo_larger = max(1, (smaller_committee_size + 1) /
+            score_settings.target_aggregators_per_committee as usize);
+
+        Ok(((((committees - num_larger_committees) * smaller_committee_size) as f64
+            / modulo_smaller as f64 +
+            (num_larger_committees * (smaller_committee_size + 1)) as f64 / modulo_larger as f64)
+            / TSpec::slots_per_epoch() as f64, committees))
+    }
+
+    fn get_peer_score_params(active_validators: usize, thresholds: &PeerScoreThresholds,
+                             enr_fork_id: &EnrForkId, score_settings: &PeerScoreSettings)
+                             -> error::Result<PeerScoreParams> {
+        let mut params = PeerScoreParams::default();
+
+        params.decay_interval = score_settings.decay_interval;
+        params.decay_to_zero = score_settings.decay_to_zero;
+        params.retain_score = score_settings.epoch * 100;
+        params.app_specific_weight = 1.0;
+        params.ip_colocation_factor_threshold = 10.0;
+        params.behaviour_penalty_threshold = 6.0;
+
+        let score_parameter_decay = |decay_time: Duration| -> f64 {
+            Self::score_parameter_decay_with_base(decay_time, score_settings.decay_interval,
+                                                  score_settings.decay_to_zero)
+        };
+
+        params.behaviour_penalty_decay = score_parameter_decay(score_settings.epoch * 10);
+
+        let target_value = Self::decay_convergence(params.behaviour_penalty_decay,
+                                                   10.0 / TSpec::slots_per_epoch() as f64)
+            - params.behaviour_penalty_threshold;
+        params.behaviour_penalty_weight = thresholds.gossip_threshold / target_value.powi(2);
+
+        params.topic_score_cap = score_settings.max_positive_score * 0.5;
+        params.ip_colocation_factor_weight = - params.topic_score_cap;
+
+        params.topics = HashMap::new();
+
+        let get_hash = |kind: GossipKind| -> TopicHash {
+            let topic: Topic = GossipTopic::new(
+                kind,
+                GossipEncoding::default(),
+                enr_fork_id.fork_digest,
+            ).into();
+            topic.hash()
+        };
+
+        //first all fixed topics not depending on active_validators
+        params.topics.insert(
+            get_hash(GossipKind::BeaconBlock),
+            Self::get_topic_params(
+                score_settings,
+                BEACON_BLOCK_WEIGHT,
+                1.0,
+                score_settings.epoch * 20,
+                Some((score_settings.epoch * 5, 3.0, score_settings.epoch))
+            )
+        );
+        params.topics.insert(
+            get_hash(GossipKind::VoluntaryExit),
+            Self::get_topic_params(
+                score_settings,
+                VOLUNTARY_EXIT_WEIGHT,
+                4.0 / TSpec::slots_per_epoch() as f64,
+                score_settings.epoch * 100,
+                None
+            )
+        );
+        params.topics.insert(
+            get_hash(GossipKind::AttesterSlashing),
+            Self::get_topic_params(
+                score_settings,
+                ATTESTER_SLASHING_WEIGHT,
+                1.0 / 5.0 / TSpec::slots_per_epoch() as f64,
+                score_settings.epoch * 100,
+                None
+            )
+        );
+        params.topics.insert(
+            get_hash(GossipKind::ProposerSlashing),
+            Self::get_topic_params(
+                score_settings,
+                PROPOSER_SLASHING_WEIGHT,
+                1.0 / 5.0 / TSpec::slots_per_epoch() as f64,
+                score_settings.epoch * 100,
+                None
+            )
+        );
+
+        //dynamic topics depending on active_validators
+        let (beacon_aggregate_proof_params, beacon_attestation_subnet_params) =
+            Self::get_beacon_aggregate_proof_and_attestation_subnet_params(
+                active_validators,
+                score_settings,
+            )?;
+
+        params.topics.insert(
+            get_hash(GossipKind::BeaconAggregateAndProof),
+            beacon_aggregate_proof_params
+        );
+        
+        for i in 0..score_settings.attestation_subnet_count {
+            params.topics.insert(
+                get_hash(GossipKind::Attestation(SubnetId::new(i))),
+                beacon_attestation_subnet_params.clone()
+            );
+        }
+
+        Ok(params)
+    }
+
+    fn get_topic_params(score_settings: &PeerScoreSettings, topic_weight: f64,
+                        expected_message_rate: f64, first_message_decay_time: Duration,
+                        // decay time, cap factor, activation window
+                        mesh_message_info: Option<(Duration, f64, Duration)>) -> TopicScoreParams {
+        let mut t_params = TopicScoreParams::default();
+
+        t_params.topic_weight = topic_weight;
+
+        t_params.time_in_mesh_quantum = score_settings.slot;
+        t_params.time_in_mesh_cap = 3600.0 / t_params.time_in_mesh_quantum.as_secs_f64();
+        t_params.time_in_mesh_weight = 10.0 / t_params.time_in_mesh_cap;
+
+        let score_parameter_decay = |decay_time: Duration| -> f64 {
+            Self::score_parameter_decay_with_base(decay_time, score_settings.decay_interval,
+                                                  score_settings.decay_to_zero)
+        };
+
+        t_params.first_message_deliveries_decay = score_parameter_decay(first_message_decay_time);
+        t_params.first_message_deliveries_cap = Self::decay_convergence(
+            t_params.first_message_deliveries_decay, 2.0 * expected_message_rate /
+                score_settings.mesh_n as f64
+        );
+        t_params.first_message_deliveries_weight = 40.0 / t_params.first_message_deliveries_cap;
+
+        if let Some((decay_time, cap_factor, activation_window)) = mesh_message_info {
+            t_params.mesh_message_deliveries_decay = score_parameter_decay(decay_time);
+            t_params.mesh_message_deliveries_threshold = Self::threshold(
+                t_params.mesh_message_deliveries_decay, expected_message_rate / 50.0
+            );
+            t_params.mesh_message_deliveries_cap = cap_factor *
+                t_params.mesh_message_deliveries_threshold;
+            t_params.mesh_message_deliveries_activation = activation_window;
+            t_params.mesh_message_deliveries_window = Duration::from_secs(2);
+            t_params.mesh_failure_penalty_decay = t_params.mesh_message_deliveries_decay;
+            t_params.mesh_message_deliveries_weight = - score_settings.max_positive_score /
+                (t_params.topic_weight * t_params.mesh_message_deliveries_threshold.powi(2));
+            t_params.mesh_failure_penalty_weight = t_params.mesh_message_deliveries_weight;
+        } else {
+            t_params.mesh_message_deliveries_weight = 0.0;
+            t_params.mesh_message_deliveries_threshold = 0.0;
+            t_params.mesh_message_deliveries_decay = 0.0;
+            t_params.mesh_message_deliveries_cap = 0.0;
+            t_params.mesh_message_deliveries_window = Duration::from_secs(0);
+            t_params.mesh_message_deliveries_activation = Duration::from_secs(0);
+            t_params.mesh_failure_penalty_decay = 0.0;
+            t_params.mesh_failure_penalty_weight = 0.0;
+        }
+
+        t_params.invalid_message_deliveries_weight =
+            -score_settings.max_positive_score / t_params.topic_weight;
+        t_params.invalid_message_deliveries_decay = score_parameter_decay(score_settings.epoch * 50);
+
+        t_params
     }
 
     /// Attempts to connect to a libp2p peer.
@@ -198,14 +539,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// encoding and fork version.
     pub fn subscribe_kind(&mut self, kind: GossipKind) -> bool {
         let gossip_topic = GossipTopic::new(
-            kind,
+            kind.clone(),
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
-
-        // TODO: Implement scoring
-        // let topic: Topic = gossip_topic.into();
-        // self.gossipsub.set_topic_params(t.hash(), TopicScoreParams::default());
         self.subscribe(gossip_topic)
     }
 
@@ -227,12 +564,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
-        // TODO: Implement scoring
-        /*
-        let t: Topic = topic.clone().into();
-        self.gossipsub
-            .set_topic_params(t.hash(), TopicScoreParams::default());
-        */
         self.subscribe(topic)
     }
 
@@ -297,27 +628,33 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
-                            slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
+                        match self.gossipsub.publish(topic.clone().into(), message_data) {
+                            Err(e) => {
+                                slog::warn!(self.log, "Could not publish message";
+                                            "error" => format!("{:?}", e));
 
-                            // add to metrics
-                            match topic.kind() {
-                                GossipKind::Attestation(subnet_id) => {
-                                    if let Some(v) = metrics::get_int_gauge(
-                                        &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
-                                        &[&subnet_id.to_string()],
-                                    ) {
-                                        v.inc()
-                                    };
+                                // add to metrics
+                                match topic.kind() {
+                                    GossipKind::Attestation(subnet_id) => {
+                                        if let Some(v) = metrics::get_int_gauge(
+                                            &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
+                                            &[&subnet_id.to_string()],
+                                        ) {
+                                            v.inc()
+                                        };
+                                    }
+                                    kind => {
+                                        if let Some(v) = metrics::get_int_gauge(
+                                            &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                                            &[&format!("{:?}", kind)],
+                                        ) {
+                                            v.inc()
+                                        };
+                                    }
                                 }
-                                kind => {
-                                    if let Some(v) = metrics::get_int_gauge(
-                                        &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
-                                        &[&format!("{:?}", kind)],
-                                    ) {
-                                        v.inc()
-                                    };
-                                }
+                            },
+                            Ok(msg_id) => {
+                                self.published_message_ids.insert(msg_id);
                             }
                         }
                     }
@@ -540,13 +877,31 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         }
                     }
                     Ok(msg) => {
-                        // Notify the network
-                        self.add_event(BehaviourEvent::PubsubMessage {
-                            id,
-                            source: propagation_source,
-                            topics: gs_msg.topics,
-                            message: msg,
-                        });
+                        if self.published_message_ids.contains(&id) {
+                            //the peer sent us back a message we published to them
+                            warn!(self.log,
+                                  "A peer sent us our published message back";
+                                  "message_id" => id.to_string(),
+                                  "peer_id" => propagation_source.to_string());
+                            if let Err(e) = self.gossipsub.report_message_validation_result(
+                                &id,
+                                &propagation_source,
+                                MessageAcceptance::Reject,
+                            ) {
+                                warn!(self.log, "Failed to report message validation";
+                                "message_id" => id.to_string(),
+                                "peer_id" => propagation_source.to_string(),
+                                "error" => format!("{:?}", e));
+                            }
+                        } else {
+                            // Notify the network
+                            self.add_event(BehaviourEvent::PubsubMessage {
+                                id,
+                                source: propagation_source,
+                                topics: gs_msg.topics,
+                                message: msg,
+                            });
+                        }
                     }
                 }
             }
