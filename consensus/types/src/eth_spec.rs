@@ -75,14 +75,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::get_committee_count_per_slot_with(
             active_validator_count,
             spec.max_committees_per_slot,
-            spec.target_committee_size
+            spec.target_committee_size,
         )
     }
 
     fn get_committee_count_per_slot_with(
         active_validator_count: usize,
         max_committees_per_slot: usize,
-        target_committee_size: usize
+        target_committee_size: usize,
     ) -> Result<usize, Error> {
         let slots_per_epoch = Self::SlotsPerEpoch::to_usize();
 
