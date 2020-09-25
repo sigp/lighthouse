@@ -9,6 +9,7 @@ use crate::{
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
+use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 
 /// Builds a beacon block to be used for testing purposes.
@@ -172,7 +173,10 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         num_attestations: usize,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
-        let mut slot = self.block.slot - spec.min_attestation_inclusion_delay;
+        let mut slot = self
+            .block
+            .slot
+            .safe_sub(spec.min_attestation_inclusion_delay)?;
         let mut attestations_added = 0;
 
         // Stores the following (in order):
@@ -192,7 +196,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         // - The slot is too old to be included in a block at this slot.
         // - The `MAX_ATTESTATIONS`.
         loop {
-            if state.slot >= slot + T::slots_per_epoch() {
+            if state.slot >= slot.safe_add(T::slots_per_epoch())? {
                 break;
             }
 
@@ -211,7 +215,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                 attestations_added += 1;
             }
 
-            slot -= 1;
+            slot.safe_sub_assign(1u64)?;
         }
 
         // Loop through all the committees, splitting each one in half until we have

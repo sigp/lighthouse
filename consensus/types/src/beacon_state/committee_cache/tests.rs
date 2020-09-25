@@ -53,8 +53,8 @@ fn initializes_with_the_right_epoch() {
     let cache = CommitteeCache::initialized(&state, state.previous_epoch(), &spec).unwrap();
     assert_eq!(cache.initialized_epoch, Some(state.previous_epoch()));
 
-    let cache = CommitteeCache::initialized(&state, state.next_epoch(), &spec).unwrap();
-    assert_eq!(cache.initialized_epoch, Some(state.next_epoch()));
+    let cache = CommitteeCache::initialized(&state, state.next_epoch().unwrap(), &spec).unwrap();
+    assert_eq!(cache.initialized_epoch, Some(state.next_epoch().unwrap()));
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn shuffles_for_the_right_epoch() {
         .get_seed(state.current_epoch(), Domain::BeaconAttester, spec)
         .unwrap();
     let next_seed = state
-        .get_seed(state.next_epoch(), Domain::BeaconAttester, spec)
+        .get_seed(state.next_epoch().unwrap(), Domain::BeaconAttester, spec)
         .unwrap();
 
     assert!((previous_seed != current_seed) && (current_seed != next_seed));
@@ -114,7 +114,7 @@ fn shuffles_for_the_right_epoch() {
     assert_eq!(cache.shuffling, shuffling_with_seed(previous_seed));
     assert_shuffling_positions_accurate(&cache);
 
-    let cache = CommitteeCache::initialized(&state, state.next_epoch(), spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.next_epoch().unwrap(), spec).unwrap();
     assert_eq!(cache.shuffling, shuffling_with_seed(next_seed));
     assert_shuffling_positions_accurate(&cache);
 }

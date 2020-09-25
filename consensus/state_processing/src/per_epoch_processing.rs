@@ -84,7 +84,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
     total_balances: &TotalBalances,
 ) -> Result<(), Error> {
-    if state.current_epoch() <= T::genesis_epoch() + 1 {
+    if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
         return Ok(());
     }
 
@@ -126,25 +126,25 @@ pub fn process_justification_and_finalization<T: EthSpec>(
 
     // The 2nd/3rd/4th most recent epochs are all justified, the 2nd using the 4th as source.
     if (1..4).all(|i| bits.get(i).unwrap_or(false))
-        && old_previous_justified_checkpoint.epoch + 3 == current_epoch
+        && old_previous_justified_checkpoint.epoch.safe_add(3)? == current_epoch
     {
         state.finalized_checkpoint = old_previous_justified_checkpoint;
     }
     // The 2nd/3rd most recent epochs are both justified, the 2nd using the 3rd as source.
     else if (1..3).all(|i| bits.get(i).unwrap_or(false))
-        && old_previous_justified_checkpoint.epoch + 2 == current_epoch
+        && old_previous_justified_checkpoint.epoch.safe_add(2)? == current_epoch
     {
         state.finalized_checkpoint = old_previous_justified_checkpoint;
     }
     // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 3nd as source.
     if (0..3).all(|i| bits.get(i).unwrap_or(false))
-        && old_current_justified_checkpoint.epoch + 2 == current_epoch
+        && old_current_justified_checkpoint.epoch.safe_add(2)? == current_epoch
     {
         state.finalized_checkpoint = old_current_justified_checkpoint;
     }
     // The 1st/2nd most recent epochs are both justified, the 1st using the 2nd as source.
     else if (0..2).all(|i| bits.get(i).unwrap_or(false))
-        && old_current_justified_checkpoint.epoch + 1 == current_epoch
+        && old_current_justified_checkpoint.epoch.safe_add(1)? == current_epoch
     {
         state.finalized_checkpoint = old_current_justified_checkpoint;
     }
@@ -160,10 +160,15 @@ pub fn process_final_updates<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let current_epoch = state.current_epoch();
-    let next_epoch = state.next_epoch();
+    let next_epoch = state.next_epoch()?;
 
     // Reset eth1 data votes.
-    if (state.slot + 1) % T::SlotsPerEth1VotingPeriod::to_u64() == 0 {
+    if state
+        .slot
+        .safe_add(1)?
+        .safe_rem(T::SlotsPerEth1VotingPeriod::to_u64())?
+        == 0
+    {
         state.eth1_data_votes = VariableList::empty();
     }
 
