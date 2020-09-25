@@ -233,7 +233,7 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     InvalidTargetEpoch { slot: Slot, epoch: Epoch },
-    /// The attestation has pointed to a target root from a different chain to its head.
+    /// The attestation references an invalid target block.
     ///
     /// ## Peer scoring
     ///
