@@ -693,7 +693,7 @@ fn unaggregated_gossip_verification() {
      */
 
     assert_invalid!(
-        "attestation without invalid target epoch",
+        "attestation with invalid target epoch",
         {
             let mut a = valid_attestation.clone();
             a.data.target.epoch += 1;
