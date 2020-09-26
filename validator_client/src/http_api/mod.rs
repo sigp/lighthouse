@@ -376,7 +376,8 @@ pub fn serve<T: EthSpec>(
              initialized_validators: Arc<RwLock<InitializedValidators>>| {
                 blocking_json_task(move || {
                     // Check to ensure the password is correct.
-                    body.keystore
+                    let keypair = body
+                        .keystore
                         .decrypt_keypair(body.password.as_bytes())
                         .map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!(
@@ -387,6 +388,7 @@ pub fn serve<T: EthSpec>(
 
                     let validator_dir = ValidatorDirBuilder::new(data_dir.clone())
                         .voting_keystore(body.keystore.clone(), body.password.as_bytes())
+                        .store_withdrawal_keystore(false)
                         .build()
                         .map_err(|e| {
                             warp_utils::reject::custom_server_error(format!(
@@ -419,7 +421,10 @@ pub fn serve<T: EthSpec>(
                             ))
                         })?;
 
-                    Ok(())
+                    Ok(api_types::GenericResponse::from(api_types::ValidatorData {
+                        enabled: body.enable,
+                        voting_pubkey: keypair.pk.into(),
+                    }))
                 })
             },
         );
