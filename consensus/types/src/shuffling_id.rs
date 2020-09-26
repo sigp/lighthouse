@@ -42,7 +42,7 @@ impl ShufflingId {
             .saturating_sub(2_u64)
             .end_slot(E::slots_per_epoch());
 
-        let shuffling_decision_block = if state.slot == shuffling_decision_slot {
+        let shuffling_decision_block = if state.slot <= shuffling_decision_slot {
             block_root
         } else {
             *state.get_block_root(shuffling_decision_slot)?
