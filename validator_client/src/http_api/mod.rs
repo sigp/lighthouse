@@ -309,6 +309,27 @@ pub fn serve<T: EthSpec>(
                                 ))
                             })?;
 
+                        let eth1_deposit_data = validator_dir
+                            .eth1_deposit_data()
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to read local deposit data: {:?}",
+                                    e
+                                ))
+                            })?
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "failed to create local deposit data: {:?}".to_string(),
+                                )
+                            })?;
+
+                        if eth1_deposit_data.deposit_data.amount != request.deposit_gwei {
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "invalid deposit_gwei {}, expected {}",
+                                eth1_deposit_data.deposit_data.amount, request.deposit_gwei
+                            )));
+                        }
+
                         let voting_password = ZeroizeString::from(
                             String::from_utf8(voting_password.as_bytes().to_vec()).map_err(
                                 |e| {
@@ -342,9 +363,11 @@ pub fn serve<T: EthSpec>(
                                 ))
                             })?;
 
-                        validators.push(api_types::ValidatorData {
+                        validators.push(api_types::CreatedValidator {
                             enabled: true,
                             voting_pubkey: voting_pubkey,
+                            eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
+                            deposit_gwei: request.deposit_gwei,
                         });
                     }
 
