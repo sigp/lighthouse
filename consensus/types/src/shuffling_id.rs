@@ -38,8 +38,9 @@ impl ShufflingId {
         // Taking advantage of saturating subtraction on slot and epoch.
         //
         // This is the final slot of the penultimate epoch.
-        let shuffling_decision_slot =
-            (state.current_epoch() - 1).start_slot(E::slots_per_epoch()) - 1;
+        let shuffling_decision_slot = shuffling_epoch
+            .saturating_sub(2_u64)
+            .end_slot(E::slots_per_epoch());
 
         let shuffling_decision_block = if state.slot == shuffling_decision_slot {
             block_root
