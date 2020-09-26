@@ -5,6 +5,8 @@ use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{BeaconBlock, EthSpec, Slot, Unsigned};
+use ssz_derive::{Encode, Decode};
+use std::iter::FromIterator;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -26,6 +28,13 @@ pub enum Error {
 /// blocks reduces the theoretical maximum size of this cache to `slots_since_finality *
 /// active_validator_count`, however in reality that is more like `slots_since_finality *
 /// known_distinct_shufflings` which is much smaller.
+#[derive(Encode, Decode)]
+pub struct SszObservedBlockProducers {
+    finalized_slot: Slot,
+    items_keys: Vec<Slot>,
+    items_values: Vec<Vec<u64>>,
+}
+#[derive(Debug)]
 pub struct ObservedBlockProducers<E: EthSpec> {
     finalized_slot: RwLock<Slot>,
     items: RwLock<HashMap<Slot, HashSet<u64>>>,
@@ -119,12 +128,65 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
             .write()
             .retain(|slot, _set| *slot > finalized_slot);
     }
+
+    /// Returns a `SszObservedBlockProducers`, which contains all necessary information to restore the state
+    /// of `Self` at some later point.
+    pub fn to_ssz_container(&self) -> SszObservedBlockProducers {
+        let finalized_slot = *self.finalized_slot.read();
+
+        let items_keys: Vec<Slot> = self.items.read().keys().cloned().collect();
+
+        let items_values: Vec<Vec<u64>> = self
+            .items
+            .read()
+            .values()
+            .map(|item| Vec::from_iter(item.clone()))
+            .collect();
+
+        SszObservedBlockProducers {
+            finalized_slot,
+            items_keys,
+            items_values,
+        }
+    }
+
+    /// Creates a new `Self` from the given `SszObservedBlockProducers`, restoring `Self` to the same state of
+    /// the `Self` that created the `SszObservedBlockProducers`.
+    pub fn from_ssz_container(ssz_container: &SszObservedBlockProducers) -> Result<Self, Error> {
+        let finalized_slot = RwLock::new(ssz_container.finalized_slot);
+
+        let keys = ssz_container.items_keys.clone();
+
+        let values: Vec<HashSet<u64>> = ssz_container.items_values
+            .clone()
+            .iter()
+            .map(|item| HashSet::from_iter(item.clone()))
+            .collect();
+
+        let items: RwLock<HashMap<Slot, HashSet<u64>>> = RwLock::new(
+            keys.into_iter().zip(values.into_iter()).collect());
+
+        Ok(Self {
+            finalized_slot,
+            items,
+            _phantom: PhantomData,
+        })
+    }    
+}
+
+impl<E: EthSpec> PartialEq<ObservedBlockProducers<E>> for ObservedBlockProducers<E> {
+    fn eq(&self, other: &ObservedBlockProducers<E>) -> bool {
+        (*self.finalized_slot.read() == *other.finalized_slot.read())
+            && ((*self.items.read()).keys().len() == (*other.items.read()).keys().len())
+            && ((*self.items.read()).values().len() == (*other.items.read()).values().len())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use types::MainnetEthSpec;
+    use ssz::{Encode, Decode};
 
     type E = MainnetEthSpec;
 
@@ -133,6 +195,23 @@ mod tests {
         block.slot = slot.into();
         block.proposer_index = proposer;
         block
+    }
+
+    #[test]
+    fn store_round_trip() {
+        let store = ObservedBlockProducers::default();
+        let block = &get_block(0, 0);
+        store.observe_proposer(block).expect("block to be accepted");
+
+        let bytes = store.to_ssz_container().as_ssz_bytes();
+
+        assert_eq!(
+            Ok(store),
+            ObservedBlockProducers::from_ssz_container(
+                &SszObservedBlockProducers::from_ssz_bytes(&bytes).expect("should decode")
+            ),
+            "should encode/decode to/from ssz container"
+        )
     }
 
     #[test]
