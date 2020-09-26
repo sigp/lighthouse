@@ -478,6 +478,9 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             //
             // Whilst this seems clearly invalid in the "spirit of the protocol", there is nothing
             // in the specification to prevent these messages from propagating.
+            //
+            // Reference:
+            // https://github.com/ethereum/eth2.0-specs/pull/2001#issuecomment-699246659
         } else {
             let target_root = if head_block_epoch == attestation_epoch {
                 // If the block is in the same epoch as the attestation, then use the target root
