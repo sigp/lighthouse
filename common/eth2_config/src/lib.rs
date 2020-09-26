@@ -75,8 +75,8 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
 
 #[macro_export]
 macro_rules! unique_id {
-    ($name: tt, $genesis_is_known: tt) => {
-        concat!("testnet_", $name, "_", $genesis_is_known);
+    ($name: tt) => {
+        concat!("testnet_", $name);
     };
 }
 
@@ -88,8 +88,8 @@ macro_rules! define_net {
 
             pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
                 name: $name,
-                unique_id: unique_id!($name, $genesis_is_known),
-                archive_name: concat!(unique_id!($name, $genesis_is_known), ".zip"),
+                unique_id: unique_id!($name),
+                archive_name: concat!(unique_id!($name), ".zip"),
                 genesis_is_known: $genesis_is_known,
             };
 
@@ -98,12 +98,7 @@ macro_rules! define_net {
             #[macro_export]
             macro_rules! $macro_title {
                 ($base_dir: tt, $filename: tt) => {
-                    include_bytes!(concat!(
-                        $base_dir,
-                        unique_id!($name, $genesis_is_known),
-                        "/",
-                        $filename
-                    ))
+                    include_bytes!(concat!($base_dir, unique_id!($name), "/", $filename))
                 };
             }
         }
