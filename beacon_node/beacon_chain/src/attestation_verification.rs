@@ -240,7 +240,7 @@ pub enum Error {
     /// The peer has sent an invalid message.
     InvalidTargetRoot {
         attestation: Hash256,
-        block: Hash256,
+        expected: Hash256,
     },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
@@ -471,18 +471,33 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         let head_block =
             verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
 
-        // The attestation's target block is an ancestor of the block named in the LMD vote.
-        let target_root =
-            if head_block.slot.epoch(T::EthSpec::slots_per_epoch()) < attestation_epoch {
-                head_block.root
-            } else {
+        // Check the attestation target root.
+        let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
+        if head_block_epoch > attestation_epoch {
+            // The attestation points to a head block from an epoch later than the attestation.
+            //
+            // Whilst this seems clearly invalid in the "spirit of the protocol", there is nothing
+            // in the specification to prevent these messages from propagating.
+        } else {
+            let target_root = if head_block_epoch == attestation_epoch {
+                // If the block is in the same epoch as the attestation, then use the target root
+                // from the block.
                 head_block.target_root
+            } else {
+                // If the head block is from a previous epoch then skip slots will cause the head block
+                // root to become the target block root.
+                //
+                // We know the head block is from a previous epoch due to a previous check.
+                head_block.root
             };
-        if attestation.data.target.root != target_root {
-            return Err(Error::InvalidTargetRoot {
-                attestation: attestation.data.target.root,
-                block: target_root,
-            });
+
+            // Reject any attestation with an invalid target root.
+            if target_root != attestation.data.target.root {
+                return Err(Error::InvalidTargetRoot {
+                    attestation: attestation.data.target.root,
+                    expected: target_root,
+                });
+            }
         }
 
         let (indexed_attestation, committees_per_slot) =
