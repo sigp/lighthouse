@@ -1236,10 +1236,11 @@ pub fn serve<T: BeaconChainTypes>(
 
                         // Only skip forward to the epoch prior to the request, since we have a
                         // one-epoch look-ahead on shuffling.
-                        let next_epoch = state
+                        while state
                             .next_epoch()
-                            .map_err(warp_utils::reject::beacon_state_error)?;
-                        while next_epoch < epoch {
+                            .map_err(warp_utils::reject::beacon_state_error)?
+                            < epoch
+                        {
                             // Don't calculate state roots since they aren't required for calculating
                             // shuffling (achieved by providing Hash256::zero()).
                             per_slot_processing(&mut state, Some(Hash256::zero()), &chain.spec)
