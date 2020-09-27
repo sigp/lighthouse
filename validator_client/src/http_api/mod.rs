@@ -27,9 +27,9 @@ use warp::{
     Filter,
 };
 
-pub use signing::ApiSecret;
+pub use api_secret::ApiSecret;
 
-mod signing;
+mod api_secret;
 mod tests;
 
 #[derive(Debug)]

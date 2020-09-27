@@ -24,7 +24,7 @@ struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     _server_shutdown: oneshot::Sender<()>,
-    datadir: TempDir,
+    _datadir: TempDir,
 }
 
 impl ApiTester {
@@ -85,7 +85,7 @@ impl ApiTester {
 
         Self {
             initialized_validators,
-            datadir,
+            _datadir: datadir,
             client,
             _server_shutdown: shutdown_tx,
         }
