@@ -1479,6 +1479,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_utils",
  "types",
 ]
 

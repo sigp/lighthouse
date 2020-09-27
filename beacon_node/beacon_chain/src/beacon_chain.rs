@@ -790,11 +790,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_aggregated_attestation(
         &self,
         data: &AttestationData,
-    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        self.naive_aggregation_pool
-            .read()
-            .get(data)
-            .map_err(Into::into)
+    ) -> Option<Attestation<T::EthSpec>> {
+        self.naive_aggregation_pool.read().get(data)
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching
@@ -2020,14 +2017,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Runs the `map_fn` with the committee cache at `shuffling_epoch` if the head of the chain is
+    /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
     /// `head_block_root`.
     ///
     /// It's not necessary that `head_block_root` matches our current view of the chain, it can be
     /// any block that is:
     ///
     /// - Known to us.
-    /// - The finalized block a descendant of it.
+    /// - The finalized block or a descendant of the finalized block.
     ///
     /// It would be quite common for attestation verification operations to use a `head_block_root`
     /// that differs from our view of the head.
@@ -2063,6 +2060,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let shuffling_id = BlockShufflingIds {
             current: head_block.current_epoch_shuffling_id.clone(),
             next: head_block.next_epoch_shuffling_id.clone(),
+            block_root: head_block.root,
         }
         .id_for_epoch(shuffling_epoch)
         .ok_or_else(|| Error::InvalidShufflingId {

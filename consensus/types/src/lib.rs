@@ -36,7 +36,6 @@ pub mod pending_attestation;
 pub mod proposer_slashing;
 pub mod relative_epoch;
 pub mod selection_proof;
-pub mod serde_utils;
 pub mod shuffling_id;
 pub mod signed_aggregate_and_proof;
 pub mod signed_beacon_block;

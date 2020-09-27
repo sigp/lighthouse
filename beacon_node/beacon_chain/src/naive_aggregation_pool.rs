@@ -4,7 +4,6 @@ use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, EthSpec, Hash256, Slot};
 
 type AttestationDataRoot = Hash256;
-
 /// The number of slots that will be stored in the pool.
 ///
 /// For example, if `SLOTS_RETAINED == 3` and the pool is pruned at slot `6`, then all attestations
@@ -120,8 +119,8 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     /// Returns an aggregated `Attestation` with the given `data`, if any.
     ///
     /// The given `a.data.slot` must match the slot that `self` was initialized with.
-    pub fn get(&self, data: &AttestationData) -> Result<Option<Attestation<E>>, Error> {
-        Ok(self.map.get(&data.tree_hash_root()).cloned())
+    pub fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
+        self.map.get(&data.tree_hash_root()).cloned()
     }
 
     /// Returns an aggregated `Attestation` with the given `root`, if any.
@@ -230,12 +229,11 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     }
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
-    pub fn get(&self, data: &AttestationData) -> Result<Option<Attestation<E>>, Error> {
+    pub fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
         self.maps
             .iter()
             .find(|(slot, _map)| **slot == data.slot)
-            .map(|(_slot, map)| map.get(data))
-            .unwrap_or_else(|| Ok(None))
+            .and_then(|(_slot, map)| map.get(data))
     }
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
@@ -360,8 +358,7 @@ mod tests {
 
         let retrieved = pool
             .get(&a.data)
-            .expect("should not error while getting attestation")
-            .expect("should get an attestation");
+            .expect("should not error while getting attestation");
         assert_eq!(
             retrieved, a,
             "retrieved attestation should equal the one inserted"
@@ -400,8 +397,7 @@ mod tests {
 
         let retrieved = pool
             .get(&a_0.data)
-            .expect("should not error while getting attestation")
-            .expect("should get an attestation");
+            .expect("should not error while getting attestation");
 
         let mut a_01 = a_0.clone();
         a_01.aggregate(&a_1);
@@ -430,8 +426,7 @@ mod tests {
 
         assert_eq!(
             pool.get(&a_0.data)
-                .expect("should not error while getting attestation")
-                .expect("should get an attestation"),
+                .expect("should not error while getting attestation"),
             retrieved,
             "should not have aggregated different attestation data"
         );

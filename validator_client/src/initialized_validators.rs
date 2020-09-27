@@ -331,7 +331,7 @@ impl InitializedValidators {
     /// validator will be removed from `self.validators`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    #[allow(dead_code)] // Will be used once HTTP API is enabled.
+    #[allow(dead_code)] // Will be used once VC API is enabled.
     pub async fn set_validator_status(
         &mut self,
         voting_public_key: &PublicKey,

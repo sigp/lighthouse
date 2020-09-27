@@ -572,7 +572,6 @@ where
                     let aggregate = self
                         .chain
                         .get_aggregated_attestation(&attestation.data)
-                        .unwrap()
                         .unwrap_or_else(|| {
                             committee_attestations.iter().skip(1).fold(attestation.clone(), |mut agg, (att, _)| {
                                 agg.aggregate(att);

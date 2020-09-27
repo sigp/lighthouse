@@ -13,8 +13,7 @@ pub fn global_validator_inclusion_data<T: BeaconChainTypes>(
     epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<GlobalValidatorInclusionData, warp::Rejection> {
-    // This is the last slot of the given epoch (one prior to the first slot of the next epoch).
-    let target_slot = (epoch + 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
+    let target_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
 
     let state = StateId::slot(target_slot).state(chain)?;
 
@@ -43,8 +42,7 @@ pub fn validator_inclusion_data<T: BeaconChainTypes>(
     validator_id: &ValidatorId,
     chain: &BeaconChain<T>,
 ) -> Result<Option<ValidatorInclusionData>, warp::Rejection> {
-    // This is the last slot of the given epoch (one prior to the first slot of the next epoch).
-    let target_slot = (epoch + 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
+    let target_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
 
     let mut state = StateId::slot(target_slot).state(chain)?;
 

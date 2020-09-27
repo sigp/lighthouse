@@ -598,7 +598,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     }
 }
 
-/// Returns `Ok(shuffling_id)` if the `attestation.data.beacon_block_root` is known to this chain.
+/// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
 /// You can use this `shuffling_id` to read from the shuffling cache.
 ///
 /// The block root may not be known for two reasons:
@@ -804,8 +804,8 @@ fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 ///
 /// If the committee for `attestation` isn't found in the `shuffling_cache`, we will read a state
 /// from disk and then update the `shuffling_cache`.
-fn map_attestation_committee<'a, T, F, R>(
-    chain: &'a BeaconChain<T>,
+fn map_attestation_committee<T, F, R>(
+    chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
     map_fn: F,
 ) -> Result<R, Error>

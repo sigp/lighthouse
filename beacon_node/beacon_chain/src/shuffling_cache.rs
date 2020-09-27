@@ -1,6 +1,6 @@
 use crate::metrics;
 use lru::LruCache;
-use types::{beacon_state::CommitteeCache, Epoch, ShufflingId};
+use types::{beacon_state::CommitteeCache, Epoch, Hash256, ShufflingId};
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
 ///
@@ -51,6 +51,7 @@ impl ShufflingCache {
 pub struct BlockShufflingIds {
     pub current: ShufflingId,
     pub next: ShufflingId,
+    pub block_root: Hash256,
 }
 
 impl BlockShufflingIds {
@@ -63,9 +64,7 @@ impl BlockShufflingIds {
         } else if epoch == self.next.shuffling_epoch {
             Some(self.next.clone())
         } else if epoch > self.next.shuffling_epoch {
-            let mut shuffling_id = self.next.clone();
-            shuffling_id.shuffling_epoch = epoch;
-            Some(shuffling_id)
+            Some(ShufflingId::from_components(epoch, self.block_root))
         } else {
             None
         }

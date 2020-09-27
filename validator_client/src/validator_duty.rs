@@ -115,6 +115,7 @@ impl ValidatorDuty {
             && self.attestation_committee_index == other.attestation_committee_index
             && self.attestation_committee_position == other.attestation_committee_position
             && self.committee_count_at_slot == other.committee_count_at_slot
+            && self.committee_length == other.committee_length
     }
 
     /// Generate a subscription for `self`, if `self` has appropriate attestation duties.

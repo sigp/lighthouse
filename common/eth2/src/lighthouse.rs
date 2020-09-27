@@ -74,8 +74,8 @@ pub struct ValidatorInclusionData {
 #[cfg(target_os = "linux")]
 use {procinfo::pid, psutil::process::Process};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Reports on the health of the Lighthouse instance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Health {
     /// The pid of this process.
     pub pid: u32,

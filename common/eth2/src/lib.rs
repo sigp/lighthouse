@@ -59,7 +59,6 @@ pub struct BeaconNodeHttpClient {
 }
 
 impl BeaconNodeHttpClient {
-    /// Returns `Err(())` if the URL is invalid.
     pub fn new(server: Url) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -67,7 +66,6 @@ impl BeaconNodeHttpClient {
         }
     }
 
-    /// Returns `Err(())` if the URL is invalid.
     pub fn from_components(server: Url, client: reqwest::Client) -> Self {
         Self { client, server }
     }
@@ -713,7 +711,7 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET validator/attestation_data?slot,committee_index`
+    /// `GET validator/attestation_attestation?slot,attestation_data_root`
     pub async fn get_validator_aggregate_attestation<T: EthSpec>(
         &self,
         slot: Slot,

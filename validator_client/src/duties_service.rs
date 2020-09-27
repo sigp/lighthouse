@@ -571,7 +571,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         }
     }
 
-    /// Attempt to download the duties of all managed validators for the given `epoch`.
+    /// Attempt to download the duties of all managed validators for the given `request_epoch`. The
+    /// `current_epoch` should be a local reading of the slot clock.
     async fn update_epoch(
         self,
         current_epoch: Epoch,

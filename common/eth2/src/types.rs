@@ -412,10 +412,6 @@ pub struct BeaconCommitteeSubscription {
     pub validator_index: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub committee_index: u64,
-    /// Note: this field did not exist in the API spec at the time of writing, however I have made
-    /// a PR to have it included:
-    ///
-    /// https://github.com/ethereum/eth2.0-APIs/pull/81
     #[serde(with = "serde_utils::quoted_u64")]
     pub committees_at_slot: u64,
     pub slot: Slot,

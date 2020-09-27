@@ -14,7 +14,7 @@ use std::hash::Hash;
 /// final block which contributed a randao reveal to the seed for the shuffling.
 ///
 /// The struct stores exactly that 2-tuple.
-#[derive(Debug, PartialEq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]
 pub struct ShufflingId {
     pub shuffling_epoch: Epoch,
     shuffling_decision_block: Hash256,
@@ -35,14 +35,9 @@ impl ShufflingId {
     ) -> Result<Self, BeaconStateError> {
         let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
 
-        // Taking advantage of saturating subtraction on slot and epoch.
-        //
-        // This is the final slot of the penultimate epoch.
-        let shuffling_decision_slot = shuffling_epoch
-            .saturating_sub(2_u64)
-            .end_slot(E::slots_per_epoch());
+        let shuffling_decision_slot = (shuffling_epoch - 1).start_slot(E::slots_per_epoch()) - 1;
 
-        let shuffling_decision_block = if state.slot <= shuffling_decision_slot {
+        let shuffling_decision_block = if state.slot == shuffling_decision_slot {
             block_root
         } else {
             *state.get_block_root(shuffling_decision_slot)?
@@ -61,5 +56,3 @@ impl ShufflingId {
         }
     }
 }
-
-impl Eq for ShufflingId {}
