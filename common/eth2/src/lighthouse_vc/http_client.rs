@@ -93,6 +93,7 @@ impl ValidatorClientHttpClient {
                 let sig = Signature::parse(&arr);
                 secp256k1::verify(&message, &sig, &self.server_pubkey)
             })
+            .filter(|is_valid| *is_valid)
             .ok_or_else(|| Error::InvalidSignatureHeader)?;
 
         Ok(body)
