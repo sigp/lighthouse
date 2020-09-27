@@ -4,7 +4,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
-pub use enr_ext::{CombinedKeyExt, EnrExt};
+pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::Keypair;
 
 use crate::metrics;
@@ -20,7 +20,7 @@ use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
     collections::{HashMap, VecDeque},
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::Path,
     pin::Pin,
     sync::Arc,
@@ -434,6 +434,33 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+    }
+
+    // Bans a peer and it's associated seen IP addresses.
+    pub fn ban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
+        // first try and convert the peer_id to a node_id.
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
+            self.discv5.ban_node(&node_id);
+            // Remove the node from the routing table.
+            self.discv5.remove_node(&node_id);
+        }
+
+        for ip_address in ip_addresses {
+            self.discv5.ban_ip(ip_address);
+        }
+    }
+
+    pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
+        // first try and convert the peer_id to a node_id.
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
+            self.discv5.permit_node(&node_id);
+        }
+
+        for ip_address in ip_addresses {
+            self.discv5.permit_ip(ip_address);
+        }
     }
 
     /* Internal Functions */

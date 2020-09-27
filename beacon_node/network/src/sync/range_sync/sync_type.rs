@@ -6,6 +6,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use std::sync::Arc;
 
 /// The type of Range sync that should be done relative to our current state.
+#[derive(Debug)]
 pub enum RangeSyncType {
     /// A finalized chain sync should be started with this peer.
     Finalized,

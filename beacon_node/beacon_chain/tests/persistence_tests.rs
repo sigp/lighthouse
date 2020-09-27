@@ -153,8 +153,11 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
         a.genesis_block_root, b.genesis_block_root,
         "genesis_block_root should be equal"
     );
+
+    let slot = a.slot().unwrap();
     assert!(
-        *a.fork_choice.read() == *b.fork_choice.read(),
-        "fork_choice should be equal"
+        a.fork_choice.write().get_head(slot).unwrap()
+            == b.fork_choice.write().get_head(slot).unwrap(),
+        "fork_choice heads should be equal"
     );
 }

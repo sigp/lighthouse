@@ -1,5 +1,5 @@
 use super::client::Client;
-use super::score::Score;
+use super::score::{PeerAction, Score, ScoreState};
 use super::PeerSyncStatus;
 use crate::rpc::MetaData;
 use crate::Multiaddr;
@@ -7,6 +7,7 @@ use serde::{
     ser::{SerializeStruct, Serializer},
     Serialize,
 };
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
@@ -19,13 +20,17 @@ pub struct PeerInfo<T: EthSpec> {
     /// The connection status of the peer
     _status: PeerStatus,
     /// The peers reputation
-    pub score: Score,
+    score: Score,
     /// Client managing this peer
     pub client: Client,
     /// Connection status of this peer
     pub connection_status: PeerConnectionStatus,
-    /// The known listening addresses of this peer.
+    /// The known listening addresses of this peer. This is given by identify and can be arbitrary
+    /// (including local IPs).
     pub listening_addresses: Vec<Multiaddr>,
+    /// This is addresses we have physically seen and this is what we use for banning/un-banning
+    /// peers.
+    pub seen_addresses: HashSet<IpAddr>,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
     pub sync_status: PeerSyncStatus,
@@ -36,6 +41,8 @@ pub struct PeerInfo<T: EthSpec> {
     /// necessary.
     #[serde(skip)]
     pub min_ttl: Option<Instant>,
+    /// Is the peer a trusted peer.
+    pub is_trusted: bool,
 }
 
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
@@ -45,15 +52,26 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             score: Score::default(),
             client: Client::default(),
             connection_status: Default::default(),
-            listening_addresses: vec![],
+            listening_addresses: Vec::new(),
+            seen_addresses: HashSet::new(),
             sync_status: PeerSyncStatus::Unknown,
             meta_data: None,
             min_ttl: None,
+            is_trusted: false,
         }
     }
 }
 
 impl<T: EthSpec> PeerInfo<T> {
+    /// Return a PeerInfo struct for a trusted peer.
+    pub fn trusted_peer_info() -> Self {
+        PeerInfo {
+            score: Score::max_score(),
+            is_trusted: true,
+            ..Default::default()
+        }
+    }
+
     /// Returns if the peer is subscribed to a given `SubnetId`
     pub fn on_subnet(&self, subnet_id: SubnetId) -> bool {
         if let Some(meta_data) = &self.meta_data {
@@ -68,6 +86,38 @@ impl<T: EthSpec> PeerInfo<T> {
     /// Reports if this peer has some future validator duty in which case it is valuable to keep it.
     pub fn has_future_duty(&self) -> bool {
         self.min_ttl.map_or(false, |i| i >= Instant::now())
+    }
+
+    /// Returns score of the peer.
+    pub fn score(&self) -> Score {
+        self.score
+    }
+
+    /// Returns the state of the peer based on the score.
+    pub(crate) fn score_state(&self) -> ScoreState {
+        self.score.state()
+    }
+
+    /// Applies decay rates to a non-trusted peer's score.
+    pub fn score_update(&mut self) {
+        if !self.is_trusted {
+            self.score.update()
+        }
+    }
+
+    /// Apply peer action to a non-trusted peer's score.
+    pub fn apply_peer_action_to_score(&mut self, peer_action: PeerAction) {
+        if !self.is_trusted {
+            self.score.apply_peer_action(peer_action)
+        }
+    }
+
+    #[cfg(test)]
+    /// Add an f64 to a non-trusted peer's score abiding by the limits.
+    pub fn add_to_score(&mut self, score: f64) {
+        if !self.is_trusted {
+            self.score.add(score)
+        }
     }
 }
 

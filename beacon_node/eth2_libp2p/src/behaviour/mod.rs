@@ -1,6 +1,7 @@
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
-use crate::types::{EnrBitfield, GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery};
+use crate::service::METADATA_FILENAME;
+use crate::types::{GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -23,9 +24,9 @@ use libp2p::{
     PeerId,
 };
 use slog::{crit, debug, o, trace, warn};
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::{
     collections::VecDeque,
@@ -38,7 +39,59 @@ use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
 mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
-const METADATA_FILENAME: &str = "metadata";
+
+/// Identifier of requests sent by a peer.
+pub type PeerRequestId = (ConnectionId, SubstreamId);
+
+/// The types of events than can be obtained from polling the behaviour.
+#[derive(Debug)]
+pub enum BehaviourEvent<TSpec: EthSpec> {
+    /// We have successfully dialed and connected to a peer.
+    PeerDialed(PeerId),
+    /// A peer has successfully dialed and connected to us.
+    PeerConnected(PeerId),
+    /// A peer has disconnected.
+    PeerDisconnected(PeerId),
+    /// An RPC Request that was sent failed.
+    RPCFailed {
+        /// The id of the failed request.
+        id: RequestId,
+        /// The peer to which this request was sent.
+        peer_id: PeerId,
+        /// The error that occurred.
+        error: RPCError,
+    },
+    RequestReceived {
+        /// The peer that sent the request.
+        peer_id: PeerId,
+        /// Identifier of the request. All responses to this request must use this id.
+        id: PeerRequestId,
+        /// Request the peer sent.
+        request: Request,
+    },
+    ResponseReceived {
+        /// Peer that sent the response.
+        peer_id: PeerId,
+        /// Id of the request to which the peer is responding.
+        id: RequestId,
+        /// Response the peer sent.
+        response: Response<TSpec>,
+    },
+    PubsubMessage {
+        /// The gossipsub message id. Used when propagating blocks after validation.
+        id: MessageId,
+        /// The peer from which we received this message, not the peer that published it.
+        source: PeerId,
+        /// The topics that this message was sent on.
+        topics: Vec<TopicHash>,
+        /// The message itself.
+        message: PubsubMessage<TSpec>,
+    },
+    /// Subscribed to peer for given topic
+    PeerSubscribed(PeerId, TopicHash),
+    /// Inform the network to send a Status to this peer.
+    StatusPeer(PeerId),
+}
 
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
@@ -58,8 +111,6 @@ pub struct Behaviour<TSpec: EthSpec> {
     events: VecDeque<BehaviourEvent<TSpec>>,
     /// Queue of peers to disconnect and an optional reason for the disconnection.
     peers_to_dc: VecDeque<(PeerId, Option<GoodbyeReason>)>,
-    /// The current meta data of the node, so respond to pings and get metadata
-    meta_data: MetaData<TSpec>,
     /// A collections of variables accessible outside the network service.
     network_globals: Arc<NetworkGlobals<TSpec>>,
     /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
@@ -95,8 +146,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let meta_data = load_or_build_metadata(&net_conf.network_dir, &log);
-
         let gossipsub = Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
             .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
@@ -115,7 +164,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .await?,
             events: VecDeque::new(),
             peers_to_dc: VecDeque::new(),
-            meta_data,
             network_globals,
             enr_fork_id,
             waker: None,
@@ -407,21 +455,31 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Updates the current meta data of the node to match the local ENR.
     fn update_metadata(&mut self) {
-        self.meta_data.seq_number += 1;
-        self.meta_data.attnets = self
+        let local_attnets = self
             .peer_manager
             .discovery()
             .local_enr()
             .bitfield::<TSpec>()
             .expect("Local discovery must have bitfield");
+
+        {
+            // write lock scope
+            let mut meta_data = self.network_globals.local_metadata.write();
+            meta_data.seq_number += 1;
+            meta_data.attnets = local_attnets;
+        }
         // Save the updated metadata to disk
-        save_metadata_to_disk(&self.network_dir, self.meta_data.clone(), &self.log);
+        save_metadata_to_disk(
+            &self.network_dir,
+            self.network_globals.local_metadata.read().clone(),
+            &self.log,
+        );
     }
 
     /// Sends a Ping request to the peer.
     fn ping(&mut self, id: RequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: self.meta_data.seq_number,
+            data: self.network_globals.local_metadata.read().seq_number,
         };
         trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
 
@@ -432,7 +490,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a Pong response to the peer.
     fn pong(&mut self, id: PeerRequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: self.meta_data.seq_number,
+            data: self.network_globals.local_metadata.read().seq_number,
         };
         trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => peer_id.to_string());
         let event = RPCCodedResponse::Success(RPCResponse::Pong(ping));
@@ -448,7 +506,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Sends a METADATA response to a peer.
     fn send_meta_data_response(&mut self, id: PeerRequestId, peer_id: PeerId) {
-        let event = RPCCodedResponse::Success(RPCResponse::MetaData(self.meta_data.clone()));
+        let event = RPCCodedResponse::Success(RPCResponse::MetaData(
+            self.network_globals.local_metadata.read().clone(),
+        ));
         self.eth2_rpc.send_response(peer_id, id, event);
     }
 
@@ -830,13 +890,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
 
         // notify the peer manager of a successful connection
         match endpoint {
-            ConnectedPoint::Listener { .. } => {
-                self.peer_manager.connect_ingoing(&peer_id);
+            ConnectedPoint::Listener { send_back_addr, .. } => {
+                self.peer_manager
+                    .connect_ingoing(&peer_id, send_back_addr.clone());
                 self.add_event(BehaviourEvent::PeerConnected(peer_id.clone()));
                 debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Incoming");
             }
-            ConnectedPoint::Dialer { .. } => {
-                self.peer_manager.connect_outgoing(&peer_id);
+            ConnectedPoint::Dialer { address } => {
+                self.peer_manager
+                    .connect_outgoing(&peer_id, address.clone());
                 self.add_event(BehaviourEvent::PeerDialed(peer_id.clone()));
                 debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Dialed");
             }
@@ -1054,98 +1116,8 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
     }
 }
 
-/// Identifier of requests sent by a peer.
-pub type PeerRequestId = (ConnectionId, SubstreamId);
-
-/// The types of events than can be obtained from polling the behaviour.
-#[derive(Debug)]
-pub enum BehaviourEvent<TSpec: EthSpec> {
-    /// We have successfully dialed and connected to a peer.
-    PeerDialed(PeerId),
-    /// A peer has successfully dialed and connected to us.
-    PeerConnected(PeerId),
-    /// A peer has disconnected.
-    PeerDisconnected(PeerId),
-    /// An RPC Request that was sent failed.
-    RPCFailed {
-        /// The id of the failed request.
-        id: RequestId,
-        /// The peer to which this request was sent.
-        peer_id: PeerId,
-        /// The error that occurred.
-        error: RPCError,
-    },
-    RequestReceived {
-        /// The peer that sent the request.
-        peer_id: PeerId,
-        /// Identifier of the request. All responses to this request must use this id.
-        id: PeerRequestId,
-        /// Request the peer sent.
-        request: Request,
-    },
-    ResponseReceived {
-        /// Peer that sent the response.
-        peer_id: PeerId,
-        /// Id of the request to which the peer is responding.
-        id: RequestId,
-        /// Response the peer sent.
-        response: Response<TSpec>,
-    },
-    PubsubMessage {
-        /// The gossipsub message id. Used when propagating blocks after validation.
-        id: MessageId,
-        /// The peer from which we received this message, not the peer that published it.
-        source: PeerId,
-        /// The topics that this message was sent on.
-        topics: Vec<TopicHash>,
-        /// The message itself.
-        message: PubsubMessage<TSpec>,
-    },
-    /// Subscribed to peer for given topic
-    PeerSubscribed(PeerId, TopicHash),
-    /// Inform the network to send a Status to this peer.
-    StatusPeer(PeerId),
-}
-
-/// Load metadata from persisted file. Return default metadata if loading fails.
-fn load_or_build_metadata<E: EthSpec>(network_dir: &PathBuf, log: &slog::Logger) -> MetaData<E> {
-    // Default metadata
-    let mut meta_data = MetaData {
-        seq_number: 0,
-        attnets: EnrBitfield::<E>::default(),
-    };
-    // Read metadata from persisted file if available
-    let metadata_path = network_dir.join(METADATA_FILENAME);
-    if let Ok(mut metadata_file) = File::open(metadata_path) {
-        let mut metadata_ssz = Vec::new();
-        if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
-            match MetaData::<E>::from_ssz_bytes(&metadata_ssz) {
-                Ok(persisted_metadata) => {
-                    meta_data.seq_number = persisted_metadata.seq_number;
-                    // Increment seq number if persisted attnet is not default
-                    if persisted_metadata.attnets != meta_data.attnets {
-                        meta_data.seq_number += 1;
-                    }
-                    debug!(log, "Loaded metadata from disk");
-                }
-                Err(e) => {
-                    debug!(
-                        log,
-                        "Metadata from file could not be decoded";
-                        "error" => format!("{:?}", e),
-                    );
-                }
-            }
-        }
-    };
-
-    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number);
-    save_metadata_to_disk(network_dir, meta_data.clone(), &log);
-    meta_data
-}
-
 /// Persist metadata to disk
-fn save_metadata_to_disk<E: EthSpec>(dir: &PathBuf, metadata: MetaData<E>, log: &slog::Logger) {
+pub fn save_metadata_to_disk<E: EthSpec>(dir: &PathBuf, metadata: MetaData<E>, log: &slog::Logger) {
     let _ = std::fs::create_dir_all(&dir);
     match File::create(dir.join(METADATA_FILENAME))
         .and_then(|mut f| f.write_all(&metadata.as_ssz_bytes()))

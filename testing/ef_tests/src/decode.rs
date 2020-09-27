@@ -21,11 +21,19 @@ pub fn ssz_decode_file<T: ssz::Decode>(path: &Path) -> Result<T, Error> {
         })
         .and_then(|s| {
             T::from_ssz_bytes(&s).map_err(|e| {
-                Error::FailedToParseTest(format!(
-                    "Unable to parse SSZ at {}: {:?}",
-                    path.display(),
-                    e
-                ))
+                match e {
+                    // NOTE: this is a bit hacky, but seemingly better than the alternatives
+                    ssz::DecodeError::BytesInvalid(message)
+                        if message.contains("Blst") || message.contains("Milagro") =>
+                    {
+                        Error::InvalidBLSInput(message)
+                    }
+                    e => Error::FailedToParseTest(format!(
+                        "Unable to parse SSZ at {}: {:?}",
+                        path.display(),
+                        e
+                    )),
+                }
             })
         })
 }
