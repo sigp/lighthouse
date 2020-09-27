@@ -24,9 +24,8 @@ use warp::{
         response::Response,
         StatusCode,
     },
-    Filter, Reply,
+    Filter,
 };
-use warp_utils::task::blocking_json_task;
 
 pub use signing::ApiSecret;
 
@@ -553,7 +552,9 @@ pub fn serve<T: EthSpec>(
     Ok((listening_socket, server))
 }
 
-/// A convenience wrapper around `blocking_task` for use with `warp` JSON responses.
+/// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
+/// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
+/// those bytes.
 pub async fn blocking_signed_json_task<S, F, T>(
     signer: S,
     func: F,
@@ -576,30 +577,16 @@ where
                 Err(_) => Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .body(vec![])
-                    // TODO: fix unwrap.
-                    .unwrap(),
+                    .expect("can produce simple response from static values"),
             };
 
             let body: &Vec<u8> = response.body();
             let signature = signer(body);
+            let header_value =
+                HeaderValue::from_str(&signature).expect("hash can be encoded as header");
 
-            response
-                .headers_mut()
-                // TODO: fix unwrap
-                .append("Signature", HeaderValue::from_str(&signature).unwrap());
+            response.headers_mut().append("Signature", header_value);
 
             response
         })
-    /*
-    .map(|func_output| warp::reply::json(&func_output).into_response())
-    .map(|mut response: Response<Vec<u8>>| {
-        let body = response.body();
-        let signature = signer(body);
-        response
-            .headers_mut()
-            // TODO: fix unwrap
-            .append("Signature", HeaderValue::from_str(&signature).unwrap());
-        response
-    })
-    */
 }
