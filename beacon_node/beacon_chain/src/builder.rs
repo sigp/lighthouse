@@ -16,8 +16,10 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, EventHandler,
 };
+use environment::TaskExecutor;
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
+use futures::{SinkExt, TryFutureExt};
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{info, Logger};
@@ -106,6 +108,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
+    executor: Option<TaskExecutor>,
     head_tracker: Option<HeadTracker>,
     data_dir: Option<PathBuf>,
     pubkey_cache_path: Option<PathBuf>,
@@ -153,6 +156,7 @@ where
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
+            executor: None,
             head_tracker: None,
             pubkey_cache_path: None,
             data_dir: None,
@@ -406,6 +410,12 @@ where
         self
     }
 
+    /// Sets a `TaskExecutor` for the beacon chain.
+    pub fn executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
     /// Creates a new, empty operation pool.
     fn empty_op_pool(mut self) -> Self {
         self.op_pool = Some(OperationPool::new());
@@ -548,9 +558,28 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             disabled_forks: self.disabled_forks,
+            executor: self
+                .executor
+                .ok_or_else(|| "Cannot build without a task executor.".to_string())?,
             log: log.clone(),
             graffiti: self.graffiti,
         };
+
+        // Weak subjectivity checkpoint verification
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
+            if wss_checkpoint.epoch <= beacon_chain.head_info().map_err(|e| format!("Unable to retrieve head info for weak subjectivity checkpoint verification: {:?}", e))?.finalized_checkpoint.epoch {
+                let mut shutdown_sender = beacon_chain.executor.shutdown_sender();
+                if let Ok(Some(block)) = beacon_chain.get_block(&wss_checkpoint.root) {
+                    if block.slot() != wss_checkpoint.epoch.start_slot(TEthSpec::slots_per_epoch()){
+                        error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                        let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.").map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+                    }
+                } else {
+                    error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root does not exist on chain. You must purge all state from your node and restart the sync.");
+                    let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided root does not exist on chain.").map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+                }
+            }
+        }
 
         let head = beacon_chain
             .head()

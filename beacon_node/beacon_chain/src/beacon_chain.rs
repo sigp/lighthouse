@@ -27,7 +27,9 @@ use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
+use environment::TaskExecutor;
 use fork_choice::ForkChoice;
+use futures::{SinkExt, TryFutureExt};
 use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
@@ -222,6 +224,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
+    /// A task executor to allow sending shutdown signals.
+    pub executor: TaskExecutor,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -1401,6 +1405,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_root,
                     block: Box::new(block),
                 });
+
+                // Weak subjectivity checkpoint verification
+                if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
+                    if wss_checkpoint.epoch == self.head_info()?.finalized_checkpoint.epoch {
+                        let mut shutdown_sender = self.executor.shutdown_sender();
+                        if let Ok(Some(block)) = self.get_block(&wss_checkpoint.root) {
+                            if block.slot()
+                                != wss_checkpoint
+                                    .epoch
+                                    .start_slot(T::EthSpec::slots_per_epoch())
+                            {
+                                error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                                let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                                    .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+                            }
+                        } else {
+                            error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root does not exist on chain. You must purge all state from your node and restart the sync.");
+                            let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided root does not exist on chain.")
+                                .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+                        }
+                    }
+                }
 
                 Ok(block_root)
             }
