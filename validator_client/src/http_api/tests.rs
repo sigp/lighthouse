@@ -80,7 +80,8 @@ impl ApiTester {
             ))
             .unwrap(),
             api_pubkey,
-        );
+        )
+        .unwrap();
 
         Self {
             initialized_validators,

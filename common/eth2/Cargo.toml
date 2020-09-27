@@ -17,6 +17,9 @@ proto_array = { path = "../../consensus/proto_array", optional = true }
 serde_utils = { path = "../../consensus/serde_utils" }
 zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
+libsecp256k1 = "0.3.5"
+ring = "0.16.12"
+bytes = "0.5.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 psutil = { version = "3.1.0", optional = true }

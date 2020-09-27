@@ -193,9 +193,10 @@ pub fn serve<T: EthSpec>(
         .and(warp::path("validators"))
         .and(warp::path::end())
         .and(initialized_validators_filter.clone())
+        .and(signer.clone())
         .and_then(
-            |initialized_validators: Arc<RwLock<InitializedValidators>>| {
-                blocking_json_task(move || {
+            |initialized_validators: Arc<RwLock<InitializedValidators>>, signer| {
+                blocking_signed_json_task(signer, move || {
                     let validators = initialized_validators
                         .read()
                         .validator_definitions()
@@ -217,10 +218,12 @@ pub fn serve<T: EthSpec>(
         .and(warp::path::param::<PublicKey>())
         .and(warp::path::end())
         .and(initialized_validators_filter.clone())
+        .and(signer.clone())
         .and_then(
             |validator_pubkey: PublicKey,
-             initialized_validators: Arc<RwLock<InitializedValidators>>| {
-                blocking_json_task(move || {
+             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
                     let validator = initialized_validators
                         .read()
                         .validator_definitions()
@@ -251,12 +254,14 @@ pub fn serve<T: EthSpec>(
         .and(data_dir_filter.clone())
         .and(initialized_validators_filter.clone())
         .and(spec_filter.clone())
+        .and(signer.clone())
         .and_then(
             |body: api_types::HdValidatorsPostRequest,
              data_dir: PathBuf,
              initialized_validators: Arc<RwLock<InitializedValidators>>,
-             spec: Arc<ChainSpec>| {
-                blocking_json_task(move || {
+             spec: Arc<ChainSpec>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
                     let mnemonic = if let Some(mnemonic_str) = body.mnemonic.as_ref() {
                         mnemonic_from_phrase(mnemonic_str).map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!(
@@ -410,11 +415,13 @@ pub fn serve<T: EthSpec>(
         .and(warp::body::json())
         .and(data_dir_filter.clone())
         .and(initialized_validators_filter.clone())
+        .and(signer.clone())
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              data_dir: PathBuf,
-             initialized_validators: Arc<RwLock<InitializedValidators>>| {
-                blocking_json_task(move || {
+             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
                     // Check to ensure the password is correct.
                     let keypair = body
                         .keystore
@@ -476,11 +483,13 @@ pub fn serve<T: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(initialized_validators_filter.clone())
+        .and(signer.clone())
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
-             initialized_validators: Arc<RwLock<InitializedValidators>>| {
-                blocking_json_task(move || {
+             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
                     let mut initialized_validators = initialized_validators.write();
 
                     match initialized_validators.is_enabled(&validator_pubkey) {
