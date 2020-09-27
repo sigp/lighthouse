@@ -160,6 +160,12 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::InvalidAuthorization>() {
         code = StatusCode::FORBIDDEN;
         message = format!("FORBIDDEN: Invalid auth token: {}", e.0);
+    } else if let Some(e) = err.find::<warp::reject::MissingHeader>() {
+        code = StatusCode::BAD_REQUEST;
+        message = format!("BAD_REQUEST: missing {} header", e.name());
+    } else if let Some(e) = err.find::<warp::reject::InvalidHeader>() {
+        code = StatusCode::BAD_REQUEST;
+        message = format!("BAD_REQUEST: invalid {} header", e.name());
     } else if err.find::<warp::reject::MethodNotAllowed>().is_some() {
         code = StatusCode::METHOD_NOT_ALLOWED;
         message = "METHOD_NOT_ALLOWED".to_string();

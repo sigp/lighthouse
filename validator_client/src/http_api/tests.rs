@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::{
-    http_api::{Config, Context},
+    http_api::{ApiSecret, Config, Context},
     InitializedValidators, ValidatorDefinitions,
 };
 use account_utils::{random_mnemonic, random_password};
@@ -45,8 +45,10 @@ impl ApiTester {
         .unwrap();
 
         let initialized_validators = Arc::new(RwLock::new(initialized_validators));
+        let api_secret = ApiSecret::create_or_open(datadir.path()).unwrap();
 
         let context: Arc<Context<E>> = Arc::new(Context {
+            api_secret,
             data_dir: Some(datadir.path().into()),
             spec: E::default_spec(),
             initialized_validators: Some(initialized_validators.clone()),

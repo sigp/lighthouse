@@ -10,7 +10,6 @@ use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use signing::ApiSecret;
 use slog::{crit, info, Logger};
 use std::future::Future;
 use std::marker::PhantomData;
@@ -19,8 +18,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
-use warp::Filter;
+use warp::{
+    http::{
+        header::{HeaderValue, CONTENT_TYPE},
+        response::Response,
+        StatusCode,
+    },
+    Filter, Reply,
+};
 use warp_utils::task::blocking_json_task;
+
+pub use signing::ApiSecret;
 
 mod signing;
 mod tests;
@@ -47,6 +55,7 @@ impl From<String> for Error {
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<E: EthSpec> {
+    pub api_secret: ApiSecret,
     pub initialized_validators: Option<Arc<RwLock<InitializedValidators>>>,
     pub data_dir: Option<PathBuf>,
     pub spec: ChainSpec,
@@ -121,8 +130,9 @@ pub fn serve<T: EthSpec>(
         });
     */
 
-    let api_secret = ApiSecret::open();
-    let authorization_header_filter = api_secret.authorization_header_filter();
+    let authorization_header_filter = ctx.api_secret.authorization_header_filter();
+    let signer = ctx.api_secret.signer();
+    let signer = warp::any().map(move || signer.clone());
 
     let inner_initialized_validators = ctx.initialized_validators.clone();
     let initialized_validators_filter = warp::any()
@@ -156,8 +166,9 @@ pub fn serve<T: EthSpec>(
     let get_node_version = warp::path("lighthouse")
         .and(warp::path("version"))
         .and(warp::path::end())
-        .and_then(|| {
-            blocking_json_task(move || {
+        .and(signer.clone())
+        .and_then(|signer| {
+            blocking_signed_json_task(signer, move || {
                 Ok(api_types::GenericResponse::from(api_types::VersionData {
                     version: version_with_platform(),
                 }))
@@ -168,8 +179,9 @@ pub fn serve<T: EthSpec>(
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
         .and(warp::path::end())
-        .and_then(|| {
-            blocking_json_task(move || {
+        .and(signer.clone())
+        .and_then(|signer| {
+            blocking_signed_json_task(signer, move || {
                 eth2::lighthouse::Health::observe()
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
@@ -530,4 +542,55 @@ pub fn serve<T: EthSpec>(
     );
 
     Ok((listening_socket, server))
+}
+
+/// A convenience wrapper around `blocking_task` for use with `warp` JSON responses.
+pub async fn blocking_signed_json_task<S, F, T>(
+    signer: S,
+    func: F,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    S: Fn(&[u8]) -> String,
+    F: Fn() -> Result<T, warp::Rejection>,
+    T: Serialize,
+{
+    warp_utils::task::blocking_task(func)
+        .await
+        .map(|func_output| {
+            let mut response = match serde_json::to_vec(&func_output) {
+                Ok(body) => {
+                    let mut res = Response::new(body.into());
+                    res.headers_mut()
+                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    res
+                }
+                Err(_) => Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(vec![])
+                    // TODO: fix unwrap.
+                    .unwrap(),
+            };
+
+            let body: &Vec<u8> = response.body();
+            let signature = signer(body);
+
+            response
+                .headers_mut()
+                // TODO: fix unwrap
+                .append("Signature", HeaderValue::from_str(&signature).unwrap());
+
+            response
+        })
+    /*
+    .map(|func_output| warp::reply::json(&func_output).into_response())
+    .map(|mut response: Response<Vec<u8>>| {
+        let body = response.body();
+        let signature = signer(body);
+        response
+            .headers_mut()
+            // TODO: fix unwrap
+            .append("Signature", HeaderValue::from_str(&signature).unwrap());
+        response
+    })
+    */
 }

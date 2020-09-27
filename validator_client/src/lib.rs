@@ -24,6 +24,7 @@ use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
 use fork_service::{ForkService, ForkServiceBuilder};
 use futures::channel::mpsc;
+use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
 use slog::{error, info, Logger};
@@ -239,8 +240,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
+        let api_secret = ApiSecret::create_or_open(&self.config.data_dir)?;
+
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx: Arc<http_api::Context<T>> = Arc::new(http_api::Context {
+                api_secret,
                 initialized_validators: Some(self.validator_store.initialized_validators()),
                 data_dir: Some(self.config.data_dir.clone()),
                 spec: self.context.eth2_config.spec.clone(),

@@ -54,3 +54,5 @@ warp = "0.2.5"
 hyper = "0.13.5"
 serde_utils = { path = "../consensus/serde_utils" }
 libsecp256k1 = "0.3.5"
+ring = "0.16.12"
+rand = "0.7.3"
