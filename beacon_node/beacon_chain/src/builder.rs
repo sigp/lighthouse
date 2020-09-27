@@ -5,7 +5,11 @@ use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::Migrate;
+use crate::naive_aggregation_pool::NaiveAggregationPool;
 use crate::observed_attestations::ObservedAttestations;
+use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
+use crate::observed_block_producers::ObservedBlockProducers;
+use crate::observed_operations::ObservedOperations;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::persisted_seen_caches::PersistedSeenCaches;
@@ -30,8 +34,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, Signature, SignedBeaconBlock,
-    Slot,
+    AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256,
+    ProposerSlashing, Signature, SignedBeaconBlock, SignedVoluntaryExit, Slot,
 };
 
 pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
@@ -106,7 +110,15 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
+    naive_aggregation_pool: Option<NaiveAggregationPool<T::EthSpec>>,
     observed_attestations: Option<ObservedAttestations<T::EthSpec>>,
+    observed_attesters: Option<ObservedAttesters<T::EthSpec>>,
+    observed_aggregators: Option<ObservedAggregators<T::EthSpec>>,
+    observed_block_producers: Option<ObservedBlockProducers<T::EthSpec>>,
+    observed_voluntary_exits: Option<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
+    observed_proposer_slashings: Option<ObservedOperations<ProposerSlashing, T::EthSpec>>,
+    observed_attester_slashings:
+        Option<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
@@ -154,7 +166,14 @@ where
             genesis_block_root: None,
             fork_choice: None,
             op_pool: None,
+            naive_aggregation_pool: None,
             observed_attestations: None,
+            observed_attesters: None,
+            observed_aggregators: None,
+            observed_block_producers: None,
+            observed_voluntary_exits: None,
+            observed_proposer_slashings: None,
+            observed_attester_slashings: None,
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
@@ -329,12 +348,23 @@ where
         self.fork_choice = Some(fork_choice);
 
         let caches = store
-            .get_item::<PersistedSeenCaches>(&Hash256::from_slice(&SEEN_CACHES_KEY))
+            .get_item::<PersistedSeenCaches<TEthSpec>>(&Hash256::from_slice(&SEEN_CACHES_KEY))
             .map_err(|e| format!("DB error when reading persisted seen caches: {:?}", e))?
             .ok_or_else(|| {
                 "No persisted seen caches found in store. Will continue with empty caches."
                     .to_string()
             })?;
+
+        self.naive_aggregation_pool = Some(
+            NaiveAggregationPool::from_ssz_container(&caches.naive_aggregation_pool).map_err(
+                |e| {
+                    format!(
+                        "Failed to decode naive aggregation pool for database: {:?}",
+                        e
+                    )
+                },
+            )?,
+        );
 
         self.observed_attestations = Some(
             ObservedAttestations::from_ssz_container(&caches.observed_attestations).map_err(
@@ -347,6 +377,64 @@ where
             )?,
         );
 
+        self.observed_attesters = Some(
+            ObservedAttesters::from_ssz_container(&caches.observed_attesters).map_err(|e| {
+                format!("Failed to decode observed attesters for database: {:?}", e)
+            })?,
+        );
+
+        self.observed_aggregators = Some(
+            ObservedAggregators::from_ssz_container(&caches.observed_aggregators).map_err(|e| {
+                format!(
+                    "Failed to decode observed aggregators for database: {:?}",
+                    e
+                )
+            })?,
+        );
+
+        self.observed_block_producers = Some(
+            ObservedBlockProducers::from_ssz_container(&caches.observed_block_producers).map_err(
+                |e| {
+                    format!(
+                        "Failed to decode observed block producers for database: {:?}",
+                        e
+                    )
+                },
+            )?,
+        );
+
+        self.observed_voluntary_exits = Some(
+            ObservedOperations::from_ssz_container(&caches.observed_voluntary_exits).map_err(
+                |e| {
+                    format!(
+                        "Failed to decode observed voluntary exits for database: {:?}",
+                        e
+                    )
+                },
+            )?,
+        );
+
+        self.observed_proposer_slashings = Some(
+            ObservedOperations::from_ssz_container(&caches.observed_proposer_slashings).map_err(
+                |e| {
+                    format!(
+                        "Failed to decode observed proposer slashings for database: {:?}",
+                        e
+                    )
+                },
+            )?,
+        );
+
+        self.observed_attester_slashings = Some(
+            ObservedOperations::from_ssz_container(&caches.observed_attester_slashings).map_err(
+                |e| {
+                    format!(
+                        "Failed to decode observed attester slashings for database: {:?}",
+                        e
+                    )
+                },
+            )?,
+        );
         Ok(self)
     }
 

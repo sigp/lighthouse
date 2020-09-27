@@ -238,8 +238,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist_seen_caches(&self) -> Result<(), Error> {
         self.store.put_item(
             &Hash256::from_slice(&SEEN_CACHES_KEY),
-            &PersistedSeenCaches {
+            &PersistedSeenCaches::<T::EthSpec> {
+                naive_aggregation_pool: self.naive_aggregation_pool.read().to_ssz_container(),
                 observed_attestations: self.observed_attestations.to_ssz_container(),
+                observed_attesters: self.observed_attesters.to_ssz_container(),
+                observed_aggregators: self.observed_aggregators.to_ssz_container(),
+                observed_block_producers: self.observed_block_producers.to_ssz_container(),
+                observed_voluntary_exits: self.observed_voluntary_exits.to_ssz_container(),
+                observed_proposer_slashings: self.observed_proposer_slashings.to_ssz_container(),
+                observed_attester_slashings: self.observed_attester_slashings.to_ssz_container(),
             },
         )?;
 

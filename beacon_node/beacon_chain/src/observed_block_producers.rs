@@ -2,11 +2,11 @@
 //! validators that have already produced a block.
 
 use parking_lot::RwLock;
+use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use types::{BeaconBlock, EthSpec, Slot, Unsigned};
-use ssz_derive::{Encode, Decode};
-use std::iter::FromIterator;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -157,21 +157,22 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
 
         let keys = ssz_container.items_keys.clone();
 
-        let values: Vec<HashSet<u64>> = ssz_container.items_values
+        let values: Vec<HashSet<u64>> = ssz_container
+            .items_values
             .clone()
             .iter()
             .map(|item| HashSet::from_iter(item.clone()))
             .collect();
 
-        let items: RwLock<HashMap<Slot, HashSet<u64>>> = RwLock::new(
-            keys.into_iter().zip(values.into_iter()).collect());
+        let items: RwLock<HashMap<Slot, HashSet<u64>>> =
+            RwLock::new(keys.into_iter().zip(values.into_iter()).collect());
 
         Ok(Self {
             finalized_slot,
             items,
             _phantom: PhantomData,
         })
-    }    
+    }
 }
 
 impl<E: EthSpec> PartialEq<ObservedBlockProducers<E>> for ObservedBlockProducers<E> {
@@ -185,8 +186,8 @@ impl<E: EthSpec> PartialEq<ObservedBlockProducers<E>> for ObservedBlockProducers
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ssz::{Decode, Encode};
     use types::MainnetEthSpec;
-    use ssz::{Encode, Decode};
 
     type E = MainnetEthSpec;
 

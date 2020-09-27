@@ -1,7 +1,7 @@
 use crate::metrics;
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{Attestation, AttestationData, EthSpec, Slot};
-use ssz_derive::{Decode, Encode};
 
 /// The number of slots that will be stored in the pool.
 ///
@@ -56,7 +56,7 @@ pub enum Error {
 #[derive(Encode, Decode, Clone)]
 struct SszAggregatedAttestationMap<E: EthSpec> {
     keys: Vec<AttestationData>,
-    values: Vec<Attestation<E>>
+    values: Vec<Attestation<E>>,
 }
 
 #[derive(Debug)]
@@ -142,20 +142,19 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
         let keys: Vec<AttestationData> = self.map.keys().cloned().collect();
         let values: Vec<Attestation<E>> = self.map.values().cloned().collect();
 
-        SszAggregatedAttestationMap::<E> {
-            keys,
-            values,
-        }
+        SszAggregatedAttestationMap::<E> { keys, values }
     }
 
     /// Creates a new `Self` from the given `SszAggregatedAttestationMap`, restoring `Self` to the same state of
     /// the `Self` that created the `SszAggregatedAttestationMap`.
-    pub fn from_ssz_container(ssz_container: &SszAggregatedAttestationMap<E>) -> Result<Self, Error> {
+    pub fn from_ssz_container(
+        ssz_container: &SszAggregatedAttestationMap<E>,
+    ) -> Result<Self, Error> {
         let keys = ssz_container.keys.clone();
 
         let values = ssz_container.values.clone();
 
-        let map: HashMap<AttestationData, Attestation<E>> = 
+        let map: HashMap<AttestationData, Attestation<E>> =
             keys.into_iter().zip(values.into_iter()).collect();
 
         Ok(Self { map })
@@ -332,8 +331,8 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         SszNaiveAggregationPool::<E> {
             lowest_permissible_slot,
             maps_keys,
-            maps_values
-        }        
+            maps_values,
+        }
     }
 
     /// Creates a new `Self` from the given `SszNaiveAggregationPool`, restoring `Self` to the same state of
@@ -343,7 +342,8 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
 
         let keys = ssz_container.maps_keys.clone();
 
-        let translated_values = ssz_container.maps_values
+        let translated_values = ssz_container
+            .maps_values
             .clone()
             .iter()
             .map(AggregatedAttestationMap::from_ssz_container)
@@ -354,15 +354,14 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             Err(e) => return Err(e),
         };
 
-        let maps: HashMap<Slot, AggregatedAttestationMap<E>> = 
+        let maps: HashMap<Slot, AggregatedAttestationMap<E>> =
             keys.into_iter().zip(values.into_iter()).collect();
-        
+
         Ok(Self {
             lowest_permissible_slot,
             maps,
         })
     }
-
 }
 
 impl<E: EthSpec> PartialEq<NaiveAggregationPool<E>> for NaiveAggregationPool<E> {
@@ -376,12 +375,12 @@ impl<E: EthSpec> PartialEq<NaiveAggregationPool<E>> for NaiveAggregationPool<E> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ssz::{Decode, Encode};
     use ssz_types::BitList;
     use types::{
         test_utils::{generate_deterministic_keypair, test_random_instance},
         Fork, Hash256,
     };
-    use ssz::{Decode, Encode};
 
     type E = types::MainnetEthSpec;
 
@@ -409,7 +408,6 @@ mod tests {
             .expect("should unset aggregation bit")
     }
 
-    
     #[test]
     fn pool_ssz_round_trip() {
         let mut a = get_attestation(Slot::new(256));
@@ -427,9 +425,8 @@ mod tests {
             ),
             "NaiveAggregationPool should encode/decode to/from SSZ"
         )
-
     }
-    
+
     #[test]
     fn single_attestation() {
         let mut a = get_attestation(Slot::new(0));

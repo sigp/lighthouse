@@ -1,6 +1,7 @@
 use derivative::Derivative;
 use parking_lot::Mutex;
 use smallvec::SmallVec;
+use ssz_derive::{Decode, Encode};
 use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -8,18 +9,17 @@ use std::marker::PhantomData;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, EthSpec, ProposerSlashing, SignedVoluntaryExit,
 };
-use ssz_derive::{Decode, Encode};
 
 /// Number of validator indices to store on the stack in `observed_validators`.
 pub const SMALL_VEC_SIZE: usize = 8;
 
 #[derive(Encode, Decode)]
 pub struct SszObservedOperations {
-    observed_validator_indices: Vec<u64>
+    observed_validator_indices: Vec<u64>,
 }
 
 #[derive(PartialEq, Debug)]
-pub enum Error { } //to conform with other to/from_ssz_container routines in seen caches
+pub enum Error {} //to conform with other to/from_ssz_container routines in seen caches
 
 /// Stateful tracker for exit/slashing operations seen on the network.
 ///
@@ -119,14 +119,15 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         let observed_validator_indices: Vec<u64> = Vec::from_iter(cloned_set);
 
         SszObservedOperations {
-            observed_validator_indices
+            observed_validator_indices,
         }
     }
 
     /// Creates a new `Self` from the given `SszObservedOperations`, restoring `Self` to the same state of
     /// the `Self` that created the `SszObservedOperations`.
     pub fn from_ssz_container(ssz_container: &SszObservedOperations) -> Result<Self, Error> {
-        let observed_validator_indices = HashSet::from_iter(ssz_container.observed_validator_indices.clone());
+        let observed_validator_indices =
+            HashSet::from_iter(ssz_container.observed_validator_indices.clone());
 
         Ok(Self {
             observed_validator_indices: Mutex::new(observed_validator_indices),
@@ -135,10 +136,12 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
     }
 }
 
-impl<T: ObservableOperation<E>, E: EthSpec> PartialEq<ObservedOperations<T, E>> for ObservedOperations<T, E> {
+impl<T: ObservableOperation<E>, E: EthSpec> PartialEq<ObservedOperations<T, E>>
+    for ObservedOperations<T, E>
+{
     fn eq(&self, other: &ObservedOperations<T, E>) -> bool {
-        (*self.observed_validator_indices.lock()).len() == 
-            (*other.observed_validator_indices.lock()).len()
+        (*self.observed_validator_indices.lock()).len()
+            == (*other.observed_validator_indices.lock()).len()
     }
 }
 
@@ -146,32 +149,34 @@ impl<T: ObservableOperation<E>, E: EthSpec> PartialEq<ObservedOperations<T, E>> 
 //#[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use ssz::{Decode, Encode};
     use crate::test_utils::BeaconChainHarness;
-    use types::{MinimalEthSpec, Slot};
+    use ssz::{Decode, Encode};
     use types::test_utils::TestingVoluntaryExitBuilder;
+    use types::{MinimalEthSpec, Slot};
 
     #[test]
     fn store_round_trip() {
         let keys = types::test_utils::generate_deterministic_keypairs(1);
         let sk = keys[0].sk.clone();
-        let mut harness = BeaconChainHarness::new(
-            MinimalEthSpec,
-            keys,
-        );
-    
+        let mut harness = BeaconChainHarness::new(MinimalEthSpec, keys);
+
         let state = harness.get_current_state();
         let slots: Vec<Slot> = (1..2080 as usize).map(Into::into).collect();
         harness.add_attested_blocks_at_slots(state, &slots, &[0]);
-        
+
         let state = harness.get_current_state();
-        let spec = harness.chain.spec.clone();        
-        let operation = TestingVoluntaryExitBuilder
-            ::new(state.current_epoch(), 0)
-            .build(&sk, &state.fork, state.genesis_validators_root, &spec);
+        let spec = harness.chain.spec.clone();
+        let operation = TestingVoluntaryExitBuilder::new(state.current_epoch(), 0).build(
+            &sk,
+            &state.fork,
+            state.genesis_validators_root,
+            &spec,
+        );
 
         let store = ObservedOperations::default();
-        store.verify_and_observe(operation, &state, &spec).expect("accept the validator's exit");
+        store
+            .verify_and_observe(operation, &state, &spec)
+            .expect("accept the validator's exit");
 
         let bytes = store.to_ssz_container().as_ssz_bytes();
 

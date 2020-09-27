@@ -8,11 +8,11 @@
 
 use bitvec::vec::BitVec;
 use parking_lot::RwLock;
+use ssz::{Decode as DecodeTrait, Encode as EncodeTrait};
+use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{Attestation, Epoch, EthSpec, Unsigned};
-use ssz_derive::{Decode, Encode};
-use ssz::{Decode as DecodeTrait, Encode as EncodeTrait};
 
 pub type ObservedAttesters<E> = AutoPruningContainer<EpochBitfield, SszEpochBitfield, E>;
 pub type ObservedAggregators<E> = AutoPruningContainer<EpochHashSet, SszEpochHashSet, E>;
@@ -55,7 +55,9 @@ pub trait SszConverter {
     type Output;
 
     fn to_ssz_container(&self) -> Self::Output;
-    fn from_ssz_container(ssz_container: &Self::Output) -> Result<Self, Error> where Self: std::marker::Sized;
+    fn from_ssz_container(ssz_container: &Self::Output) -> Result<Self, Error>
+    where
+        Self: std::marker::Sized;
 }
 
 /// Stores a `BitVec` that represents which validator indices have attested during an epoch.
@@ -80,10 +82,8 @@ impl SszConverter for EpochBitfield {
             .iter()
             .map(|item| *item != 0) //this converts it to a Vec<bool>, more concise in bytes
             .collect();
-        
-        SszEpochBitfield {
-            bitfield,
-        }
+
+        SszEpochBitfield { bitfield }
     }
 
     /// Creates a new `Self` from the given `SszEpochBitfield`, restoring `Self` to the same state of
@@ -149,13 +149,13 @@ impl Item for EpochBitfield {
 
 /// Stores a `HashSet` of which validator indices have created an aggregate attestation during an
 /// epoch.
-#[derive(Encode,Decode,Clone,Debug)]
+#[derive(Encode, Decode, Clone, Debug)]
 pub struct SszEpochHashSet {
     set_capacity: usize,
     set: Vec<usize>,
 }
 #[derive(Debug)]
-pub struct EpochHashSet {    
+pub struct EpochHashSet {
     set: HashSet<usize>,
 }
 
@@ -169,10 +169,7 @@ impl SszConverter for EpochHashSet {
         use std::iter::FromIterator;
         let set = Vec::from_iter(self.set.clone());
 
-        SszEpochHashSet {
-            set_capacity,
-            set
-        }
+        SszEpochHashSet { set_capacity, set }
     }
 
     /// Creates a new `Self` from the given `SszEpochHashSet`, restoring `Self` to the same state of
@@ -228,19 +225,19 @@ impl Item for EpochHashSet {
 /// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
-#[derive(Encode,Decode,Clone)]
+#[derive(Encode, Decode, Clone)]
 pub struct SszAutoPruningContainer<S: EncodeTrait + DecodeTrait> {
     lowest_permissible_epoch: Epoch,
     items_keys: Vec<Epoch>,
-    items_values: Vec<S>
+    items_values: Vec<S>,
 }
 
 #[derive(Debug)]
-pub struct AutoPruningContainer<T, S, E> 
-    where 
-     T: Item + SszConverter + SszConverter<Output = S>,
-     S: EncodeTrait+DecodeTrait+Clone, 
-     E: EthSpec 
+pub struct AutoPruningContainer<T, S, E>
+where
+    T: Item + SszConverter + SszConverter<Output = S>,
+    S: EncodeTrait + DecodeTrait + Clone,
+    E: EthSpec,
 {
     lowest_permissible_epoch: RwLock<Epoch>,
     items: RwLock<HashMap<Epoch, T>>,
@@ -249,10 +246,10 @@ pub struct AutoPruningContainer<T, S, E>
 }
 
 impl<T, S, E> Default for AutoPruningContainer<T, S, E>
-    where 
-     T: Item + SszConverter + SszConverter<Output = S>,
-     S: EncodeTrait+DecodeTrait+Clone, 
-     E: EthSpec 
+where
+    T: Item + SszConverter + SszConverter<Output = S>,
+    S: EncodeTrait + DecodeTrait + Clone,
+    E: EthSpec,
 {
     fn default() -> Self {
         Self {
@@ -264,11 +261,11 @@ impl<T, S, E> Default for AutoPruningContainer<T, S, E>
     }
 }
 
-impl<T, S, E> AutoPruningContainer<T, S, E> 
-    where 
-     T: Item + SszConverter + SszConverter<Output = S>,
-     S: EncodeTrait+DecodeTrait+Clone, 
-     E: EthSpec 
+impl<T, S, E> AutoPruningContainer<T, S, E>
+where
+    T: Item + SszConverter + SszConverter<Output = S>,
+    S: EncodeTrait + DecodeTrait + Clone,
+    E: EthSpec,
 {
     /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
     /// previously been observed for `validator_index`.
@@ -410,12 +407,13 @@ impl<T, S, E> AutoPruningContainer<T, S, E>
 
     /// Creates a new `Self` from the given `SszAutoPruningContainer`, restoring `Self` to the same state of
     /// the `Self` that created the `SszAutoPruningContainer`.
-    pub fn from_ssz_container(ssz_container: &SszAutoPruningContainer<S>) -> Result<Self, Error>  {
+    pub fn from_ssz_container(ssz_container: &SszAutoPruningContainer<S>) -> Result<Self, Error> {
         let lowest_permissible_epoch = RwLock::new(ssz_container.lowest_permissible_epoch);
 
         let keys = ssz_container.items_keys.clone();
 
-        let translated_values = ssz_container.items_values
+        let translated_values = ssz_container
+            .items_values
             .clone()
             .iter()
             .map(|item| <T>::from_ssz_container(item))
@@ -426,8 +424,7 @@ impl<T, S, E> AutoPruningContainer<T, S, E>
             Err(e) => return Err(e),
         };
 
-        let items: HashMap<Epoch, T> = 
-            keys.into_iter().zip(values.into_iter()).collect();
+        let items: HashMap<Epoch, T> = keys.into_iter().zip(values.into_iter()).collect();
 
         Ok(Self {
             lowest_permissible_epoch,
@@ -438,13 +435,13 @@ impl<T, S, E> AutoPruningContainer<T, S, E>
     }
 }
 
-impl<T,S,E: EthSpec> PartialEq<AutoPruningContainer<T,S,E>> for AutoPruningContainer<T,S,E> 
-    where 
+impl<T, S, E: EthSpec> PartialEq<AutoPruningContainer<T, S, E>> for AutoPruningContainer<T, S, E>
+where
     T: Item + SszConverter + SszConverter<Output = S>,
-    S: EncodeTrait+DecodeTrait+Clone, 
-    E: EthSpec 
+    S: EncodeTrait + DecodeTrait + Clone,
+    E: EthSpec,
 {
-    fn eq(&self, other: &AutoPruningContainer<T,S,E>) -> bool {
+    fn eq(&self, other: &AutoPruningContainer<T, S, E>) -> bool {
         (*self.lowest_permissible_epoch.read() == *other.lowest_permissible_epoch.read())
             && ((*self.items.read()).keys().len() == (*other.items.read()).keys().len())
             && ((*self.items.read()).values().len() == (*other.items.read()).values().len())
@@ -507,15 +504,18 @@ mod tests {
                     let epoch = Epoch::new(0);
                     for i in 1..5 {
                         let attestation = &get_attestation(epoch);
-                        store.observe_validator(attestation, i).expect("should accept attestation");
+                        store
+                            .observe_validator(attestation, i)
+                            .expect("should accept attestation");
                     }
-                    
+
                     let bytes = store.to_ssz_container().as_ssz_bytes();
 
                     assert_eq!(
                         Ok(store),
                         $type::from_ssz_container(
-                            &SszAutoPruningContainer::from_ssz_bytes(&bytes).expect("should decode")
+                            &SszAutoPruningContainer::from_ssz_bytes(&bytes)
+                                .expect("should decode")
                         ),
                         "should encode/decode to/from SSZ container/bytes"
                     )
