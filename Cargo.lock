@@ -330,6 +330,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
+ "exit-future",
  "fork_choice",
  "futures 0.3.5",
  "genesis",

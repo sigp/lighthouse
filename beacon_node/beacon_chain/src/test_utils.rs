@@ -135,7 +135,17 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorEphemeralHarnessType<E>> {
         let config = StoreConfig::default();
         let store = Arc::new(HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap());
 
+        let (_signal, exit) = exit_future::signal();
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = environment::TaskExecutor::new(
+            tokio::runtime::Handle::current(),
+            exit,
+            log.clone(),
+            shutdown_tx,
+        );
+
         let chain = BeaconChainBuilder::new(eth_spec_instance)
+            .executor(executor)
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(store.clone())
