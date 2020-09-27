@@ -5,13 +5,44 @@ use std::fs;
 use std::path::Path;
 use warp::Filter;
 
+/// The name of the file which stores the secret key.
+///
+/// It is purposefully opaque to prevent users confusing it with the "secret" that they need to
+/// share with API consumers (which is actually the public key).
 pub const SK_FILENAME: &str = ".secp-sk";
+
+/// Length of the raw secret key, in bytes.
 pub const SK_LEN: usize = 32;
 
+/// The name of the file which stores the public key.
+///
+/// For users, this public key is a "secret" that can be shared with API consumers to provide them
+/// access to the API. We avoid calling it a "public" key to users, since they should not post this
+/// value in a public forum.
 pub const PK_FILENAME: &str = "api-secret-access-token.txt";
+
+/// Length of the raw public key, in bytes.
 pub const PK_LEN: usize = 33;
+
+/// The prefix that will be applied to the 0x-prefixed hex bytes when the public key is saved to a
+/// file on disk or presented via a HTTP request.
+///
+/// This prefix helps users distinguish this value from other 0x-prefixed hex strings like a hash
+/// or validator public key.
 pub const PK_PREFIX: &str = "api-token-";
 
+/// Contains a `secp256k1` keypair that is saved-to/loaded-from disk on instantiation. The keypair
+/// is used for authorization/authentication for requests/responses on the HTTP API.
+///
+/// Provides convenience functions to ultimately provide:
+///
+///  - A signature across outgoing HTTP responses, applied to the `Signature` header.
+///  - Verification of proof-of-knowledge of the public key in `self` for incoming HTTP requests,
+///  via the `Authorization` header.
+///
+///  The aforementioned scheme was first defined here:
+///
+///  https://github.com/sigp/lighthouse/issues/1269#issuecomment-649879855
 pub struct ApiSecret {
     pk: PublicKey,
     // TODO: zeroize?
@@ -19,6 +50,13 @@ pub struct ApiSecret {
 }
 
 impl ApiSecret {
+    /// If both the secret and public keys are already on-disk, parse them and ensure they're both
+    /// from the same keypair.
+    ///
+    /// The provided `dir` is a directory containing two files, `SK_FILENAME` and `PK_FILENAME`.
+    ///
+    /// If either the secret or public key files are missing on disk, create a new keypair and
+    /// write it to disk (over-writing any existing files).
     pub fn create_or_open<P: AsRef<Path>>(dir: P) -> Result<Self, String> {
         let sk_path = dir.as_ref().join(SK_FILENAME);
         let pk_path = dir.as_ref().join(PK_FILENAME);
@@ -93,6 +131,7 @@ impl ApiSecret {
                 }
             })?;
 
+        // Ensure that the keys loaded from disk are indeed a pair.
         if PublicKey::from_secret_key(&sk) != pk {
             fs::remove_file(&sk_path)
                 .map_err(|e| format!("unable to remove {}: {}", SK_FILENAME, e))?;
@@ -107,14 +146,19 @@ impl ApiSecret {
         Ok(Self { sk, pk })
     }
 
+    /// Returns the public key of `self` as a 0x-prefixed hex string.
     pub fn pubkey_string(&self) -> String {
         serde_utils::hex::encode(&self.pk.serialize_compressed()[..])
     }
 
+    /// Returns the value of the `Authorization` header which is used for verifying incoming HTTP
+    /// requests.
     fn auth_header_value(&self) -> String {
         format!("Basic {}{}", PK_PREFIX, self.pubkey_string())
     }
 
+    /// Returns a `warp` header which filters out request that have a missing or inaccurate
+    /// `Authorization` header.
     pub fn authorization_header_filter(&self) -> warp::filters::BoxedFilter<()> {
         let expected = self.auth_header_value();
         warp::any()
@@ -131,6 +175,8 @@ impl ApiSecret {
             .boxed()
     }
 
+    /// Returns a closure which produces a signature over some bytes using the secret key in
+    /// `self`. The signature is a 32-byte hash formatted as a 0x-prefixed string.
     pub fn signer(&self) -> impl Fn(&[u8]) -> String + Clone {
         let sk = self.sk.clone();
         let func = move |input: &[u8]| -> String {
