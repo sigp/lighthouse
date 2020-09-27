@@ -1,6 +1,9 @@
 use super::types::*;
 use crate::Error;
-use reqwest::{IntoUrl, Response};
+use reqwest::{
+    header::{HeaderMap, HeaderValue},
+    IntoUrl, Response,
+};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub use reqwest;
@@ -12,25 +15,48 @@ pub use reqwest::{StatusCode, Url};
 pub struct ValidatorClientHttpClient {
     client: reqwest::Client,
     server: Url,
+    // TODO: zeroize.
+    secret: String,
 }
 
 impl ValidatorClientHttpClient {
     /// Returns `Err(())` if the URL is invalid.
-    pub fn new(server: Url) -> Self {
+    pub fn new(server: Url, secret: String) -> Self {
         Self {
             client: reqwest::Client::new(),
             server,
+            secret,
         }
     }
 
     /// Returns `Err(())` if the URL is invalid.
-    pub fn from_components(server: Url, client: reqwest::Client) -> Self {
-        Self { client, server }
+    pub fn from_components(server: Url, client: reqwest::Client, secret: String) -> Self {
+        Self {
+            client,
+            server,
+            secret,
+        }
+    }
+
+    fn headers(&self) -> Result<HeaderMap, Error> {
+        let header_value = HeaderValue::from_str(&format!("Basic {}", &self.secret))
+            .map_err(Error::InvalidSecret)?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", header_value);
+
+        Ok(headers)
     }
 
     /// Perform a HTTP GET request.
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self
+            .client
+            .get(url)
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
         ok_or_error(response)
             .await?
             .json()

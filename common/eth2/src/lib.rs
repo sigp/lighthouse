@@ -9,6 +9,7 @@
 
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
+#[cfg(feature = "lighthouse")]
 pub mod lighthouse_vc;
 pub mod types;
 
@@ -31,6 +32,9 @@ pub enum Error {
     StatusCode(StatusCode),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
     InvalidUrl(Url),
+    #[cfg(feature = "lighthouse")]
+    /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
+    InvalidSecret(reqwest::header::InvalidHeaderValue),
 }
 
 impl Error {
@@ -41,6 +45,8 @@ impl Error {
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
             Error::InvalidUrl(_) => None,
+            #[cfg(feature = "lighthouse")]
+            Error::InvalidSecret(_) => None,
         }
     }
 }
