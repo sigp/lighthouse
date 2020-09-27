@@ -10,6 +10,7 @@ pub const SK_LEN: usize = 32;
 
 pub const PK_FILENAME: &str = "api-secret-access-token.txt";
 pub const PK_LEN: usize = 33;
+pub const PK_PREFIX: &str = "api-token-";
 
 pub struct ApiSecret {
     pk: PublicKey,
@@ -33,16 +34,21 @@ impl ApiSecret {
             .map_err(|e| e.to_string())?;
             fs::write(
                 &pk_path,
-                serde_utils::hex::encode(&pk.serialize_compressed()[..]).as_bytes(),
+                format!(
+                    "{}{}",
+                    PK_PREFIX,
+                    serde_utils::hex::encode(&pk.serialize_compressed()[..])
+                )
+                .as_bytes(),
             )
             .map_err(|e| e.to_string())?;
         }
 
         let sk = fs::read(&sk_path)
             .map_err(|e| format!("cannot read {}: {}", SK_FILENAME, e))
-            .and_then(|hex| {
-                serde_utils::hex::decode(&String::from_utf8_lossy(&hex))
-                    .map_err(|_| format!("{} should be 0x-prefixed hex", SK_FILENAME))
+            .and_then(|bytes| {
+                serde_utils::hex::decode(&String::from_utf8_lossy(&bytes))
+                    .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
             })
             .and_then(|bytes| {
                 if bytes.len() == SK_LEN {
@@ -61,9 +67,15 @@ impl ApiSecret {
 
         let pk = fs::read(&pk_path)
             .map_err(|e| format!("cannot read {}: {}", PK_FILENAME, e))
-            .and_then(|hex| {
-                serde_utils::hex::decode(&String::from_utf8_lossy(&hex))
-                    .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
+            .and_then(|bytes| {
+                let hex =
+                    String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", SK_FILENAME))?;
+                if hex.starts_with(PK_PREFIX) {
+                    serde_utils::hex::decode(&hex[PK_PREFIX.len()..])
+                        .map_err(|_| format!("{} should be 0x-prefixed hex", SK_FILENAME))
+                } else {
+                    return Err(format!("unable to parse {}", SK_FILENAME));
+                }
             })
             .and_then(|bytes| {
                 if bytes.len() == PK_LEN {
@@ -100,7 +112,7 @@ impl ApiSecret {
     }
 
     fn auth_header_value(&self) -> String {
-        format!("Basic {}", self.pubkey_string())
+        format!("Basic {}{}", PK_PREFIX, self.pubkey_string())
     }
 
     pub fn authorization_header_filter(&self) -> warp::filters::BoxedFilter<()> {

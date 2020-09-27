@@ -39,7 +39,7 @@ impl ValidatorClientHttpClient {
     }
 
     fn headers(&self) -> Result<HeaderMap, Error> {
-        let header_value = HeaderValue::from_str(&format!("Basic {}", &self.secret))
+        let header_value = HeaderValue::from_str(&format!("Basic api-token-{}", &self.secret))
             .map_err(Error::InvalidSecret)?;
 
         let mut headers = HeaderMap::new();
