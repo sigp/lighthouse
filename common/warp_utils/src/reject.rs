@@ -92,13 +92,20 @@ pub fn object_invalid(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(ObjectInvalid(msg))
 }
 
-#[derive(Debug)]
 pub struct NotSynced(pub String);
 
 impl Reject for NotSynced {}
 
 pub fn not_synced(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(NotSynced(msg))
+}
+
+pub struct InvalidAuthorization(pub String);
+
+impl Reject for InvalidAuthorization {}
+
+pub fn invalid_auth(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(InvalidAuthorization(msg))
 }
 
 /// This function receives a `Rejection` and tries to return a custom
@@ -150,6 +157,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::NotSynced>() {
         code = StatusCode::SERVICE_UNAVAILABLE;
         message = format!("SERVICE_UNAVAILABLE: beacon node is syncing: {}", e.0);
+    } else if let Some(e) = err.find::<crate::reject::InvalidAuthorization>() {
+        code = StatusCode::FORBIDDEN;
+        message = format!("FORBIDDEN: Invalid auth token: {}", e.0);
     } else if err.find::<warp::reject::MethodNotAllowed>().is_some() {
         code = StatusCode::METHOD_NOT_ALLOWED;
         message = "METHOD_NOT_ALLOWED".to_string();

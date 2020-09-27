@@ -10,6 +10,7 @@ use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use signing::ApiSecret;
 use slog::{crit, info, Logger};
 use std::future::Future;
 use std::marker::PhantomData;
@@ -21,6 +22,7 @@ use validator_dir::Builder as ValidatorDirBuilder;
 use warp::Filter;
 use warp_utils::task::blocking_json_task;
 
+mod signing;
 mod tests;
 
 #[derive(Debug)]
@@ -118,6 +120,9 @@ pub fn serve<T: EthSpec>(
             }
         });
     */
+
+    let api_secret = ApiSecret::open();
+    let authorization_header_filter = api_secret.authorization_header_filter();
 
     let inner_initialized_validators = ctx.initialized_validators.clone();
     let initialized_validators_filter = warp::any()
@@ -492,12 +497,15 @@ pub fn serve<T: EthSpec>(
             },
         );
 
-    let routes = warp::get()
+    let routes = warp::any()
+        .and(authorization_header_filter.clone())
         .and(
-            get_node_version
-                .or(get_lighthouse_health)
-                .or(get_lighthouse_validators)
-                .or(get_lighthouse_validators_pubkey),
+            warp::get().and(
+                get_node_version
+                    .or(get_lighthouse_health)
+                    .or(get_lighthouse_validators)
+                    .or(get_lighthouse_validators_pubkey),
+            ),
         )
         .or(warp::post().and(post_validator_hd.or(post_validator_keystore)))
         .or(warp::patch().and(patch_validator_hd))
