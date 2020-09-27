@@ -109,7 +109,6 @@ impl ApiSecret {
             .map(move || expected.clone())
             .and(warp::filters::header::header("Authorization"))
             .and_then(move |expected: String, header: String| async move {
-                dbg!(&header, &expected);
                 if header == expected {
                     Ok(())
                 } else {

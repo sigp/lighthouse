@@ -66,7 +66,13 @@ impl ValidatorClientHttpClient {
 
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self
+            .client
+            .get(url)
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
         match ok_or_error(response).await {
             Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
             Err(err) => {
@@ -88,6 +94,7 @@ impl ValidatorClientHttpClient {
         let response = self
             .client
             .post(url)
+            .headers(self.headers()?)
             .json(body)
             .send()
             .await
@@ -104,6 +111,7 @@ impl ValidatorClientHttpClient {
         let response = self
             .client
             .patch(url)
+            .headers(self.headers()?)
             .json(body)
             .send()
             .await
