@@ -1427,7 +1427,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("aggregate_and_proofs"))
         .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
+        .and(not_while_syncing_filter)
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
