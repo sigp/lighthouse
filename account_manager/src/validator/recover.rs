@@ -2,7 +2,7 @@ use super::create::STORE_WITHDRAW_FLAG;
 use crate::common::read_mnemonic_from_cli;
 use crate::validator::create::COUNT_FLAG;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
-use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use crate::SECRETS_DIR_FLAG;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::random_password;
 use clap::{App, Arg, ArgMatches};
@@ -51,22 +51,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name(VALIDATOR_DIR_FLAG)
-                .long(VALIDATOR_DIR_FLAG)
-                .value_name("VALIDATOR_DIRECTORY")
-                .help(
-                    "The path where the validator directories will be created. \
-                    Defaults to ~/.lighthouse/validators",
-                )
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name(SECRETS_DIR_FLAG)
                 .long(SECRETS_DIR_FLAG)
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/secrets",
+                    Defaults to ~/.lighthouse/{testnet}/secrets",
                 )
                 .takes_value(true),
         )

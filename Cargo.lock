@@ -2726,6 +2726,7 @@ name = "lighthouse"
 version = "0.2.12"
 dependencies = [
  "account_manager 0.2.12",
+ "account_utils 0.1.0",
  "beacon_node 0.2.12",
  "bls 0.2.0",
  "boot_node 0.2.12",
