@@ -1953,13 +1953,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         finalized_checkpoint: Checkpoint,
         wss_checkpoint: Checkpoint,
     ) {
-        info!(self.log, "Verifying the configured weak subjectivity checkpoint."; "epoch" => wss_checkpoint.epoch, "root" => wss_checkpoint.root);
+        info!(self.log, "Verifying the configured weak subjectivity checkpoint."; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
         // If epochs match, simply compare roots.
         if wss_checkpoint.epoch == finalized_checkpoint.epoch
             && wss_checkpoint.root != finalized_checkpoint.root
         {
             let mut shutdown_sender = self.shutdown_sender();
-            error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+            error!(self.log, "Weak subjectivity checkpoint verification failed!");
+            error!(self.log, "Root found at the specified checkpoint differs."; "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root), "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
+            error!(self.log, "You must purge all state from your node and restart the sync.");
             let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
                     .map_err(|e| error!(self.log, "failed to send a shutdown signal"; "error" => format!("{:?}", e)));
         } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
@@ -1974,7 +1976,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(Some(root)) => {
                     if root != wss_checkpoint.root {
                         let mut shutdown_sender = self.shutdown_sender();
-                        error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                        error!(self.log, "Weak subjectivity checkpoint verification failed!");
+                        error!(self.log, "Root found at the specified checkpoint differs."; "finalized_checkpoint_root" => format!("{:?}", root), "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
+                        error!(self.log, "You must purge all state from your node and restart the sync.");
                         let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
                                 .map_err(|e| error!(self.log, "failed to send a shutdown signal"; "error" => format!("{:?}", e)));
                     }
