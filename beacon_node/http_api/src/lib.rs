@@ -21,12 +21,13 @@ use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
 };
-use eth2_libp2p::{NetworkGlobals, PubsubMessage};
+use eth2_libp2p::{types::SyncState, NetworkGlobals, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::{crit, error, info, trace, warn, Logger};
+use slot_clock::SlotClock;
 use state_id::StateId;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
@@ -44,6 +45,13 @@ use warp::Filter;
 
 const API_PREFIX: &str = "eth";
 const API_VERSION: &str = "v1";
+
+/// If the node is within this many epochs from the head, we declare it to be synced regardless of
+/// the network sync state.
+///
+/// This helps prevent attacks where nodes can convince us that we're syncing some non-existent
+/// finalized head.
+const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
@@ -273,6 +281,43 @@ pub fn serve<T: BeaconChainTypes>(
                 )),
             }
         });
+
+    let not_while_syncing_filter = warp::any()
+        .and(network_globals.clone())
+        .and(chain_filter.clone())
+        .and_then(
+            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| async move {
+                match *network_globals.sync_state.read() {
+                    SyncState::SyncingFinalized { head_slot, .. } => {
+                        let current_slot = chain
+                            .slot_clock
+                            .now_or_genesis()
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "unable to read slot clock".to_string(),
+                                )
+                            })?;
+
+                        let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
+
+                        if head_slot + tolerance >= current_slot {
+                            Ok(())
+                        } else {
+                            Err(warp_utils::reject::not_synced(format!(
+                                "head slot is {}, current slot is {}",
+                                head_slot, current_slot
+                            )))
+                        }
+                    }
+                    SyncState::SyncingHead { .. } => Ok(()),
+                    SyncState::Synced => Ok(()),
+                    SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                        "sync is stalled".to_string(),
+                    )),
+                }
+            },
+        )
+        .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
     let log_filter = warp::any().map(move || ctx.log.clone());
@@ -1121,6 +1166,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("attester"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorDutiesQuery>())
         .and(chain_filter.clone())
         .and_then(
@@ -1286,6 +1332,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("proposer"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(beacon_proposer_cache())
         .and_then(
@@ -1307,6 +1354,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks"))
         .and(warp::path::param::<Slot>())
         .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
@@ -1334,6 +1382,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("attestation_data"))
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -1353,6 +1402,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("aggregate_attestation"))
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -1377,6 +1427,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("aggregate_and_proofs"))
         .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())

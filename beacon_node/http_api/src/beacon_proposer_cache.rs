@@ -139,16 +139,13 @@ impl BeaconProposerCache {
         chain: &BeaconChain<T>,
         epoch: Epoch,
     ) -> Result<Vec<ProposerData>, warp::Rejection> {
-        let is_prior_to_genesis = chain.slot_clock.is_prior_to_genesis().ok_or_else(|| {
-            warp_utils::reject::custom_server_error("unable to read slot clock".to_string())
-        })?;
-        let current_epoch = if is_prior_to_genesis {
-            chain.spec.genesis_slot.epoch(T::EthSpec::slots_per_epoch())
-        } else {
-            chain
-                .epoch()
-                .map_err(warp_utils::reject::beacon_chain_error)?
-        };
+        let current_epoch = chain
+            .slot_clock
+            .now_or_genesis()
+            .ok_or_else(|| {
+                warp_utils::reject::custom_server_error("unable to read slot clock".to_string())
+            })?
+            .epoch(T::EthSpec::slots_per_epoch());
 
         // Disallow requests that are outside the current epoch. This ensures the cache doesn't get
         // washed-out with old values.

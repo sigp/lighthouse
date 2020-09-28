@@ -8,7 +8,11 @@ use beacon_chain::{
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::{types::*, BeaconNodeHttpClient, Url};
-use eth2_libp2p::{rpc::methods::MetaData, types::EnrBitfield, NetworkGlobals};
+use eth2_libp2p::{
+    rpc::methods::MetaData,
+    types::{EnrBitfield, SyncState},
+    NetworkGlobals,
+};
 use http_api::{Config, Context};
 use network::NetworkMessage;
 use state_processing::per_slot_processing;
@@ -144,6 +148,8 @@ impl ApiTester {
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
         let network_globals = NetworkGlobals::new(enr, 42, 42, meta_data, vec![], &log);
+
+        *network_globals.sync_state.write() = SyncState::Synced;
 
         let context = Arc::new(Context {
             config: Config {
