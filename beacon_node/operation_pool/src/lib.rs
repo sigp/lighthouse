@@ -2,9 +2,11 @@ mod attestation;
 mod attestation_id;
 mod max_cover;
 mod persistence;
+mod attester_slashing;
 
 pub use persistence::PersistedOperationPool;
 
+use attester_slashing::AttesterSlashingMaxCover;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use max_cover::maximum_cover;
@@ -21,9 +23,8 @@ use std::ptr;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
     EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit,
-    Validator,
+    Validator, IndexedAttestation,
 };
-
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
@@ -200,6 +201,7 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_slashings(
         &self,
         state: &BeaconState<T>,
+        spec: &ChainSpec,
     ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing<T>>) {
         let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.read().values(),
@@ -220,7 +222,7 @@ impl<T: EthSpec> OperationPool<T> {
             .collect::<HashSet<_>>();
 
         let epoch = state.current_epoch();
-        let attester_slashings = self
+        let valid_indexed_attestations: Vec<IndexedAttestation<T>> = self
             .attester_slashings
             .read()
             .iter()
@@ -244,10 +246,25 @@ impl<T: EthSpec> OperationPool<T> {
                     false
                 }
             })
-            .take(T::MaxAttesterSlashings::to_usize())
-            .map(|(slashing, _)| slashing.clone())
+            .map(|(slashing, _)| vec![slashing.attestation_1.clone(), slashing.attestation_2.clone()])
+            .flat_map(|slashings| slashings.into_iter())
             .collect();
 
+        let best_indexed_attestations = maximum_cover(
+            valid_indexed_attestations
+            .iter()
+            .flat_map(|ia| AttesterSlashingMaxCover::new(&ia, state, spec)),
+            T::MaxAttesterSlashings::to_usize() * 2);
+
+        
+        let attester_slashings = best_indexed_attestations
+            .chunks(T::MaxAttesterSlashings::to_usize())
+            .map(|x| AttesterSlashing {
+                attestation_1: x[0].clone(),
+                attestation_2: x[1].clone(),
+            })
+            .collect();
+        
         (proposer_slashings, attester_slashings)
     }
 
