@@ -706,6 +706,7 @@ impl YamlConfig {
             random_subnets_per_validator: self.random_subnets_per_validator,
             epochs_per_random_subnet_subscription: self.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: self.seconds_per_eth1_block,
+            deposit_contract_address: self.deposit_contract_address,
             /*
              * Gwei values
              */
@@ -768,7 +769,6 @@ impl YamlConfig {
             far_future_epoch: chain_spec.far_future_epoch,
             base_rewards_per_epoch: chain_spec.base_rewards_per_epoch,
             deposit_contract_tree_depth: chain_spec.deposit_contract_tree_depth,
-            deposit_contract_address: chain_spec.deposit_contract_address,
         })
     }
 }
