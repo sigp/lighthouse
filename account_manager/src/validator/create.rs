@@ -1,11 +1,14 @@
+use crate::common::read_wallet_name_from_cli;
+use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
-use account_utils::{random_password, strip_off_newlines, validator_definitions};
+use account_utils::{
+    random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
+};
 use clap::{App, Arg, ArgMatches};
 use directory::{
     ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
 };
 use environment::Environment;
-use eth2_wallet::PlainText;
 use eth2_wallet_manager::WalletManager;
 use std::ffi::OsStr;
 use std::fs;
@@ -20,6 +23,7 @@ pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
 pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
 pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
+pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -32,16 +36,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(WALLET_NAME_FLAG)
                 .value_name("WALLET_NAME")
                 .help("Use the wallet identified by this name")
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(WALLET_PASSWORD_FLAG)
                 .long(WALLET_PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
                 .help("A path to a file containing the password which will unlock the wallet.")
-                .takes_value(true)
-                .required(true),
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(WALLETS_DIR_FLAG)
@@ -100,6 +102,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("count")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
+        )
 }
 
 pub fn cli_run<T: EthSpec>(
@@ -109,8 +116,8 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
-    let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, WALLET_PASSWORD_FLAG)?;
+    let name: Option<String> = clap_utils::parse_optional(matches, WALLET_NAME_FLAG)?;
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
     let wallet_base_dir = if matches.value_of("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_WALLET_DIR)
@@ -158,15 +165,17 @@ pub fn cli_run<T: EthSpec>(
         return Ok(());
     }
 
-    let wallet_password = fs::read(&wallet_password_path)
-        .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+    let wallet_password_path: Option<PathBuf> =
+        clap_utils::parse_optional(matches, WALLET_PASSWORD_FLAG)?;
+
+    let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
+    let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
 
     let mgr = WalletManager::open(&wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
     let mut wallet = mgr
-        .wallet_by_name(&name)
+        .wallet_by_name(&wallet_name)
         .map_err(|e| format!("Unable to open wallet: {:?}", e))?;
 
     for i in 0..n {
@@ -210,4 +219,25 @@ fn existing_validator_count<P: AsRef<Path>>(validator_dir: P) -> Result<usize, S
                 .count()
         })
         .map_err(|e| format!("Unable to read {:?}: {}", validator_dir.as_ref(), e))
+}
+
+/// Used when a user is accessing an existing wallet. Read in a wallet password from a file if the password file
+/// path is provided. Otherwise, read from an interactive prompt using tty unless the `--stdin-inputs`
+/// flag is provided.
+pub fn read_wallet_password_from_cli(
+    password_file_path: Option<PathBuf>,
+    stdin_inputs: bool,
+) -> Result<PlainText, String> {
+    match password_file_path {
+        Some(path) => fs::read(&path)
+            .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
+            .map(|bytes| strip_off_newlines(bytes).into()),
+        None => {
+            eprintln!("");
+            eprintln!("{}", WALLET_PASSWORD_PROMPT);
+            let password =
+                PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+            Ok(password)
+        }
+    }
 }

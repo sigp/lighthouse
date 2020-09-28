@@ -1,5 +1,5 @@
 use account_utils::PlainText;
-use account_utils::{read_mnemonic_from_user, strip_off_newlines};
+use account_utils::{read_input_from_user, strip_off_newlines};
 use eth2_wallet::bip39::{Language, Mnemonic};
 use std::fs;
 use std::path::PathBuf;
@@ -8,10 +8,11 @@ use std::thread::sleep;
 use std::time::Duration;
 
 pub const MNEMONIC_PROMPT: &str = "Enter the mnemonic phrase:";
+pub const WALLET_NAME_PROMPT: &str = "Enter wallet name:";
 
 pub fn read_mnemonic_from_cli(
     mnemonic_path: Option<PathBuf>,
-    stdin_password: bool,
+    stdin_inputs: bool,
 ) -> Result<Mnemonic, String> {
     let mnemonic = match mnemonic_path {
         Some(path) => fs::read(&path)
@@ -31,7 +32,7 @@ pub fn read_mnemonic_from_cli(
             eprintln!("");
             eprintln!("{}", MNEMONIC_PROMPT);
 
-            let mnemonic = read_mnemonic_from_user(stdin_password)?;
+            let mnemonic = read_input_from_user(stdin_inputs)?;
 
             match Mnemonic::from_phrase(mnemonic.as_str(), Language::English) {
                 Ok(mnemonic_m) => {
@@ -47,4 +48,20 @@ pub fn read_mnemonic_from_cli(
         },
     };
     Ok(mnemonic)
+}
+
+/// Reads in a wallet name from the user. If the `--wallet-name` flag is provided, use it. Otherwise
+/// read from an interactive prompt using tty unless the `--stdin-inputs` flag is provided.
+pub fn read_wallet_name_from_cli(
+    wallet_name: Option<String>,
+    stdin_inputs: bool,
+) -> Result<String, String> {
+    match wallet_name {
+        Some(name) => Ok(name),
+        None => {
+            eprintln!("{}", WALLET_NAME_PROMPT);
+
+            read_input_from_user(stdin_inputs)
+        }
+    }
 }

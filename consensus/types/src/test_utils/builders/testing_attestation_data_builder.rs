@@ -1,5 +1,6 @@
 use crate::test_utils::AttestationTestTask;
 use crate::*;
+use safe_arith::SafeArith;
 
 /// Builds an `AttestationData` to be used for testing purposes.
 ///
@@ -49,12 +50,19 @@ impl TestingAttestationDataBuilder {
 
         match test_task {
             AttestationTestTask::IncludedTooEarly => {
-                slot = state.slot - spec.min_attestation_inclusion_delay + 1
+                slot = state
+                    .slot
+                    .safe_sub(spec.min_attestation_inclusion_delay)
+                    .unwrap()
+                    .safe_add(1u64)
+                    .unwrap();
             }
-            AttestationTestTask::IncludedTooLate => slot -= T::SlotsPerEpoch::to_u64(),
+            AttestationTestTask::IncludedTooLate => slot
+                .safe_sub_assign(Slot::new(T::SlotsPerEpoch::to_u64()))
+                .unwrap(),
             AttestationTestTask::TargetEpochSlotMismatch => {
                 target = Checkpoint {
-                    epoch: current_epoch + 1,
+                    epoch: current_epoch.safe_add(1u64).unwrap(),
                     root: Hash256::zero(),
                 };
                 assert_ne!(target.epoch, slot.epoch(T::slots_per_epoch()));

@@ -535,9 +535,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///
     /// Creates a log if there is an interal error.
     fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
-        self.sync_tx
-            .send(message)
-            .unwrap_or_else(|_| error!(self.log, "Could not send message to the sync service"));
+        self.sync_tx.send(message).unwrap_or_else(|e| {
+            error!(self.log, "Could not send message to the sync service";
+                "error" => %e)
+        });
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the

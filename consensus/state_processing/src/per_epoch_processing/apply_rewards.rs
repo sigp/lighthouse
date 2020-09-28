@@ -71,7 +71,10 @@ fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<Delta>, Error> {
-    let finality_delay = (state.previous_epoch() - state.finalized_checkpoint.epoch).as_u64();
+    let finality_delay = state
+        .previous_epoch()
+        .safe_sub(state.finalized_checkpoint.epoch)?
+        .as_u64();
 
     let mut deltas = vec![Delta::default(); state.validators.len()];
 

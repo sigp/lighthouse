@@ -3,6 +3,7 @@
 use super::BeaconState;
 use crate::*;
 use core::num::NonZeroUsize;
+use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
@@ -197,7 +198,7 @@ impl CommitteeCache {
         let epoch_start_slot = self.initialized_epoch?.start_slot(self.slots_per_epoch);
         let slot_offset = global_committee_index / self.committees_per_slot;
         let index = global_committee_index % self.committees_per_slot;
-        Some((epoch_start_slot + slot_offset, index))
+        Some((epoch_start_slot.safe_add(slot_offset).ok()?, index))
     }
 
     /// Returns the number of active validators in the initialized epoch.

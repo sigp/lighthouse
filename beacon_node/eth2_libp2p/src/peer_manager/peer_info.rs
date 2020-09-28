@@ -7,6 +7,7 @@ use serde::{
     ser::{SerializeStruct, Serializer},
     Serialize,
 };
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
@@ -24,8 +25,12 @@ pub struct PeerInfo<T: EthSpec> {
     pub client: Client,
     /// Connection status of this peer
     pub connection_status: PeerConnectionStatus,
-    /// The known listening addresses of this peer.
+    /// The known listening addresses of this peer. This is given by identify and can be arbitrary
+    /// (including local IPs).
     pub listening_addresses: Vec<Multiaddr>,
+    /// This is addresses we have physically seen and this is what we use for banning/un-banning
+    /// peers.
+    pub seen_addresses: HashSet<IpAddr>,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
     pub sync_status: PeerSyncStatus,
@@ -47,7 +52,8 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             score: Score::default(),
             client: Client::default(),
             connection_status: Default::default(),
-            listening_addresses: vec![],
+            listening_addresses: Vec::new(),
+            seen_addresses: HashSet::new(),
             sync_status: PeerSyncStatus::Unknown,
             meta_data: None,
             min_ttl: None,

@@ -2,7 +2,7 @@
 # It is not intended for manual editing.
 [[package]]
 name = "account_manager"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "account_utils",
  "bls",
@@ -371,7 +371,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -527,7 +527,7 @@ dependencies = [
 [[package]]
 name = "blst"
 version = "0.1.1"
-source = "git+https://github.com/supranational/blst.git?rev=a8398ed284b0d78858302ad1ceb25a80e7bbe535#a8398ed284b0d78858302ad1ceb25a80e7bbe535"
+source = "git+https://github.com/sigp/blst.git?rev=284f7059642851c760a09fb1708bcb59c7ca323c#284f7059642851c760a09fb1708bcb59c7ca323c"
 dependencies = [
  "cc",
  "glob",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "beacon_node",
  "clap",
@@ -713,13 +713,15 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.15"
+version = "0.4.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942f72db697d8767c22d46a598e01f2d3b475501ea43d0db4f16d90259182d0b"
+checksum = "7b05acab8a90ff05c15f407779397ff10ed4049bbe086d47cd7c95817207ad81"
 dependencies = [
+ "libc",
  "num-integer",
  "num-traits",
  "time 0.1.44",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -780,7 +782,7 @@ dependencies = [
  "sloggers",
  "slot_clock",
  "store",
- "time 0.2.21",
+ "time 0.2.22",
  "timer",
  "tokio 0.2.22",
  "toml",
@@ -1253,9 +1255,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "discv5"
-version = "0.1.0-alpha.10"
+version = "0.1.0-alpha.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4cba1b485c16864edc11ccbf3abf5fbf1c26ce759ab36c32ee8e12638d50b0d"
+checksum = "c68cb1b942aadd3bb3a13620c4d831c0aa49eda988cf8bcccfdfdc7ef69504a7"
 dependencies = [
  "aes-gcm",
  "arrayvec",
@@ -1266,17 +1268,17 @@ dependencies = [
  "hex 0.4.2",
  "hkdf",
  "lazy_static",
- "libp2p-core 0.20.1",
+ "libp2p-core 0.22.1",
  "libsecp256k1",
  "log 0.4.11",
  "lru_time_cache",
  "multihash",
- "net2",
  "parking_lot 0.11.0",
  "rand 0.7.3",
  "rlp",
  "sha2 0.8.2",
  "smallvec 1.4.2",
+ "socket2",
  "tokio 0.2.22",
  "uint",
  "zeroize",
@@ -2576,7 +2578,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "bls",
  "clap",
@@ -2688,9 +2690,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-core"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a694fd76d7c33a45a0e6e1525e9b9b5d11127c9c94e560ac0f8abba54ed80af"
+version = "0.21.0"
+source = "git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f#03f998022ce2f566a6c6e6c4206bc0ce4d45109f"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -2703,8 +2704,8 @@ dependencies = [
  "libsecp256k1",
  "log 0.4.11",
  "multihash",
- "multistream-select 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "parity-multiaddr 0.9.2",
+ "multistream-select 0.8.2 (git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f)",
+ "parity-multiaddr 0.9.1",
  "parking_lot 0.10.2",
  "pin-project",
  "prost",
@@ -2722,8 +2723,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p-core"
-version = "0.21.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f#03f998022ce2f566a6c6e6c4206bc0ce4d45109f"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52f13ba8c7df0768af2eb391696d562c7de88cc3a35122531aaa6a7d77754d25"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -2736,8 +2738,8 @@ dependencies = [
  "libsecp256k1",
  "log 0.4.11",
  "multihash",
- "multistream-select 0.8.2 (git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f)",
- "parity-multiaddr 0.9.1",
+ "multistream-select 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parity-multiaddr 0.9.2",
  "parking_lot 0.10.2",
  "pin-project",
  "prost",
@@ -2936,7 +2938,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3518,9 +3520,9 @@ checksum = "77af24da69f9d9341038eba93a073b1fdaaa1b788221b00a69bce9e762cb32de"
 
 [[package]]
 name = "openssl-src"
-version = "111.10.2+1.1.1g"
+version = "111.11.0+1.1.1h"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a287fdb22e32b5b60624d4a5a7a02dbe82777f730ec0dbc42a0554326fef5a70"
+checksum = "380fe324132bea01f45239fadfec9343adb044615f29930d039bec1ae7b9fa5b"
 dependencies = [
  "cc",
 ]
@@ -3833,9 +3835,9 @@ checksum = "eba180dafb9038b050a4c280019bbedf9f2467b61e5d892dcad585bb57aadc5a"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.21"
+version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36e28516df94f3dd551a587da5357459d9b36d945a7c37c3557928c1c2ff2a2c"
+checksum = "e4b93dba1818d32e781f9d008edd577bab215e83ef50e8a1ddf1ad301b19a09f"
 dependencies = [
  "unicode-xid",
 ]
@@ -5336,9 +5338,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.2.21"
+version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c2e31fb28e2a9f01f5ed6901b066c1ba2333c04b64dc61254142bafcb3feb2c"
+checksum = "55b7151c9065e80917fbf285d9a5d1432f60db41d170ccafc749a136b41a93af"
 dependencies = [
  "const_fn",
  "libc",
@@ -6052,7 +6054,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "account_utils",
  "bls",

@@ -156,9 +156,6 @@ fn return_validator_duties<T: BeaconChainTypes>(
     state
         .build_committee_cache(relative_epoch, &beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
-    state
-        .update_pubkey_cache()
-        .map_err(|e| ApiError::ServerError(format!("Unable to build pubkey cache: {:?}", e)))?;
 
     // Get a list of all validators for this epoch.
     //
