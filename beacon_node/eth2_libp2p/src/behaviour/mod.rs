@@ -7,7 +7,6 @@ use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, BehaviourHandlerOut, DelegateIn, DelegateOut};
-use libp2p::gossipsub::time_cache::DuplicateCache;
 use libp2p::gossipsub::PeerScoreThresholds;
 use libp2p::{
     core::{
@@ -31,7 +30,6 @@ use ssz::Encode;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::Duration;
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -129,9 +127,6 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// Logger for behaviour actions.
     log: slog::Logger,
 
-    /// remembers the messages we published ourself for punishing replay attacks
-    published_message_ids: DuplicateCache<MessageId>,
-
     score_settings: PeerScoreSettings<TSpec>,
 }
 
@@ -196,7 +191,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             waker: None,
             network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
-            published_message_ids: DuplicateCache::new(Duration::from_secs(10)),
             score_settings,
         })
     }
@@ -347,33 +341,29 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        match self.gossipsub.publish(topic.clone().into(), message_data) {
-                            Err(e) => {
-                                slog::warn!(self.log, "Could not publish message";
-                                            "error" => format!("{:?}", e));
+                        if let Err(e) = self.gossipsub.publish(topic.clone().into(),
+                                                               message_data) {
+                            slog::warn!(self.log, "Could not publish message";
+                                        "error" => format!("{:?}", e));
 
-                                // add to metrics
-                                match topic.kind() {
-                                    GossipKind::Attestation(subnet_id) => {
-                                        if let Some(v) = metrics::get_int_gauge(
-                                            &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
-                                            &[&subnet_id.to_string()],
-                                        ) {
-                                            v.inc()
-                                        };
-                                    }
-                                    kind => {
-                                        if let Some(v) = metrics::get_int_gauge(
-                                            &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
-                                            &[&format!("{:?}", kind)],
-                                        ) {
-                                            v.inc()
-                                        };
-                                    }
+                            // add to metrics
+                            match topic.kind() {
+                                GossipKind::Attestation(subnet_id) => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
+                                        &[&subnet_id.to_string()],
+                                    ) {
+                                        v.inc()
+                                    };
                                 }
-                            }
-                            Ok(msg_id) => {
-                                self.published_message_ids.insert(msg_id);
+                                kind => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                                        &[&format!("{:?}", kind)],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
                             }
                         }
                     }
@@ -596,31 +586,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         }
                     }
                     Ok(msg) => {
-                        if self.published_message_ids.contains(&id) {
-                            //the peer sent us back a message we published to them
-                            warn!(self.log,
-                                  "A peer sent us our published message back";
-                                  "message_id" => id.to_string(),
-                                  "peer_id" => propagation_source.to_string());
-                            if let Err(e) = self.gossipsub.report_message_validation_result(
-                                &id,
-                                &propagation_source,
-                                MessageAcceptance::Reject,
-                            ) {
-                                warn!(self.log, "Failed to report message validation";
-                                "message_id" => id.to_string(),
-                                "peer_id" => propagation_source.to_string(),
-                                "error" => format!("{:?}", e));
-                            }
-                        } else {
-                            // Notify the network
-                            self.add_event(BehaviourEvent::PubsubMessage {
-                                id,
-                                source: propagation_source,
-                                topics: gs_msg.topics,
-                                message: msg,
-                            });
-                        }
+                        // Notify the network
+                        self.add_event(BehaviourEvent::PubsubMessage {
+                            id,
+                            source: propagation_source,
+                            topics: gs_msg.topics,
+                            message: msg,
+                        });
                     }
                 }
             }
