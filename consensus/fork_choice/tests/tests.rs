@@ -917,14 +917,19 @@ fn can_read_finalized_block() {
 }
 
 #[test]
-fn weak_subjectivity_fail() {
+ fn weak_subjectivity_fail() {
 
-    let epoch = Epoch::new(1);
-    let root = Hash256::from_slice(hex::decode("").unwrap().as_slice());
+    let epoch = Epoch::new(0);
+    let root = Hash256::from_slice(hex::decode("b300000000000000000000000000000000000000000000000000000000000000").unwrap().as_slice());
 
     let chain_config = ChainConfig{
         weak_subjectivity_checkpoint: Some(Checkpoint{epoch, root}),
         import_max_skip_slots: None,
     };
-    ForkChoiceTest::new_with_chain_config(chain_config).;
+    let mut test1 = ForkChoiceTest::new_with_chain_config(chain_config)
+        .apply_blocks(E::slots_per_epoch() as usize);
+
+    test1.harness.shutdown_receiver.close();
+    let msg = test1.harness.shutdown_receiver.try_next().unwrap();
+    assert_eq!("", msg.unwrap());
 }

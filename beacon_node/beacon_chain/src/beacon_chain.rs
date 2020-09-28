@@ -1932,7 +1932,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // error
                 let mut shutdown_sender = self.shutdown_sender();
                 error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
                     .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
             }
 
@@ -1951,14 +1951,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         if root != wss_checkpoint.root {
                             let mut shutdown_sender = self.shutdown_sender();
                             error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                            let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                            let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
                                 .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
                         }
                     }
                     None => {
                         let mut shutdown_sender = self.shutdown_sender();
                         error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                        let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                        let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
                             .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));                    }
                 }
             }
