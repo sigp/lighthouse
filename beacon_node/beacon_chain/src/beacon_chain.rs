@@ -1924,9 +1924,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
         }
 
-        // Only perform the weak subjectivity check if it was configured
+        // Only perform the weak subjectivity check if it was configured.
         if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
-            // This ensures we only perform the check when necessary, when the new finalized checkpoint
+            // This ensures we only perform the check once.
             if (old_finalized_checkpoint.epoch < wss_checkpoint.epoch)
                 && (wss_checkpoint.epoch <= new_finalized_checkpoint.epoch)
             {
