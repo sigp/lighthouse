@@ -1,7 +1,5 @@
-use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
-use directory::DEFAULT_ROOT_DIR;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
@@ -202,37 +200,6 @@ fn run<E: EthSpec>(
     };
     if optional_testnet_config.is_none() {
         optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
-    }
-
-    // WARNING: Temporary migration code for directory restructure
-    // Remove after reasonably sure most users have migrated.
-    let default_root_dir = dirs::home_dir()
-        .map(|home| home.join(DEFAULT_ROOT_DIR))
-        .unwrap_or_else(|| PathBuf::from("."));
-
-    let testnet_dir = default_root_dir.join(directory::get_testnet_name(matches));
-    if !matches.is_present("datadir") && !testnet_dir.exists() {
-        std::fs::create_dir_all(&testnet_dir)
-            .map_err(|e| format!("Failed to create testnet directory: {}", e))?;
-        for dir in ["validators", "wallets", "secrets", "beacon"].iter() {
-            let old_path = default_root_dir.join(dir);
-            if old_path.exists() {
-                if *dir == "validators" {
-                    // Migrate the paths in the validator_definitions.yml file
-                    let mut def = ValidatorDefinitions::open(&old_path).map_err(|e| {
-                        format!("Failed to open validator_definitions.yml: {:?}", e)
-                    })?;
-                    def.migrate(&default_root_dir, &testnet_dir).map_err(|e| {
-                        format!("Failed to migrate validator_definitions.yml: {}", e)
-                    })?;
-                    def.save(&old_path).map_err(|e| {
-                        format!("Failed to save migrated validator_definitions.yml: {:?}", e)
-                    })?;
-                }
-                std::fs::rename(old_path, testnet_dir.join(dir))
-                    .map_err(|e| format!("Failed to move directory: {}", e))?;
-            }
-        }
     }
 
     let builder = if let Some(log_path) = matches.value_of("logfile") {

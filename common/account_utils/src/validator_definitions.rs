@@ -125,46 +125,6 @@ impl ValidatorDefinitions {
         serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
     }
 
-    /// Temporary migration script for updating `voting_keystore_path` and `voting_keystore_password_path`
-    /// in `ValidatorDefinitions`.
-    /// Warning: This code should be deleted after users migrate to the new directory structure.
-    pub fn migrate(
-        &mut self,
-        old_base_dir: &PathBuf,
-        new_base_dir: &PathBuf,
-    ) -> Result<(), String> {
-        for def in self.0.iter_mut() {
-            match def.signing_definition {
-                SigningDefinition::LocalKeystore {
-                    ref mut voting_keystore_password_path,
-                    ref mut voting_keystore_path,
-                    ..
-                } => {
-                    // Update voting keystore path
-                    let remaining =
-                        voting_keystore_path
-                            .strip_prefix(old_base_dir)
-                            .map_err(|e| {
-                                format!("Failed to strip prefix for voting keystore path: {}", e)
-                            })?;
-                    *voting_keystore_path = new_base_dir.join(remaining);
-
-                    // Update voting keystore password path
-                    if let Some(path) = voting_keystore_password_path.as_mut() {
-                        let remaining = path.strip_prefix(old_base_dir).map_err(|e| {
-                            format!(
-                                "Failed to strip prefix for voting keystore password path: {}",
-                                e
-                            )
-                        })?;
-                        *path = new_base_dir.join(remaining);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Perform a recursive, exhaustive search through `validators_dir` and add any keystores
     /// matching the `validator_dir::VOTING_KEYSTORE_FILE` file name.
     ///

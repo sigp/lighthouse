@@ -11,13 +11,15 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use int_to_bytes::int_to_bytes32;
-use state_processing::per_slot_processing;
+use state_processing::{
+    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+};
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, EthSpec, Hash256,
-    Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SubnetId, Unsigned,
+    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
+    BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -585,6 +587,31 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
+     * Spec v0.12.3
+     *
+     * The committee index is within the expected range -- i.e. `data.index <
+     * get_committee_count_per_slot(state, data.target.epoch)`.
+     */
+    assert_invalid!(
+        "attestation with invalid committee index",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.index = harness
+                .chain
+                .head()
+                .unwrap()
+                .beacon_state
+                .get_committee_count_at_slot(a.data.slot)
+                .unwrap();
+            a
+        },
+        subnet_id,
+        AttnError::NoCommitteeForSlotAndIndex { .. }
+    );
+
+    /*
+     * The following test ensures:
+     *
      * Spec v0.12.1
      *
      * The attestation is for the correct subnet (i.e. compute_subnet_for_attestation(state,
@@ -642,6 +669,7 @@ fn unaggregated_gossip_verification() {
         {
             let mut a = valid_attestation.clone();
             a.data.slot = early_slot;
+            a.data.target.epoch = early_slot.epoch(E::slots_per_epoch());
             a
         },
         subnet_id,
@@ -652,6 +680,27 @@ fn unaggregated_gossip_verification() {
             earliest_permissible_slot,
         }
         if attestation_slot == early_slot && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
+    );
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.12.3
+     *
+     * The attestation's epoch matches its target -- i.e. `attestation.data.target.epoch ==
+     *   compute_epoch_at_slot(attestation.data.slot)`
+     *
+     */
+
+    assert_invalid!(
+        "attestation with invalid target epoch",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.target.epoch += 1;
+            a
+        },
+        subnet_id,
+        AttnError::InvalidTargetEpoch { .. }
     );
 
     /*
@@ -695,6 +744,32 @@ fn unaggregated_gossip_verification() {
     );
 
     /*
+     * The following test ensures:
+     *
+     * Spec v0.12.3
+     *
+     * The number of aggregation bits matches the committee size -- i.e.
+     *   `len(attestation.aggregation_bits) == len(get_beacon_committee(state, data.slot,
+     *   data.index))`.
+     */
+    assert_invalid!(
+        "attestation with invalid bitfield",
+        {
+            let mut a = valid_attestation.clone();
+            let bits = a.aggregation_bits.iter().collect::<Vec<_>>();
+            a.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
+            for (i, bit) in bits.into_iter().enumerate() {
+                a.aggregation_bits.set(i, bit).unwrap();
+            }
+            a
+        },
+        subnet_id,
+        AttnError::Invalid(AttestationValidationError::BeaconStateError(
+            BeaconStateError::InvalidBitfield
+        ))
+    );
+
+    /*
      * The following test ensures that:
      *
      * Spec v0.12.1
@@ -715,6 +790,26 @@ fn unaggregated_gossip_verification() {
             beacon_block_root,
         }
         if beacon_block_root == unknown_root
+    );
+
+    /*
+     * The following test ensures that:
+     *
+     * Spec v0.12.3
+     *
+     * The attestation's target block is an ancestor of the block named in the LMD vote
+     */
+
+    let unknown_root = Hash256::from_low_u64_le(424242);
+    assert_invalid!(
+        "attestation with invalid target root",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.target.root = unknown_root;
+            a
+        },
+        subnet_id,
+        AttnError::InvalidTargetRoot { .. }
     );
 
     /*
