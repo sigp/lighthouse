@@ -134,18 +134,9 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorEphemeralHarnessType<E>> {
 
         let config = StoreConfig::default();
         let store = Arc::new(HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap());
-
-        let (_signal, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = environment::TaskExecutor::new(
-            tokio::runtime::Handle::current(),
-            exit,
-            log.clone(),
-            shutdown_tx,
-        );
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .executor(executor)
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(store.clone())
@@ -161,6 +152,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorEphemeralHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .unwrap()
+            .shutdown_sender(shutdown_tx)
             .build()
             .unwrap();
 
@@ -205,6 +197,7 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
         let drain = slog_term::FullFormat::new(decorator).build();
         let debug_level = slog::LevelFilter::new(drain, slog::Level::Debug);
         let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
         let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
@@ -223,6 +216,7 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
             .build()
             .expect("should build");
 
@@ -250,6 +244,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
         let drain = slog_term::FullFormat::new(decorator).build();
         let debug_level = slog::LevelFilter::new(drain, slog::Level::Debug);
         let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -268,6 +263,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
             .build()
             .expect("should build");
 
@@ -292,6 +288,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
         let spec = E::default_spec();
 
         let log = NullLoggerBuilder.build().expect("logger should build");
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -310,6 +307,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
             .build()
             .expect("should build");
 

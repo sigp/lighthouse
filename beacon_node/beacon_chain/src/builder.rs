@@ -16,7 +16,6 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, EventHandler,
 };
-use environment::TaskExecutor;
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
 use futures::{SinkExt, TryFutureExt};
@@ -33,6 +32,7 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, Signature, SignedBeaconBlock,
     Slot,
 };
+use futures::channel::mpsc::Sender;
 
 pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
@@ -109,7 +109,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
-    executor: Option<TaskExecutor>,
+    shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
     data_dir: Option<PathBuf>,
     pubkey_cache_path: Option<PathBuf>,
@@ -157,7 +157,7 @@ where
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
-            executor: None,
+            shutdown_sender: None,
             head_tracker: None,
             pubkey_cache_path: None,
             data_dir: None,
@@ -409,9 +409,9 @@ where
         self
     }
 
-    /// Sets a `TaskExecutor` for the beacon chain.
-    pub fn executor(mut self, executor: TaskExecutor) -> Self {
-        self.executor = Some(executor);
+    /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
+    pub fn shutdown_sender(mut self, sender: Sender<&'static str>) -> Self {
+        self.shutdown_sender = Some(sender);
         self
     }
 
@@ -585,25 +585,50 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             disabled_forks: self.disabled_forks,
-            executor: self
-                .executor
-                .ok_or_else(|| "Cannot build without a task executor.".to_string())?,
+            shutdown_sender: self
+                .shutdown_sender
+                .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
             log: log.clone(),
             graffiti: self.graffiti,
         };
 
         // Weak subjectivity checkpoint verification
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-            if wss_checkpoint.epoch <= beacon_chain.head_info().map_err(|e| format!("Unable to retrieve head info for weak subjectivity checkpoint verification: {:?}", e))?.finalized_checkpoint.epoch {
-                let mut shutdown_sender = beacon_chain.executor.shutdown_sender();
-                if let Ok(Some(block)) = beacon_chain.get_block(&wss_checkpoint.root) {
-                    if block.slot() != wss_checkpoint.epoch.start_slot(TEthSpec::slots_per_epoch()){
-                        error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                        let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.").map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+
+            let current_head = beacon_chain.head_info().map_err(|e| format!("Unable to read current finalized epoch: {:?}", e))?;
+            let finalized_checkpoint = current_head.finalized_checkpoint;
+
+            if wss_checkpoint.epoch == finalized_checkpoint.epoch && wss_checkpoint.root != finalized_checkpoint.root {
+                //error
+
+                let mut shutdown_sender = beacon_chain.shutdown_sender();
+                error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                    .map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+
+            } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
+                // iterate backwards
+
+                let slot = wss_checkpoint
+                    .epoch
+                    .start_slot(TEthSpec::slots_per_epoch());
+
+                let ancestor_root = beacon_chain.root_at_slot(slot).map_err(|e| format!("Unable to find slot at given weak subjectivity checkpoint: {:?}", e))?;
+
+                match ancestor_root {
+                    Some(root) => {
+                        if root != wss_checkpoint.root {
+                            let mut shutdown_sender = beacon_chain.shutdown_sender();
+                            error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                            let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                                .map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+                        }
                     }
-                } else {
-                    error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root does not exist on chain. You must purge all state from your node and restart the sync.");
-                    let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided root does not exist on chain.").map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+                    None => {
+                        let mut shutdown_sender = beacon_chain.shutdown_sender();
+                        error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                        let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                            .map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));                    }
                 }
             }
         }
@@ -790,6 +815,8 @@ mod test {
         )
         .expect("should create interop genesis state");
 
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
@@ -802,6 +829,7 @@ mod test {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
             .build()
             .expect("should build");
 

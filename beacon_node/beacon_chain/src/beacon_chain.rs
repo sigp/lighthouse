@@ -27,9 +27,9 @@ use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
-use environment::TaskExecutor;
 use fork_choice::ForkChoice;
 use futures::{SinkExt, TryFutureExt};
+use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
@@ -224,8 +224,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
-    /// A task executor to allow sending shutdown signals.
-    pub executor: TaskExecutor,
+    /// Sender given to tasks, so that if they encounter a state in which execution cannot
+    /// continue they can request that everything shuts down.
+    pub shutdown_sender: Sender<&'static str>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -346,7 +347,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_block_roots(
         &self,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item=Result<(Hash256, Slot), Error>>, Error> {
         let head = self.head()?;
         let iter = BlockRootsIterator::owned(self.store.clone(), head.beacon_state);
         Ok(
@@ -359,7 +360,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn forwards_iter_block_roots(
         &self,
         start_slot: Slot,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item=Result<(Hash256, Slot), Error>>, Error> {
         let local_head = self.head()?;
 
         let iter = HotColdDB::forwards_block_roots_iterator(
@@ -385,7 +386,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn rev_iter_block_roots_from(
         &self,
         block_root: Hash256,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item=Result<(Hash256, Slot), Error>>, Error> {
         let block = self
             .get_block(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
@@ -421,7 +422,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots(
         &self,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item=Result<(Hash256, Slot), Error>>, Error> {
         let head = self.head()?;
         let slot = head.beacon_state.slot;
         let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
@@ -436,7 +437,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         state_root: Hash256,
         state: &'a BeaconState<T::EthSpec>,
-    ) -> impl Iterator<Item = Result<(Hash256, Slot), Error>> + 'a {
+    ) -> impl Iterator<Item=Result<(Hash256, Slot), Error>> + 'a {
         std::iter::once(Ok((state_root, state.slot)))
             .chain(StateRootsIterator::new(self.store.clone(), state))
             .map(|result| result.map_err(Into::into))
@@ -611,7 +612,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .find(|(_, current_slot)| *current_slot == slot)
                         .map(|(root, _slot)| root)
                 })?
-                .ok_or_else(|| Error::NoStateForSlot(slot))?;
+                    .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
                 Ok(self
                     .get_state(&state_root, Some(slot))?
@@ -757,7 +758,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if let Some(attestation_duty) =
-            state.get_attestation_duties(validator_index, RelativeEpoch::Current)?
+        state.get_attestation_duties(validator_index, RelativeEpoch::Current)?
         {
             Ok(Some((attestation_duty.slot, attestation_duty.index)))
         } else {
@@ -974,9 +975,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "slot" => attestation.data.slot.as_u64(),
             ),
             Err(NaiveAggregationError::SlotTooLow {
-                slot,
-                lowest_permissible_slot,
-            }) => {
+                    slot,
+                    lowest_permissible_slot,
+                }) => {
                 trace!(
                     self.log,
                     "Refused to store unaggregated attestation";
@@ -1246,7 +1247,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::NotFinalizedDescendant { block_parent_root },
-                    }
+                    };
                 }
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
@@ -1254,7 +1255,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::BeaconChainError(e),
-                    }
+                    };
                 }
                 // If the block was decided to be irrelevant for any other reason, don't include
                 // this block or any of it's children in the filtered chain segment.
@@ -1288,7 +1289,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
                         error,
-                    }
+                    };
                 }
             };
 
@@ -1300,7 +1301,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         return ChainSegmentResult::Failed {
                             imported_blocks,
                             error,
-                        }
+                        };
                     }
                 }
             }
@@ -1325,7 +1326,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let slot = block.message.slot;
         #[allow(clippy::invalid_regex)]
-        let re = Regex::new("\\p{C}").expect("regex is valid");
+            let re = Regex::new("\\p{C}").expect("regex is valid");
         let graffiti_string =
             String::from_utf8_lossy(&re.replace_all(&block.message.body.graffiti[..], &b""[..]))
                 .to_string();
@@ -1405,28 +1406,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_root,
                     block: Box::new(block),
                 });
-
-                // Weak subjectivity checkpoint verification
-                if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
-                    if wss_checkpoint.epoch == self.head_info()?.finalized_checkpoint.epoch {
-                        let mut shutdown_sender = self.executor.shutdown_sender();
-                        if let Ok(Some(block)) = self.get_block(&wss_checkpoint.root) {
-                            if block.slot()
-                                != wss_checkpoint
-                                    .epoch
-                                    .start_slot(T::EthSpec::slots_per_epoch())
-                            {
-                                error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                                let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                                    .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
-                            }
-                        } else {
-                            error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root does not exist on chain. You must purge all state from your node and restart the sync.");
-                            let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided root does not exist on chain.")
-                                .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
-                        }
-                    }
-                }
 
                 Ok(block_root)
             }
@@ -1844,10 +1823,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // extreme-enough scenario that a warning is fine.
         let is_reorg = current_head.block_root
             != new_head
-                .beacon_state
-                .get_block_root(current_head.slot)
-                .map(|root| *root)
-                .unwrap_or_else(|_| Hash256::random());
+            .beacon_state
+            .get_block_root(current_head.slot)
+            .map(|root| *root)
+            .unwrap_or_else(|_| Hash256::random());
 
         if is_reorg {
             metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
@@ -1892,7 +1871,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             },
         )?
-        .ok_or_else(|| Error::MissingFinalizedStateRoot(new_finalized_slot))?;
+            .ok_or_else(|| Error::MissingFinalizedStateRoot(new_finalized_slot))?;
 
         // It is an error to try to update to a head with a lesser finalized epoch.
         if new_finalized_checkpoint.epoch < old_finalized_checkpoint.epoch {
@@ -1904,9 +1883,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if current_head.slot.epoch(T::EthSpec::slots_per_epoch())
             < new_head
-                .beacon_state
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch())
+            .beacon_state
+            .slot
+            .epoch(T::EthSpec::slots_per_epoch())
             || is_reorg
         {
             self.persist_head_and_fork_choice()?;
@@ -1943,6 +1922,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 new_finalized_checkpoint,
                 new_finalized_state_root,
             )?;
+        }
+
+
+        // Weak subjectivity checkpoint verification
+        if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
+            if (wss_checkpoint.epoch == old_finalized_checkpoint.epoch && wss_checkpoint.root != old_finalized_checkpoint.root) ||
+                (wss_checkpoint.epoch == new_finalized_checkpoint.epoch && wss_checkpoint.root != new_finalized_checkpoint.root) {
+                // error
+                let mut shutdown_sender = self.shutdown_sender();
+                error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                    .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+            }
+
+            if (old_finalized_checkpoint.epoch < wss_checkpoint.epoch) && (wss_checkpoint.epoch < new_finalized_checkpoint.epoch) {
+                let slot = wss_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+
+                // if prev == ws or new == ws  --> check roots
+                // if prev < ws < new --> do rev iter crawl
+
+                let ancestor_root = self.root_at_slot(slot)?;
+
+                match ancestor_root {
+                    Some(root) => {
+                        if root != wss_checkpoint.root {
+                            let mut shutdown_sender = self.shutdown_sender();
+                            error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                            let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                                .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));
+                        }
+                    }
+                    None => {
+                        let mut shutdown_sender = self.shutdown_sender();
+                        error!(self.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
+                        let _ = shutdown_sender.send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                            .map_err(|e| warn!(self.log, "failed to send a shutdown signal"; "error" => e.to_string()));                    }
+                }
+            }
         }
 
         let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
@@ -2147,7 +2166,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_hash,
                         signed_beacon_block.slot()
                     )
-                    .unwrap();
+                        .unwrap();
                 } else if finalized_blocks.contains(&block_hash) {
                     writeln!(
                         output,
@@ -2156,7 +2175,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_hash,
                         signed_beacon_block.slot()
                     )
-                    .unwrap();
+                        .unwrap();
                 } else if justified_blocks.contains(&block_hash) {
                     writeln!(
                         output,
@@ -2165,7 +2184,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_hash,
                         signed_beacon_block.slot()
                     )
-                    .unwrap();
+                        .unwrap();
                 } else {
                     writeln!(
                         output,
@@ -2174,7 +2193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_hash,
                         signed_beacon_block.slot()
                     )
-                    .unwrap();
+                        .unwrap();
                 }
                 writeln!(
                     output,
@@ -2182,11 +2201,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_hash,
                     signed_beacon_block.parent_root()
                 )
-                .unwrap();
+                    .unwrap();
             }
         }
 
         writeln!(output, "}}").unwrap();
+    }
+
+    /// Get a channel to request shutting down.
+    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+        self.shutdown_sender.clone()
     }
 
     // Used for debugging

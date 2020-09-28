@@ -430,7 +430,7 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
-            .executor(context.executor)
+            .shutdown_sender(context.executor.shutdown_sender())
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
