@@ -68,7 +68,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             log,
             "Starting validator client";
             "beacon_node" => &config.http_server,
-            "datadir" => format!("{:?}", config.validator_dir),
+            "validator_dir" => format!("{:?}", config.validator_dir),
         );
 
         let mut validator_defs = ValidatorDefinitions::open_or_create(&config.validator_dir)

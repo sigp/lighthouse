@@ -39,8 +39,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     name is the 0x-prefixed hex representation of the validators voting public \
                     key. Defaults to ~/.lighthouse/{testnet}/secrets.",
                 )
-                .requires("validators-dir")
-                .takes_value(true),
+                .takes_value(true)
+                .conflicts_with("datadir")
+                .requires("validators-dir"),
         )
         .arg(Arg::with_name("auto-register").long("auto-register").help(
             "If present, the validator client will register any new signing keys with \
