@@ -130,6 +130,7 @@ pub fn serve<T: EthSpec>(
     */
 
     let authorization_header_filter = ctx.api_secret.authorization_header_filter();
+    let api_token = ctx.api_secret.api_token();
     let signer = ctx.api_secret.signer();
     let signer = warp::any().map(move || signer.clone());
 
@@ -547,6 +548,7 @@ pub fn serve<T: EthSpec>(
         log,
         "HTTP API started";
         "listen_address" => listening_socket.to_string(),
+        "api_token" => api_token.to_string(),
     );
 
     Ok((listening_socket, server))

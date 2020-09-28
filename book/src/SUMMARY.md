@@ -19,6 +19,7 @@
 		* [/lighthouse](./api-lighthouse.md)
     		* [Validator Inclusion APIs](./validator-inclusion.md)
 	* [Validator Client API](./api-vc.md)
+		* [Authorization header](./api-auth-header.md)
 	* [Prometheus Metrics](./advanced_metrics.md)
 * [Advanced Usage](./advanced.md)
     * [Database Configuration](./advanced_database.md)

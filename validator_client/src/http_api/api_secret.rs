@@ -19,7 +19,7 @@ pub const SK_LEN: usize = 32;
 /// For users, this public key is a "secret" that can be shared with API consumers to provide them
 /// access to the API. We avoid calling it a "public" key to users, since they should not post this
 /// value in a public forum.
-pub const PK_FILENAME: &str = "api-secret-access-token.txt";
+pub const PK_FILENAME: &str = "api-token.txt";
 
 /// Length of the raw public key, in bytes.
 pub const PK_LEN: usize = 33;
@@ -147,14 +147,19 @@ impl ApiSecret {
     }
 
     /// Returns the public key of `self` as a 0x-prefixed hex string.
-    pub fn pubkey_string(&self) -> String {
+    fn pubkey_string(&self) -> String {
         serde_utils::hex::encode(&self.pk.serialize_compressed()[..])
+    }
+
+    /// Returns the API token.
+    pub fn api_token(&self) -> String {
+        format!("{}{}", PK_PREFIX, self.pubkey_string())
     }
 
     /// Returns the value of the `Authorization` header which is used for verifying incoming HTTP
     /// requests.
     fn auth_header_value(&self) -> String {
-        format!("Basic {}{}", PK_PREFIX, self.pubkey_string())
+        format!("Basic {}", self.api_token())
     }
 
     /// Returns a `warp` header which filters out request that have a missing or inaccurate
