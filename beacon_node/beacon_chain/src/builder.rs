@@ -18,7 +18,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
-use futures::{SinkExt, TryFutureExt};
+use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{info, Logger};
@@ -32,7 +32,6 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, Signature, SignedBeaconBlock,
     Slot,
 };
-use futures::channel::mpsc::Sender;
 
 pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
@@ -592,45 +591,13 @@ where
             graffiti: self.graffiti,
         };
 
-        // Weak subjectivity checkpoint verification
+        let current_head = beacon_chain
+            .head_info()
+            .map_err(|e| format!("Unable to read current finalized epoch: {:?}", e))?;
+        let finalized_checkpoint = current_head.finalized_checkpoint;
+
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-
-            let current_head = beacon_chain.head_info().map_err(|e| format!("Unable to read current finalized epoch: {:?}", e))?;
-            let finalized_checkpoint = current_head.finalized_checkpoint;
-
-            if wss_checkpoint.epoch == finalized_checkpoint.epoch && wss_checkpoint.root != finalized_checkpoint.root {
-                //error
-
-                let mut shutdown_sender = beacon_chain.shutdown_sender();
-                error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                    .map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
-
-            } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
-                // iterate backwards
-
-                let slot = wss_checkpoint
-                    .epoch
-                    .start_slot(TEthSpec::slots_per_epoch());
-
-                let ancestor_root = beacon_chain.root_at_slot(slot).map_err(|e| format!("Unable to find slot at given weak subjectivity checkpoint: {:?}", e))?;
-
-                match ancestor_root {
-                    Some(root) => {
-                        if root != wss_checkpoint.root {
-                            let mut shutdown_sender = beacon_chain.shutdown_sender();
-                            error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                            let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                                .map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));
-                        }
-                    }
-                    None => {
-                        let mut shutdown_sender = beacon_chain.shutdown_sender();
-                        error!(beacon_chain.log, "Weak subjectivity checkpoint verification failed. The provided block root is not a checkpoint. You must purge all state from your node and restart the sync.");
-                        let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                            .map_err(|e| warn!(beacon_chain.log, "failed to send a shutdown signal"; "error" => e.to_string()));                    }
-                }
-            }
+            beacon_chain.verify_weak_subjectivity_checkpoint(finalized_checkpoint, wss_checkpoint);
         }
 
         let head = beacon_chain

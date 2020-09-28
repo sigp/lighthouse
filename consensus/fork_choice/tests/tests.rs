@@ -1,15 +1,22 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::{test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
-}, BeaconChain, BeaconChainError, BeaconForkChoiceStore, ForkChoiceError, StateSkipConfig, ChainConfig};
+use beacon_chain::{
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
+    },
+    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
+    StateSkipConfig,
+};
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
 use std::sync::Mutex;
 use store::{MemoryStore, StoreConfig};
-use types::{test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs}, Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId, Checkpoint};
+use types::{
+    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
+    Checkpoint, Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
+};
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 pub type E = MainnetEthSpec;
@@ -917,13 +924,16 @@ fn can_read_finalized_block() {
 }
 
 #[test]
- fn weak_subjectivity_fail() {
-
+fn weak_subjectivity_fail() {
     let epoch = Epoch::new(0);
-    let root = Hash256::from_slice(hex::decode("b300000000000000000000000000000000000000000000000000000000000000").unwrap().as_slice());
+    let root = Hash256::from_slice(
+        hex::decode("b300000000000000000000000000000000000000000000000000000000000000")
+            .unwrap()
+            .as_slice(),
+    );
 
-    let chain_config = ChainConfig{
-        weak_subjectivity_checkpoint: Some(Checkpoint{epoch, root}),
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
         import_max_skip_slots: None,
     };
     let mut test1 = ForkChoiceTest::new_with_chain_config(chain_config)

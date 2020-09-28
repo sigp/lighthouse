@@ -4,9 +4,14 @@ pub use crate::beacon_chain::{
 use crate::migrate::{BlockingMigrator, Migrate, NullMigrator};
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::slog::Drain;
-use crate::{builder::{BeaconChainBuilder, Witness}, eth1_chain::CachingEth1Backend, events::NullEventHandler, BeaconChain, BeaconChainTypes, StateSkipConfig, ChainConfig};
-use genesis::interop_genesis_state;
+use crate::{
+    builder::{BeaconChainBuilder, Witness},
+    eth1_chain::CachingEth1Backend,
+    events::NullEventHandler,
+    BeaconChain, BeaconChainTypes, ChainConfig, StateSkipConfig,
+};
 use futures::channel::mpsc::Receiver;
+use genesis::interop_genesis_state;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand_core::SeedableRng;
@@ -133,7 +138,6 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorEphemeralHarnessType<E>> {
         let store = Arc::new(HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap());
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
-
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec.clone())
@@ -187,7 +191,13 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
     ) -> Self {
-        Self::new_with_chain_config(eth_spec_instance, validators_keypairs, target_aggregators_per_committee, store_config, ChainConfig::default())
+        Self::new_with_chain_config(
+            eth_spec_instance,
+            validators_keypairs,
+            target_aggregators_per_committee,
+            store_config,
+            ChainConfig::default(),
+        )
     }
 
     /// Instantiate a new harness with `validator_count` initial validators, a custom
@@ -198,7 +208,7 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
         chain_config: ChainConfig,
-    ) -> Self{
+    ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
         let mut spec = E::default_spec();
 
