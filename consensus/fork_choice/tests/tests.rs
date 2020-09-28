@@ -1,21 +1,15 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
-    },
-    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ForkChoiceError, StateSkipConfig,
-};
+use beacon_chain::{test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
+}, BeaconChain, BeaconChainError, BeaconForkChoiceStore, ForkChoiceError, StateSkipConfig, ChainConfig};
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
 use std::sync::Mutex;
 use store::{MemoryStore, StoreConfig};
-use types::{
-    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
-    Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
-};
+use types::{test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs}, Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId, Checkpoint};
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 pub type E = MainnetEthSpec;
@@ -44,6 +38,20 @@ impl ForkChoiceTest {
             // Ensure we always have an aggregator for each slot.
             u64::max_value(),
             StoreConfig::default(),
+        );
+
+        Self { harness }
+    }
+
+    /// Creates a new tester with a custom chain config.
+    pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
+        let harness = BeaconChainHarness::new_with_chain_config(
+            MainnetEthSpec,
+            generate_deterministic_keypairs(VALIDATOR_COUNT),
+            // Ensure we always have an aggregator for each slot.
+            u64::max_value(),
+            StoreConfig::default(),
+            chain_config,
         );
 
         Self { harness }
@@ -906,4 +914,17 @@ fn can_read_finalized_block() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .apply_blocks(1)
         .check_finalized_block_is_accessible();
+}
+
+#[test]
+fn weak_subjectivity_fail() {
+
+    let epoch = Epoch::new(1);
+    let root = Hash256::from_slice(hex::decode("").unwrap().as_slice());
+
+    let chain_config = ChainConfig{
+        weak_subjectivity_checkpoint: Some(Checkpoint{epoch, root}),
+        import_max_skip_slots: None,
+    };
+    ForkChoiceTest::new_with_chain_config(chain_config).;
 }

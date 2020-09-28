@@ -416,7 +416,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "beacon_chain requires a runtime context")?
-            .service_context("chain".into());
+            .clone();
 
         let chain = self
             .beacon_chain_builder

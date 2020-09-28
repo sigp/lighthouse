@@ -4,13 +4,9 @@ pub use crate::beacon_chain::{
 use crate::migrate::{BlockingMigrator, Migrate, NullMigrator};
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::slog::Drain;
-use crate::{
-    builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
-    events::NullEventHandler,
-    BeaconChain, BeaconChainTypes, StateSkipConfig,
-};
+use crate::{builder::{BeaconChainBuilder, Witness}, eth1_chain::CachingEth1Backend, events::NullEventHandler, BeaconChain, BeaconChainTypes, StateSkipConfig, ChainConfig};
 use genesis::interop_genesis_state;
+use futures::channel::mpsc::Receiver;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand_core::SeedableRng;
@@ -107,6 +103,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: BeaconChain<T>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
+    pub shutdown_receiver: Receiver<&'static str>,
 
     pub rng: StdRng,
 }
@@ -134,7 +131,8 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorEphemeralHarnessType<E>> {
 
         let config = StoreConfig::default();
         let store = Arc::new(HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap());
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
+
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -161,6 +159,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorEphemeralHarnessType<E>> {
             chain,
             validators_keypairs,
             data_dir,
+            shutdown_receiver,
             rng: make_rng(),
         }
     }
@@ -186,8 +185,20 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
         eth_spec_instance: E,
         validators_keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
-        config: StoreConfig,
+        store_config: StoreConfig,
     ) -> Self {
+        Self::new_with_chain_config(eth_spec_instance, validators_keypairs, target_aggregators_per_committee, store_config, ChainConfig::default())
+    }
+
+    /// Instantiate a new harness with `validator_count` initial validators, a custom
+    /// `target_aggregators_per_committee` spec value, and a `ChainConfig`
+    pub fn new_with_chain_config(
+        eth_spec_instance: E,
+        validators_keypairs: Vec<Keypair>,
+        target_aggregators_per_committee: u64,
+        store_config: StoreConfig,
+        chain_config: ChainConfig,
+    ) -> Self{
         let data_dir = tempdir().expect("should create temporary data_dir");
         let mut spec = E::default_spec();
 
@@ -197,9 +208,9 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
         let drain = slog_term::FullFormat::new(decorator).build();
         let debug_level = slog::LevelFilter::new(drain, slog::Level::Debug);
         let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
-        let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
+        let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log)
             .custom_spec(spec.clone())
@@ -217,6 +228,7 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .chain_config(chain_config)
             .build()
             .expect("should build");
 
@@ -225,6 +237,7 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
             chain,
             validators_keypairs,
             data_dir,
+            shutdown_receiver,
             rng: make_rng(),
         }
     }
@@ -244,7 +257,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
         let drain = slog_term::FullFormat::new(decorator).build();
         let debug_level = slog::LevelFilter::new(drain, slog::Level::Debug);
         let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -272,6 +285,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
             chain,
             validators_keypairs,
             data_dir,
+            shutdown_receiver,
             rng: make_rng(),
         }
     }
@@ -288,7 +302,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
         let spec = E::default_spec();
 
         let log = NullLoggerBuilder.build().expect("logger should build");
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -316,6 +330,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
             chain,
             validators_keypairs,
             data_dir,
+            shutdown_receiver,
             rng: make_rng(),
         }
     }

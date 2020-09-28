@@ -1786,6 +1786,7 @@ dependencies = [
  "beacon_chain",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "hex 0.4.2",
  "proto_array",
  "slot_clock",
  "state_processing",
