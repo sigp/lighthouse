@@ -230,10 +230,7 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
     pub fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
-        self.maps
-            .iter()
-            .find(|(slot, _map)| **slot == data.slot)
-            .and_then(|(_slot, map)| map.get(data))
+        self.maps.get(&data.slot).and_then(|map| map.get(data))
     }
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
@@ -243,9 +240,8 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         root: &AttestationDataRoot,
     ) -> Option<Attestation<E>> {
         self.maps
-            .iter()
-            .find(|(map_slot, _)| **map_slot == slot)
-            .and_then(|(_slot, map)| map.get_by_root(root).cloned())
+            .get(&slot)
+            .and_then(|map| map.get_by_root(root).cloned())
     }
 
     /// Iterate all attestations in all slots of `self`.
