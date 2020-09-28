@@ -4,7 +4,7 @@ use eth2::types::ProposerData;
 use fork_choice::ProtoBlock;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
-use types::{Epoch, EthSpec, Hash256, PublicKeyBytes};
+use types::{BeaconState, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
 /// This sets a maximum bound on the number of epochs to skip whilst instantiating the cache for
 /// the first time.
@@ -18,14 +18,19 @@ const EPOCHS_TO_SKIP: u64 = 2;
 /// cache miss and rebuild.
 pub struct BeaconProposerCache {
     epoch: Epoch,
-    epoch_boundary_root: Hash256,
+    decision_block_root: Hash256,
     proposers: Vec<ProposerData>,
 }
 
 impl BeaconProposerCache {
     /// Create a new cache for the current epoch of the `chain`.
     pub fn new<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Result<Self, BeaconChainError> {
-        let (head_root, head_block) = Self::current_head_block(chain)?;
+        let head_root = chain.head_beacon_block_root()?;
+        let head_block = chain
+            .fork_choice
+            .read()
+            .get_block(&head_root)
+            .ok_or_else(|| BeaconChainError::MissingBeaconBlock(head_root))?;
 
         // If the head epoch is more than `EPOCHS_TO_SKIP` in the future, just build the cache at
         // the epoch of the head. This prevents doing a massive amount of skip slots when starting
@@ -60,6 +65,8 @@ impl BeaconProposerCache {
             .get_state(&head_block.state_root, Some(head_block.slot))?
             .ok_or_else(|| BeaconChainError::MissingBeaconState(head_block.state_root))?;
 
+        let decision_block_root = Self::decision_block_root(current_epoch, head_root, &head_state)?;
+
         // We *must* skip forward to the current epoch to obtain valid proposer
         // duties. We cannot skip to the previous epoch, like we do with
         // attester duties.
@@ -88,20 +95,37 @@ impl BeaconProposerCache {
             })
             .collect::<Result<_, _>>()?;
 
-        let epoch_boundary_slot = head_state
-            .current_epoch()
-            .start_slot(T::EthSpec::slots_per_epoch());
-        let epoch_boundary_root = if head_state.slot >= epoch_boundary_slot {
-            head_root
-        } else {
-            *head_state.get_block_root(epoch_boundary_slot)?
-        };
-
         Ok(Self {
             epoch: current_epoch,
-            epoch_boundary_root,
+            decision_block_root,
             proposers,
         })
+    }
+
+    /// Returns a block root which can be used to key the shuffling obtained from the following
+    /// parameters:
+    ///
+    /// - `shuffling_epoch`: the epoch for which the shuffling pertains.
+    /// - `head_block_root`: the block root at the head of the chain.
+    /// - `head_block_state`: the state of `head_block_root`.
+    pub fn decision_block_root<E: EthSpec>(
+        shuffling_epoch: Epoch,
+        head_block_root: Hash256,
+        head_block_state: &BeaconState<E>,
+    ) -> Result<Hash256, BeaconChainError> {
+        let decision_slot = shuffling_epoch
+            .start_slot(E::slots_per_epoch())
+            .saturating_sub(1_u64);
+
+        // If decision slot is equal to or ahead of the head, the block root is the head block root
+        if decision_slot >= head_block_state.slot {
+            Ok(head_block_root)
+        } else {
+            head_block_state
+                .get_block_root(decision_slot)
+                .map(|root| *root)
+                .map_err(Into::into)
+        }
     }
 
     /// Return the proposers for the given `Epoch`.
@@ -135,34 +159,30 @@ impl BeaconProposerCache {
             )));
         }
 
-        let (head_root, head_block) =
-            Self::current_head_block(chain).map_err(warp_utils::reject::beacon_chain_error)?;
-        let epoch_boundary_root = head_block.target_root;
+        let (head_block_root, head_decision_block_root) = chain
+            .with_head(|head| {
+                Self::decision_block_root(current_epoch, head.beacon_block_root, &head.beacon_state)
+                    .map(|decision_root| (head.beacon_block_root, decision_root))
+            })
+            .map_err(warp_utils::reject::beacon_chain_error)?;
+
+        let head_block = chain
+            .fork_choice
+            .read()
+            .get_block(&head_block_root)
+            .ok_or_else(|| BeaconChainError::MissingBeaconBlock(head_block_root))
+            .map_err(warp_utils::reject::beacon_chain_error)?;
 
         // Rebuild the cache if this call causes a cache-miss.
-        if self.epoch != current_epoch || self.epoch_boundary_root != epoch_boundary_root {
+        if self.epoch != current_epoch || self.decision_block_root != head_decision_block_root {
             metrics::inc_counter(&metrics::HTTP_API_BEACON_PROPOSER_CACHE_MISSES_TOTAL);
 
-            *self = Self::for_head_block(chain, current_epoch, head_root, head_block)
+            *self = Self::for_head_block(chain, current_epoch, head_block_root, head_block)
                 .map_err(warp_utils::reject::beacon_chain_error)?;
         } else {
             metrics::inc_counter(&metrics::HTTP_API_BEACON_PROPOSER_CACHE_HITS_TOTAL);
         }
 
         Ok(self.proposers.clone())
-    }
-
-    /// Use fork choice to obtain some information about the head block of `chain`.
-    fn current_head_block<T: BeaconChainTypes>(
-        chain: &BeaconChain<T>,
-    ) -> Result<(Hash256, ProtoBlock), BeaconChainError> {
-        let head_root = chain.head_beacon_block_root()?;
-
-        chain
-            .fork_choice
-            .read()
-            .get_block(&head_root)
-            .ok_or_else(|| BeaconChainError::MissingBeaconBlock(head_root))
-            .map(|head_block| (head_root, head_block))
     }
 }
