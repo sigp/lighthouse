@@ -19,7 +19,7 @@
 		* [/lighthouse](./api-lighthouse.md)
     		* [Validator Inclusion APIs](./validator-inclusion.md)
 	* [Validator Client API](./api-vc.md)
-    * [Prometheus Metrics](./advanced_metrics.md)
+	* [Prometheus Metrics](./advanced_metrics.md)
 * [Advanced Usage](./advanced.md)
     * [Database Configuration](./advanced_database.md)
 	* [Local Testnets](./local-testnets.md)

@@ -282,6 +282,7 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
+    // Create a `warp` filter that rejects request whilst the node is syncing.
     let not_while_syncing_filter = warp::any()
         .and(network_globals.clone())
         .and(chain_filter.clone())
