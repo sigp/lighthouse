@@ -55,12 +55,15 @@ pub struct ForkChoiceTestDefinition {
 
 impl ForkChoiceTestDefinition {
     pub fn run(self) {
+        let junk_shuffling_id = ShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
             self.justified_epoch,
             self.finalized_epoch,
             self.finalized_root,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id,
         )
         .expect("should create fork choice struct");
 

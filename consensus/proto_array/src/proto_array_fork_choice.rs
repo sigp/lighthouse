@@ -72,6 +72,8 @@ impl ProtoArrayForkChoice {
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
         finalized_root: Hash256,
+        current_epoch_shuffling_id: ShufflingId,
+        next_epoch_shuffling_id: ShufflingId,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -89,12 +91,8 @@ impl ProtoArrayForkChoice {
             // We are using the finalized_root as the target_root, since it always lies on an
             // epoch boundary.
             target_root: finalized_root,
-            // TODO: explain why this is safe.
-            current_epoch_shuffling_id: ShufflingId::from_components(
-                finalized_epoch,
-                finalized_root,
-            ),
-            next_epoch_shuffling_id: ShufflingId::from_components(finalized_epoch, finalized_root),
+            current_epoch_shuffling_id,
+            next_epoch_shuffling_id,
             justified_epoch,
             finalized_epoch,
         };
@@ -351,7 +349,7 @@ mod test_compute_deltas {
         let finalized_desc = Hash256::from_low_u64_be(2);
         let not_finalized_desc = Hash256::from_low_u64_be(3);
         let unknown = Hash256::from_low_u64_be(4);
-        let shuffling_id = ShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let junk_shuffling_id = ShufflingId::from_components(Epoch::new(0), Hash256::zero());
 
         let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
@@ -359,6 +357,8 @@ mod test_compute_deltas {
             genesis_epoch,
             genesis_epoch,
             finalized_root,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id.clone(),
         )
         .unwrap();
 
@@ -370,8 +370,8 @@ mod test_compute_deltas {
                 parent_root: Some(finalized_root),
                 state_root,
                 target_root: finalized_root,
-                current_epoch_shuffling_id: shuffling_id.clone(),
-                next_epoch_shuffling_id: shuffling_id.clone(),
+                current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                next_epoch_shuffling_id: junk_shuffling_id.clone(),
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
             })
@@ -385,8 +385,8 @@ mod test_compute_deltas {
                 parent_root: None,
                 state_root,
                 target_root: finalized_root,
-                current_epoch_shuffling_id: shuffling_id.clone(),
-                next_epoch_shuffling_id: shuffling_id.clone(),
+                current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                next_epoch_shuffling_id: junk_shuffling_id.clone(),
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
             })

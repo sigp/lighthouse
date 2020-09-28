@@ -240,10 +240,18 @@ where
     /// Instantiates `Self` from the genesis parameters.
     pub fn from_genesis(
         fc_store: T,
+        genesis_block_root: Hash256,
         genesis_block: &BeaconBlock<E>,
+        genesis_state: &BeaconState<E>,
     ) -> Result<Self, Error<T::Error>> {
         let finalized_block_slot = genesis_block.slot;
         let finalized_block_state_root = genesis_block.state_root;
+        let current_epoch_shuffling_id =
+            ShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Current)
+                .map_err(Error::BeaconStateError)?;
+        let next_epoch_shuffling_id =
+            ShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Next)
+                .map_err(Error::BeaconStateError)?;
 
         let proto_array = ProtoArrayForkChoice::new(
             finalized_block_slot,
@@ -251,6 +259,8 @@ where
             fc_store.justified_checkpoint().epoch,
             fc_store.finalized_checkpoint().epoch,
             fc_store.finalized_checkpoint().root,
+            current_epoch_shuffling_id,
+            next_epoch_shuffling_id,
         )?;
 
         Ok(Self {
