@@ -8,10 +8,15 @@ The `/lighthouse` endpoints provide lighthouse-specific information about the be
 
 HTTP Path | Description |
 | --- | -- |
-[`/lighthouse/version`](#lighthouseversion) | Get the Lighthouse software version
-[`/lighthouse/health`](#lighthousehealth) | Get information about the host machine
+[`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version
+[`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine
+[`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators
+[`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
+[`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
+[`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic.
+[`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
 
-## `/lighthouse/version`
+## `GET /lighthouse/version`
 
 Returns the software version and `git` commit hash for the Lighthouse binary.
 
@@ -21,8 +26,6 @@ Returns the software version and `git` commit hash for the Lighthouse binary.
 | --- |--- |
 Path | `/lighthouse/version`
 Method | GET
-JSON Encoding | Object
-Query Parameters | None
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 200
 
@@ -36,7 +39,7 @@ Typical Responses | 200
 }
 ```
 
-## `/lighthouse/health`
+## `GET /lighthouse/health`
 
 Returns information regarding the health of the host machine.
 
@@ -46,8 +49,6 @@ Returns information regarding the health of the host machine.
 | --- |--- |
 Path | `/lighthouse/health`
 Method | GET
-JSON Encoding | Object
-Query Parameters | No
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 200
 
@@ -74,7 +75,7 @@ Typical Responses | 200
 }
 ```
 
-## `/lighthouse/validators`
+## `GET /lighthouse/validators`
 
 Lists all validators managed by this validator client.
 
@@ -84,8 +85,6 @@ Lists all validators managed by this validator client.
 | --- |--- |
 Path | `/lighthouse/validators`
 Method | GET
-JSON Encoding | Object
-Query Parameters | No
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 200
 
@@ -110,7 +109,7 @@ Typical Responses | 200
 }
 ```
 
-## `/lighthouse/validators/:voting_pubkey`
+## `GET /lighthouse/validators/:voting_pubkey`
 
 Get a validator by their `voting_pubkey`.
 
@@ -120,10 +119,8 @@ Get a validator by their `voting_pubkey`.
 | --- |--- |
 Path | `/lighthouse/validators/:voting_pubkey`
 Method | GET
-JSON Encoding | Object
-Query Parameters | No
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+Typical Responses | 200, 400
 
 ### Example Path
 
@@ -142,7 +139,32 @@ localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc8
 }
 ```
 
-## `/lighthouse/validators/`
+## `PATCH /lighthouse/validators/:voting_pubkey`
+
+Update some values for the validator with `voting_pubkey`.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators/:voting_pubkey`
+Method | PATCH
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200, 400
+
+### Example Path
+
+```
+localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
+```
+
+### Example Response
+
+```json
+null
+```
+
+## `POST /lighthouse/validators/`
 
 Create a new validator
 
@@ -150,10 +172,7 @@ Create a new validator
 
 | Property | Specification |
 | --- |--- |
-Path | `/lighthouse/validators/:voting_pubkey`
-Method | GET
-JSON Encoding | Object
-Query Parameters | No
+Path | `/lighthouse/validators`
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 200
 
@@ -161,11 +180,16 @@ Typical Responses | 200
 
 ```json
 [
-	{
-		"enable": true,
-		"validator_desc": "validator 0",
-		"deposit_gwei": "32000000000"
-	}
+    {
+        "enable": true,
+        "name": "validator_one",
+        "deposit_gwei": "32000000000"
+    },
+    {
+        "enable": false,
+        "name": "validator two",
+        "deposit_gwei": "34000000000"
+    }
 ]
 ```
 
@@ -174,20 +198,28 @@ Typical Responses | 200
 ```json
 {
     "data": {
-        "mnemonic": "until stem before clip receive exercise alter math like slide great entry thrive easy water glance proof gravity project intact state core harbor luggage",
+        "mnemonic": "marine orchard scout label trim only narrow taste art belt betray soda deal diagram glare hero scare shadow ramp blur junior behave resource tourist",
         "validators": [
             {
                 "enabled": true,
-                "voting_pubkey": "0x82a1ef6fcdc5bef7281c9d63d1910545077baa6e61533c3d09d178d22a473ad254a04c94a94d45d43c6f54a53f98835f",
-                "eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000120447967560b728fcf6e33305b98e9c644650370901d404c6261848cad7f742916000000000000000000000000000000000000000000000000000000000000003082a1ef6fcdc5bef7281c9d63d1910545077baa6e61533c3d09d178d22a473ad254a04c94a94d45d43c6f54a53f98835f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020004b3558edfb5bd3be9f9314f5bc01715b60b6a07795ebcb9ea20bd3ef150b2b0000000000000000000000000000000000000000000000000000000000000060964e12af6b1d4a53fa75275846580aab255dc2c618c644079f92000a00a4962d13a673465d9e8d80faf55e52d042f21006f5743330ea6db5d24e4034dbb293b00ef1336b90861857f81975b2d3c3b31c38ab7a1dacbe3d32b9b2a0ceb01c398d",
+                "name": "validator_one",
+                "voting_pubkey": "0x8ffbc881fb60841a4546b4b385ec5e9b5090fd1c4395e568d98b74b94b41a912c6101113da39d43c101369eeb9b48e50",
+                "eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e000000000000000000000000000000000000000000000000000000000000001206c68675776d418bfd63468789e7c68a6788c4dd45a3a911fe3d642668220bbf200000000000000000000000000000000000000000000000000000000000000308ffbc881fb60841a4546b4b385ec5e9b5090fd1c4395e568d98b74b94b41a912c6101113da39d43c101369eeb9b48e5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000cf8b3abbf0ecd91f3b0affcc3a11e9c5f8066efb8982d354ee9a812219b17000000000000000000000000000000000000000000000000000000000000000608fbe2cc0e17a98d4a58bd7a65f0475a58850d3c048da7b718f8809d8943fee1dbd5677c04b5fa08a9c44d271d009edcd15caa56387dc217159b300aad66c2cf8040696d383d0bff37b2892a7fe9ba78b2220158f3dc1b9cd6357bdcaee3eb9f2",
                 "deposit_gwei": "32000000000"
+            },
+            {
+                "enabled": true,
+                "name": "validator two",
+                "voting_pubkey": "0xa9fadd620dc68e9fe0d6e1a69f6c54a0271ad65ab5a509e645e45c6e60ff8f4fc538f301781193a08b55821444801502",
+                "eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000120b1911954c1b8d23233e0e2bf8c4878c8f56d25a4f790ec09a94520ec88af30490000000000000000000000000000000000000000000000000000000000000030a9fadd620dc68e9fe0d6e1a69f6c54a0271ad65ab5a509e645e45c6e60ff8f4fc538f301781193a08b5582144480150200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000a96df8b95c3ba749265e48a101f2ed974fffd7487487ed55f8dded99b617ad000000000000000000000000000000000000000000000000000000000000006090421299179824950e2f5a592ab1fdefe5349faea1e8126146a006b64777b74cce3cfc5b39d35b370e8f844e99c2dc1b19a1ebd38c7605f28e9c4540aea48f0bc48e853ae5f477fa81a9fc599d1732968c772730e1e47aaf5c5117bd045b788e",
+                "deposit_gwei": "34000000000"
             }
         ]
     }
 }
 ```
 
-## `/lighthouse/validators/mnemonic`
+## `POST /lighthouse/validators/mnemonic`
 
 Create a new validator from an existing mnemonic.
 
@@ -196,9 +228,7 @@ Create a new validator from an existing mnemonic.
 | Property | Specification |
 | --- |--- |
 Path | `/lighthouse/validators/mnemonic`
-Method | GET
-JSON Encoding | Object
-Query Parameters | No
+Method | POST
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 200
 
@@ -211,6 +241,7 @@ Typical Responses | 200
     "validators": [
         {
             "enable": true,
+            "name": "validator_one",
             "validator_desc": "validator 0",
             "deposit_gwei": "32000000000"
         }
@@ -223,12 +254,13 @@ Typical Responses | 200
 ```json
 {
     "data": [
-		{
-			"enabled": true,
-			"voting_pubkey": "0x82a1ef6fcdc5bef7281c9d63d1910545077baa6e61533c3d09d178d22a473ad254a04c94a94d45d43c6f54a53f98835f",
-			"eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000120447967560b728fcf6e33305b98e9c644650370901d404c6261848cad7f742916000000000000000000000000000000000000000000000000000000000000003082a1ef6fcdc5bef7281c9d63d1910545077baa6e61533c3d09d178d22a473ad254a04c94a94d45d43c6f54a53f98835f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020004b3558edfb5bd3be9f9314f5bc01715b60b6a07795ebcb9ea20bd3ef150b2b0000000000000000000000000000000000000000000000000000000000000060964e12af6b1d4a53fa75275846580aab255dc2c618c644079f92000a00a4962d13a673465d9e8d80faf55e52d042f21006f5743330ea6db5d24e4034dbb293b00ef1336b90861857f81975b2d3c3b31c38ab7a1dacbe3d32b9b2a0ceb01c398d",
-			"deposit_gwei": "32000000000"
-		}
-	]
+        {
+            "enabled": true,
+            "name": "validator_one",
+            "voting_pubkey": "0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380",
+            "eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000120a57324d95ae9c7abfb5cc9bd4db253ed0605dc8a19f84810bcf3f3874d0e703a0000000000000000000000000000000000000000000000000000000000000030a062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db3800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200046e4199f18102b5d4e8842d0eeafaa1268ee2c21340c63f9c2cd5b03ff19320000000000000000000000000000000000000000000000000000000000000060b2a897b4ba4f3910e9090abc4c22f81f13e8923ea61c0043506950b6ae174aa643540554037b465670d28fa7b7d716a301e9b172297122acc56be1131621c072f7c0a73ea7b8c5a90ecd5da06d79d90afaea17cdeeef8ed323912c70ad62c04b",
+            "deposit_gwei": "32000000000"
+        }
+    ]
 }
 ```
