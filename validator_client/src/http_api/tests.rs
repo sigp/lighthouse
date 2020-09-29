@@ -46,7 +46,7 @@ impl ApiTester {
 
         let initialized_validators = Arc::new(RwLock::new(initialized_validators));
         let api_secret = ApiSecret::create_or_open(datadir.path()).unwrap();
-        let api_pubkey = api_secret.pubkey_string();
+        let api_pubkey = api_secret.api_token();
 
         let context: Arc<Context<E>> = Arc::new(Context {
             api_secret,

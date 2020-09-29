@@ -12,8 +12,9 @@ use serde::{de::DeserializeOwned, Serialize};
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
 
-pub const SIG_LEN: usize = 64;
 pub const PK_LEN: usize = 33;
+
+pub const SECRET_PREFIX: &str = "api-token-";
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
@@ -27,6 +28,15 @@ pub struct ValidatorClientHttpClient {
 }
 
 pub fn parse_pubkey(secret: &str) -> Result<PublicKey, Error> {
+    let secret = if !secret.starts_with(SECRET_PREFIX) {
+        return Err(Error::InvalidSecret(format!(
+            "secret does not start with {}",
+            SECRET_PREFIX
+        )));
+    } else {
+        &secret[SECRET_PREFIX.len()..]
+    };
+
     serde_utils::hex::decode(&secret)
         .map_err(|e| Error::InvalidSecret(format!("invalid hex: {:?}", e)))
         .and_then(|bytes| {
@@ -86,12 +96,9 @@ impl ValidatorClientHttpClient {
 
         serde_utils::hex::decode(&sig)
             .ok()
-            .filter(|bytes| bytes.len() == SIG_LEN)
-            .map(|bytes| {
-                let mut arr = [0; SIG_LEN];
-                arr.copy_from_slice(&bytes);
-                let sig = Signature::parse(&arr);
-                secp256k1::verify(&message, &sig, &self.server_pubkey)
+            .and_then(|bytes| {
+                let sig = Signature::parse_der(&bytes).ok()?;
+                Some(secp256k1::verify(&message, &sig, &self.server_pubkey))
             })
             .filter(|is_valid| *is_valid)
             .ok_or_else(|| Error::InvalidSignatureHeader)?;
@@ -105,8 +112,8 @@ impl ValidatorClientHttpClient {
     }
 
     fn headers(&self) -> Result<HeaderMap, Error> {
-        let header_value = HeaderValue::from_str(&format!("Basic api-token-{}", &self.secret))
-            .map_err(|e| {
+        let header_value =
+            HeaderValue::from_str(&format!("Basic {}", &self.secret)).map_err(|e| {
                 Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
             })?;
 
@@ -282,8 +289,6 @@ impl ValidatorClientHttpClient {
             .push("lighthouse")
             .push("validators")
             .push(&voting_pubkey.to_string());
-
-        dbg!(&path);
 
         self.patch(path, &ValidatorPatchRequest { enabled }).await
     }
