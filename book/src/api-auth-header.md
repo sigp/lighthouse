@@ -1,4 +1,4 @@
-# Validator Client API: Authorization Header
+# Validator Client API: Signature Header
 
 ## Overview
 
@@ -9,10 +9,10 @@ HTTP header:
 - Value: `Basic <api-token>`
 
 Where `<api-token>` is a string that can be obtained from the validator client
-host. Here is an example `<api-token>` value:
+host. Here is an example `Authorization` header:
 
 ```
-api-token-0x03400ca133ef69cacc70b24fa7a17bdd62bd56d0c572c7ea825a461497cd1d9e14
+Authorization Basic api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123
 ```
 
 ## Obtaining the API token
@@ -28,7 +28,7 @@ text editor will suffice:
 
 ```
 $ cat api-token.txt
-api-token-0x03400ca133ef69cacc70b24fa7a17bdd62bd56d0c572c7ea825a461497cd1d9e14
+api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123
 ```
 
 ### Method 2: Reading from logs
@@ -37,7 +37,7 @@ When starting the validator client, the validator client will output a log
 message containing an `api-token` field:
 
 ```
-Sep 28 19:17:52.615 INFO HTTP API started                        api_token: api-token-0x03400ca133ef69cacc70b24fa7a17bdd62bd56d0c572c7ea825a461497cd1d9e14, listen_address: 127.0.0.1:5062
+Sep 28 19:17:52.615 INFO HTTP API started                        api_token: api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123, listen_address: 127.0.0.1:5062
 ```
 
 ## Example
@@ -45,11 +45,11 @@ Sep 28 19:17:52.615 INFO HTTP API started                        api_token: api-
 Here is an example `curl` command using the API token in the `Authorization` header:
 
 ```bash
-curl localhost:5062/lighthouse/version -H "Authorization: Basic api-token-0x03400ca133ef69cacc70b24fa7a17bdd62bd56d0c572c7ea825a461497cd1d9e14"
+curl localhost:5062/lighthouse/version -H "Authorization: Basic api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123"
 ```
 
 The server should respond with its version:
 
 ```json
-{"data":{"version":"Lighthouse/v0.2.11-498776e61/x86_64-linux"}}
+{"data":{"version":"Lighthouse/v0.2.11-fc0654fbe+/x86_64-linux"}}
 ```

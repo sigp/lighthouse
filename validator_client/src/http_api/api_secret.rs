@@ -188,7 +188,7 @@ impl ApiSecret {
             let message =
                 Message::parse_slice(digest(&SHA256, input).as_ref()).expect("sha256 is 32 bytes");
             let (signature, _) = secp256k1::sign(&message, &sk);
-            serde_utils::hex::encode(&signature.serialize()[..])
+            serde_utils::hex::encode(signature.serialize_der().as_ref())
         };
         func
     }
