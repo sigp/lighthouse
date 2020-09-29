@@ -401,6 +401,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f30d3a39baa26f9651f17b375061f3233dde33424a8b72b0dbe93a68a0bc896d"
+dependencies = [
+ "byteorder",
+ "serde",
+]
+
+[[package]]
 name = "bitflags"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6041,6 +6051,7 @@ name = "validator_client"
 version = "0.2.12"
 dependencies = [
  "account_utils",
+ "bincode",
  "bls",
  "clap",
  "clap_utils",
@@ -6058,9 +6069,11 @@ dependencies = [
  "libc",
  "logging",
  "parking_lot 0.11.0",
+ "rand 0.7.3",
  "rayon",
  "remote_beacon_node",
  "rest_types",
+ "scrypt",
  "serde",
  "serde_derive",
  "serde_json",

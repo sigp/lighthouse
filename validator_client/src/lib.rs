@@ -6,6 +6,7 @@ mod duties_service;
 mod fork_service;
 mod initialized_validators;
 mod is_synced;
+mod key_cache;
 mod notifier;
 mod validator_store;
 
@@ -92,6 +93,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             config.data_dir.clone(),
             config.strict_lockfiles,
             log.clone(),
+            &context.executor,
         )
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
