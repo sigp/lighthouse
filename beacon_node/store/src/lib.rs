@@ -19,6 +19,7 @@ pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
+mod metadata;
 mod metrics;
 mod partial_beacon_state;
 
