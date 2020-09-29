@@ -682,15 +682,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(pubkey_cache.get(validator_index).cloned())
     }
 
-    // TODO: I think this doc is wrong about this returning None, but need to test
     /// Returns the block canonical root of the current canonical chain at a given slot.
     ///
-    /// Returns None if a block doesn't exist at the slot.
+    /// Returns `None` if the given slot doesn't exist in the chain.
     pub fn root_at_slot(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(_, slot)| *slot == target_slot)
-                .map(|(root, _)| root)
-        })
+        let head = self.head()?;
+        BlockRootsIterator::new(self.store.clone(), &head.beacon_state)
+            .find(|result| match result {
+                Ok((_, slot)) => *slot == target_slot,
+                // always break on an error
+                _ => true,
+            })
+            .transpose()
+            .map(|result| result.map(|(root, _)| root))
+            .map_err(|_| Error::UnableToFindTargetRoot(target_slot))
+    }
+
+    /// Returns the block canonical root of the current canonical chain at a given slot, starting from the given state.
+    ///
+    /// Returns `None` if the given slot doesn't exist in the chain.
+    pub fn root_at_slot_from_state(
+        &self,
+        target_slot: Slot,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<Option<Hash256>, Error> {
+        BlockRootsIterator::new(self.store.clone(), state)
+            .find(|result| match result {
+                Ok((_, slot)) => *slot == target_slot,
+                // always break on an error
+                _ => true,
+            })
+            .transpose()
+            .map(|result| result.map(|(root, _)| root))
+            .map_err(|_| Error::UnableToFindTargetRoot(target_slot))
     }
 
     /// Returns the block proposer for a given slot.
@@ -1519,6 +1543,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             check_block_is_finalized_descendant::<T, _>(signed_block, &fork_choice, &self.store)?;
         let block = &signed_block.message;
 
+        // compare the existing finalized checkpoint with the incoming block's finalized checkpoint
+        let old_finalized_checkpoint = fork_choice.finalized_checkpoint();
+        let new_finalized_checkpoint = state.finalized_checkpoint;
+
+        // Only perform the weak subjectivity check if it was configured.
+        if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
+            // This ensures we only perform the check once.
+            if (old_finalized_checkpoint.epoch < wss_checkpoint.epoch)
+                && (wss_checkpoint.epoch <= new_finalized_checkpoint.epoch)
+            {
+                self.verify_weak_subjectivity_checkpoint(
+                    new_finalized_checkpoint,
+                    wss_checkpoint,
+                    &state,
+                );
+            }
+        }
+
         // Register the new block with the fork choice service.
         {
             let _fork_choice_block_timer =
@@ -1924,16 +1966,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
         }
 
-        // Only perform the weak subjectivity check if it was configured.
-        if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
-            // This ensures we only perform the check once.
-            if (old_finalized_checkpoint.epoch < wss_checkpoint.epoch)
-                && (wss_checkpoint.epoch <= new_finalized_checkpoint.epoch)
-            {
-                self.verify_weak_subjectivity_checkpoint(new_finalized_checkpoint, wss_checkpoint);
-            }
-        }
-
         let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
             reorg: is_reorg,
             previous_head_beacon_block_root: current_head.block_root,
@@ -1952,18 +1984,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         finalized_checkpoint: Checkpoint,
         wss_checkpoint: Checkpoint,
+        state: &BeaconState<T::EthSpec>,
     ) {
-        info!(self.log, "Verifying the configured weak subjectivity checkpoint."; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
+        info!(self.log, "Verifying the configured weak subjectivity checkpoint"; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
         // If epochs match, simply compare roots.
         if wss_checkpoint.epoch == finalized_checkpoint.epoch
             && wss_checkpoint.root != finalized_checkpoint.root
         {
-            let mut shutdown_sender = self.shutdown_sender();
-            error!(self.log, "Weak subjectivity checkpoint verification failed!");
-            error!(self.log, "Root found at the specified checkpoint differs."; "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root), "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
-            error!(self.log, "You must purge all state from your node and restart the sync.");
-            let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                    .map_err(|e| error!(self.log, "failed to send a shutdown signal"; "error" => format!("{:?}", e)));
+            self.ws_failure_shutdown(finalized_checkpoint, wss_checkpoint);
         } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
             let slot = wss_checkpoint
                 .epoch
@@ -1971,16 +1999,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Because `root_at_slot` uses `rev_iter_block_roots`, this iterator will start
             // at the canonical chain head and iterate backwards. If the given slot is a skipped slot,
-            // it will return the root of the closest prior non-skipped slot
-            match self.root_at_slot(slot) {
+            // it will return the root of the closest prior non-skipped slot.
+            match self.root_at_slot_from_state(slot, state) {
                 Ok(Some(root)) => {
                     if root != wss_checkpoint.root {
-                        let mut shutdown_sender = self.shutdown_sender();
-                        error!(self.log, "Weak subjectivity checkpoint verification failed!");
-                        error!(self.log, "Root found at the specified checkpoint differs."; "finalized_checkpoint_root" => format!("{:?}", root), "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
-                        error!(self.log, "You must purge all state from your node and restart the sync.");
-                        let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                                .map_err(|e| error!(self.log, "failed to send a shutdown signal"; "error" => format!("{:?}", e)));
+                        self.ws_failure_shutdown(finalized_checkpoint, wss_checkpoint);
                     }
                 }
                 Ok(None) => {
@@ -1996,10 +2019,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let mut shutdown_sender = self.shutdown_sender();
                     error!(self.log, "There was an error in verifying the weak subjectivity state in the given epoch."; "error" => format!("{:?}", e));
                     let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed.")
-                            .map_err(|e| error!(self.log, "failed to send a shutdown signal"; "error" => format!("{:?}", e)));
+                        .map_err(|e| error!(self.log, "failed to send a shutdown signal"; "error" => format!("{:?}", e)));
                 }
             }
         }
+    }
+
+    /// Logs information about a weak subjectivity verification failure and recovery. Sends a shutdown signal.
+    fn ws_failure_shutdown(&self, finalized_checkpoint: Checkpoint, wss_checkpoint: Checkpoint) {
+        let mut shutdown_sender = self.shutdown_sender();
+        error!(
+            self.log,
+            "Weak subjectivity checkpoint verification failed!"
+        );
+        error!(self.log, "Root found at the specified checkpoint differs"; "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root), "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
+        error!(
+            self.log,
+            "You must purge all state from your node and restart the sync."
+        );
+        let _ = shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+            .map_err(|e| error!(self.log, "failed to send a shutdown signal"; "error" => format!("{:?}", e)));
     }
 
     /// Called by the timer on every slot.

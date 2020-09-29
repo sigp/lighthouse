@@ -591,18 +591,18 @@ where
             graffiti: self.graffiti,
         };
 
-        let current_head = beacon_chain
-            .head_info()
-            .map_err(|e| format!("Unable to read current finalized epoch: {:?}", e))?;
-        let finalized_checkpoint = current_head.finalized_checkpoint;
-
-        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-            beacon_chain.verify_weak_subjectivity_checkpoint(finalized_checkpoint, wss_checkpoint);
-        }
-
         let head = beacon_chain
             .head()
             .map_err(|e| format!("Failed to get head: {:?}", e))?;
+
+        // Only perform the check if it was configured.
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
+            beacon_chain.verify_weak_subjectivity_checkpoint(
+                head.beacon_state.finalized_checkpoint,
+                wss_checkpoint,
+                &head.beacon_state,
+            );
+        }
 
         info!(
             log,
