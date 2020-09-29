@@ -129,6 +129,7 @@ pub fn create_validators<P: AsRef<Path>>(
 
         validators.push(api_types::CreatedValidator {
             enabled: true,
+            name: request.name.clone(),
             voting_pubkey: voting_pubkey,
             eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,

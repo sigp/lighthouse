@@ -33,6 +33,7 @@ pub struct CreateValidatorsMnemonicRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct CreatedValidator {
     pub enabled: bool,
+    pub name: String,
     pub voting_pubkey: PublicKeyBytes,
     pub eth1_deposit_tx_data: String,
     #[serde(with = "serde_utils::quoted_u64")]
