@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use clap_utils::{parse_optional, parse_path_with_default_in_home_dir, parse_required};
+use clap_utils::{parse_optional, parse_required};
 use directory::{
     get_testnet_name, DEFAULT_HARDCODED_TESTNET, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
