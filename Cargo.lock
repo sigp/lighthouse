@@ -538,9 +538,11 @@ version = "0.2.12"
 dependencies = [
  "beacon_node",
  "clap",
- "discv5",
  "eth2_libp2p",
+ "eth2_ssz",
+ "eth2_testnet_config",
  "futures 0.3.5",
+ "hex 0.4.2",
  "log 0.4.11",
  "logging",
  "slog",
@@ -550,6 +552,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "tokio 0.2.22",
+ "types",
 ]
 
 [[package]]
@@ -1242,9 +1245,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "discv5"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c68cb1b942aadd3bb3a13620c4d831c0aa49eda988cf8bcccfdfdc7ef69504a7"
+checksum = "65a5e4a22a4c1d7142f54ac068b8c6252610ed0ebf00264f39eccee7f88fe4b9"
 dependencies = [
  "aes-gcm",
  "arrayvec",
