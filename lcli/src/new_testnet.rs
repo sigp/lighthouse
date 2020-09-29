@@ -10,7 +10,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let testnet_dir_path = parse_path_with_default_in_home_dir(
         matches,
         "testnet-dir",
-        PathBuf::from(".lighthouse/testnet"),
+        PathBuf::from(directory::DEFAULT_ROOT_DIR).join("testnet"),
     )?;
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
     let deposit_contract_deploy_block = parse_required(matches, "deposit-contract-deploy-block")?;

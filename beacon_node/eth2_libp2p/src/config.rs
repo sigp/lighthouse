@@ -1,5 +1,8 @@
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
+use directory::{
+    DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_TESTNET, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
+};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
@@ -74,9 +77,14 @@ pub struct Config {
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
-        let mut network_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        network_dir.push(".lighthouse");
-        network_dir.push("network");
+        // WARNING: this directory default should be always overrided with parameters
+        // from cli for specific networks.
+        let network_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(DEFAULT_ROOT_DIR)
+            .join(DEFAULT_HARDCODED_TESTNET)
+            .join(DEFAULT_BEACON_NODE_DIR)
+            .join(DEFAULT_NETWORK_DIR);
 
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing

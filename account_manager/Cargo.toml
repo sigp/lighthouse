@@ -24,6 +24,7 @@ eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 web3 = "0.11.0"
 futures = { version = "0.3.5", features = ["compat"] }
 clap_utils = { path = "../common/clap_utils" }
+directory = { path = "../common/directory" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.2"

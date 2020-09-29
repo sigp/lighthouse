@@ -1,10 +1,13 @@
 use crate::common::read_wallet_name_from_cli;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
-use crate::{common::ensure_dir_exists, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
 };
 use clap::{App, Arg, ArgMatches};
+use directory::{
+    ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
+};
 use environment::Environment;
 use eth2_wallet_manager::WalletManager;
 use std::ffi::OsStr;
@@ -14,7 +17,6 @@ use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
 pub const CMD: &str = "create";
-pub const BASE_DIR_FLAG: &str = "base-dir";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
 pub const WALLET_PASSWORD_FLAG: &str = "wallet-password";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
@@ -44,14 +46,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(VALIDATOR_DIR_FLAG)
-                .long(VALIDATOR_DIR_FLAG)
-                .value_name("VALIDATOR_DIRECTORY")
-                .help(
-                    "The path where the validator directories will be created. \
-                    Defaults to ~/.lighthouse/validators",
-                )
-                .takes_value(true),
+            Arg::with_name(WALLETS_DIR_FLAG)
+                .long(WALLETS_DIR_FLAG)
+                .value_name(WALLETS_DIR_FLAG)
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
+                .takes_value(true)
+                .conflicts_with("datadir"),
         )
         .arg(
             Arg::with_name(SECRETS_DIR_FLAG)
@@ -59,8 +59,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/secrets",
+                    Defaults to ~/.lighthouse/{testnet}/secrets",
                 )
+                .conflicts_with("datadir")
                 .takes_value(true),
         )
         .arg(
@@ -111,23 +112,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run<T: EthSpec>(
     matches: &ArgMatches,
     mut env: Environment<T>,
-    wallet_base_dir: PathBuf,
+    validator_dir: PathBuf,
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
     let name: Option<String> = clap_utils::parse_optional(matches, WALLET_NAME_FLAG)?;
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+    let wallet_base_dir = if matches.value_of("datadir").is_some() {
+        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
+        path.join(DEFAULT_WALLET_DIR)
+    } else {
+        parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
+    };
+    let secrets_dir = if matches.value_of("datadir").is_some() {
+        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
+        path.join(DEFAULT_SECRET_DIR)
+    } else {
+        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+    };
 
-    let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        VALIDATOR_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("validators"),
-    )?;
-    let secrets_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        SECRETS_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("secrets"),
-    )?;
     let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
         .unwrap_or_else(|| spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;
@@ -135,6 +138,9 @@ pub fn cli_run<T: EthSpec>(
 
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;
+
+    eprintln!("secrets-dir path {:?}", secrets_dir);
+    eprintln!("wallets-dir path {:?}", wallet_base_dir);
 
     let starting_validator_count = existing_validator_count(&validator_dir)?;
 
@@ -166,7 +172,7 @@ pub fn cli_run<T: EthSpec>(
     let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
 
     let mgr = WalletManager::open(&wallet_base_dir)
-        .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
+        .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
     let mut wallet = mgr
         .wallet_by_name(&wallet_name)

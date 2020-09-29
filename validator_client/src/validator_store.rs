@@ -62,14 +62,24 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        let slashing_db_path = config.data_dir.join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection =
+        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection = if config.strict_slashing_protection {
+            // Don't create a new slashing database if `strict_slashing_protection` is turned on.
+            SlashingDatabase::open(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open slashing protection database: {:?}.
+                    Ensure that `slashing_protection.sqlite` is in {:?} folder",
+                    e, config.validator_dir
+                )
+            })?
+        } else {
             SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
                 format!(
                     "Failed to open or create slashing protection database: {:?}",
                     e
                 )
-            })?;
+            })?
+        };
 
         Ok(Self {
             validators: Arc::new(RwLock::new(validators)),

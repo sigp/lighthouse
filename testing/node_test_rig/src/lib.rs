@@ -96,7 +96,7 @@ pub fn testing_client_config() -> ClientConfig {
 /// This struct is separate to `LocalValidatorClient` to allow for pre-computation of validator
 /// keypairs since the task is quite resource intensive.
 pub struct ValidatorFiles {
-    pub datadir: TempDir,
+    pub validator_dir: TempDir,
     pub secrets_dir: TempDir,
 }
 
@@ -110,7 +110,7 @@ impl ValidatorFiles {
             .map_err(|e| format!("Unable to create VC secrets dir: {:?}", e))?;
 
         Ok(Self {
-            datadir,
+            validator_dir: datadir,
             secrets_dir,
         })
     }
@@ -120,7 +120,7 @@ impl ValidatorFiles {
         let this = Self::new()?;
 
         build_deterministic_validator_dirs(
-            this.datadir.path().into(),
+            this.validator_dir.path().into(),
             this.secrets_dir.path().into(),
             keypair_indices,
         )
@@ -170,7 +170,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         mut config: ValidatorConfig,
         files: ValidatorFiles,
     ) -> Result<Self, String> {
-        config.data_dir = files.datadir.path().into();
+        config.validator_dir = files.validator_dir.path().into();
         config.secrets_dir = files.secrets_dir.path().into();
 
         ProductionValidatorClient::new(context, config)

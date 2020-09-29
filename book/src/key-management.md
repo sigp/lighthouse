@@ -40,12 +40,12 @@ keypairs. Creating a single validator looks like this:
 	- `lighthouse account validator create --wallet-name wally --wallet-password wally.pass --count 1`
 
 
-In step (1), we created a wallet in `~/.lighthouse/wallets` with the name
+In step (1), we created a wallet in `~/.lighthouse/{testnet}/wallets` with the name
 `wally`. We encrypted this using a pre-defined password in the
 `wally.pass` file. Then, in step (2), we created one new validator in the
-`~/.lighthouse/validators` directory using `wally` (unlocking it with
+`~/.lighthouse/{testnet}/validators` directory using `wally` (unlocking it with
 `wally.pass`) and storing the passwords to the validators voting key in
-`~/.lighthouse/secrets`.
+`~/.lighthouse/{testnet}/secrets`.
 
 Thanks to the hierarchical key derivation scheme, we can delete all of the
 aforementioned directories and then regenerate them as long as we remembered
@@ -63,14 +63,16 @@ There are three important directories in Lighthouse validator key management:
 
 - `wallets/`: contains encrypted wallets which are used for hierarchical
 	key derivation.
-	- Defaults to `~/.lighthouse/wallets`
+	- Defaults to `~/.lighthouse/{testnet}/wallets`
 - `validators/`: contains a directory for each validator containing
 	encrypted keystores and other validator-specific data.
-	- Defaults to `~/.lighthouse/validators`
+	- Defaults to `~/.lighthouse/{testnet}/validators`
 - `secrets/`: since the validator signing keys are "hot", the validator process
 	needs access to the passwords to decrypt the keystores in the validators
 	dir. These passwords are stored here.
-	- Defaults to `~/.lighthouse/secrets`
+	- Defaults to `~/.lighthouse/{testnet}/secrets`
+
+where `testnet` is the name of the testnet passed in the `--testnet` parameter (default is `medalla`).
 
 When the validator client boots, it searches the `validators/` for directories
 containing voting keystores. When it discovers a keystore, it searches the
