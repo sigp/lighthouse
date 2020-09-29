@@ -1,4 +1,4 @@
-# Validator Client API: Signature Header
+# Validator Client API: Authorization Header
 
 ## Overview
 
