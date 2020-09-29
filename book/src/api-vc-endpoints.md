@@ -1,0 +1,301 @@
+# Validator Client API: Endpoints
+
+## Endpoints
+
+HTTP Path | Description |
+| --- | -- |
+[`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version
+[`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine
+[`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators
+[`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
+[`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
+[`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic.
+[`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
+
+## `GET /lighthouse/version`
+
+Returns the software version and `git` commit hash for the Lighthouse binary.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/version`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+### Example Response
+
+```json
+{
+    "data": {
+        "version": "Lighthouse/v0.2.11-fc0654fbe+/x86_64-linux"
+    }
+}
+```
+
+## `GET /lighthouse/health`
+
+Returns information regarding the health of the host machine.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/health`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+*Note: this endpoint is presently only available on Linux.*
+
+### Example Response
+
+```json
+{
+    "data": {
+        "pid": 1476293,
+        "pid_num_threads": 19,
+        "pid_mem_resident_set_size": 4009984,
+        "pid_mem_virtual_memory_size": 1306775552,
+        "sys_virt_mem_total": 33596100608,
+        "sys_virt_mem_available": 23073017856,
+        "sys_virt_mem_used": 9346957312,
+        "sys_virt_mem_free": 22410510336,
+        "sys_virt_mem_percent": 31.322334,
+        "sys_loadavg_1": 0.98,
+        "sys_loadavg_5": 0.98,
+        "sys_loadavg_15": 1.01
+    }
+}
+```
+
+## `GET /lighthouse/validators`
+
+Lists all validators managed by this validator client.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+### Example Response
+
+```json
+{
+    "data": [
+        {
+            "enabled": true,
+            "voting_pubkey": "0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde"
+        },
+        {
+            "enabled": true,
+            "voting_pubkey": "0xb0441246ed813af54c0a11efd53019f63dd454a1fa2a9939ce3c228419fbe113fb02b443ceeb38736ef97877eb88d43a"
+        },
+        {
+            "enabled": true,
+            "voting_pubkey": "0xad77e388d745f24e13890353031dd8137432ee4225752642aad0a2ab003c86620357d91973b6675932ff51f817088f38"
+        }
+    ]
+}
+```
+
+## `GET /lighthouse/validators/:voting_pubkey`
+
+Get a validator by their `voting_pubkey`.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators/:voting_pubkey`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200, 400
+
+### Example Path
+
+```
+localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
+```
+
+### Example Response
+
+```json
+{
+    "data": {
+        "enabled": true,
+        "voting_pubkey": "0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde"
+    }
+}
+```
+
+## `PATCH /lighthouse/validators/:voting_pubkey`
+
+Update some values for the validator with `voting_pubkey`.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators/:voting_pubkey`
+Method | PATCH
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200, 400
+
+### Example Path
+
+```
+localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
+```
+
+### Example Response
+
+```json
+null
+```
+
+## `POST /lighthouse/validators/`
+
+Create any number of new validators, all of which will share a common mnemonic.
+
+A BIP-39 mnemonic will be randomly generated and returned with the response. This
+mnemonic can be used to recover the keys. Validators are generated from the
+mnemonic according to [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334),
+starting at index `0`.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators`
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+### Example Request
+
+```json
+[
+    {
+        "enable": true,
+        "name": "validator_one",
+        "deposit_gwei": "32000000000"
+    },
+    {
+        "enable": false,
+        "name": "validator two",
+        "deposit_gwei": "34000000000"
+    }
+]
+```
+
+### Example Response
+
+```json
+{
+    "data": {
+        "mnemonic": "marine orchard scout label trim only narrow taste art belt betray soda deal diagram glare hero scare shadow ramp blur junior behave resource tourist",
+        "validators": [
+            {
+                "enabled": true,
+                "name": "validator_one",
+                "voting_pubkey": "0x8ffbc881fb60841a4546b4b385ec5e9b5090fd1c4395e568d98b74b94b41a912c6101113da39d43c101369eeb9b48e50",
+                "eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e000000000000000000000000000000000000000000000000000000000000001206c68675776d418bfd63468789e7c68a6788c4dd45a3a911fe3d642668220bbf200000000000000000000000000000000000000000000000000000000000000308ffbc881fb60841a4546b4b385ec5e9b5090fd1c4395e568d98b74b94b41a912c6101113da39d43c101369eeb9b48e5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000cf8b3abbf0ecd91f3b0affcc3a11e9c5f8066efb8982d354ee9a812219b17000000000000000000000000000000000000000000000000000000000000000608fbe2cc0e17a98d4a58bd7a65f0475a58850d3c048da7b718f8809d8943fee1dbd5677c04b5fa08a9c44d271d009edcd15caa56387dc217159b300aad66c2cf8040696d383d0bff37b2892a7fe9ba78b2220158f3dc1b9cd6357bdcaee3eb9f2",
+                "deposit_gwei": "32000000000"
+            },
+            {
+                "enabled": true,
+                "name": "validator two",
+                "voting_pubkey": "0xa9fadd620dc68e9fe0d6e1a69f6c54a0271ad65ab5a509e645e45c6e60ff8f4fc538f301781193a08b55821444801502",
+                "eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000120b1911954c1b8d23233e0e2bf8c4878c8f56d25a4f790ec09a94520ec88af30490000000000000000000000000000000000000000000000000000000000000030a9fadd620dc68e9fe0d6e1a69f6c54a0271ad65ab5a509e645e45c6e60ff8f4fc538f301781193a08b5582144480150200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000a96df8b95c3ba749265e48a101f2ed974fffd7487487ed55f8dded99b617ad000000000000000000000000000000000000000000000000000000000000006090421299179824950e2f5a592ab1fdefe5349faea1e8126146a006b64777b74cce3cfc5b39d35b370e8f844e99c2dc1b19a1ebd38c7605f28e9c4540aea48f0bc48e853ae5f477fa81a9fc599d1732968c772730e1e47aaf5c5117bd045b788e",
+                "deposit_gwei": "34000000000"
+            }
+        ]
+    }
+}
+```
+
+## `POST /lighthouse/validators/mnemonic`
+
+Create any number of new validators, all of which will share a common mnemonic.
+
+The supplied BIP-39 mnemonic will be used to generate the validator keys
+according to [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334), starting at
+the supplied `key_derivation_path_offset`. For example, if
+`key_derivation_path_offset = 42`, then the first validator voting key will be
+generated with the path `m/12381/3600/i/42`.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators/mnemonic`
+Method | POST
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+### Example Request
+
+```json
+{
+    "mnemonic": "theme onion deal plastic claim silver fancy youth lock ordinary hotel elegant balance ridge web skill burger survey demand distance legal fish salad cloth",
+    "key_derivation_path_offset": 0,
+    "validators": [
+        {
+            "enable": true,
+            "name": "validator_one",
+            "validator_desc": "validator 0",
+            "deposit_gwei": "32000000000"
+        }
+    ]
+}
+```
+
+### Example Response
+
+```json
+{
+    "data": [
+        {
+            "enabled": true,
+            "name": "validator_one",
+            "voting_pubkey": "0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380",
+            "eth1_deposit_tx_data": "0x22895118000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000120a57324d95ae9c7abfb5cc9bd4db253ed0605dc8a19f84810bcf3f3874d0e703a0000000000000000000000000000000000000000000000000000000000000030a062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db3800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200046e4199f18102b5d4e8842d0eeafaa1268ee2c21340c63f9c2cd5b03ff19320000000000000000000000000000000000000000000000000000000000000060b2a897b4ba4f3910e9090abc4c22f81f13e8923ea61c0043506950b6ae174aa643540554037b465670d28fa7b7d716a301e9b172297122acc56be1131621c072f7c0a73ea7b8c5a90ecd5da06d79d90afaea17cdeeef8ed323912c70ad62c04b",
+            "deposit_gwei": "32000000000"
+        }
+    ]
+}
+```
+
+Lighthouse implements a custom HTTP/JSON API for the validator client. A full
+list of endpoints can be found in [Endpoints](./api-vc-endpoints.md).
+
+All requests to the HTTP server must supply an
+[`Authorization`](./api-vc-auth-header.md) header. All responses contain a
+[`Signature`](./api-vc-sig-header.md) header for optional verification.
+
+## Starting the server
+
+A Lighthouse validator client can be configured to expose a HTTP server by supplying the `--http` flag. The default listen address is `127.0.0.1:5062`.
+
+The following CLI flags control the HTTP server:
+
+- `--http`: enable the HTTP server (required even if the following flags are
+	provided).
+- `--http-port`: specify the listen port of the server.
+- `--http-address`: specify the listen address of the server.
+- `--http-allow-origin`: specify the value of the `Access-Control-Allow-Origin`
+		header. The default is to not supply a header.
+
+### CLI Example
+
+Start the validator client with the HTTP server listening on [http://localhost:5062](http://localhost:5062):
+
+```bash
+lighthouse vc --http
+```
