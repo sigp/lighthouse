@@ -83,6 +83,10 @@ pub enum BeaconChainError {
     ObservedBlockProducersError(ObservedBlockProducersError),
     PruningError(PruningError),
     ArithError(ArithError),
+    InvalidShufflingId {
+        shuffling_epoch: Epoch,
+        head_block_epoch: Epoch,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

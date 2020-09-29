@@ -157,6 +157,7 @@ where
     T: EthSpec,
 {
     // Versioning
+    #[serde(with = "serde_utils::quoted_u64")]
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
     pub slot: Slot,
@@ -173,6 +174,7 @@ where
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
 
     // Registry
@@ -911,6 +913,13 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
         self.exit_cache = ExitCache::default();
+    }
+
+    /// Returns `true` if the committee cache for `relative_epoch` is built and ready to use.
+    pub fn committee_cache_is_initialized(&self, relative_epoch: RelativeEpoch) -> bool {
+        let i = Self::committee_cache_index(relative_epoch);
+
+        self.committee_caches[i].is_initialized_at(relative_epoch.into_epoch(self.current_epoch()))
     }
 
     /// Build an epoch cache, unless it is has already been built.

@@ -4,7 +4,12 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
+use eth2::{
+    reqwest::{ClientBuilder, Url},
+    BeaconNodeHttpClient,
+};
 use std::path::PathBuf;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempdir::TempDir;
 use types::EthSpec;
@@ -13,8 +18,11 @@ use validator_dir::insecure_keys::build_deterministic_validator_dirs;
 
 pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
 pub use environment;
-pub use remote_beacon_node::RemoteBeaconNode;
+pub use eth2;
 pub use validator_client::Config as ValidatorConfig;
+
+/// The global timeout for HTTP requests to the beacon node.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
@@ -52,16 +60,23 @@ impl<E: EthSpec> LocalBeaconNode<E> {
 impl<E: EthSpec> LocalBeaconNode<E> {
     /// Returns a `RemoteBeaconNode` that can connect to `self`. Useful for testing the node as if
     /// it were external this process.
-    pub fn remote_node(&self) -> Result<RemoteBeaconNode<E>, String> {
-        let socket_addr = self
+    pub fn remote_node(&self) -> Result<BeaconNodeHttpClient, String> {
+        let listen_addr = self
             .client
-            .http_listen_addr()
+            .http_api_listen_addr()
             .ok_or_else(|| "A remote beacon node must have a http server".to_string())?;
-        Ok(RemoteBeaconNode::new(format!(
-            "http://{}:{}",
-            socket_addr.ip(),
-            socket_addr.port()
-        ))?)
+
+        let beacon_node_url: Url = format!("http://{}:{}", listen_addr.ip(), listen_addr.port())
+            .parse()
+            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
+        let beacon_node_http_client = ClientBuilder::new()
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
+        Ok(BeaconNodeHttpClient::from_components(
+            beacon_node_url,
+            beacon_node_http_client,
+        ))
     }
 }
 
@@ -71,8 +86,8 @@ pub fn testing_client_config() -> ClientConfig {
     // Setting ports to `0` means that the OS will choose some available port.
     client_config.network.libp2p_port = 0;
     client_config.network.discovery_port = 0;
-    client_config.rest_api.enabled = true;
-    client_config.rest_api.port = 0;
+    client_config.http_api.enabled = true;
+    client_config.http_api.listen_port = 0;
     client_config.websocket_server.enabled = true;
     client_config.websocket_server.port = 0;
 

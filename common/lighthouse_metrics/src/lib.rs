@@ -55,6 +55,7 @@
 //! ```
 
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
+use std::time::Duration;
 
 pub use prometheus::{
     Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
@@ -218,6 +219,19 @@ pub fn start_timer(histogram: &Result<Histogram>) -> Option<HistogramTimer> {
         Some(histogram.start_timer())
     } else {
         None
+    }
+}
+
+/// Starts a timer on `vec` with the given `name`.
+pub fn observe_timer_vec(vec: &Result<HistogramVec>, name: &[&str], duration: Duration) {
+    // This conversion was taken from here:
+    //
+    // https://docs.rs/prometheus/0.5.0/src/prometheus/histogram.rs.html#550-555
+    let nanos = f64::from(duration.subsec_nanos()) / 1e9;
+    let secs = duration.as_secs() as f64 + nanos;
+
+    if let Some(h) = get_histogram(vec, name) {
+        h.observe(secs)
     }
 }
 

@@ -15,13 +15,12 @@ use eth2_libp2p::{
 };
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
 use futures::prelude::*;
-use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace, warn};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
-use types::EthSpec;
+use types::{EthSpec, ValidatorSubscription};
 
 mod tests;
 

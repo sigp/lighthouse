@@ -14,7 +14,6 @@ store = { path = "../store" }
 network = { path = "../network" }
 timer = { path = "../timer" }
 eth2_libp2p = { path = "../eth2_libp2p" }
-rest_api = { path = "../rest_api" }
 parking_lot = "0.11.0"
 websocket_server = { path = "../websocket_server" }
 prometheus = "0.9.0"
@@ -42,3 +41,5 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 time = "0.2.16"
 bus = "2.2.3"
 directory = {path = "../../common/directory"}
+http_api = { path = "../http_api" }
+http_metrics = { path = "../http_metrics" }

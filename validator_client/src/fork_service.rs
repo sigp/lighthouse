@@ -1,7 +1,7 @@
 use environment::RuntimeContext;
+use eth2::{types::StateId, BeaconNodeHttpClient};
 use futures::StreamExt;
 use parking_lot::RwLock;
-use remote_beacon_node::RemoteBeaconNode;
 use slog::{debug, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -16,7 +16,7 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
 pub struct ForkServiceBuilder<T, E: EthSpec> {
     fork: Option<Fork>,
     slot_clock: Option<T>,
-    beacon_node: Option<RemoteBeaconNode<E>>,
+    beacon_node: Option<BeaconNodeHttpClient>,
     context: Option<RuntimeContext<E>>,
 }
 
@@ -35,7 +35,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_node(mut self, beacon_node: RemoteBeaconNode<E>) -> Self {
+    pub fn beacon_node(mut self, beacon_node: BeaconNodeHttpClient) -> Self {
         self.beacon_node = Some(beacon_node);
         self
     }
@@ -66,7 +66,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     fork: RwLock<Option<Fork>>,
-    beacon_node: RemoteBeaconNode<E>,
+    beacon_node: BeaconNodeHttpClient,
     context: RuntimeContext<E>,
     slot_clock: T,
 }
@@ -141,9 +141,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let fork = self
             .inner
             .beacon_node
-            .http
-            .beacon()
-            .get_fork()
+            .get_beacon_states_fork(StateId::Head)
             .await
             .map_err(|e| {
                 trace!(
@@ -151,7 +149,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
                     "Fork update failed";
                     "error" => format!("Error retrieving fork: {:?}", e)
                 )
-            })?;
+            })?
+            .ok_or_else(|| {
+                trace!(
+                    log,
+                    "Fork update failed";
+                    "error" => "The beacon head fork is unknown"
+                )
+            })?
+            .data;
 
         if self.fork.read().as_ref() != Some(&fork) {
             *(self.fork.write()) = Some(fork);

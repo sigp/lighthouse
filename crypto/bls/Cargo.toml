@@ -11,7 +11,7 @@ milagro_bls = { git = "https://github.com/sigp/milagro_bls", branch = "paulh" }
 rand = "0.7.2"
 serde = "1.0.102"
 serde_derive = "1.0.102"
-serde_hex = { path = "../../consensus/serde_hex" }
+serde_utils = { path = "../../consensus/serde_utils" }
 hex = "0.3"
 eth2_hashing = "0.1.0"
 ethereum-types = "0.9.1"

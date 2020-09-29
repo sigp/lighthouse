@@ -50,8 +50,6 @@ pub enum Error {
     UnableToSaveDefinitions(validator_definitions::Error),
     /// It is not legal to try and initialize a disabled validator definition.
     UnableToInitializeDisabledValidator,
-    /// It is not legal to try and initialize a disabled validator definition.
-    PasswordUnknown(PathBuf),
     /// There was an error reading from stdin.
     UnableToReadPasswordFromUser(String),
     /// There was an error running a tokio async task.
@@ -333,6 +331,7 @@ impl InitializedValidators {
     /// validator will be removed from `self.validators`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    #[allow(dead_code)] // Will be used once VC API is enabled.
     pub async fn set_validator_status(
         &mut self,
         voting_public_key: &PublicKey,

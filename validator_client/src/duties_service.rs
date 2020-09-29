@@ -1,16 +1,15 @@
 use crate::{
-    block_service::BlockServiceNotification, is_synced::is_synced, validator_store::ValidatorStore,
+    block_service::BlockServiceNotification, is_synced::is_synced, validator_duty::ValidatorDuty,
+    validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
+use eth2::BeaconNodeHttpClient;
 use futures::channel::mpsc::Sender;
 use futures::{SinkExt, StreamExt};
 use parking_lot::RwLock;
-use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use rest_types::{ValidatorDuty, ValidatorDutyBytes, ValidatorSubscription};
 use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
@@ -44,14 +43,14 @@ impl DutyAndProof {
     pub fn compute_selection_proof<T: SlotClock + 'static, E: EthSpec>(
         &mut self,
         validator_store: &ValidatorStore<T, E>,
+        spec: &ChainSpec,
     ) -> Result<(), String> {
-        let (modulo, slot) = if let (Some(modulo), Some(slot)) =
-            (self.duty.aggregator_modulo, self.duty.attestation_slot)
+        let (committee_length, slot) = if let (Some(count), Some(slot)) =
+            (self.duty.committee_length, self.duty.attestation_slot)
         {
-            (modulo, slot)
+            (count as usize, slot)
         } else {
-            // If there is no modulo or for the aggregator we assume they are not activated and
-            // therefore not an aggregator.
+            // If there are no attester duties we assume the validator is inactive.
             self.selection_proof = None;
             return Ok(());
         };
@@ -61,7 +60,7 @@ impl DutyAndProof {
             .ok_or_else(|| "Failed to produce selection proof".to_string())?;
 
         self.selection_proof = selection_proof
-            .is_aggregator_from_modulo(modulo)
+            .is_aggregator(committee_length, spec)
             .map_err(|e| format!("Invalid modulo: {:?}", e))
             .map(|is_aggregator| {
                 if is_aggregator {
@@ -87,19 +86,20 @@ impl DutyAndProof {
     /// It's important to note that this doesn't actually check `self.selection_proof`, instead it
     /// checks to see if the inputs to computing the selection proof are equal.
     fn selection_proof_eq(&self, other: &Self) -> bool {
-        self.duty.aggregator_modulo == other.duty.aggregator_modulo
+        self.duty.committee_count_at_slot == other.duty.committee_count_at_slot
             && self.duty.attestation_slot == other.duty.attestation_slot
     }
 
     /// Returns the information required for an attesting validator, if they are scheduled to
     /// attest.
-    pub fn attestation_duties(&self) -> Option<(Slot, CommitteeIndex, usize, u64, u64)> {
+    pub fn attestation_duties(&self) -> Option<(Slot, CommitteeIndex, usize, u64, u64, u64)> {
         Some((
             self.duty.attestation_slot?,
             self.duty.attestation_committee_index?,
             self.duty.attestation_committee_position?,
             self.duty.validator_index?,
             self.duty.committee_count_at_slot?,
+            self.duty.committee_length?,
         ))
     }
 
@@ -108,26 +108,12 @@ impl DutyAndProof {
     }
 }
 
-impl TryInto<DutyAndProof> for ValidatorDutyBytes {
-    type Error = String;
-
-    fn try_into(self) -> Result<DutyAndProof, Self::Error> {
-        let duty = ValidatorDuty {
-            validator_pubkey: (&self.validator_pubkey)
-                .try_into()
-                .map_err(|e| format!("Invalid pubkey bytes from server: {:?}", e))?,
-            validator_index: self.validator_index,
-            attestation_slot: self.attestation_slot,
-            attestation_committee_index: self.attestation_committee_index,
-            attestation_committee_position: self.attestation_committee_position,
-            committee_count_at_slot: self.committee_count_at_slot,
-            block_proposal_slots: self.block_proposal_slots,
-            aggregator_modulo: self.aggregator_modulo,
-        };
-        Ok(DutyAndProof {
-            duty,
+impl Into<DutyAndProof> for ValidatorDuty {
+    fn into(self) -> DutyAndProof {
+        DutyAndProof {
+            duty: self,
             selection_proof: None,
-        })
+        }
     }
 }
 
@@ -260,6 +246,7 @@ impl DutiesStore {
         mut duties: DutyAndProof,
         slots_per_epoch: u64,
         validator_store: &ValidatorStore<T, E>,
+        spec: &ChainSpec,
     ) -> Result<InsertOutcome, String> {
         let mut store = self.store.write();
 
@@ -282,7 +269,7 @@ impl DutiesStore {
                     }
                 } else {
                     // Compute the selection proof.
-                    duties.compute_selection_proof(validator_store)?;
+                    duties.compute_selection_proof(validator_store, spec)?;
 
                     // Determine if a re-subscription is required.
                     let should_resubscribe = !duties.subscription_eq(known_duties);
@@ -294,7 +281,7 @@ impl DutiesStore {
                 }
             } else {
                 // Compute the selection proof.
-                duties.compute_selection_proof(validator_store)?;
+                duties.compute_selection_proof(validator_store, spec)?;
 
                 validator_map.insert(epoch, duties);
 
@@ -302,7 +289,7 @@ impl DutiesStore {
             }
         } else {
             // Compute the selection proof.
-            duties.compute_selection_proof(validator_store)?;
+            duties.compute_selection_proof(validator_store, spec)?;
 
             let validator_pubkey = duties.duty.validator_pubkey.clone();
 
@@ -328,7 +315,7 @@ impl DutiesStore {
 pub struct DutiesServiceBuilder<T, E: EthSpec> {
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<T>,
-    beacon_node: Option<RemoteBeaconNode<E>>,
+    beacon_node: Option<BeaconNodeHttpClient>,
     context: Option<RuntimeContext<E>>,
     allow_unsynced_beacon_node: bool,
 }
@@ -354,7 +341,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_node(mut self, beacon_node: RemoteBeaconNode<E>) -> Self {
+    pub fn beacon_node(mut self, beacon_node: BeaconNodeHttpClient) -> Self {
         self.beacon_node = Some(beacon_node);
         self
     }
@@ -397,7 +384,7 @@ pub struct Inner<T, E: EthSpec> {
     store: Arc<DutiesStore>,
     validator_store: ValidatorStore<T, E>,
     pub(crate) slot_clock: T,
-    pub(crate) beacon_node: RemoteBeaconNode<E>,
+    pub(crate) beacon_node: BeaconNodeHttpClient,
     context: RuntimeContext<E>,
     /// If true, the duties service will poll for duties from the beacon node even if it is not
     /// synced.
@@ -462,7 +449,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn start_update_service(
         self,
         mut block_service_tx: Sender<BlockServiceNotification>,
-        spec: &ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<(), String> {
         let duration_to_next_slot = self
             .slot_clock
@@ -481,17 +468,22 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         // Run an immediate update before starting the updater service.
         let duties_service = self.clone();
         let mut block_service_tx_clone = block_service_tx.clone();
+        let inner_spec = spec.clone();
         self.inner
             .context
             .executor
             .runtime_handle()
-            .spawn(async move { duties_service.do_update(&mut block_service_tx_clone).await });
+            .spawn(async move {
+                duties_service
+                    .do_update(&mut block_service_tx_clone, &inner_spec)
+                    .await
+            });
 
         let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
-                self.clone().do_update(&mut block_service_tx).await;
+                self.clone().do_update(&mut block_service_tx, &spec).await;
             }
         };
 
@@ -501,7 +493,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
-    async fn do_update(self, block_service_tx: &mut Sender<BlockServiceNotification>) {
+    async fn do_update(
+        self,
+        block_service_tx: &mut Sender<BlockServiceNotification>,
+        spec: &ChainSpec,
+    ) {
         let log = self.context.log();
 
         if !is_synced(&self.beacon_node, &self.slot_clock, None).await
@@ -534,7 +530,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         // Update duties for the current epoch, but keep running if there's an error:
         // block production or the next epoch update could still succeed.
-        if let Err(e) = self.clone().update_epoch(current_epoch).await {
+        if let Err(e) = self
+            .clone()
+            .update_epoch(current_epoch, current_epoch, spec)
+            .await
+        {
             error!(
                 log,
                 "Failed to get current epoch duties";
@@ -558,7 +558,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         };
 
         // Update duties for the next epoch.
-        if let Err(e) = self.clone().update_epoch(current_epoch + 1).await {
+        if let Err(e) = self
+            .clone()
+            .update_epoch(current_epoch, current_epoch + 1, spec)
+            .await
+        {
             error!(
                 log,
                 "Failed to get next epoch duties";
@@ -567,18 +571,15 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         }
     }
 
-    /// Attempt to download the duties of all managed validators for the given `epoch`.
-    async fn update_epoch(self, epoch: Epoch) -> Result<(), String> {
-        let pubkeys = self.validator_store.voting_pubkeys();
-        let all_duties = self
-            .beacon_node
-            .http
-            .validator()
-            .get_duties(epoch, pubkeys.as_slice())
-            .await
-            .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))?;
-
-        let log = self.context.log().clone();
+    /// Attempt to download the duties of all managed validators for the given `request_epoch`. The
+    /// `current_epoch` should be a local reading of the slot clock.
+    async fn update_epoch(
+        self,
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
+        let log = self.context.log();
 
         let mut new_validator = 0;
         let mut new_epoch = 0;
@@ -587,74 +588,76 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let mut replaced = 0;
         let mut invalid = 0;
 
-        // For each of the duties, attempt to insert them into our local store and build a
-        // list of new or changed selections proofs for any aggregating validators.
-        let validator_subscriptions = all_duties
-            .into_iter()
-            .filter_map(|remote_duties| {
-                // Convert the remote duties into our local representation.
-                let duties: DutyAndProof = remote_duties
-                    .clone()
-                    .try_into()
-                    .map_err(|e| {
-                        error!(
-                            log,
-                            "Unable to convert remote duties";
-                            "error" => e
-                        )
-                    })
-                    .ok()?;
-
-                let validator_pubkey = duties.duty.validator_pubkey.clone();
-
-                // Attempt to update our local store.
-                let outcome = self
-                    .store
-                    .insert(epoch, duties, E::slots_per_epoch(), &self.validator_store)
-                    .map_err(|e| {
-                        error!(
-                            log,
-                            "Unable to store duties";
-                            "error" => e
-                        )
-                    })
-                    .ok()?;
-
-                match &outcome {
-                    InsertOutcome::NewValidator => {
-                        debug!(
-                            log,
-                            "First duty assignment for validator";
-                            "proposal_slots" => format!("{:?}", &remote_duties.block_proposal_slots),
-                            "attestation_slot" => format!("{:?}", &remote_duties.attestation_slot),
-                            "validator" => format!("{:?}", &remote_duties.validator_pubkey)
-                        );
-                        new_validator += 1;
-                    }
-                    InsertOutcome::NewProposalSlots => new_proposal_slots += 1,
-                    InsertOutcome::NewEpoch => new_epoch += 1,
-                    InsertOutcome::Identical => identical += 1,
-                    InsertOutcome::Replaced { .. } => replaced += 1,
-                    InsertOutcome::Invalid => invalid += 1,
-                };
-
-                // The selection proof is computed on `store.insert`, so it's necessary to check
-                // with the store that the validator is an aggregator.
-                let is_aggregator = self.store.is_aggregator(&validator_pubkey, epoch)?;
-
-                if outcome.is_subscription_candidate() {
-                    Some(ValidatorSubscription {
-                        validator_index: remote_duties.validator_index?,
-                        attestation_committee_index: remote_duties.attestation_committee_index?,
-                        slot: remote_duties.attestation_slot?,
-                        committee_count_at_slot: remote_duties.committee_count_at_slot?,
-                        is_aggregator,
-                    })
-                } else {
-                    None
+        let mut validator_subscriptions = vec![];
+        for pubkey in self.validator_store.voting_pubkeys() {
+            let remote_duties = match ValidatorDuty::download(
+                &self.beacon_node,
+                current_epoch,
+                request_epoch,
+                pubkey,
+            )
+            .await
+            {
+                Ok(duties) => duties,
+                Err(e) => {
+                    error!(
+                        log,
+                        "Failed to download validator duties";
+                        "error" => e
+                    );
+                    continue;
                 }
-            })
-            .collect::<Vec<_>>();
+            };
+
+            // Convert the remote duties into our local representation.
+            let duties: DutyAndProof = remote_duties.clone().into();
+
+            let validator_pubkey = duties.duty.validator_pubkey.clone();
+
+            // Attempt to update our local store.
+            match self.store.insert(
+                request_epoch,
+                duties,
+                E::slots_per_epoch(),
+                &self.validator_store,
+                spec,
+            ) {
+                Ok(outcome) => {
+                    match &outcome {
+                        InsertOutcome::NewValidator => {
+                            debug!(
+                                log,
+                                "First duty assignment for validator";
+                                "proposal_slots" => format!("{:?}", &remote_duties.block_proposal_slots),
+                                "attestation_slot" => format!("{:?}", &remote_duties.attestation_slot),
+                                "validator" => format!("{:?}", &remote_duties.validator_pubkey)
+                            );
+                            new_validator += 1;
+                        }
+                        InsertOutcome::NewProposalSlots => new_proposal_slots += 1,
+                        InsertOutcome::NewEpoch => new_epoch += 1,
+                        InsertOutcome::Identical => identical += 1,
+                        InsertOutcome::Replaced { .. } => replaced += 1,
+                        InsertOutcome::Invalid => invalid += 1,
+                    }
+
+                    if let Some(is_aggregator) =
+                        self.store.is_aggregator(&validator_pubkey, request_epoch)
+                    {
+                        if outcome.is_subscription_candidate() {
+                            if let Some(subscription) = remote_duties.subscription(is_aggregator) {
+                                validator_subscriptions.push(subscription)
+                            }
+                        }
+                    }
+                }
+                Err(e) => error!(
+                    log,
+                    "Unable to store duties";
+                    "error" => e
+                ),
+            }
+        }
 
         if invalid > 0 {
             error!(
@@ -673,7 +676,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             "new_proposal_slots" => new_proposal_slots,
             "new_validator" => new_validator,
             "replaced" => replaced,
-            "epoch" => format!("{}", epoch)
+            "epoch" => format!("{}", request_epoch)
         );
 
         if replaced > 0 {
@@ -690,34 +693,19 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         if count == 0 {
             debug!(log, "No new subscriptions required");
-
-            Ok(())
         } else {
             self.beacon_node
-                .http
-                .validator()
-                .subscribe(validator_subscriptions)
+                .post_validator_beacon_committee_subscriptions(&validator_subscriptions)
                 .await
-                .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
-                .map(move |status| {
-                    match status {
-                        PublishStatus::Valid => debug!(
-                            log,
-                            "Successfully subscribed validators";
-                            "count" => count
-                        ),
-                        PublishStatus::Unknown => error!(
-                            log,
-                            "Unknown response from subscription";
-                        ),
-                        PublishStatus::Invalid(e) => error!(
-                            log,
-                            "Failed to subscribe validator";
-                            "error" => e
-                        ),
-                    };
-                })
+                .map_err(|e| format!("Failed to subscribe validators: {:?}", e))?;
+            debug!(
+                log,
+                "Successfully subscribed validators";
+                "count" => count
+            );
         }
+
+        Ok(())
     }
 }
 

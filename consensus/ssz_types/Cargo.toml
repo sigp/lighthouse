@@ -11,7 +11,7 @@ name = "ssz_types"
 tree_hash = "0.1.0"
 serde = "1.0.110"
 serde_derive = "1.0.110"
-serde_hex = { path = "../serde_hex" }
+serde_utils = { path = "../serde_utils" }
 eth2_ssz = "0.1.2"
 typenum = "1.12.0"
 arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
