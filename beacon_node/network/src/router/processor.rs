@@ -88,7 +88,9 @@ impl<T: BeaconChainTypes> Processor<T> {
                 "Could not send message to the sync service";
                 "error" => %e,
             )
-        };
+        });
+        }
+        }
     }
 
     /// Handle a peer disconnect.
