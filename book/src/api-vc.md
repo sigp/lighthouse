@@ -166,7 +166,12 @@ null
 
 ## `POST /lighthouse/validators/`
 
-Create a new validator
+Create any number of new validators, all of which will share a common mnemonic.
+
+A BIP-39 mnemonic will be randomly generated and returned with the response. This
+mnemonic can be used to recover the keys. Validators are generated from the
+mnemonic according to [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334),
+starting at index `0`.
 
 ### HTTP Specification
 
@@ -221,7 +226,13 @@ Typical Responses | 200
 
 ## `POST /lighthouse/validators/mnemonic`
 
-Create a new validator from an existing mnemonic.
+Create any number of new validators, all of which will share a common mnemonic.
+
+The supplied BIP-39 mnemonic will be used to generate the validator keys
+according to [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334), starting at
+the supplied `key_derivation_path_offset`. For example, if
+`key_derivation_path_offset = 42`, then the first validator voting key will be
+generated with the path `m/12381/3600/i/42`.
 
 ### HTTP Specification
 
