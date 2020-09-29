@@ -1,7 +1,7 @@
 use crate::Error;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -95,6 +95,14 @@ impl<Pub: TPublicKey> Decode for GenericPublicKey<Pub> {
 
 impl<Pub: TPublicKey> TreeHash for GenericPublicKey<Pub> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
+}
+
+impl<Pub: TPublicKey> fmt::Display for GenericPublicKey<Pub> {
+    impl_display!();
+}
+
+impl<Pub: TPublicKey> std::str::FromStr for GenericPublicKey<Pub> {
+    impl_from_str!();
 }
 
 impl<Pub: TPublicKey> Serialize for GenericPublicKey<Pub> {

@@ -6,7 +6,7 @@ use crate::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::fmt;
 use std::marker::PhantomData;
@@ -243,6 +243,23 @@ where
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
+}
+
+impl<Pub, AggPub, Sig, AggSig> fmt::Display for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
+where
+    Sig: TSignature<Pub>,
+    AggSig: TAggregateSignature<Pub, AggPub, Sig>,
+{
+    impl_display!();
+}
+
+impl<Pub, AggPub, Sig, AggSig> std::str::FromStr
+    for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
+where
+    Sig: TSignature<Pub>,
+    AggSig: TAggregateSignature<Pub, AggPub, Sig>,
+{
+    impl_from_str!();
 }
 
 impl<Pub, AggPub, Sig, AggSig> Serialize for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>

@@ -13,15 +13,14 @@ use beacon_chain::{
 use bus::Bus;
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
-use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use parking_lot::Mutex;
-use slog::info;
+use slog::{debug, info};
 use ssz::Decode;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
@@ -61,7 +60,10 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     event_handler: Option<T::EventHandler>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
-    http_listen_addr: Option<SocketAddr>,
+    db_path: Option<PathBuf>,
+    freezer_db_path: Option<PathBuf>,
+    http_api_config: http_api::Config,
+    http_metrics_config: http_metrics::Config,
     websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,
 }
@@ -103,7 +105,10 @@ where
             event_handler: None,
             network_globals: None,
             network_send: None,
-            http_listen_addr: None,
+            db_path: None,
+            freezer_db_path: None,
+            http_api_config: <_>::default(),
+            http_metrics_config: <_>::default(),
             websocket_listen_addr: None,
             eth_spec_instance,
         }
@@ -280,55 +285,16 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the beacon node REST API http server.
-    pub fn http_server(
-        mut self,
-        client_config: &ClientConfig,
-        eth2_config: &Eth2Config,
-        events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
-    ) -> Result<Self, String> {
-        let beacon_chain = self
-            .beacon_chain
-            .clone()
-            .ok_or_else(|| "http_server requires a beacon chain")?;
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "http_server requires a runtime_context")?
-            .service_context("http".into());
-        let network_globals = self
-            .network_globals
-            .clone()
-            .ok_or_else(|| "http_server requires a libp2p network")?;
-        let network_send = self
-            .network_send
-            .clone()
-            .ok_or_else(|| "http_server requires a libp2p network sender")?;
+    /// Provides configuration for the HTTP API.
+    pub fn http_api_config(mut self, config: http_api::Config) -> Self {
+        self.http_api_config = config;
+        self
+    }
 
-        let network_info = rest_api::NetworkInfo {
-            network_globals,
-            network_chan: network_send,
-        };
-
-        let listening_addr = rest_api::start_server(
-            context.executor,
-            &client_config.rest_api,
-            beacon_chain,
-            network_info,
-            client_config
-                .create_db_path()
-                .map_err(|_| "unable to read data dir")?,
-            client_config
-                .create_freezer_db_path()
-                .map_err(|_| "unable to read freezer DB dir")?,
-            eth2_config.clone(),
-            events,
-        )
-        .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
-
-        self.http_listen_addr = Some(listening_addr);
-
-        Ok(self)
+    /// Provides configuration for the HTTP server that serves Prometheus metrics.
+    pub fn http_metrics_config(mut self, config: http_metrics::Config) -> Self {
+        self.http_metrics_config = config;
+        self
     }
 
     /// Immediately starts the service that periodically logs information each slot.
@@ -367,25 +333,85 @@ where
     /// specified.
     ///
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
+    #[allow(clippy::type_complexity)]
     pub fn build(
         self,
-    ) -> Client<
-        Witness<
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
+    ) -> Result<
+        Client<
+            Witness<
+                TStoreMigrator,
+                TSlotClock,
+                TEth1Backend,
+                TEthSpec,
+                TEventHandler,
+                THotStore,
+                TColdStore,
+            >,
         >,
+        String,
     > {
-        Client {
+        let runtime_context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "build requires a runtime context".to_string())?;
+        let log = runtime_context.log().clone();
+
+        let http_api_listen_addr = if self.http_api_config.enabled {
+            let ctx = Arc::new(http_api::Context {
+                config: self.http_api_config.clone(),
+                chain: self.beacon_chain.clone(),
+                network_tx: self.network_send.clone(),
+                network_globals: self.network_globals.clone(),
+                log: log.clone(),
+            });
+
+            let exit = runtime_context.executor.exit();
+
+            let (listen_addr, server) = http_api::serve(ctx, exit)
+                .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+
+            runtime_context
+                .clone()
+                .executor
+                .spawn_without_exit(async move { server.await }, "http-api");
+
+            Some(listen_addr)
+        } else {
+            info!(log, "HTTP server is disabled");
+            None
+        };
+
+        let http_metrics_listen_addr = if self.http_metrics_config.enabled {
+            let ctx = Arc::new(http_metrics::Context {
+                config: self.http_metrics_config.clone(),
+                chain: self.beacon_chain.clone(),
+                db_path: self.db_path.clone(),
+                freezer_db_path: self.freezer_db_path.clone(),
+                log: log.clone(),
+            });
+
+            let exit = runtime_context.executor.exit();
+
+            let (listen_addr, server) = http_metrics::serve(ctx, exit)
+                .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+
+            runtime_context
+                .executor
+                .spawn_without_exit(async move { server.await }, "http-api");
+
+            Some(listen_addr)
+        } else {
+            debug!(log, "Metrics server is disabled");
+            None
+        };
+
+        Ok(Client {
             beacon_chain: self.beacon_chain,
             network_globals: self.network_globals,
-            http_listen_addr: self.http_listen_addr,
+            http_api_listen_addr,
+            http_metrics_listen_addr,
             websocket_listen_addr: self.websocket_listen_addr,
-        }
+        })
     }
 }
 
@@ -519,6 +545,9 @@ where
             .chain_spec
             .clone()
             .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
+
+        self.db_path = Some(hot_path.into());
+        self.freezer_db_path = Some(cold_path.into());
 
         let store = HotColdDB::open(hot_path, cold_path, config, spec, context.log().clone())
             .map_err(|e| format!("Unable to open database: {:?}", e))?;

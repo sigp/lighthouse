@@ -4,9 +4,10 @@ use directory::{
     get_testnet_name, DEFAULT_HARDCODED_TESTNET, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
 };
+use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
-use types::{Graffiti, GRAFFITI_BYTES_LEN};
+use types::GRAFFITI_BYTES_LEN;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 /// Path to the slashing protection database within the datadir.
@@ -119,15 +120,14 @@ impl Config {
                     GRAFFITI_BYTES_LEN
                 ));
             } else {
-                // Default graffiti to all 0 bytes.
-                let mut graffiti = Graffiti::default();
+                let mut graffiti = [0; 32];
 
                 // Copy the provided bytes over.
                 //
                 // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
                 graffiti[..graffiti_bytes.len()].copy_from_slice(&graffiti_bytes);
 
-                config.graffiti = Some(graffiti);
+                config.graffiti = Some(graffiti.into());
             }
         }
 

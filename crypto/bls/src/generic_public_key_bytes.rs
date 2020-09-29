@@ -4,7 +4,7 @@ use crate::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::convert::TryInto;
 use std::fmt;
@@ -101,6 +101,16 @@ where
     Pub: TPublicKey,
 {
     fn from(pk: GenericPublicKey<Pub>) -> Self {
+        Self::from(&pk)
+    }
+}
+
+/// Serializes the `PublicKey` in compressed form, storing the bytes in the newly created `Self`.
+impl<Pub> From<&GenericPublicKey<Pub>> for GenericPublicKeyBytes<Pub>
+where
+    Pub: TPublicKey,
+{
+    fn from(pk: &GenericPublicKey<Pub>) -> Self {
         Self {
             bytes: pk.serialize(),
             _phantom: PhantomData,
@@ -130,6 +140,14 @@ impl<Pub> Decode for GenericPublicKeyBytes<Pub> {
 
 impl<Pub> TreeHash for GenericPublicKeyBytes<Pub> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
+}
+
+impl<Pub> fmt::Display for GenericPublicKeyBytes<Pub> {
+    impl_display!();
+}
+
+impl<Pub> std::str::FromStr for GenericPublicKeyBytes<Pub> {
+    impl_from_str!();
 }
 
 impl<Pub> Serialize for GenericPublicKeyBytes<Pub> {

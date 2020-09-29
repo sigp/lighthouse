@@ -374,8 +374,13 @@ where
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
 
-        let fork_choice = ForkChoice::from_genesis(fc_store, &genesis.beacon_block.message)
-            .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
+        let fork_choice = ForkChoice::from_genesis(
+            fc_store,
+            genesis.beacon_block_root,
+            &genesis.beacon_block.message,
+            &genesis.beacon_state,
+        )
+        .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
         self.genesis_time = Some(genesis.beacon_state.genesis_time);
@@ -561,6 +566,7 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
+            genesis_state_root: canonical_head.beacon_state_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
             fork_choice: RwLock::new(fork_choice),

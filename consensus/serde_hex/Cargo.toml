@@ -1,9 +1,0 @@
-[package]
-name = "serde_hex"
-version = "0.2.0"
-authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
-
-[dependencies]
-serde = "1.0.110"
-hex = "0.4.2"

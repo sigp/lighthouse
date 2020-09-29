@@ -1,0 +1,15 @@
+[package]
+name = "warp_utils"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+warp = "0.2.5"
+eth2 = { path = "../eth2" }
+types = { path = "../../consensus/types" }
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
+state_processing = { path = "../../consensus/state_processing" }
+safe_arith = { path = "../../consensus/safe_arith" }
