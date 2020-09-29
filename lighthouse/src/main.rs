@@ -10,7 +10,6 @@ use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn bls_library_name() -> &'static str {
@@ -91,7 +90,10 @@ fn main() {
                 .short("d")
                 .value_name("DIR")
                 .global(true)
-                .help("Data directory for lighthouse keys and databases.")
+                .help(
+                    "Root data directory for lighthouse keys and databases. \
+                    Defaults to $HOME/.lighthouse/{default-testnet}, \
+                    currently, $HOME/.lighthouse/medalla")
                 .takes_value(true),
         )
         .arg(

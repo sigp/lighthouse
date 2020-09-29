@@ -11,7 +11,7 @@ use account_manager::{
         list::CMD as LIST_CMD,
         CMD as WALLET_CMD,
     },
-    BASE_DIR_FLAG, CMD as ACCOUNT_CMD, *,
+    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG, *,
 };
 use account_utils::{
     eth2_keystore::KeystoreBuilder,
@@ -73,7 +73,7 @@ fn dir_child_count<P: AsRef<Path>>(dir: P) -> usize {
 fn list_wallets<P: AsRef<Path>>(base_dir: P) -> Vec<String> {
     let output = output_result(
         wallet_cmd()
-            .arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(base_dir.as_ref().as_os_str())
             .arg(LIST_CMD),
     )
@@ -97,7 +97,7 @@ fn create_wallet<P: AsRef<Path>>(
 ) -> Result<Output, String> {
     output_result(
         wallet_cmd()
-            .arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(base_dir.as_ref().as_os_str())
             .arg(CREATE_CMD)
             .arg(format!("--{}", NAME_FLAG))
@@ -233,15 +233,15 @@ impl TestValidator {
         store_withdrawal_key: bool,
     ) -> Result<Vec<String>, String> {
         let mut cmd = validator_cmd();
-        cmd.arg(format!("--{}", BASE_DIR_FLAG))
-            .arg(self.wallet.base_dir().into_os_string())
+        cmd.arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(self.validator_dir.clone().into_os_string())
             .arg(CREATE_CMD)
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
+            .arg(self.wallet.base_dir().into_os_string())
             .arg(format!("--{}", WALLET_NAME_FLAG))
             .arg(&self.wallet.name)
             .arg(format!("--{}", WALLET_PASSWORD_FLAG))
             .arg(self.wallet.password_path().into_os_string())
-            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-            .arg(self.validator_dir.clone().into_os_string())
             .arg(format!("--{}", SECRETS_DIR_FLAG))
             .arg(self.secrets_dir.clone().into_os_string())
             .arg(format!("--{}", DEPOSIT_GWEI_FLAG))
@@ -375,13 +375,6 @@ fn validator_create() {
     assert_eq!(dir_child_count(validator_dir.path()), 6);
 }
 
-/// Returns the `lighthouse account validator import` command.
-fn validator_import_cmd() -> Command {
-    let mut cmd = validator_cmd();
-    cmd.arg(IMPORT_CMD);
-    cmd
-}
-
 #[test]
 fn validator_import_launchpad() {
     const PASSWORD: &str = "cats";
@@ -407,12 +400,13 @@ fn validator_import_launchpad() {
     // Create a not-keystore file in the src dir.
     File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
 
-    let mut child = validator_import_cmd()
+    let mut child = validator_cmd()
+        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        .arg(dst_dir.path().as_os_str())
+        .arg(IMPORT_CMD)
         .arg(format!("--{}", STDIN_INPUTS_FLAG)) // Using tty does not work well with tests.
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
-        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-        .arg(dst_dir.path().as_os_str())
         .stderr(Stdio::piped())
         .stdin(Stdio::piped())
         .spawn()

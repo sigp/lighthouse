@@ -1,10 +1,9 @@
+use directory::DEFAULT_ROOT_DIR;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use types::Graffiti;
-
-pub const DEFAULT_DATADIR: &str = ".lighthouse";
 
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
@@ -72,7 +71,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            data_dir: PathBuf::from(DEFAULT_DATADIR),
+            data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
             log_file: PathBuf::from(""),

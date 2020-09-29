@@ -1,7 +1,8 @@
 use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
-use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
+use client::{ClientConfig, ClientGenesis};
+use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, warn, Logger};
@@ -12,9 +13,6 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
-
-pub const BEACON_NODE_DIR: &str = "beacon";
-pub const NETWORK_DIR: &str = "network";
 
 /// Gets the fully-initialized global client.
 ///
@@ -295,7 +293,7 @@ pub fn set_network_config(
     if let Some(dir) = cli_args.value_of("network-dir") {
         config.network_dir = PathBuf::from(dir);
     } else {
-        config.network_dir = data_dir.join(NETWORK_DIR);
+        config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
@@ -456,11 +454,18 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     // Read the `--datadir` flag.
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
-    // directory onto it.
+    // directory and the testnet name onto it.
+
     cli_args
         .value_of("datadir")
-        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
+        .map(|path| PathBuf::from(path).join(DEFAULT_BEACON_NODE_DIR))
+        .or_else(|| {
+            dirs::home_dir().map(|home| {
+                home.join(DEFAULT_ROOT_DIR)
+                    .join(directory::get_testnet_name(cli_args))
+                    .join(DEFAULT_BEACON_NODE_DIR)
+            })
+        })
         .unwrap_or_else(|| PathBuf::from("."))
 }
 

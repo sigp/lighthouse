@@ -17,6 +17,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("validators-dir")
+                .long("validators-dir")
+                .value_name("VALIDATORS_DIR")
+                .help(
+                    "The directory which contains the validator keystores, deposit data for \
+                    each validator along with the common slashing protection database \
+                    and the validator_definitions.yml"
+                )
+                .takes_value(true)
+                .conflicts_with("datadir")
+                .requires("secrets-dir")
+        )
+        .arg(
             Arg::with_name("secrets-dir")
                 .long("secrets-dir")
                 .value_name("SECRETS_DIRECTORY")
@@ -24,9 +37,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The directory which contains the password to unlock the validator \
                     voting keypairs. Each password should be contained in a file where the \
                     name is the 0x-prefixed hex representation of the validators voting public \
-                    key. Defaults to ~/.lighthouse/secrets.",
+                    key. Defaults to ~/.lighthouse/{testnet}/secrets.",
                 )
-                .takes_value(true),
+                .takes_value(true)
+                .conflicts_with("datadir")
+                .requires("validators-dir"),
         )
         .arg(Arg::with_name("auto-register").long("auto-register").help(
             "If present, the validator client will register any new signing keys with \
@@ -46,6 +61,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 using two different validator clients, an action that likely leads to slashing. \
                 Ensure you are certain that there are no other validator client instances running \
                 that might also be using the same keystores."
+            )
+        )
+        .arg(
+            Arg::with_name("strict-slashing-protection")
+            .long("strict-slashing-protection")
+            .help(
+                "If present, do not create a new slashing database. This is to ensure that users \
+                do not accidentally get slashed in case their slashing protection db ends up in the \
+                wrong directory during directory restructure and vc creates a new empty db and \
+                re-registers all validators."
             )
         )
         .arg(

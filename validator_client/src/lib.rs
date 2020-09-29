@@ -68,18 +68,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             log,
             "Starting validator client";
             "beacon_node" => &config.http_server,
-            "datadir" => format!("{:?}", config.data_dir),
+            "validator_dir" => format!("{:?}", config.validator_dir),
         );
 
-        let mut validator_defs = ValidatorDefinitions::open_or_create(&config.data_dir)
+        let mut validator_defs = ValidatorDefinitions::open_or_create(&config.validator_dir)
             .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
 
         if !config.disable_auto_discover {
             let new_validators = validator_defs
-                .discover_local_keystores(&config.data_dir, &config.secrets_dir, &log)
+                .discover_local_keystores(&config.validator_dir, &config.secrets_dir, &log)
                 .map_err(|e| format!("Unable to discover local validator keystores: {:?}", e))?;
             validator_defs
-                .save(&config.data_dir)
+                .save(&config.validator_dir)
                 .map_err(|e| format!("Unable to update validator definitions: {:?}", e))?;
             info!(
                 log,
@@ -90,7 +90,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let validators = InitializedValidators::from_definitions(
             validator_defs,
-            config.data_dir.clone(),
+            config.validator_dir.clone(),
             config.delete_lockfiles,
             log.clone(),
         )

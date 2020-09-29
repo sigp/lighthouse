@@ -30,6 +30,7 @@ tokio = { version = "0.2.21", features = ["time"] }
 exit-future = "0.2.0"
 dirs = "2.0.2"
 logging = { path = "../common/logging" }
+directory = {path = "../common/directory"}
 futures = "0.3.5"
 environment = { path = "../lighthouse/environment" }
 genesis = { path = "genesis" }

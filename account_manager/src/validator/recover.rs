@@ -1,11 +1,13 @@
 use super::create::STORE_WITHDRAW_FLAG;
-use crate::common::{ensure_dir_exists, read_mnemonic_from_cli};
+use crate::common::read_mnemonic_from_cli;
 use crate::validator::create::COUNT_FLAG;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
-use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use crate::SECRETS_DIR_FLAG;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::random_password;
 use clap::{App, Arg, ArgMatches};
+use directory::ensure_dir_exists;
+use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
 use std::path::PathBuf;
@@ -49,22 +51,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name(VALIDATOR_DIR_FLAG)
-                .long(VALIDATOR_DIR_FLAG)
-                .value_name("VALIDATOR_DIRECTORY")
-                .help(
-                    "The path where the validator directories will be created. \
-                    Defaults to ~/.lighthouse/validators",
-                )
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name(SECRETS_DIR_FLAG)
                 .long(SECRETS_DIR_FLAG)
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/secrets",
+                    Defaults to ~/.lighthouse/{testnet}/secrets",
                 )
                 .takes_value(true),
         )
@@ -84,17 +76,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
-    let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        VALIDATOR_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("validators"),
-    )?;
-    let secrets_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        SECRETS_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("secrets"),
-    )?;
+pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
+    let secrets_dir = if matches.value_of("datadir").is_some() {
+        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
+        path.join(DEFAULT_SECRET_DIR)
+    } else {
+        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+    };
     let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
