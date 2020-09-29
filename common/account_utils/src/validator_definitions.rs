@@ -63,6 +63,7 @@ pub enum SigningDefinition {
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
+    #[serde(default)]
     pub name: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
