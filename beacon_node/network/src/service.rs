@@ -306,7 +306,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             service.libp2p.swarm.subscribe_to_subnet(subnet_id);
                         }
                         AttServiceMessage::Unsubscribe(subnet_id) => {
-                            service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                            service.libp2p.swarm.unsubscribe_from_subnet(subnet_id);
                         }
                         AttServiceMessage::EnrAdd(subnet_id) => {
                             service.libp2p.swarm.update_enr_subnet(subnet_id, true);
