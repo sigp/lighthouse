@@ -244,18 +244,33 @@ impl ValidatorClientHttpClient {
         self.get_opt(path).await
     }
 
-    /// `POST lighthouse/validators/hd`
-    pub async fn post_lighthouse_validators_hd(
+    /// `POST lighthouse/validators`
+    pub async fn post_lighthouse_validators(
         &self,
-        request: &HdValidatorsPostRequest,
-    ) -> Result<GenericResponse<CreateHdValidatorResponseData>, Error> {
+        validators: Vec<ValidatorRequest>,
+    ) -> Result<GenericResponse<PostValidatorsResponseData>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators");
+
+        self.post(path, &validators).await
+    }
+
+    /// `POST lighthouse/validators/mnemonic`
+    pub async fn post_lighthouse_validators_mnemonic(
+        &self,
+        request: &CreateValidatorsMnemonicRequest,
+    ) -> Result<GenericResponse<Vec<CreatedValidator>>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
             .push("validators")
-            .push("hd");
+            .push("mnemonic");
 
         self.post(path, &request).await
     }

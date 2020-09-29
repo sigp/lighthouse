@@ -14,7 +14,7 @@ pub struct ValidatorData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
-pub struct HdValidator {
+pub struct ValidatorRequest {
     pub enable: bool,
     pub name: String,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -23,11 +23,11 @@ pub struct HdValidator {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
-pub struct HdValidatorsPostRequest {
-    pub mnemonic: Option<String>,
+pub struct CreateValidatorsMnemonicRequest {
+    pub mnemonic: String,
     #[serde(with = "serde_utils::quoted_u64")]
     pub key_derivation_path_offset: u64,
-    pub validators: Vec<HdValidator>,
+    pub validators: Vec<ValidatorRequest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
@@ -41,8 +41,8 @@ pub struct CreatedValidator {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
-pub struct CreateHdValidatorResponseData {
-    pub mnemonic: Option<String>,
+pub struct PostValidatorsResponseData {
+    pub mnemonic: String,
     pub validators: Vec<CreatedValidator>,
 }
 

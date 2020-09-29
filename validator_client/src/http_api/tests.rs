@@ -138,35 +138,42 @@ impl ApiTester {
         let initial_vals = self.vals_total();
         let initial_enabled_vals = self.vals_enabled();
 
-        let mnemonic = Some(random_mnemonic().phrase().to_string()).filter(|_| s.specify_mnemonic);
         let key_derivation_path_offset = 0;
         let validators = (0..s.count)
-            .map(|i| HdValidator {
+            .map(|i| ValidatorRequest {
                 enable: !s.disabled.contains(&i),
                 name: format!("boi #{}", i),
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
 
-        let request = HdValidatorsPostRequest {
-            mnemonic: mnemonic.clone(),
-            key_derivation_path_offset,
-            validators: validators.clone(),
+        // TODO: check mnemonic.
+        let (response, _mnemonic) = if s.specify_mnemonic {
+            let mnemonic = random_mnemonic().phrase().to_string();
+            let request = CreateValidatorsMnemonicRequest {
+                mnemonic: mnemonic.clone(),
+                key_derivation_path_offset,
+                validators: validators.clone(),
+            };
+            let response = self
+                .client
+                .post_lighthouse_validators_mnemonic(&request)
+                .await
+                .unwrap()
+                .data;
+
+            (response, mnemonic)
+        } else {
+            let response = self
+                .client
+                .post_lighthouse_validators(validators.clone())
+                .await
+                .unwrap()
+                .data;
+            (response.validators.clone(), response.mnemonic.clone())
         };
 
-        let response = self
-            .client
-            .post_lighthouse_validators_hd(&request)
-            .await
-            .unwrap()
-            .data;
-
-        assert!(
-            mnemonic.is_some() != response.mnemonic.is_some(),
-            "should not return mnemonic if it is sent, but should return if it is not sent."
-        );
-
-        assert_eq!(response.validators.len(), s.count);
+        assert_eq!(response.len(), s.count);
         assert_eq!(self.vals_total(), initial_vals + s.count);
         assert_eq!(
             self.vals_enabled(),
@@ -178,7 +185,7 @@ impl ApiTester {
         assert_eq!(server_vals.len(), self.vals_total());
 
         // Ensure the server lists all of these newly created validators.
-        for validator in &response.validators {
+        for validator in &response {
             assert!(server_vals
                 .iter()
                 .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey));
