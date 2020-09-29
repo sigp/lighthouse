@@ -109,7 +109,7 @@ define_net!(altona, include_altona_file, "altona", true);
 
 define_net!(medalla, include_medalla_file, "medalla", true);
 
-define_net!(spadina, include_spadina_file, "spadina", false);
+define_net!(spadina, include_spadina_file, "spadina", true);
 
 #[cfg(test)]
 mod tests {
