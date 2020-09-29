@@ -28,24 +28,24 @@ macro_rules! assign_method {
 }
 
 /// Trait providing safe arithmetic operations for built-in types.
-pub trait SafeArith: Sized + Copy {
+pub trait SafeArith<Rhs = Self>: Sized + Copy {
     const ZERO: Self;
     const ONE: Self;
 
     /// Safe variant of `+` that guards against overflow.
-    fn safe_add(&self, other: Self) -> Result<Self>;
+    fn safe_add(&self, other: Rhs) -> Result<Self>;
 
     /// Safe variant of `-` that guards against overflow.
-    fn safe_sub(&self, other: Self) -> Result<Self>;
+    fn safe_sub(&self, other: Rhs) -> Result<Self>;
 
     /// Safe variant of `*` that guards against overflow.
-    fn safe_mul(&self, other: Self) -> Result<Self>;
+    fn safe_mul(&self, other: Rhs) -> Result<Self>;
 
     /// Safe variant of `/` that guards against division by 0.
-    fn safe_div(&self, other: Self) -> Result<Self>;
+    fn safe_div(&self, other: Rhs) -> Result<Self>;
 
     /// Safe variant of `%` that guards against division by 0.
-    fn safe_rem(&self, other: Self) -> Result<Self>;
+    fn safe_rem(&self, other: Rhs) -> Result<Self>;
 
     /// Safe variant of `<<` that guards against overflow.
     fn safe_shl(&self, other: u32) -> Result<Self>;
@@ -53,18 +53,13 @@ pub trait SafeArith: Sized + Copy {
     /// Safe variant of `>>` that guards against overflow.
     fn safe_shr(&self, other: u32) -> Result<Self>;
 
-    assign_method!(safe_add_assign, safe_add, "+=");
-    assign_method!(safe_sub_assign, safe_sub, "-=");
-    assign_method!(safe_mul_assign, safe_mul, "*=");
-    assign_method!(safe_div_assign, safe_div, "/=");
-    assign_method!(safe_rem_assign, safe_rem, "%=");
+    assign_method!(safe_add_assign, safe_add, Rhs, "+=");
+    assign_method!(safe_sub_assign, safe_sub, Rhs, "-=");
+    assign_method!(safe_mul_assign, safe_mul, Rhs, "*=");
+    assign_method!(safe_div_assign, safe_div, Rhs, "/=");
+    assign_method!(safe_rem_assign, safe_rem, Rhs, "%=");
     assign_method!(safe_shl_assign, safe_shl, u32, "<<=");
     assign_method!(safe_shr_assign, safe_shr, u32, ">>=");
-
-    /// Mutate `self` by adding 1, erroring on overflow.
-    fn increment(&mut self) -> Result<()> {
-        self.safe_add_assign(Self::ONE)
-    }
 }
 
 macro_rules! impl_safe_arith {
@@ -136,8 +131,7 @@ mod test {
     #[test]
     fn mutate() {
         let mut x = 0u8;
-        x.increment().unwrap();
-        x.increment().unwrap();
+        x.safe_add_assign(2).unwrap();
         assert_eq!(x, 2);
         x.safe_sub_assign(1).unwrap();
         assert_eq!(x, 1);

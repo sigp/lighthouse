@@ -40,6 +40,59 @@ mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
+/// Identifier of requests sent by a peer.
+pub type PeerRequestId = (ConnectionId, SubstreamId);
+
+/// The types of events than can be obtained from polling the behaviour.
+#[derive(Debug)]
+pub enum BehaviourEvent<TSpec: EthSpec> {
+    /// We have successfully dialed and connected to a peer.
+    PeerDialed(PeerId),
+    /// A peer has successfully dialed and connected to us.
+    PeerConnected(PeerId),
+    /// A peer has disconnected.
+    PeerDisconnected(PeerId),
+    /// An RPC Request that was sent failed.
+    RPCFailed {
+        /// The id of the failed request.
+        id: RequestId,
+        /// The peer to which this request was sent.
+        peer_id: PeerId,
+        /// The error that occurred.
+        error: RPCError,
+    },
+    RequestReceived {
+        /// The peer that sent the request.
+        peer_id: PeerId,
+        /// Identifier of the request. All responses to this request must use this id.
+        id: PeerRequestId,
+        /// Request the peer sent.
+        request: Request,
+    },
+    ResponseReceived {
+        /// Peer that sent the response.
+        peer_id: PeerId,
+        /// Id of the request to which the peer is responding.
+        id: RequestId,
+        /// Response the peer sent.
+        response: Response<TSpec>,
+    },
+    PubsubMessage {
+        /// The gossipsub message id. Used when propagating blocks after validation.
+        id: MessageId,
+        /// The peer from which we received this message, not the peer that published it.
+        source: PeerId,
+        /// The topics that this message was sent on.
+        topics: Vec<TopicHash>,
+        /// The message itself.
+        message: PubsubMessage<TSpec>,
+    },
+    /// Subscribed to peer for given topic
+    PeerSubscribed(PeerId, TopicHash),
+    /// Inform the network to send a Status to this peer.
+    StatusPeer(PeerId),
+}
+
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
@@ -837,13 +890,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
 
         // notify the peer manager of a successful connection
         match endpoint {
-            ConnectedPoint::Listener { .. } => {
-                self.peer_manager.connect_ingoing(&peer_id);
+            ConnectedPoint::Listener { send_back_addr, .. } => {
+                self.peer_manager
+                    .connect_ingoing(&peer_id, send_back_addr.clone());
                 self.add_event(BehaviourEvent::PeerConnected(peer_id.clone()));
                 debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Incoming");
             }
-            ConnectedPoint::Dialer { .. } => {
-                self.peer_manager.connect_outgoing(&peer_id);
+            ConnectedPoint::Dialer { address } => {
+                self.peer_manager
+                    .connect_outgoing(&peer_id, address.clone());
                 self.add_event(BehaviourEvent::PeerDialed(peer_id.clone()));
                 debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Dialed");
             }
@@ -1059,59 +1114,6 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
         }
     }
-}
-
-/// Identifier of requests sent by a peer.
-pub type PeerRequestId = (ConnectionId, SubstreamId);
-
-/// The types of events than can be obtained from polling the behaviour.
-#[derive(Debug)]
-pub enum BehaviourEvent<TSpec: EthSpec> {
-    /// We have successfully dialed and connected to a peer.
-    PeerDialed(PeerId),
-    /// A peer has successfully dialed and connected to us.
-    PeerConnected(PeerId),
-    /// A peer has disconnected.
-    PeerDisconnected(PeerId),
-    /// An RPC Request that was sent failed.
-    RPCFailed {
-        /// The id of the failed request.
-        id: RequestId,
-        /// The peer to which this request was sent.
-        peer_id: PeerId,
-        /// The error that occurred.
-        error: RPCError,
-    },
-    RequestReceived {
-        /// The peer that sent the request.
-        peer_id: PeerId,
-        /// Identifier of the request. All responses to this request must use this id.
-        id: PeerRequestId,
-        /// Request the peer sent.
-        request: Request,
-    },
-    ResponseReceived {
-        /// Peer that sent the response.
-        peer_id: PeerId,
-        /// Id of the request to which the peer is responding.
-        id: RequestId,
-        /// Response the peer sent.
-        response: Response<TSpec>,
-    },
-    PubsubMessage {
-        /// The gossipsub message id. Used when propagating blocks after validation.
-        id: MessageId,
-        /// The peer from which we received this message, not the peer that published it.
-        source: PeerId,
-        /// The topics that this message was sent on.
-        topics: Vec<TopicHash>,
-        /// The message itself.
-        message: PubsubMessage<TSpec>,
-    },
-    /// Subscribed to peer for given topic
-    PeerSubscribed(PeerId, TopicHash),
-    /// Inform the network to send a Status to this peer.
-    StatusPeer(PeerId),
 }
 
 /// Persist metadata to disk

@@ -847,6 +847,32 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
             }
+            AttnError::InvalidTargetEpoch { .. } => {
+                /*
+                 * The attestation is malformed.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
+            }
+            AttnError::InvalidTargetRoot { .. } => {
+                /*
+                 * The attestation is malformed.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
+            }
             AttnError::TooManySkippedSlots {
                 head_block_slot,
                 attestation_slot,

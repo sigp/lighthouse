@@ -1,67 +1,55 @@
 //! Downloads a testnet configuration from Github.
 
-use eth2_config::{altona, medalla, Eth2NetArchiveAndDirectory};
+use eth2_config::{altona, medalla, spadina, Eth2NetArchiveAndDirectory};
 use std::fs;
 use std::fs::File;
 use std::io;
 use zip::ZipArchive;
 
-const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] =
-    &[altona::ETH2_NET_DIR, medalla::ETH2_NET_DIR];
+const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[
+    altona::ETH2_NET_DIR,
+    medalla::ETH2_NET_DIR,
+    spadina::ETH2_NET_DIR,
+];
 
 fn main() {
     for testnet in ETH2_NET_DIRS {
-        let testnet_dir = testnet.dir();
-        let archive_fullpath = testnet.archive_fullpath();
-        //no need to do anything if archives have already been uncompressed before
-        if !testnet_dir.exists() {
-            if archive_fullpath.exists() {
-                //uncompress archive and continue
-                let archive_file = match File::open(&archive_fullpath) {
-                    Ok(f) => f,
-                    Err(e) => panic!("Problem opening archive file: {}", e),
-                };
-
-                match uncompress(archive_file) {
-                    Ok(_) => (),
-                    Err(e) => panic!(e),
-                };
-            } else {
-                panic!(
-                    "Couldn't find testnet archive at this location: {:?}",
-                    archive_fullpath
-                );
-            }
+        match uncompress(testnet) {
+            Ok(()) => (),
+            Err(e) => panic!("Failed to uncompress testnet zip file: {}", e),
         }
     }
 }
 
-fn uncompress(archive_file: File) -> Result<(), String> {
+/// Uncompress the testnet configs archive into a testnet configs folder.
+fn uncompress(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
+    let archive_file = File::open(&testnet.archive_fullpath())
+        .map_err(|e| format!("Failed to open archive file: {:?}", e))?;
+
     let mut archive =
         ZipArchive::new(archive_file).map_err(|e| format!("Error with zip file: {}", e))?;
+
+    // Create testnet dir
+    fs::create_dir_all(testnet.dir())
+        .map_err(|e| format!("Failed to create testnet directory: {:?}", e))?;
+
+    // Create empty genesis.ssz if genesis is unknown
+    if !testnet.genesis_is_known {
+        File::create(testnet.dir().join("genesis.ssz"))
+            .map_err(|e| format!("Failed to create genesis.ssz: {}", e))?;
+    }
+
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
             .map_err(|e| format!("Error retrieving file {} inside zip: {}", i, e))?;
 
-        let outpath = file.sanitized_name();
+        let path = testnet.dir().join(file.name());
 
-        if file.name().ends_with('/') {
-            fs::create_dir_all(&outpath)
-                .map_err(|e| format!("Error creating testnet directories: {}", e))?;
-        } else {
-            if let Some(p) = outpath.parent() {
-                if !p.exists() {
-                    fs::create_dir_all(&p)
-                        .map_err(|e| format!("Error creating testnet directories: {}", e))?;
-                }
-            }
-
-            let mut outfile = File::create(&outpath)
-                .map_err(|e| format!("Error while creating file {:?}: {}", outpath, e))?;
-            io::copy(&mut file, &mut outfile)
-                .map_err(|e| format!("Error writing file {:?}: {}", outpath, e))?;
-        }
+        let mut outfile = File::create(&path)
+            .map_err(|e| format!("Error while creating file {:?}: {}", path, e))?;
+        io::copy(&mut file, &mut outfile)
+            .map_err(|e| format!("Error writing file {:?}: {}", path, e))?;
     }
 
     Ok(())

@@ -46,7 +46,9 @@ serde_json = "1.0.52"
 criterion = "0.3.2"
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "legacy-arith"]
+# Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
+legacy-arith = []
 sqlite = ["rusqlite"]
 arbitrary-fuzz = [
   "arbitrary",

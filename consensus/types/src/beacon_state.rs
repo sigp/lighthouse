@@ -100,10 +100,10 @@ enum AllowNextEpoch {
 }
 
 impl AllowNextEpoch {
-    fn upper_bound_of(self, current_epoch: Epoch) -> Epoch {
+    fn upper_bound_of(self, current_epoch: Epoch) -> Result<Epoch, Error> {
         match self {
-            AllowNextEpoch::True => current_epoch + 1,
-            AllowNextEpoch::False => current_epoch,
+            AllowNextEpoch::True => Ok(current_epoch.safe_add(1)?),
+            AllowNextEpoch::False => Ok(current_epoch),
         }
     }
 }
@@ -323,7 +323,9 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn previous_epoch(&self) -> Epoch {
         let current_epoch = self.current_epoch();
         if current_epoch > T::genesis_epoch() {
-            current_epoch - 1
+            current_epoch
+                .safe_sub(1)
+                .expect("current epoch greater than genesis implies greater than 0")
         } else {
             current_epoch
         }
@@ -332,8 +334,8 @@ impl<T: EthSpec> BeaconState<T> {
     /// The epoch following `self.current_epoch()`.
     ///
     /// Spec v0.12.1
-    pub fn next_epoch(&self) -> Epoch {
-        self.current_epoch() + 1
+    pub fn next_epoch(&self) -> Result<Epoch, Error> {
+        Ok(self.current_epoch().safe_add(1)?)
     }
 
     /// Compute the number of committees at `slot`.
@@ -378,7 +380,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
-        if epoch >= self.compute_activation_exit_epoch(self.current_epoch(), spec) {
+        if epoch >= self.compute_activation_exit_epoch(self.current_epoch(), spec)? {
             Err(BeaconStateError::EpochOutOfBounds)
         } else {
             Ok(get_active_validator_indices(&self.validators, epoch))
@@ -475,7 +477,7 @@ impl<T: EthSpec> BeaconState<T> {
             {
                 return Ok(candidate_index);
             }
-            i.increment()?;
+            i.safe_add_assign(1)?;
         }
     }
 
@@ -553,7 +555,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.12.1
     fn get_latest_block_roots_index(&self, slot: Slot) -> Result<usize, Error> {
-        if slot < self.slot && self.slot <= slot + self.block_roots.len() as u64 {
+        if slot < self.slot && self.slot <= slot.safe_add(self.block_roots.len() as u64)? {
             Ok(slot.as_usize().safe_rem(self.block_roots.len())?)
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
@@ -605,7 +607,9 @@ impl<T: EthSpec> BeaconState<T> {
         let current_epoch = self.current_epoch();
         let len = T::EpochsPerHistoricalVector::to_u64();
 
-        if current_epoch < epoch + len && epoch <= allow_next_epoch.upper_bound_of(current_epoch) {
+        if current_epoch < epoch.safe_add(len)?
+            && epoch <= allow_next_epoch.upper_bound_of(current_epoch)?
+        {
             Ok(epoch.as_usize().safe_rem(len as usize)?)
         } else {
             Err(Error::EpochOutOfBounds)
@@ -652,7 +656,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.12.1
     fn get_latest_state_roots_index(&self, slot: Slot) -> Result<usize, Error> {
-        if slot < self.slot && self.slot <= slot + self.state_roots.len() as u64 {
+        if slot < self.slot && self.slot <= slot.safe_add(self.state_roots.len() as u64)? {
             Ok(slot.as_usize().safe_rem(self.state_roots.len())?)
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
@@ -672,7 +676,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Spec v0.12.1
     pub fn get_oldest_state_root(&self) -> Result<&Hash256, Error> {
         let i =
-            self.get_latest_state_roots_index(self.slot - Slot::from(self.state_roots.len()))?;
+            self.get_latest_state_roots_index(self.slot.saturating_sub(self.state_roots.len()))?;
         Ok(&self.state_roots[i])
     }
 
@@ -680,7 +684,9 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.12.1
     pub fn get_oldest_block_root(&self) -> Result<&Hash256, Error> {
-        let i = self.get_latest_block_roots_index(self.slot - self.block_roots.len() as u64)?;
+        let i = self.get_latest_block_roots_index(
+            self.slot.saturating_sub(self.block_roots.len() as u64),
+        )?;
         Ok(&self.block_roots[i])
     }
 
@@ -712,8 +718,8 @@ impl<T: EthSpec> BeaconState<T> {
         // We allow the slashings vector to be accessed at any cached epoch at or before
         // the current epoch, or the next epoch if `AllowNextEpoch::True` is passed.
         let current_epoch = self.current_epoch();
-        if current_epoch < epoch + T::EpochsPerSlashingsVector::to_u64()
-            && epoch <= allow_next_epoch.upper_bound_of(current_epoch)
+        if current_epoch < epoch.safe_add(T::EpochsPerSlashingsVector::to_u64())?
+            && epoch <= allow_next_epoch.upper_bound_of(current_epoch)?
         {
             Ok(epoch
                 .as_usize()
@@ -775,7 +781,10 @@ impl<T: EthSpec> BeaconState<T> {
         // Bypass the safe getter for RANDAO so we can gracefully handle the scenario where `epoch
         // == 0`.
         let mix = {
-            let i = epoch + T::EpochsPerHistoricalVector::to_u64() - spec.min_seed_lookahead - 1;
+            let i = epoch
+                .safe_add(T::EpochsPerHistoricalVector::to_u64())?
+                .safe_sub(spec.min_seed_lookahead)?
+                .safe_sub(1)?;
             self.randao_mixes[i.as_usize().safe_rem(self.randao_mixes.len())?]
         };
         let domain_bytes = int_to_bytes4(spec.get_domain_constant(domain_type));
@@ -811,8 +820,12 @@ impl<T: EthSpec> BeaconState<T> {
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
     ///
     ///  Spec v0.12.1
-    pub fn compute_activation_exit_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Epoch {
-        epoch + 1 + spec.max_seed_lookahead
+    pub fn compute_activation_exit_epoch(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
+        Ok(epoch.safe_add(1)?.safe_add(spec.max_seed_lookahead)?)
     }
 
     /// Return the churn limit for the current epoch (number of validators who can leave per epoch).

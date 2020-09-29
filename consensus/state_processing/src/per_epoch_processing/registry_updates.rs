@@ -1,6 +1,6 @@
-use super::super::common::initiate_validator_exit;
-use super::Error;
+use crate::{common::initiate_validator_exit, per_epoch_processing::Error};
 use itertools::Itertools;
+use safe_arith::SafeArith;
 use types::*;
 
 /// Performs a validator registry update, if required.
@@ -31,7 +31,7 @@ pub fn process_registry_updates<T: EthSpec>(
 
     for index in indices_to_update {
         if state.validators[index].is_eligible_for_activation_queue(spec) {
-            state.validators[index].activation_eligibility_epoch = current_epoch + 1;
+            state.validators[index].activation_eligibility_epoch = current_epoch.safe_add(1)?;
         }
         if is_ejectable(&state.validators[index]) {
             initiate_validator_exit(state, index, spec)?;
@@ -50,7 +50,7 @@ pub fn process_registry_updates<T: EthSpec>(
 
     // Dequeue validators for activation up to churn limit
     let churn_limit = state.get_churn_limit(spec)? as usize;
-    let delayed_activation_epoch = state.compute_activation_exit_epoch(current_epoch, spec);
+    let delayed_activation_epoch = state.compute_activation_exit_epoch(current_epoch, spec)?;
     for index in activation_queue.into_iter().take(churn_limit) {
         let validator = &mut state.validators[index];
         validator.activation_epoch = delayed_activation_epoch;

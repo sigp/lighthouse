@@ -1,10 +1,18 @@
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
+use safe_arith::{ArithError, SafeArith};
 use types::*;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     BeaconStateError(BeaconStateError),
     EpochProcessingError(EpochProcessingError),
+    ArithError(ArithError),
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Self::ArithError(e)
+    }
 }
 
 /// Advances a state forward by one slot, performing per-epoch processing if required.
@@ -21,14 +29,15 @@ pub fn per_slot_processing<T: EthSpec>(
 ) -> Result<Option<EpochProcessingSummary>, Error> {
     cache_state(state, state_root)?;
 
-    let summary = if state.slot > spec.genesis_slot && (state.slot + 1) % T::slots_per_epoch() == 0
+    let summary = if state.slot > spec.genesis_slot
+        && state.slot.safe_add(1)?.safe_rem(T::slots_per_epoch())? == 0
     {
         Some(per_epoch_processing(state, spec)?)
     } else {
         None
     };
 
-    state.slot += 1;
+    state.slot.safe_add_assign(1)?;
 
     Ok(summary)
 }
@@ -48,7 +57,7 @@ fn cache_state<T: EthSpec>(
     //
     // This is a bit hacky, however it gets the job safely without lots of code.
     let previous_slot = state.slot;
-    state.slot += 1;
+    state.slot.safe_add_assign(1)?;
 
     // Store the previous slot's post state transition root.
     state.set_state_root(previous_slot, previous_state_root)?;
@@ -63,7 +72,7 @@ fn cache_state<T: EthSpec>(
     state.set_block_root(previous_slot, latest_block_root)?;
 
     // Set the state slot back to what it should be.
-    state.slot -= 1;
+    state.slot.safe_sub_assign(1)?;
 
     Ok(())
 }
