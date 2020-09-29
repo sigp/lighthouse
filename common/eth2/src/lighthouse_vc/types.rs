@@ -9,13 +9,14 @@ pub use types::*;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct ValidatorData {
     pub enabled: bool,
+    pub name: String,
     pub voting_pubkey: PublicKeyBytes,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct HdValidator {
     pub enable: bool,
-    pub validator_desc: String,
+    pub name: String,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }

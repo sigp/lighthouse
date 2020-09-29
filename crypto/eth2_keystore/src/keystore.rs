@@ -81,6 +81,7 @@ pub struct KeystoreBuilder<'a> {
     cipher: Cipher,
     uuid: Uuid,
     path: String,
+    name: String,
 }
 
 impl<'a> KeystoreBuilder<'a> {
@@ -105,8 +106,15 @@ impl<'a> KeystoreBuilder<'a> {
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
                 uuid: Uuid::new_v4(),
                 path,
+                name: "".to_string(),
             })
         }
+    }
+
+    /// Build the keystore with a specific name instead of an empty string.
+    pub fn name(mut self, name: String) -> Self {
+        self.name = name;
+        self
     }
 
     /// Build the keystore using the supplied `kdf` instead of `crate::default_kdf`.
@@ -124,6 +132,7 @@ impl<'a> KeystoreBuilder<'a> {
             self.cipher,
             self.uuid,
             self.path,
+            self.name,
         )
     }
 }
@@ -147,6 +156,7 @@ impl Keystore {
         cipher: Cipher,
         uuid: Uuid,
         path: String,
+        name: String,
     ) -> Result<Self, Error> {
         let secret: ZeroizeHash = keypair.sk.serialize();
 
@@ -176,7 +186,7 @@ impl Keystore {
                 pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
                 description: None,
-                name: None,
+                name: Some(name),
             },
         })
     }
@@ -226,6 +236,18 @@ impl Keystore {
     /// Returns the pubkey for the keystore.
     pub fn pubkey(&self) -> &str {
         &self.json.pubkey
+    }
+
+    /// Returns the name for the keystore, if the field is present.
+    pub fn name(&self) -> Option<&str> {
+        self.json.name.as_ref().map(String::as_str)
+    }
+
+    /// Sets the name for the keystore.
+    ///
+    /// Note: this does not save the keystore to disk.
+    pub fn set_name(&mut self, name: String) {
+        self.json.name = Some(name)
     }
 
     /// Returns the pubkey for the keystore, parsed as a `PublicKey` if it parses.

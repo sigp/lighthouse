@@ -203,6 +203,7 @@ pub fn serve<T: EthSpec>(
                         .iter()
                         .map(|def| api_types::ValidatorData {
                             enabled: def.enabled,
+                            name: def.name.clone(),
                             voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
                         })
                         .collect::<Vec<_>>();
@@ -231,6 +232,7 @@ pub fn serve<T: EthSpec>(
                         .find(|def| def.voting_public_key == validator_pubkey)
                         .map(|def| api_types::ValidatorData {
                             enabled: def.enabled,
+                            name: def.name.clone(),
                             voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
                         })
                         .ok_or_else(|| {
@@ -293,7 +295,7 @@ pub fn serve<T: EthSpec>(
                         let voting_password = random_password();
                         let withdrawal_password = random_password();
 
-                        let keystores = wallet
+                        let mut keystores = wallet
                             .next_validator(
                                 wallet_password.as_bytes(),
                                 voting_password.as_bytes(),
@@ -305,6 +307,9 @@ pub fn serve<T: EthSpec>(
                                     e
                                 ))
                             })?;
+
+                        keystores.voting.set_name(request.name.clone());
+                        keystores.withdrawal.set_name(request.name.clone());
 
                         let voting_pubkey = format!("0x{}", keystores.voting.pubkey())
                             .parse()
@@ -457,6 +462,8 @@ pub fn serve<T: EthSpec>(
                         ))
                     })?;
 
+                    let name = validator_def.name.clone();
+
                     validator_def.enabled = body.enable;
 
                     tokio::runtime::Handle::current()
@@ -470,6 +477,7 @@ pub fn serve<T: EthSpec>(
 
                     Ok(api_types::GenericResponse::from(api_types::ValidatorData {
                         enabled: body.enable,
+                        name,
                         voting_pubkey: keypair.pk.into(),
                     }))
                 })

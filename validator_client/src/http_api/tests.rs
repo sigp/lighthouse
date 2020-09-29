@@ -143,7 +143,7 @@ impl ApiTester {
         let validators = (0..s.count)
             .map(|i| HdValidator {
                 enable: !s.disabled.contains(&i),
-                validator_desc: format!("boi #{}", i),
+                name: format!("boi #{}", i),
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
