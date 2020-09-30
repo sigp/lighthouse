@@ -11,6 +11,17 @@ use std::path::Path;
 use types::ChainSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
+/// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in
+/// this validator client.
+///
+/// Returns the list of created validators and the mnemonic used to derive them via EIP-2334.
+///
+/// ## Detail
+///
+/// If `mnemoic_opt` is not supplied it will be randomly generated and returned in the response.
+///
+/// If `key_derivation_path_offset` is supplied then the EIP-2334 validator index will start at
+/// this point.
 pub fn create_validators<P: AsRef<Path>>(
     mnemonic_opt: Option<Mnemonic>,
     key_derivation_path_offset: Option<u32>,
@@ -43,6 +54,14 @@ pub fn create_validators<P: AsRef<Path>>(
     for request in validator_requests {
         let voting_password = random_password();
         let withdrawal_password = random_password();
+        let voting_password_string = ZeroizeString::from(
+            String::from_utf8(voting_password.as_bytes().to_vec()).map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "locally generated password is not utf8: {:?}",
+                    e
+                ))
+            })?,
+        );
 
         let mut keystores = wallet
             .next_validator(
@@ -107,18 +126,9 @@ pub fn create_validators<P: AsRef<Path>>(
             )));
         }
 
-        let voting_password = ZeroizeString::from(
-            String::from_utf8(voting_password.as_bytes().to_vec()).map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "locally generated password is not utf8: {:?}",
-                    e
-                ))
-            })?,
-        );
-
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             validator_dir.voting_keystore_path(),
-            Some(voting_password),
+            Some(voting_password_string),
         )
         .map_err(|e| {
             warp_utils::reject::custom_server_error(format!(
@@ -139,7 +149,7 @@ pub fn create_validators<P: AsRef<Path>>(
             })?;
 
         validators.push(api_types::CreatedValidator {
-            enabled: true,
+            enabled: request.enable,
             description: request.description.clone(),
             voting_pubkey,
             eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),

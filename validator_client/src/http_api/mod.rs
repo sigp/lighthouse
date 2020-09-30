@@ -1,6 +1,3 @@
-//! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
-//!
-//! For other endpoints, see the `http_api` crate.
 mod api_secret;
 mod create_validator;
 mod tests;

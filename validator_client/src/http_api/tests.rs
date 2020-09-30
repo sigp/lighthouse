@@ -30,6 +30,8 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
+    url: Url,
+    api_pubkey: String,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
 }
@@ -79,23 +81,38 @@ impl ApiTester {
 
         tokio::spawn(async { server.await });
 
-        let client = ValidatorClientHttpClient::new(
-            Url::parse(&format!(
-                "http://{}:{}",
-                listening_socket.ip(),
-                listening_socket.port()
-            ))
-            .unwrap(),
-            api_pubkey,
-        )
+        let url = Url::parse(&format!(
+            "http://{}:{}",
+            listening_socket.ip(),
+            listening_socket.port()
+        ))
         .unwrap();
+
+        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey.clone()).unwrap();
 
         Self {
             initialized_validators,
             _validator_dir: validator_dir,
             client,
+            url,
+            api_pubkey,
             _server_shutdown: shutdown_tx,
         }
+    }
+
+    pub fn invalidate_api_token(mut self) -> Self {
+        let mut invalid_pubkey = self.api_pubkey.clone();
+        invalid_pubkey.pop();
+        invalid_pubkey.push('0');
+        assert!(self.api_pubkey != invalid_pubkey);
+
+        self.client = ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap();
+        self
+    }
+
+    pub async fn test_get_lighthouse_version_invalid(self) -> Self {
+        self.client.get_lighthouse_version().await.unwrap_err();
+        self
     }
 
     pub async fn test_get_lighthouse_version(self) -> Self {
@@ -371,6 +388,15 @@ struct HdValidatorScenario {
 struct KeystoreValidatorScenario {
     enabled: bool,
     correct_password: bool,
+}
+
+#[tokio::test(core_threads = 2)]
+async fn invalid_pubkey() {
+    ApiTester::new()
+        .await
+        .invalidate_api_token()
+        .test_get_lighthouse_version_invalid()
+        .await;
 }
 
 #[tokio::test(core_threads = 2)]

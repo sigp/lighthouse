@@ -1,5 +1,6 @@
 use super::{types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
+use account_utils::ZeroizeString;
 use bytes::Bytes;
 use reqwest::{
     header::{HeaderMap, HeaderValue},
@@ -13,16 +14,16 @@ pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
-/// Lighthouse Beacon Node HTTP server (`http_api`).
+/// Lighthouse Validator Client HTTP server (`validator_client/src/http_api`).
 #[derive(Clone)]
 pub struct ValidatorClientHttpClient {
     client: reqwest::Client,
     server: Url,
-    // TODO: zeroize.
-    secret: String,
+    secret: ZeroizeString,
     server_pubkey: PublicKey,
 }
 
+/// Parse an API token and return a secp256k1 public key.
 pub fn parse_pubkey(secret: &str) -> Result<PublicKey, Error> {
     let secret = if !secret.starts_with(SECRET_PREFIX) {
         return Err(Error::InvalidSecret(format!(
@@ -52,17 +53,15 @@ pub fn parse_pubkey(secret: &str) -> Result<PublicKey, Error> {
 }
 
 impl ValidatorClientHttpClient {
-    /// Returns `Err(())` if the URL is invalid.
     pub fn new(server: Url, secret: String) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
             server_pubkey: parse_pubkey(&secret)?,
-            secret,
+            secret: secret.into(),
         })
     }
 
-    /// Returns `Err(())` if the URL is invalid.
     pub fn from_components(
         server: Url,
         client: reqwest::Client,
@@ -72,7 +71,7 @@ impl ValidatorClientHttpClient {
             client,
             server,
             server_pubkey: parse_pubkey(&secret)?,
-            secret,
+            secret: secret.into(),
         })
     }
 
@@ -108,8 +107,8 @@ impl ValidatorClientHttpClient {
     }
 
     fn headers(&self) -> Result<HeaderMap, Error> {
-        let header_value =
-            HeaderValue::from_str(&format!("Basic {}", &self.secret)).map_err(|e| {
+        let header_value = HeaderValue::from_str(&format!("Basic {}", self.secret.as_str()))
+            .map_err(|e| {
                 Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
             })?;
 
