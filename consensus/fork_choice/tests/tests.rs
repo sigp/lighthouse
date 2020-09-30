@@ -101,6 +101,33 @@ impl ForkChoiceTest {
         );
         self
     }
+    /// Assert the given slot is less than the head slot.
+    pub fn assert_head_slot_less_than(self, slot: Slot) -> Self {
+        assert!(self.harness.chain.head_info().unwrap().slot < slot);
+        self
+    }
+
+    /// Assert the given slot is greater than the head slot.
+    pub fn assert_head_slot_greater_than(self, slot: Slot) -> Self {
+        assert!(self.harness.chain.head_info().unwrap().slot > slot);
+        self
+    }
+
+    /// Assert there was a shutdown signal sent by the beacon chain.
+    pub fn assert_shutdown_signal_sent(mut self) -> Self {
+        self.harness.shutdown_receiver.close();
+        let msg = self.harness.shutdown_receiver.try_next().unwrap();
+        assert!(msg.is_some());
+        self
+    }
+
+    /// Assert there was no shutdown signal sent by the beacon chain.
+    pub fn assert_shutdown_signal_not_sent(mut self) -> Self {
+        self.harness.shutdown_receiver.close();
+        let msg = self.harness.shutdown_receiver.try_next().unwrap();
+        assert!(msg.is_none());
+        self
+    }
 
     /// Inspect the queued attestations in fork choice.
     pub fn inspect_queued_attestations<F>(self, mut func: F) -> Self
@@ -926,43 +953,33 @@ fn can_read_finalized_block() {
 #[test]
 fn weak_subjectivity_fail() {
     let epoch = Epoch::new(0);
-    let root = Hash256::from_slice(
-        hex::decode("3100000000000000000000000000000000000000000000000000000000000000")
-            .unwrap()
-            .as_slice(),
-    );
+    let root = Hash256::from_low_u64_le(1);
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
         import_max_skip_slots: None,
     };
-    let mut harness = ForkChoiceTest::new_with_chain_config(chain_config)
-        .apply_blocks(E::slots_per_epoch() as usize);
 
-    harness.harness.shutdown_receiver.close();
-    let msg = harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_some());
+    ForkChoiceTest::new_with_chain_config(chain_config)
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .assert_head_slot_greater_than(epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_sent();
 }
 
 #[test]
 fn weak_subjectivity_pass() {
     let epoch = Epoch::new(0);
-    let root = Hash256::from_slice(
-        hex::decode("0000000000000000000000000000000000000000000000000000000000000000")
-            .unwrap()
-            .as_slice(),
-    );
+    let root = Hash256::zero();
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
         import_max_skip_slots: None,
     };
-    let mut harness = ForkChoiceTest::new_with_chain_config(chain_config)
-        .apply_blocks(E::slots_per_epoch() as usize);
 
-    harness.harness.shutdown_receiver.close();
-    let msg = harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_none());
+    ForkChoiceTest::new_with_chain_config(chain_config)
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .assert_head_slot_greater_than(epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_not_sent();
 }
 
 #[test]
@@ -984,14 +1001,12 @@ fn weak_subjectivity_check_passes() {
         import_max_skip_slots: None,
     };
 
-    let mut test_harness = ForkChoiceTest::new_with_chain_config(chain_config.clone())
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .apply_blocks(1)
-        .assert_finalized_epoch(2);
-
-    test_harness.harness.shutdown_receiver.close();
-    let msg = test_harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_none());
+        .assert_finalized_epoch(2)
+        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_not_sent();
 }
 
 #[test]
@@ -1015,14 +1030,12 @@ fn weak_subjectivity_check_fails_early_epoch() {
         import_max_skip_slots: None,
     };
 
-    let mut test_harness = ForkChoiceTest::new_with_chain_config(chain_config.clone())
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .apply_blocks(1)
-        .assert_finalized_epoch(2);
-
-    test_harness.harness.shutdown_receiver.close();
-    let msg = test_harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_some());
+        .assert_finalized_epoch(2)
+        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_sent();
 }
 
 #[test]
@@ -1046,16 +1059,14 @@ fn weak_subjectivity_check_fails_late_epoch() {
         import_max_skip_slots: None,
     };
 
-    let mut test_harness = ForkChoiceTest::new_with_chain_config(chain_config.clone())
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .apply_blocks(1)
         .assert_finalized_epoch(2)
         .apply_blocks(E::slots_per_epoch() as usize)
-        .assert_finalized_epoch(3);
-
-    test_harness.harness.shutdown_receiver.close();
-    let msg = test_harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_some());
+        .assert_finalized_epoch(3)
+        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_sent();
 }
 
 #[test]
@@ -1072,26 +1083,21 @@ fn weak_subjectivity_check_fails_incorrect_root() {
         .unwrap()
         .finalized_checkpoint;
 
-    checkpoint.root = "0000000000000000000000000000000000000000000000000000000000000000"
-        .to_string()
-        .parse()
-        .unwrap();
+    checkpoint.root = Hash256::zero();
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
         import_max_skip_slots: None,
     };
 
-    let mut test_harness = ForkChoiceTest::new_with_chain_config(chain_config.clone())
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .apply_blocks(1)
         .assert_finalized_epoch(2)
         .apply_blocks(E::slots_per_epoch() as usize)
-        .assert_finalized_epoch(3);
-
-    test_harness.harness.shutdown_receiver.close();
-    let msg = test_harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_some());
+        .assert_finalized_epoch(3)
+        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_sent();
 }
 
 #[test]
@@ -1122,16 +1128,14 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
     };
 
     // recreate the chain exactly
-    let mut test_harness = ForkChoiceTest::new_with_chain_config(chain_config.clone())
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .skip_slots(E::slots_per_epoch() as usize)
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 5)
         .apply_blocks(1)
-        .assert_finalized_epoch(5);
-
-    test_harness.harness.shutdown_receiver.close();
-    let msg = test_harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_none());
+        .assert_finalized_epoch(5)
+        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_not_sent();
 }
 
 #[test]
@@ -1162,14 +1166,12 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
     };
 
     // recreate the chain exactly
-    let mut test_harness = ForkChoiceTest::new_with_chain_config(chain_config.clone())
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .skip_slots(E::slots_per_epoch() as usize)
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 5)
         .apply_blocks(1)
-        .assert_finalized_epoch(5);
-
-    test_harness.harness.shutdown_receiver.close();
-    let msg = test_harness.harness.shutdown_receiver.try_next().unwrap();
-    assert!(msg.is_some());
+        .assert_finalized_epoch(5)
+        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .assert_shutdown_signal_sent();
 }

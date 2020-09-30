@@ -597,11 +597,13 @@ where
 
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-            beacon_chain.verify_weak_subjectivity_checkpoint(
-                head.beacon_state.finalized_checkpoint,
-                wss_checkpoint,
-                &head.beacon_state,
-            );
+            beacon_chain
+                .verify_weak_subjectivity_checkpoint(
+                    wss_checkpoint,
+                    head.beacon_block_root,
+                    &head.beacon_state,
+                )
+                .map_err(|e| format!("Weak subjectivity verification failed: {:?}", e))?;
         }
 
         info!(
