@@ -118,25 +118,23 @@ pub fn serve<T: EthSpec>(
     let inner_initialized_validators = ctx.initialized_validators.clone();
     let initialized_validators_filter = warp::any()
         .map(move || inner_initialized_validators.clone())
-        .and_then(|initialized_validators| async move {
-            match initialized_validators {
-                Some(store) => Ok(store),
-                None => Err(warp_utils::reject::custom_not_found(
+        .and_then(|initialized_validators: Option<_>| async move {
+            initialized_validators.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(
                     "validator store is not initialized.".to_string(),
-                )),
-            }
+                )
+            })
         });
 
     let inner_validator_dir = ctx.validator_dir.clone();
     let validator_dir_filter = warp::any()
         .map(move || inner_validator_dir.clone())
-        .and_then(|validator_dir| async move {
-            match validator_dir {
-                Some(dir) => Ok(dir),
-                None => Err(warp_utils::reject::custom_not_found(
+        .and_then(|validator_dir: Option<_>| async move {
+            validator_dir.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(
                     "validator_dir directory is not initialized.".to_string(),
-                )),
-            }
+                )
+            })
         });
 
     let inner_spec = Arc::new(ctx.spec.clone());
