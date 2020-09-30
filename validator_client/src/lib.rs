@@ -240,13 +240,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
-        let api_secret = ApiSecret::create_or_open(&self.config.data_dir)?;
+        let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx: Arc<http_api::Context<T>> = Arc::new(http_api::Context {
                 api_secret,
                 initialized_validators: Some(self.validator_store.initialized_validators()),
-                data_dir: Some(self.config.data_dir.clone()),
+                validator_dir: Some(self.config.validator_dir.clone()),
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
                 log: log.clone(),

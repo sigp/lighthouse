@@ -2,13 +2,14 @@
 # It is not intended for manual editing.
 [[package]]
 name = "account_manager"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "account_utils",
  "bls",
  "clap",
  "clap_utils",
  "deposit_contract",
+ "directory",
  "dirs",
  "environment",
  "eth2_keystore",
@@ -364,13 +365,14 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "beacon_chain",
  "clap",
  "clap_utils",
  "client",
  "ctrlc",
+ "directory",
  "dirs",
  "environment",
  "eth2_config",
@@ -528,13 +530,15 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "beacon_node",
  "clap",
- "discv5",
  "eth2_libp2p",
+ "eth2_ssz",
+ "eth2_testnet_config",
  "futures 0.3.5",
+ "hex 0.4.2",
  "log 0.4.11",
  "logging",
  "slog",
@@ -544,6 +548,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "tokio 0.2.22",
+ "types",
 ]
 
 [[package]]
@@ -757,6 +762,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "bus",
+ "directory",
  "dirs",
  "environment",
  "error-chain",
@@ -1217,6 +1223,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "directory"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "clap_utils",
+ "dirs",
+ "eth2_testnet_config",
+]
+
+[[package]]
 name = "dirs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1245,9 +1261,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "discv5"
-version = "0.1.0-alpha.10"
+version = "0.1.0-alpha.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4cba1b485c16864edc11ccbf3abf5fbf1c26ce759ab36c32ee8e12638d50b0d"
+checksum = "65a5e4a22a4c1d7142f54ac068b8c6252610ed0ebf00264f39eccee7f88fe4b9"
 dependencies = [
  "aes-gcm",
  "arrayvec",
@@ -1258,17 +1274,17 @@ dependencies = [
  "hex 0.4.2",
  "hkdf",
  "lazy_static",
- "libp2p-core 0.20.1",
+ "libp2p-core 0.22.1",
  "libsecp256k1",
  "log 0.4.11",
  "lru_time_cache",
  "multihash",
- "net2",
  "parking_lot 0.11.0",
  "rand 0.7.3",
  "rlp",
  "sha2 0.8.2",
  "smallvec 1.4.2",
+ "socket2",
  "tokio 0.2.22",
  "uint",
  "zeroize",
@@ -1469,6 +1485,7 @@ dependencies = [
  "ring",
  "serde",
  "serde_json",
+ "serde_utils",
  "types",
  "zeroize",
 ]
@@ -1548,6 +1565,7 @@ name = "eth2_libp2p"
 version = "0.2.0"
 dependencies = [
  "base64 0.12.3",
+ "directory",
  "dirs",
  "discv5",
  "environment",
@@ -2673,12 +2691,13 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "bls",
  "clap",
  "clap_utils",
  "deposit_contract",
+ "directory",
  "dirs",
  "environment",
  "eth2_keystore",
@@ -2784,9 +2803,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-core"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a694fd76d7c33a45a0e6e1525e9b9b5d11127c9c94e560ac0f8abba54ed80af"
+version = "0.21.0"
+source = "git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f#03f998022ce2f566a6c6e6c4206bc0ce4d45109f"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -2799,8 +2817,8 @@ dependencies = [
  "libsecp256k1",
  "log 0.4.11",
  "multihash",
- "multistream-select 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "parity-multiaddr 0.9.2",
+ "multistream-select 0.8.2 (git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f)",
+ "parity-multiaddr 0.9.1",
  "parking_lot 0.10.2",
  "pin-project",
  "prost",
@@ -2818,8 +2836,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p-core"
-version = "0.21.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f#03f998022ce2f566a6c6e6c4206bc0ce4d45109f"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52f13ba8c7df0768af2eb391696d562c7de88cc3a35122531aaa6a7d77754d25"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -2832,8 +2851,8 @@ dependencies = [
  "libsecp256k1",
  "log 0.4.11",
  "multihash",
- "multistream-select 0.8.2 (git+https://github.com/sigp/rust-libp2p?rev=03f998022ce2f566a6c6e6c4206bc0ce4d45109f)",
- "parity-multiaddr 0.9.1",
+ "multistream-select 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parity-multiaddr 0.9.2",
  "parking_lot 0.10.2",
  "pin-project",
  "prost",
@@ -3032,7 +3051,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3041,6 +3060,7 @@ dependencies = [
  "boot_node",
  "clap",
  "clap_utils",
+ "directory",
  "env_logger",
  "environment",
  "eth2_testnet_config",
@@ -6033,7 +6053,6 @@ dependencies = [
  "compare_fields_derive",
  "criterion",
  "derivative",
- "dirs",
  "eth2_hashing",
  "eth2_interop_keypairs",
  "eth2_ssz",
@@ -6227,13 +6246,14 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "account_utils",
  "bls",
  "clap",
  "clap_utils",
  "deposit_contract",
+ "directory",
  "dirs",
  "environment",
  "eth2",

@@ -57,7 +57,7 @@ impl From<String> for Error {
 pub struct Context<E: EthSpec> {
     pub api_secret: ApiSecret,
     pub initialized_validators: Option<Arc<RwLock<InitializedValidators>>>,
-    pub data_dir: Option<PathBuf>,
+    pub validator_dir: Option<PathBuf>,
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
@@ -147,18 +147,17 @@ pub fn serve<T: EthSpec>(
             }
         });
 
-    let inner_data_dir = ctx.data_dir.clone();
-    let data_dir_filter =
-        warp::any()
-            .map(move || inner_data_dir.clone())
-            .and_then(|data_dir| async move {
-                match data_dir {
-                    Some(dir) => Ok(dir),
-                    None => Err(warp_utils::reject::custom_not_found(
-                        "data_dir directory is not initialized.".to_string(),
-                    )),
-                }
-            });
+    let inner_validator_dir = ctx.validator_dir.clone();
+    let validator_dir_filter = warp::any()
+        .map(move || inner_validator_dir.clone())
+        .and_then(|validator_dir| async move {
+            match validator_dir {
+                Some(dir) => Ok(dir),
+                None => Err(warp_utils::reject::custom_not_found(
+                    "validator_dir directory is not initialized.".to_string(),
+                )),
+            }
+        });
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
@@ -253,19 +252,24 @@ pub fn serve<T: EthSpec>(
         .and(warp::path("validators"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(data_dir_filter.clone())
+        .and(validator_dir_filter.clone())
         .and(initialized_validators_filter.clone())
         .and(spec_filter.clone())
         .and(signer.clone())
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
-             data_dir: PathBuf,
+             validator_dir: PathBuf,
              initialized_validators: Arc<RwLock<InitializedValidators>>,
              spec: Arc<ChainSpec>,
              signer| {
                 blocking_signed_json_task(signer, move || {
-                    let (validators, mnemonic) =
-                        create_validators(None, &body, &data_dir, &initialized_validators, &spec)?;
+                    let (validators, mnemonic) = create_validators(
+                        None,
+                        &body,
+                        &validator_dir,
+                        &initialized_validators,
+                        &spec,
+                    )?;
                     let response = api_types::PostValidatorsResponseData {
                         mnemonic: mnemonic.into_phrase(),
                         validators,
@@ -281,13 +285,13 @@ pub fn serve<T: EthSpec>(
         .and(warp::path("mnemonic"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(data_dir_filter.clone())
+        .and(validator_dir_filter.clone())
         .and(initialized_validators_filter.clone())
-        .and(spec_filter.clone())
+        .and(spec_filter)
         .and(signer.clone())
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
-             data_dir: PathBuf,
+             validator_dir: PathBuf,
              initialized_validators: Arc<RwLock<InitializedValidators>>,
              spec: Arc<ChainSpec>,
              signer| {
@@ -298,7 +302,7 @@ pub fn serve<T: EthSpec>(
                     let (validators, _mnemonic) = create_validators(
                         Some(mnemonic),
                         &body.validators,
-                        &data_dir,
+                        &validator_dir,
                         &initialized_validators,
                         &spec,
                     )?;
@@ -313,12 +317,12 @@ pub fn serve<T: EthSpec>(
         .and(warp::path("keystore"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(data_dir_filter.clone())
+        .and(validator_dir_filter)
         .and(initialized_validators_filter.clone())
         .and(signer.clone())
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
-             data_dir: PathBuf,
+             validator_dir: PathBuf,
              initialized_validators: Arc<RwLock<InitializedValidators>>,
              signer| {
                 blocking_signed_json_task(signer, move || {
@@ -333,7 +337,7 @@ pub fn serve<T: EthSpec>(
                             ))
                         })?;
 
-                    let validator_dir = ValidatorDirBuilder::new(data_dir.clone())
+                    let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
                         .voting_keystore(body.keystore.clone(), body.password.as_bytes())
                         .store_withdrawal_keystore(false)
                         .build()
@@ -385,8 +389,8 @@ pub fn serve<T: EthSpec>(
         .and(warp::path::param::<PublicKey>())
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(initialized_validators_filter.clone())
-        .and(signer.clone())
+        .and(initialized_validators_filter)
+        .and(signer)
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
@@ -422,7 +426,7 @@ pub fn serve<T: EthSpec>(
         );
 
     let routes = warp::any()
-        .and(authorization_header_filter.clone())
+        .and(authorization_header_filter)
         .and(
             warp::get().and(
                 get_node_version
@@ -455,7 +459,7 @@ pub fn serve<T: EthSpec>(
         log,
         "HTTP API started";
         "listen_address" => listening_socket.to_string(),
-        "api_token" => api_token.to_string(),
+        "api_token" => api_token,
     );
 
     Ok((listening_socket, server))
@@ -478,7 +482,7 @@ where
         .map(|func_output| {
             let mut response = match serde_json::to_vec(&func_output) {
                 Ok(body) => {
-                    let mut res = Response::new(body.into());
+                    let mut res = Response::new(body);
                     res.headers_mut()
                         .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
                     res

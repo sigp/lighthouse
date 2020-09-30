@@ -112,7 +112,7 @@ impl ApiSecret {
                     serde_utils::hex::decode(&hex[PK_PREFIX.len()..])
                         .map_err(|_| format!("{} should be 0x-prefixed hex", SK_FILENAME))
                 } else {
-                    return Err(format!("unable to parse {}", SK_FILENAME));
+                    Err(format!("unable to parse {}", SK_FILENAME))
                 }
             })
             .and_then(|bytes| {
@@ -184,12 +184,11 @@ impl ApiSecret {
     /// `self`. The signature is a 32-byte hash formatted as a 0x-prefixed string.
     pub fn signer(&self) -> impl Fn(&[u8]) -> String + Clone {
         let sk = self.sk.clone();
-        let func = move |input: &[u8]| -> String {
+        move |input: &[u8]| -> String {
             let message =
                 Message::parse_slice(digest(&SHA256, input).as_ref()).expect("sha256 is 32 bytes");
             let (signature, _) = secp256k1::sign(&message, &sk);
             serde_utils::hex::encode(signature.serialize_der().as_ref())
-        };
-        func
+        }
     }
 }

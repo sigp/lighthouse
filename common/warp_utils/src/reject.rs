@@ -92,6 +92,7 @@ pub fn object_invalid(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(ObjectInvalid(msg))
 }
 
+#[derive(Debug)]
 pub struct NotSynced(pub String);
 
 impl Reject for NotSynced {}
@@ -100,6 +101,7 @@ pub fn not_synced(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(NotSynced(msg))
 }
 
+#[derive(Debug)]
 pub struct InvalidAuthorization(pub String);
 
 impl Reject for InvalidAuthorization {}

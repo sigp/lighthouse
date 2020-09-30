@@ -14,11 +14,11 @@ use validator_dir::Builder as ValidatorDirBuilder;
 pub fn create_validators<P: AsRef<Path>>(
     mnemonic_opt: Option<Mnemonic>,
     validator_requests: &[api_types::ValidatorRequest],
-    data_dir: P,
+    validator_dir: P,
     initialized_validators: &RwLock<InitializedValidators>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
-    let mnemonic = mnemonic_opt.unwrap_or_else(|| random_mnemonic());
+    let mnemonic = mnemonic_opt.unwrap_or_else(random_mnemonic);
 
     let wallet_password = random_password();
     let mut wallet =
@@ -62,7 +62,7 @@ pub fn create_validators<P: AsRef<Path>>(
                 ))
             })?;
 
-        let validator_dir = ValidatorDirBuilder::new(data_dir.as_ref().into())
+        let validator_dir = ValidatorDirBuilder::new(validator_dir.as_ref().into())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(request.deposit_gwei, &spec)
@@ -130,7 +130,7 @@ pub fn create_validators<P: AsRef<Path>>(
         validators.push(api_types::CreatedValidator {
             enabled: true,
             name: request.name.clone(),
-            voting_pubkey: voting_pubkey,
+            voting_pubkey,
             eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,
         });

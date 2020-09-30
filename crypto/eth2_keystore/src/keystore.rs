@@ -240,7 +240,7 @@ impl Keystore {
 
     /// Returns the name for the keystore, if the field is present.
     pub fn name(&self) -> Option<&str> {
-        self.json.name.as_ref().map(String::as_str)
+        self.json.name.as_deref()
     }
 
     /// Sets the name for the keystore.
