@@ -101,11 +101,6 @@ impl ForkChoiceTest {
         );
         self
     }
-    /// Assert the given slot is less than the head slot.
-    pub fn assert_head_slot_less_than(self, slot: Slot) -> Self {
-        assert!(self.harness.chain.head_info().unwrap().slot < slot);
-        self
-    }
 
     /// Assert the given slot is greater than the head slot.
     pub fn assert_head_slot_greater_than(self, slot: Slot) -> Self {
@@ -121,7 +116,7 @@ impl ForkChoiceTest {
         self
     }
 
-    /// Assert there was no shutdown signal sent by the beacon chain.
+    /// Assert no shutdown was signal sent by the beacon chain.
     pub fn assert_shutdown_signal_not_sent(mut self) -> Self {
         self.harness.shutdown_receiver.close();
         let msg = self.harness.shutdown_receiver.try_next().unwrap();
