@@ -859,11 +859,3 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         Poll::Pending
     }
 }
-
-/*
-impl discv5::Executor for TaskExecutor {
-    fn spawn(&self, future: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>) {
-        self.spawn(future, "discv5")
-    }
-}
-*/
