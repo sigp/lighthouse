@@ -1564,7 +1564,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                     crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
                     shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                        .map_err(|err|BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?
+                        .map_err(|err|BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?;
+                    return Err(BlockError::WeakSubjectivityConflict);
                 }
             }
         }
@@ -2005,7 +2006,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                  "Root found at the specified checkpoint differs";
                   "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
-                  "finalized_cehckpoint_root" => format!("{:?}", finalized_checkpoint.root)
+                  "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
             );
             return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
         } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
@@ -2022,7 +2023,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             self.log,
                              "Root found at the specified checkpoint differs";
                               "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
-                              "finalized_cehckpoint_root" => format!("{:?}", finalized_checkpoint.root)
+                              "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
                         );
                         return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
                     }

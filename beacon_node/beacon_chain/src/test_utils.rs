@@ -8,7 +8,7 @@ use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
-    BeaconChain, BeaconChainTypes, ChainConfig, StateSkipConfig,
+    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, StateSkipConfig,
 };
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
@@ -639,6 +639,17 @@ where
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block).unwrap().into();
         self.chain.fork_choice().unwrap();
         block_hash
+    }
+
+    pub fn process_block_result(
+        &self,
+        slot: Slot,
+        block: SignedBeaconBlock<E>,
+    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+        assert_eq!(self.chain.slot().unwrap(), slot);
+        let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
+        self.chain.fork_choice().unwrap();
+        Ok(block_hash)
     }
 
     pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {

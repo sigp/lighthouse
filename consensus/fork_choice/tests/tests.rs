@@ -103,8 +103,16 @@ impl ForkChoiceTest {
     }
 
     /// Assert the given slot is greater than the head slot.
-    pub fn assert_head_slot_greater_than(self, slot: Slot) -> Self {
-        assert!(self.harness.chain.head_info().unwrap().slot > slot);
+    pub fn assert_finalized_epoch_is_less_than(self, epoch: Epoch) -> Self {
+        assert!(
+            self.harness
+                .chain
+                .head_info()
+                .unwrap()
+                .finalized_checkpoint
+                .epoch
+                < epoch
+        );
         self
     }
 
@@ -153,7 +161,7 @@ impl ForkChoiceTest {
         self
     }
 
-    /// Build the chain whilst `predicate` returns `true`.
+    /// Build the chain whilst `predicate` returns `true` and process_block_result does not error.
     pub fn apply_blocks_while<F>(mut self, mut predicate: F) -> Self
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
@@ -168,10 +176,13 @@ impl ForkChoiceTest {
             if !predicate(&block.message, &state) {
                 break;
             }
-            let block_hash = self.harness.process_block(slot, block.clone());
-            self.harness
-                .attest_block(&state, block_hash, &block, &validators);
-            self.harness.advance_slot();
+            if let Ok(block_hash) = self.harness.process_block_result(slot, block.clone()) {
+                self.harness
+                    .attest_block(&state, block_hash, &block, &validators);
+                self.harness.advance_slot();
+            } else {
+                break;
+            }
         }
 
         self
@@ -971,7 +982,6 @@ fn weak_subjectivity_pass_on_startup() {
 
     ForkChoiceTest::new_with_chain_config(chain_config)
         .apply_blocks(E::slots_per_epoch() as usize)
-        .assert_head_slot_greater_than(epoch.start_slot(E::slots_per_epoch()))
         .assert_shutdown_signal_not_sent();
 }
 
@@ -998,7 +1008,6 @@ fn weak_subjectivity_check_passes() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .apply_blocks(1)
         .assert_finalized_epoch(2)
-        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
         .assert_shutdown_signal_not_sent();
 }
 
@@ -1024,10 +1033,8 @@ fn weak_subjectivity_check_fails_early_epoch() {
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
-        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
-        .apply_blocks(1)
-        .assert_finalized_epoch(2)
-        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 3)
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
         .assert_shutdown_signal_sent();
 }
 
@@ -1053,12 +1060,8 @@ fn weak_subjectivity_check_fails_late_epoch() {
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
-        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
-        .apply_blocks(1)
-        .assert_finalized_epoch(2)
-        .apply_blocks(E::slots_per_epoch() as usize)
-        .assert_finalized_epoch(3)
-        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 4)
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
         .assert_shutdown_signal_sent();
 }
 
@@ -1084,12 +1087,8 @@ fn weak_subjectivity_check_fails_incorrect_root() {
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
-        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
-        .apply_blocks(1)
-        .assert_finalized_epoch(2)
-        .apply_blocks(E::slots_per_epoch() as usize)
-        .assert_finalized_epoch(3)
-        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 3)
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
         .assert_shutdown_signal_sent();
 }
 
@@ -1127,7 +1126,6 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 5)
         .apply_blocks(1)
         .assert_finalized_epoch(5)
-        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
         .assert_shutdown_signal_not_sent();
 }
 
@@ -1162,9 +1160,7 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
         .skip_slots(E::slots_per_epoch() as usize)
-        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 5)
-        .apply_blocks(1)
-        .assert_finalized_epoch(5)
-        .assert_head_slot_greater_than(checkpoint.epoch.start_slot(E::slots_per_epoch()))
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 6)
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
         .assert_shutdown_signal_sent();
 }
