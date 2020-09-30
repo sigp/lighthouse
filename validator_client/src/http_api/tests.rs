@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![cfg(not(debug_assertions))]
 
 use crate::{
     http_api::{ApiSecret, Config, Context},

@@ -219,10 +219,10 @@ impl Wallet {
     ///
     /// This will be the index of the next wallet generated with `Self::next_validator`.
     ///
-    /// ## Returns
+    /// ## Errors
     ///
-    /// Returns `None` if `nextaccount` is less than `self.nextaccount()` and does not change the
-    /// value. This is to protect against duplicate validator generation.
+    /// Returns `Err(())` if `nextaccount` is less than `self.nextaccount()` and does not change
+    /// the value. This is to protect against duplicate validator generation.
     pub fn set_nextaccount(&mut self, nextaccount: u32) -> Result<(), ()> {
         if nextaccount >= self.nextaccount() {
             self.json.nextaccount = nextaccount;

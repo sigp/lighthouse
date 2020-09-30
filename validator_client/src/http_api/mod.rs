@@ -115,21 +115,6 @@ pub fn serve<T: EthSpec>(
         ));
     }
 
-    /*
-    // Create a `warp` filter that provides access to the network globals.
-    let inner_validator_store = ctx.validator_store.clone();
-    let validator_store_filter = warp::any()
-        .map(move || inner_validator_store.clone())
-        .and_then(|validator_store| async move {
-            match validator_store {
-                Some(store) => Ok(store),
-                None => Err(warp_utils::reject::custom_not_found(
-                    "validator store is not initialized.".to_string(),
-                )),
-            }
-        });
-    */
-
     let authorization_header_filter = ctx.api_secret.authorization_header_filter();
     let api_token = ctx.api_secret.api_token();
     let signer = ctx.api_secret.signer();
