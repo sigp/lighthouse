@@ -104,14 +104,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Enable the RESTful HTTP API server. Disabled by default.")
                 .takes_value(false),
         )
-        .arg(
-            Arg::with_name("http-address")
-                .long("http-address")
-                .value_name("ADDRESS")
-                .help("Set the listen address for the RESTful HTTP API server.")
-                .default_value("127.0.0.1")
-                .takes_value(true),
-        )
+        /*
+         * Note: there is purposefully no `--http-address` flag provided.
+         *
+         * The HTTP server is **not** encrypted (i.e., not HTTPS) and therefore it is unsafe to
+         * publish on a public network.
+         *
+         * We restrict the user to `127.0.0.1` and they must provide some other transport-layer
+         * encryption (e.g., SSH tunnels).
+         */
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
