@@ -1548,8 +1548,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if (old_finalized_checkpoint.epoch < wss_checkpoint.epoch)
                 && (wss_checkpoint.epoch <= new_finalized_checkpoint.epoch)
             {
-                self.verify_weak_subjectivity_checkpoint(wss_checkpoint, block_root, &state)
-                    .map_err(BlockError::BeaconChainError)?;
+                if let Err(e) =
+                    self.verify_weak_subjectivity_checkpoint(wss_checkpoint, block_root, &state)
+                {
+                    let mut shutdown_sender = self.shutdown_sender();
+                    crit!(
+                        self.log,
+                        "Weak subjectivity checkpoint verification failed while importing block!";
+                        "block_root" => format!("{:?}", block_root),
+                        "parent_root" => format!("{:?}", block.parent_root),
+                        "old_finalized_epoch" => format!("{:?}", old_finalized_checkpoint.epoch),
+                        "new_finalized_epoch" => format!("{:?}", new_finalized_checkpoint.epoch),
+                        "weak_subjectivity_epoch" => format!("{:?}", wss_checkpoint.epoch),
+                        "error" => format!("{:?}", e),
+                    );
+                    crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                    shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                        .map_err(|err|BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))
+                }
             }
         }
 
@@ -1968,28 +1984,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.
-    /// If the weak subjectivity checkpoint and finalized checkpoint share the same epoch, we compare roots.
-    /// If we the weak subjectivity checkpoint is from an older epoch, we iterate back through roots in the
-    /// canonical chain until we reach the finalized checkpoint from the correct epoch, and compare roots.
-    /// This must called on startup and during verification of any block which causes a finality change
-    /// affecting the weak subjectivity checkpoint.
+    /// If the weak subjectivity checkpoint and finalized checkpoint share the same epoch, we compare
+    /// roots. If we the weak subjectivity checkpoint is from an older epoch, we iterate back through
+    /// roots in the canonical chain until we reach the finalized checkpoint from the correct epoch, and
+    /// compare roots. This must called on startup and during verification of any block which causes a finality
+    /// change affecting the weak subjectivity checkpoint.
     pub fn verify_weak_subjectivity_checkpoint(
         &self,
         wss_checkpoint: Checkpoint,
         beacon_block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<(), BeaconChainError> {
+    ) -> Result<(), BeaconChainError::WeakSubjectivtyVerificationFailure> {
         let finalized_checkpoint = state.finalized_checkpoint;
         info!(self.log, "Verifying the configured weak subjectivity checkpoint"; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
         // If epochs match, simply compare roots.
         if wss_checkpoint.epoch == finalized_checkpoint.epoch
             && wss_checkpoint.root != finalized_checkpoint.root
         {
-            self.ws_failure_shutdown(
-                finalized_checkpoint,
-                wss_checkpoint,
-                finalized_checkpoint.root,
-            )
+            crit!(
+                self.log,
+                 "Root found at the specified checkpoint differs";
+                  "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
+                  "finalized_cehckpoint_root" => format!("{:?}", finalized_checkpoint.root)
+            );
+            Err(BeaconChainError::WeakSubjectivtyVerificationFailure)
         } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
             let slot = wss_checkpoint
                 .epoch
@@ -1997,60 +2015,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Iterate backwards through block roots from the given state. If first slot of the epoch is a skip-slot,
             // this will return the root of the closest prior non-skipped slot.
-            match self.root_at_slot_from_state(slot, beacon_block_root, state) {
-                Ok(Some(root)) => {
+            match self.root_at_slot_from_state(slot, beacon_block_root, state)? {
+                Some(root) => {
                     if root != wss_checkpoint.root {
-                        self.ws_failure_shutdown(finalized_checkpoint, wss_checkpoint, root)
-                    } else {
-                        info!(
+                        crit!(
                             self.log,
-                            "Successfully verified the weak subjectivity checkpoint"
+                             "Root found at the specified checkpoint differs";
+                              "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
+                              "finalized_cehckpoint_root" => format!("{:?}", finalized_checkpoint.root)
                         );
-                        Ok(())
+                        Err(BeaconChainError::WeakSubjectivtyVerificationFailure)
                     }
                 }
-                Ok(None) => {
-                    let mut shutdown_sender = self.shutdown_sender();
-                    crit!(
-                        self.log,
-                        "Could not find the given weak subjectivity checkpoint root."
-                    );
-                    shutdown_sender
-                        .try_send("Weak subjectivity checkpoint verification failed.")
-                        .map_err(|_| BeaconChainError::WeakSubjectivtySlotError(slot))
-                }
-                Err(e) => {
-                    let mut shutdown_sender = self.shutdown_sender();
-                    crit!(self.log, "There was an error in verifying the weak subjectivity state in the given epoch."; "error" => format!("{:?}", e));
-                    shutdown_sender
-                        .try_send("Weak subjectivity checkpoint verification failed.")
-                        .map_err(BeaconChainError::WeakSubjectivtyShutdownError)
+                None => {
+                    crit!(self.log, "The root at the start slot of the given epoch could not be found";
+                    "wss_checkpoint_slot" => format!("{:?}", slot));
+                    Err(BeaconChainError::WeakSubjectivtyVerificationFailure)
                 }
             }
-        } else {
-            Ok(())
         }
-    }
-
-    /// Logs information about a weak subjectivity verification failure and recovery. Sends a shutdown signal.
-    fn ws_failure_shutdown(
-        &self,
-        finalized_checkpoint: Checkpoint,
-        wss_checkpoint: Checkpoint,
-        block_root: Hash256,
-    ) -> Result<(), BeaconChainError> {
-        let mut shutdown_sender = self.shutdown_sender();
-        crit!(
-            self.log,
-            "Weak subjectivity checkpoint verification failed!"
-        );
-        crit!(self.log, "Root found at the specified checkpoint differs"; "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root), "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
-        crit!(
-            self.log,
-            "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
-        );
-        shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-            .map_err(|_| BeaconChainError::WeakSubjectivtyRootError(block_root))
+        Ok(())
     }
 
     /// Called by the timer on every slot.

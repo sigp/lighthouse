@@ -84,8 +84,7 @@ pub enum BeaconChainError {
     ObservedBlockProducersError(ObservedBlockProducersError),
     PruningError(PruningError),
     ArithError(ArithError),
-    WeakSubjectivtyRootError(Hash256),
-    WeakSubjectivtySlotError(Slot),
+    WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<&'static str>),
 }
 

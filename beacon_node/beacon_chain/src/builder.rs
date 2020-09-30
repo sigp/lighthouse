@@ -597,13 +597,23 @@ where
 
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-            beacon_chain
-                .verify_weak_subjectivity_checkpoint(
-                    wss_checkpoint,
-                    head.beacon_block_root,
-                    &head.beacon_state,
-                )
-                .map_err(|e| format!("Weak subjectivity verification failed: {:?}", e))?;
+            if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
+                wss_checkpoint,
+                head.beacon_block_root,
+                &head.beacon_state,
+            ) {
+                crit!(
+                    self.log,
+                    "Weak subjectivity checkpoint verification failed on startup!";
+                    "head_block_root" => format!("{}", head.beacon_block_root),
+                    "head_slot" => format!("{}", head.beacon_block.slot()),
+                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint.epoch),
+                    "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
+                    "error" => format!("{:?}", e),
+                );
+                crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                Err(format!("Weak subjectivity verification failed: {:?}", e))
+            }
         }
 
         info!(
