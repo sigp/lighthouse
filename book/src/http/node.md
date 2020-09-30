@@ -76,7 +76,6 @@ Typical Responses | 200
 ```json
 {
     "pid": 96160,
-    "pid_num_threads": 30,
     "pid_mem_resident_set_size": 55476224,
     "pid_mem_virtual_memory_size": 2081382400,
     "sys_virt_mem_total": 16721076224,

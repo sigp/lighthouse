@@ -4,7 +4,7 @@ use ssz_derive::{Decode, Encode};
 use types::Slot;
 
 #[cfg(target_os = "linux")]
-use {procinfo::pid, psutil::process::Process};
+use {psutil::process::Process};
 
 #[cfg(target_os = "macos")]
 use {
@@ -45,8 +45,6 @@ pub struct SyncingResponse {
 pub struct Health {
     /// The pid of this process.
     pub pid: u32,
-    /// The number of threads used by this pid.
-    pub pid_num_threads: i32,
     /// The total resident memory used by this pid.
     pub pid_mem_resident_set_size: u64,
     /// The total virtual memory used by this pid.
@@ -90,8 +88,6 @@ impl Health {
 
         Ok(Self {
             pid: process.pid() as u32,
-            //TODO: figure out how to get threads for a PID on mac
-            pid_num_threads: 0,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
             sys_virt_mem_total: vm.total(),
@@ -114,8 +110,6 @@ impl Health {
             .memory_info()
             .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
 
-        let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
-
         let vm = psutil::memory::virtual_memory()
             .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
         let loadavg =
@@ -123,7 +117,6 @@ impl Health {
 
         Ok(Self {
             pid: process.pid(),
-            pid_num_threads: stat.num_threads,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
             sys_virt_mem_total: vm.total(),
