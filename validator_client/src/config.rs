@@ -7,6 +7,7 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
+use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
@@ -100,10 +101,8 @@ impl Config {
         });
 
         if !config.validator_dir.exists() {
-            return Err(format!(
-                "The directory for validator data does not exist: {:?}",
-                config.validator_dir
-            ));
+            fs::create_dir_all(&config.validator_dir)
+                .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
         if let Some(server) = parse_optional(cli_args, "server")? {
