@@ -29,6 +29,7 @@ pub enum Error {
     UnableToDecryptKeypair(KeystoreError),
     UnableToReadDepositData(io::Error),
     UnableToEncodeDeposit(DepositError),
+    InvalidDepositAmount(String),
     DepositDataMissing0xPrefix,
     DepositDataNotUtf8,
     DepositDataInvalidHex(hex::FromHexError),
@@ -197,6 +198,12 @@ impl ValidatorDir {
         withdrawal_keypair: &Keypair,
         spec: &ChainSpec,
     ) -> Result<Eth1DepositData, Error> {
+        if amount < spec.min_deposit_amount {
+            return Err(Error::InvalidDepositAmount(format!(
+                "Topup amount cannot be less than {}",
+                spec.min_deposit_amount
+            )));
+        }
         let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
             &withdrawal_keypair.pk,
             spec.bls_withdrawal_prefix_byte,

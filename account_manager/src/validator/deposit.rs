@@ -1,6 +1,7 @@
-use crate::VALIDATOR_DIR_FLAG;
+use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
 use clap::{App, Arg, ArgMatches};
 use deposit_contract::DEPOSIT_GAS;
+use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use environment::Environment;
 use futures::{
     compat::Future01CompatExt,
@@ -122,6 +123,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(TOPUP_AMOUNT)
                 .value_name("TOPUP-AMOUNT")
                 .help("Amount that you want to topup the given validator with in GWEI")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name(SECRETS_DIR_FLAG)
+                .long(SECRETS_DIR_FLAG)
+                .value_name("SECRETS_DIR")
+                .help(
+                    "The path where the validator keystore passwords will be stored. \
+                    Defaults to ~/.lighthouse/{testnet}/secrets",
+                )
+                .conflicts_with("datadir")
                 .takes_value(true),
         )
 }
@@ -256,22 +268,53 @@ pub fn cli_run<T: EthSpec>(
     }?;
 
     let is_topup = matches.is_present(TOPUP_FLAG);
-    let topup_amount: Option<u64> = clap_utils::parse_optional(matches, TOPUP_AMOUNT)?;
+    let secrets_dir = if matches.value_of("datadir").is_some() {
+        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
+        path.join(DEFAULT_SECRET_DIR)
+    } else {
+        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+    };
 
     let eth1_deposit_datas = validators
         .into_iter()
         .filter(|v| is_topup || !v.eth1_deposit_tx_hash_exists())
-        .map(|v| match v.eth1_deposit_data(topup_amount) {
-            Ok(Some(data)) => Ok((v, data)),
-            Ok(None) => Err(format!(
-                "Validator is missing deposit data file: {:?}",
-                v.dir()
-            )),
-            Err(e) => Err(format!(
-                "Unable to read deposit data for {:?}: {:?}",
-                v.dir(),
-                e
-            )),
+        .map(|v| {
+            if is_topup {
+                let topup_amount: u64 = clap_utils::parse_required(matches, TOPUP_AMOUNT)?;
+                let voting_keypair = v
+                    .voting_keypair(&secrets_dir)
+                    .map_err(|e| format!("Failed to load voting keypair: {:?}", e))?;
+                let withdrawal_keypair = v
+                    .withdrawal_keypair(&secrets_dir)
+                    .map_err(|e| format!("Failed to load withdrawal keypair: {:?}", e))?;
+
+                match v.eth1_deposit_data_topup(
+                    topup_amount,
+                    &voting_keypair,
+                    &withdrawal_keypair,
+                    &T::default_spec(),
+                ) {
+                    Ok(data) => Ok((v, data)),
+                    Err(e) => Err(format!(
+                        "Failed to create topup deposit data for {:?}: {:?}",
+                        v.dir(),
+                        e
+                    )),
+                }
+            } else {
+                match v.eth1_deposit_data() {
+                    Ok(Some(data)) => Ok((v, data)),
+                    Ok(None) => Err(format!(
+                        "Validator is missing deposit data file: {:?}",
+                        v.dir()
+                    )),
+                    Err(e) => Err(format!(
+                        "Unable to read deposit data for {:?}: {:?}",
+                        v.dir(),
+                        e
+                    )),
+                }
+            }
         })
         .collect::<Result<Vec<_>, _>>()?;
 
