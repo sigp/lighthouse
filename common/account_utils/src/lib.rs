@@ -178,6 +178,12 @@ impl From<String> for ZeroizeString {
     }
 }
 
+impl ZeroizeString {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl AsRef<[u8]> for ZeroizeString {
     fn as_ref(&self) -> &[u8] {
         self.0.as_bytes()

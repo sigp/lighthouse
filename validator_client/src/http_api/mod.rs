@@ -6,9 +6,7 @@ mod create_validator;
 mod tests;
 
 use crate::InitializedValidators;
-use account_utils::{
-    mnemonic_from_phrase, validator_definitions::ValidatorDefinition, ZeroizeString,
-};
+use account_utils::{mnemonic_from_phrase, validator_definitions::ValidatorDefinition};
 use create_validator::create_validators;
 use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
@@ -257,7 +255,7 @@ pub fn serve<T: EthSpec>(
                         &spec,
                     )?;
                     let response = api_types::PostValidatorsResponseData {
-                        mnemonic: mnemonic.into_phrase(),
+                        mnemonic: mnemonic.into_phrase().into(),
                         validators,
                     };
                     Ok(api_types::GenericResponse::from(response))
@@ -282,7 +280,7 @@ pub fn serve<T: EthSpec>(
              spec: Arc<ChainSpec>,
              signer| {
                 blocking_signed_json_task(signer, move || {
-                    let mnemonic = mnemonic_from_phrase(&body.mnemonic).map_err(|e| {
+                    let mnemonic = mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!("invalid mnemonic: {:?}", e))
                     })?;
                     let (validators, _mnemonic) = create_validators(
@@ -316,7 +314,7 @@ pub fn serve<T: EthSpec>(
                     // Check to ensure the password is correct.
                     let keypair = body
                         .keystore
-                        .decrypt_keypair(body.password.as_bytes())
+                        .decrypt_keypair(body.password.as_ref())
                         .map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!(
                                 "invalid keystore: {:?}",
@@ -325,7 +323,7 @@ pub fn serve<T: EthSpec>(
                         })?;
 
                     let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
-                        .voting_keystore(body.keystore.clone(), body.password.as_bytes())
+                        .voting_keystore(body.keystore.clone(), body.password.as_ref())
                         .store_withdrawal_keystore(false)
                         .build()
                         .map_err(|e| {
@@ -335,7 +333,7 @@ pub fn serve<T: EthSpec>(
                             ))
                         })?;
 
-                    let voting_password = ZeroizeString::from(body.password.clone());
+                    let voting_password = body.password.clone();
 
                     let mut validator_def = ValidatorDefinition::new_keystore_with_password(
                         validator_dir.voting_keystore_path(),

@@ -11,7 +11,6 @@ use std::convert::TryInto;
 use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use zeroize::Zeroize;
 
 /// A wrapper around some bytes that may or may not be a `GenericSignature` in compressed form.
 ///
@@ -24,12 +23,6 @@ pub struct GenericSignatureBytes<Pub, Sig> {
     bytes: [u8; SIGNATURE_BYTES_LEN],
     _phantom_public_key: PhantomData<Pub>,
     _phantom_signature: PhantomData<Sig>,
-}
-
-impl<Pub, Sig> Zeroize for GenericSignatureBytes<Pub, Sig> {
-    fn zeroize(&mut self) {
-        self.bytes.zeroize()
-    }
 }
 
 impl<Pub, Sig> GenericSignatureBytes<Pub, Sig>

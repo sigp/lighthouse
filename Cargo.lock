@@ -1473,6 +1473,7 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
+ "account_utils",
  "bytes 0.5.6",
  "eth2_keystore",
  "eth2_libp2p",

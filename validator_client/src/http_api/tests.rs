@@ -7,6 +7,7 @@ use crate::{
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
+    ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
 use environment::null_logger;
@@ -147,14 +148,13 @@ impl ApiTester {
         let validators = (0..s.count)
             .map(|i| ValidatorRequest {
                 enable: !s.disabled.contains(&i),
-                name: format!("boi #{}", i),
+                description: format!("boi #{}", i),
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
 
-        // TODO: check mnemonic.
         let (response, mnemonic) = if s.specify_mnemonic {
-            let mnemonic = random_mnemonic().phrase().to_string();
+            let mnemonic = ZeroizeString::from(random_mnemonic().phrase().to_string());
             let request = CreateValidatorsMnemonicRequest {
                 mnemonic: mnemonic.clone(),
                 key_derivation_path_offset: s.key_derivation_path_offset,
@@ -204,7 +204,7 @@ impl ApiTester {
          * Verify that we can regenerate all the keys from the mnemonic.
          */
 
-        let mnemonic = mnemonic_from_phrase(&mnemonic).unwrap();
+        let mnemonic = mnemonic_from_phrase(mnemonic.as_str()).unwrap();
         let mut wallet = WalletBuilder::from_mnemonic(&mnemonic, PASSWORD_BYTES, "".to_string())
             .unwrap()
             .build()
@@ -274,7 +274,9 @@ impl ApiTester {
         if !s.correct_password {
             let request = KeystoreValidatorsPostRequest {
                 enable: s.enabled,
-                password: String::from_utf8(random_password().as_ref().to_vec()).unwrap(),
+                password: String::from_utf8(random_password().as_ref().to_vec())
+                    .unwrap()
+                    .into(),
                 keystore,
             };
 
@@ -288,7 +290,9 @@ impl ApiTester {
 
         let request = KeystoreValidatorsPostRequest {
             enable: s.enabled,
-            password: String::from_utf8(password.as_ref().to_vec()).unwrap(),
+            password: String::from_utf8(password.as_ref().to_vec())
+                .unwrap()
+                .into(),
             keystore,
         };
 
