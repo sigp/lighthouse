@@ -57,8 +57,12 @@ pub fn create_validators<P: AsRef<Path>>(
                 ))
             })?;
 
-        keystores.voting.set_name(request.name.clone());
-        keystores.withdrawal.set_name(request.name.clone());
+        keystores
+            .voting
+            .set_description(request.description.clone());
+        keystores
+            .withdrawal
+            .set_description(request.description.clone());
 
         let voting_pubkey = format!("0x{}", keystores.voting.pubkey())
             .parse()
@@ -136,7 +140,7 @@ pub fn create_validators<P: AsRef<Path>>(
 
         validators.push(api_types::CreatedValidator {
             enabled: true,
-            name: request.name.clone(),
+            description: request.description.clone(),
             voting_pubkey,
             eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,

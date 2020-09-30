@@ -9,14 +9,14 @@ pub use types::*;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct ValidatorData {
     pub enabled: bool,
-    pub name: String,
+    pub description: String,
     pub voting_pubkey: PublicKeyBytes,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct ValidatorRequest {
     pub enable: bool,
-    pub name: String,
+    pub description: String,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
@@ -33,7 +33,7 @@ pub struct CreateValidatorsMnemonicRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 pub struct CreatedValidator {
     pub enabled: bool,
-    pub name: String,
+    pub description: String,
     pub voting_pubkey: PublicKeyBytes,
     pub eth1_deposit_tx_data: String,
     #[serde(with = "serde_utils::quoted_u64")]

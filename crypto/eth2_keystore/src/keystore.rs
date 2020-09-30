@@ -81,7 +81,7 @@ pub struct KeystoreBuilder<'a> {
     cipher: Cipher,
     uuid: Uuid,
     path: String,
-    name: String,
+    description: String,
 }
 
 impl<'a> KeystoreBuilder<'a> {
@@ -106,14 +106,14 @@ impl<'a> KeystoreBuilder<'a> {
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
                 uuid: Uuid::new_v4(),
                 path,
-                name: "".to_string(),
+                description: "".to_string(),
             })
         }
     }
 
-    /// Build the keystore with a specific name instead of an empty string.
-    pub fn name(mut self, name: String) -> Self {
-        self.name = name;
+    /// Build the keystore with a specific description instead of an empty string.
+    pub fn description(mut self, description: String) -> Self {
+        self.description = description;
         self
     }
 
@@ -132,7 +132,7 @@ impl<'a> KeystoreBuilder<'a> {
             self.cipher,
             self.uuid,
             self.path,
-            self.name,
+            self.description,
         )
     }
 }
@@ -238,16 +238,16 @@ impl Keystore {
         &self.json.pubkey
     }
 
-    /// Returns the name for the keystore, if the field is present.
-    pub fn name(&self) -> Option<&str> {
-        self.json.name.as_deref()
+    /// Returns the description for the keystore, if the field is present.
+    pub fn description(&self) -> Option<&str> {
+        self.json.description.as_deref()
     }
 
-    /// Sets the name for the keystore.
+    /// Sets the description for the keystore.
     ///
     /// Note: this does not save the keystore to disk.
-    pub fn set_name(&mut self, name: String) {
-        self.json.name = Some(name)
+    pub fn set_description(&mut self, description: String) {
+        self.json.description = Some(description)
     }
 
     /// Returns the pubkey for the keystore, parsed as a `PublicKey` if it parses.

@@ -188,7 +188,7 @@ pub fn serve<T: EthSpec>(
                         .iter()
                         .map(|def| api_types::ValidatorData {
                             enabled: def.enabled,
-                            name: def.name.clone(),
+                            description: def.description.clone(),
                             voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
                         })
                         .collect::<Vec<_>>();
@@ -217,7 +217,7 @@ pub fn serve<T: EthSpec>(
                         .find(|def| def.voting_public_key == validator_pubkey)
                         .map(|def| api_types::ValidatorData {
                             enabled: def.enabled,
-                            name: def.name.clone(),
+                            description: def.description.clone(),
                             voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
                         })
                         .ok_or_else(|| {
@@ -348,7 +348,7 @@ pub fn serve<T: EthSpec>(
                         ))
                     })?;
 
-                    let name = validator_def.name.clone();
+                    let description = validator_def.description.clone();
 
                     validator_def.enabled = body.enable;
 
@@ -363,7 +363,7 @@ pub fn serve<T: EthSpec>(
 
                     Ok(api_types::GenericResponse::from(api_types::ValidatorData {
                         enabled: body.enable,
-                        name,
+                        description,
                         voting_pubkey: keypair.pk.into(),
                     }))
                 })
