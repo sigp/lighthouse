@@ -17,6 +17,7 @@ fn metadata(genesis_validators_root: Hash256) -> InterchangeMetadata {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn interchange(data: Vec<(usize, Vec<u64>, Vec<(u64, u64)>)>) -> Interchange {
     let data = data
         .into_iter()
@@ -75,8 +76,8 @@ fn main() {
             "single_validator_single_block_and_attestation",
             interchange(vec![(0, vec![32], vec![(15, 20)])]),
         )
-        .with_blocks(single_validator_blocks.clone())
-        .with_attestations(single_validator_attestations.clone()),
+        .with_blocks(single_validator_blocks)
+        .with_attestations(single_validator_attestations),
         TestCase::new(
             "single_validator_genesis_attestation",
             interchange(vec![(0, vec![], vec![(0, 0)])]),
