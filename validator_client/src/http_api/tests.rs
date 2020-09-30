@@ -4,7 +4,9 @@ use crate::{
     http_api::{ApiSecret, Config, Context},
     InitializedValidators, ValidatorDefinitions,
 };
-use account_utils::{random_mnemonic, random_password};
+use account_utils::{
+    eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
+};
 use environment::null_logger;
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
@@ -18,26 +20,28 @@ use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
 
+const PASSWORD_BYTES: &[u8] = &[42, 13, 37];
+
 type E = MainnetEthSpec;
 
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     _server_shutdown: oneshot::Sender<()>,
-    _datadir: TempDir,
+    _validator_dir: TempDir,
 }
 
 impl ApiTester {
     pub async fn new() -> Self {
         let log = null_logger().unwrap();
 
-        let datadir = tempdir().unwrap();
+        let validator_dir = tempdir().unwrap();
 
-        let validator_defs = ValidatorDefinitions::open_or_create(datadir.path()).unwrap();
+        let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
-            datadir.path().into(),
+            validator_dir.path().into(),
             false,
             log.clone(),
         )
@@ -45,12 +49,12 @@ impl ApiTester {
         .unwrap();
 
         let initialized_validators = Arc::new(RwLock::new(initialized_validators));
-        let api_secret = ApiSecret::create_or_open(datadir.path()).unwrap();
+        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
         let context: Arc<Context<E>> = Arc::new(Context {
             api_secret,
-            data_dir: Some(datadir.path().into()),
+            validator_dir: Some(validator_dir.path().into()),
             spec: E::default_spec(),
             initialized_validators: Some(initialized_validators.clone()),
             config: Config {
@@ -85,7 +89,7 @@ impl ApiTester {
 
         Self {
             initialized_validators,
-            _datadir: datadir,
+            _validator_dir: validator_dir,
             client,
             _server_shutdown: shutdown_tx,
         }
@@ -138,7 +142,6 @@ impl ApiTester {
         let initial_vals = self.vals_total();
         let initial_enabled_vals = self.vals_enabled();
 
-        let key_derivation_path_offset = 0;
         let validators = (0..s.count)
             .map(|i| ValidatorRequest {
                 enable: !s.disabled.contains(&i),
@@ -148,11 +151,11 @@ impl ApiTester {
             .collect::<Vec<_>>();
 
         // TODO: check mnemonic.
-        let (response, _mnemonic) = if s.specify_mnemonic {
+        let (response, mnemonic) = if s.specify_mnemonic {
             let mnemonic = random_mnemonic().phrase().to_string();
             let request = CreateValidatorsMnemonicRequest {
                 mnemonic: mnemonic.clone(),
-                key_derivation_path_offset,
+                key_derivation_path_offset: s.key_derivation_path_offset,
                 validators: validators.clone(),
             };
             let response = self
@@ -164,6 +167,10 @@ impl ApiTester {
 
             (response, mnemonic)
         } else {
+            assert_eq!(
+                s.key_derivation_path_offset, 0,
+                "cannot use a derivation offset without specifying a mnemonic"
+            );
             let response = self
                 .client
                 .post_lighthouse_validators(validators.clone())
@@ -189,6 +196,28 @@ impl ApiTester {
             assert!(server_vals
                 .iter()
                 .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey));
+        }
+
+        /*
+         * Verify that we can regenerate all the validator public keys from the mnemonic.
+         */
+
+        let mnemonic = mnemonic_from_phrase(&mnemonic).unwrap();
+        let mut wallet = WalletBuilder::from_mnemonic(&mnemonic, PASSWORD_BYTES, "".to_string())
+            .unwrap()
+            .build()
+            .unwrap();
+
+        wallet
+            .set_nextaccount(s.key_derivation_path_offset)
+            .unwrap();
+
+        for i in 0..s.count {
+            let keypairs = wallet
+                .next_validator(PASSWORD_BYTES, PASSWORD_BYTES, PASSWORD_BYTES)
+                .unwrap();
+            let voting_keypair = keypairs.voting.decrypt_keypair(PASSWORD_BYTES).unwrap();
+            assert_eq!(response[i].voting_pubkey, voting_keypair.pk.into());
         }
 
         self
@@ -294,6 +323,7 @@ impl ApiTester {
 struct HdValidatorScenario {
     count: usize,
     specify_mnemonic: bool,
+    key_derivation_path_offset: u32,
     disabled: Vec<usize>,
 }
 
@@ -321,6 +351,7 @@ async fn hd_validator_creation() {
         .create_hd_validators(HdValidatorScenario {
             count: 2,
             specify_mnemonic: true,
+            key_derivation_path_offset: 0,
             disabled: vec![],
         })
         .await
@@ -329,6 +360,7 @@ async fn hd_validator_creation() {
         .create_hd_validators(HdValidatorScenario {
             count: 1,
             specify_mnemonic: false,
+            key_derivation_path_offset: 0,
             disabled: vec![0],
         })
         .await
@@ -337,11 +369,35 @@ async fn hd_validator_creation() {
         .create_hd_validators(HdValidatorScenario {
             count: 0,
             specify_mnemonic: true,
+            key_derivation_path_offset: 4,
             disabled: vec![],
         })
         .await
         .assert_enabled_validators_count(2)
         .assert_validators_count(3);
+}
+
+#[tokio::test(core_threads = 2)]
+async fn validator_enabling() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2);
 }
 
 #[tokio::test(core_threads = 2)]
@@ -370,27 +426,5 @@ async fn keystore_validator_creation() {
         })
         .await
         .assert_enabled_validators_count(1)
-        .assert_validators_count(2);
-}
-
-#[tokio::test(core_threads = 2)]
-async fn validator_enabling() {
-    ApiTester::new()
-        .await
-        .create_hd_validators(HdValidatorScenario {
-            count: 2,
-            specify_mnemonic: false,
-            disabled: vec![],
-        })
-        .await
-        .assert_enabled_validators_count(2)
-        .assert_validators_count(2)
-        .set_validator_enabled(0, false)
-        .await
-        .assert_enabled_validators_count(1)
-        .assert_validators_count(2)
-        .set_validator_enabled(0, true)
-        .await
-        .assert_enabled_validators_count(2)
         .assert_validators_count(2);
 }
