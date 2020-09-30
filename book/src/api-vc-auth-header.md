@@ -33,8 +33,8 @@ api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123
 
 ### Method 2: Reading from logs
 
-When starting the validator client, the validator client will output a log
-message containing an `api-token` field:
+When starting the validator client it will output a log message containing an
+`api-token` field:
 
 ```
 Sep 28 19:17:52.615 INFO HTTP API started                        api_token: api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123, listen_address: 127.0.0.1:5062

@@ -156,7 +156,7 @@ impl Keystore {
         cipher: Cipher,
         uuid: Uuid,
         path: String,
-        name: String,
+        description: String,
     ) -> Result<Self, Error> {
         let secret: ZeroizeHash = keypair.sk.serialize();
 
@@ -185,8 +185,8 @@ impl Keystore {
                 path: Some(path),
                 pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
-                description: None,
-                name: Some(name),
+                description: Some(description),
+                name: None,
             },
         })
     }

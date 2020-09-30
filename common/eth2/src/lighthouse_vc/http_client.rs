@@ -1,4 +1,4 @@
-use super::types::*;
+use super::{types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
 use bytes::Bytes;
 use reqwest::{
@@ -11,10 +11,6 @@ use serde::{de::DeserializeOwned, Serialize};
 
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
-
-pub const PK_LEN: usize = 33;
-
-pub const SECRET_PREFIX: &str = "api-token-";
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).

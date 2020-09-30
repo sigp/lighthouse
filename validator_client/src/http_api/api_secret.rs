@@ -1,3 +1,4 @@
+use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
 use rand::thread_rng;
 use ring::digest::{digest, SHA256};
 use secp256k1::{Message, PublicKey, SecretKey};
@@ -21,16 +22,6 @@ pub const SK_LEN: usize = 32;
 /// value in a public forum.
 pub const PK_FILENAME: &str = "api-token.txt";
 
-/// Length of the raw public key, in bytes.
-pub const PK_LEN: usize = 33;
-
-/// The prefix that will be applied to the 0x-prefixed hex bytes when the public key is saved to a
-/// file on disk or presented via a HTTP request.
-///
-/// This prefix helps users distinguish this value from other 0x-prefixed hex strings like a hash
-/// or validator public key.
-pub const PK_PREFIX: &str = "api-token-";
-
 /// Contains a `secp256k1` keypair that is saved-to/loaded-from disk on instantiation. The keypair
 /// is used for authorization/authentication for requests/responses on the HTTP API.
 ///
@@ -45,7 +36,6 @@ pub const PK_PREFIX: &str = "api-token-";
 ///  https://github.com/sigp/lighthouse/issues/1269#issuecomment-649879855
 pub struct ApiSecret {
     pk: PublicKey,
-    // TODO: zeroize?
     sk: SecretKey,
 }
 

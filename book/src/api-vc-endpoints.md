@@ -183,6 +183,7 @@ Validators are generated from the mnemonic according to
 | Property | Specification |
 | --- |--- |
 Path | `/lighthouse/validators`
+Method | POST
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 200
 
