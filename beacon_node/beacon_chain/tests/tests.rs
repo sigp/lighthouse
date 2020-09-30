@@ -357,11 +357,10 @@ fn roundtrip_operation_pool() {
         .persist_op_pool()
         .expect("should persist op pool");
 
-    let key = Hash256::from_slice(&OP_POOL_DB_KEY);
     let restored_op_pool = harness
         .chain
         .store
-        .get_item::<PersistedOperationPool<MinimalEthSpec>>(&key)
+        .get_item::<PersistedOperationPool<MinimalEthSpec>>(&OP_POOL_DB_KEY)
         .expect("should read db")
         .expect("should find op pool")
         .into_operation_pool();

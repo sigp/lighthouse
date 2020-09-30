@@ -267,7 +267,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
-                       DO NOT DECREASE AFTER INITIALIZATION. [default: 2048 (mainnet) or 64 (minimal)]")
+                       Cannot be changed after initialization. \
+                       [default: 2048 (mainnet) or 64 (minimal)]")
                 .takes_value(true)
         )
         .arg(
