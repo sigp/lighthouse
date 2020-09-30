@@ -3376,12 +3376,6 @@ dependencies = [
 
 [[package]]
 name = "nom"
-version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf51a729ecf40266a2368ad335a5fdde43471f545a967109cd62146ecf8b66ff"
-
-[[package]]
-name = "nom"
 version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05aec50c70fd288702bcd93284a8444607f3292dbdf2a30de5ea5dcdbe72287b"
@@ -3834,18 +3828,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36e28516df94f3dd551a587da5357459d9b36d945a7c37c3557928c1c2ff2a2c"
 dependencies = [
  "unicode-xid",
-]
-
-[[package]]
-name = "procinfo"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ab1427f3d2635891f842892dda177883dca0639e05fe66796a62c9d2f23b49c"
-dependencies = [
- "byteorder",
- "libc",
- "nom 2.2.1",
- "rustc_version",
 ]
 
 [[package]]
@@ -4312,7 +4294,6 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "hyper 0.13.7",
- "procinfo",
  "psutil",
  "rayon",
  "serde",
@@ -5220,7 +5201,7 @@ dependencies = [
  "chrono",
  "lazy_static",
  "libc",
- "nom 3.2.1",
+ "nom",
  "time 0.1.44",
  "winapi 0.3.9",
 ]
