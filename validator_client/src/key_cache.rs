@@ -304,7 +304,6 @@ mod tests {
         let keypairs = vec![Keypair::random(), Keypair::random()];
         let uuids = vec![Uuid::from_u128(1), Uuid::from_u128(2)];
         let passwords = vec![vec![1, 2, 3, 4, 5, 6], vec![7, 8, 9, 10, 11, 12]];
-        let uuid2 = Uuid::from_u128(2);
 
         for ((keypair, uuid), password) in keypairs.iter().zip(uuids.iter()).zip(passwords.iter()) {
             key_cache.add(keypair.clone(), uuid, password.clone());
