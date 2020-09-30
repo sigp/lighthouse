@@ -154,7 +154,7 @@ pub enum DBColumn {
 }
 
 impl Into<&'static str> for DBColumn {
-    /// Returns a `&str` that can be used for keying a key-value data base.
+    /// Returns a `&str` prefix to be added to keys before they hit the key-value database.
     fn into(self) -> &'static str {
         match self {
             DBColumn::BeaconMeta => "bma",

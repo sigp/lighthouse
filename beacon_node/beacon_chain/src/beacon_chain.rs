@@ -66,10 +66,11 @@ pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// validator pubkey cache.
 pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
-pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
-pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
-pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
-pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
+// These keys are all zero because they get stored in different columns, see `DBColumn` type.
+pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
+pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
+pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
+pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 
 /// The result of a chain segment processing.
 pub enum ChainSegmentResult<T: EthSpec> {
@@ -260,7 +261,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let fork_choice = self.fork_choice.read();
 
         self.store.put_item(
-            &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
+            &FORK_CHOICE_DB_KEY,
             &PersistedForkChoice {
                 fork_choice: fork_choice.to_persisted(),
                 fork_choice_store: fork_choice.fc_store().to_persisted(),
@@ -272,8 +273,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(fork_choice_timer);
         let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
 
-        self.store
-            .put_item(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
+        self.store.put_item(&BEACON_CHAIN_DB_KEY, &persisted_head)?;
 
         metrics::stop_timer(head_timer);
 
@@ -290,7 +290,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         self.store.put_item(
-            &Hash256::from_slice(&OP_POOL_DB_KEY),
+            &OP_POOL_DB_KEY,
             &PersistedOperationPool::from_operation_pool(&self.op_pool),
         )?;
 
@@ -302,10 +302,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
-            self.store.put_item(
-                &Hash256::from_slice(&ETH1_CACHE_DB_KEY),
-                &eth1_chain.as_ssz_container(),
-            )?;
+            self.store
+                .put_item(&ETH1_CACHE_DB_KEY, &eth1_chain.as_ssz_container())?;
         }
 
         Ok(())
