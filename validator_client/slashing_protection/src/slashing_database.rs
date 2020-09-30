@@ -52,7 +52,7 @@ impl SlashingDatabase {
         conn.execute(
             "CREATE TABLE validators (
                 id INTEGER PRIMARY KEY,
-                public_key BLOB NOT NULL
+                public_key BLOB NOT NULL UNIQUE
             )",
             params![],
         )?;
@@ -144,15 +144,25 @@ impl SlashingDatabase {
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
-        {
-            let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
+        self.register_validators_in_txn(&txn, public_keys)?;
+        txn.commit()?;
+        Ok(())
+    }
 
-            for pubkey in public_keys {
+    /// Register multiple validators inside the given transaction.
+    ///
+    /// The caller must commit the transaction for the changes to be persisted.
+    pub fn register_validators_in_txn<'a>(
+        &self,
+        txn: &Transaction,
+        public_keys: impl Iterator<Item = &'a PublicKey>,
+    ) -> Result<(), NotSafe> {
+        let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
+        for pubkey in public_keys {
+            if self.get_validator_id_opt(&txn, pubkey)?.is_none() {
                 stmt.execute(&[pubkey.to_hex_string()])?;
             }
         }
-        txn.commit()?;
-
         Ok(())
     }
 
@@ -160,14 +170,34 @@ impl SlashingDatabase {
     ///
     /// This is NOT the same as a validator index, and depends on the ordering that validators
     /// are registered with the slashing protection database (and may vary between machines).
-    fn get_validator_id(txn: &Transaction, public_key: &PublicKey) -> Result<i64, NotSafe> {
-        txn.query_row(
-            "SELECT id FROM validators WHERE public_key = ?1",
-            params![&public_key.to_hex_string()],
-            |row| row.get(0),
-        )
-        .optional()?
-        .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
+    pub fn get_validator_id(&self, public_key: &PublicKey) -> Result<i64, NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+        self.get_validator_id_in_txn(&txn, public_key)
+    }
+
+    fn get_validator_id_in_txn(
+        &self,
+        txn: &Transaction,
+        public_key: &PublicKey,
+    ) -> Result<i64, NotSafe> {
+        self.get_validator_id_opt(txn, public_key)?
+            .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
+    }
+
+    /// Optional version of `get_validator_id`.
+    fn get_validator_id_opt(
+        &self,
+        txn: &Transaction,
+        public_key: &PublicKey,
+    ) -> Result<Option<i64>, NotSafe> {
+        Ok(txn
+            .query_row(
+                "SELECT id FROM validators WHERE public_key = ?1",
+                params![&public_key.to_hex_string()],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     /// Check a block proposal from `validator_pubkey` for slash safety.
@@ -178,7 +208,7 @@ impl SlashingDatabase {
         block_header: &BeaconBlockHeader,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
-        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
+        let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
         let existing_block = txn
             .prepare(
@@ -226,7 +256,7 @@ impl SlashingDatabase {
             ));
         }
 
-        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
+        let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
         // 1. Check for a double vote. Namely, an existing attestation with the same target epoch,
         //    and a different signing root.
@@ -314,7 +344,7 @@ impl SlashingDatabase {
         block_header: &BeaconBlockHeader,
         domain: Hash256,
     ) -> Result<(), NotSafe> {
-        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
+        let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
         txn.execute(
             "INSERT INTO signed_blocks (validator_id, slot, signing_root)
@@ -339,7 +369,7 @@ impl SlashingDatabase {
         attestation: &AttestationData,
         domain: Hash256,
     ) -> Result<(), NotSafe> {
-        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
+        let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
         txn.execute(
             "INSERT INTO signed_attestations (validator_id, source_epoch, target_epoch, signing_root)

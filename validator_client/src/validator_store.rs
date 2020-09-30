@@ -1,10 +1,8 @@
 use crate::{
-    config::{Config, SLASHING_PROTECTION_FILENAME},
-    fork_service::ForkService,
-    initialized_validators::InitializedValidators,
+    config::Config, fork_service::ForkService, initialized_validators::InitializedValidators,
 };
 use parking_lot::RwLock;
-use slashing_protection::{NotSafe, Safe, SlashingDatabase};
+use slashing_protection::{NotSafe, Safe, SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;

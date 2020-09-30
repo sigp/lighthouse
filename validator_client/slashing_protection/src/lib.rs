@@ -1,6 +1,7 @@
 mod attestation_tests;
 mod block_tests;
 mod parallel_tests;
+mod registration_tests;
 mod signed_attestation;
 mod signed_block;
 mod slashing_database;
@@ -13,6 +14,9 @@ use rusqlite::Error as SQLError;
 use std::io::{Error as IOError, ErrorKind};
 use std::string::ToString;
 use types::{Hash256, PublicKey};
+
+/// The filename within the `validators` directory that contains the slashing protection DB.
+pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
 /// The attestation or block is not safe to sign.
 ///

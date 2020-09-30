@@ -69,6 +69,23 @@ fn dir_child_count<P: AsRef<Path>>(dir: P) -> usize {
     fs::read_dir(dir).expect("should read dir").count()
 }
 
+/// Returns the number of 0x-prefixed children in a directory
+/// i.e. validators in the validators dir.
+fn dir_validator_count<P: AsRef<Path>>(dir: P) -> usize {
+    fs::read_dir(dir)
+        .unwrap()
+        .filter(|c| {
+            c.as_ref()
+                .unwrap()
+                .path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("0x")
+        })
+        .count()
+}
+
 /// Uses `lighthouse account wallet list` to list all wallets.
 fn list_wallets<P: AsRef<Path>>(base_dir: P) -> Vec<String> {
     let output = output_result(
@@ -328,19 +345,30 @@ fn validator_create() {
     let wallet = TestWallet::new(base_dir.path(), "wally");
     wallet.create_expect_success();
 
-    assert_eq!(dir_child_count(validator_dir.path()), 0);
+    assert_eq!(dir_validator_count(validator_dir.path()), 0);
 
     let validator = TestValidator::new(validator_dir.path(), secrets_dir.path(), wallet);
 
     // Create a validator _without_ storing the withdraw key.
     validator.create_expect_success(COUNT_FLAG, 1, false);
 
-    assert_eq!(dir_child_count(validator_dir.path()), 1);
+    // Slashing protection database should be created.
+    assert!(
+        validator_dir
+            .path()
+            .join("slashing_protection.sqlite")
+            .exists(),
+        "slashing protection DB should have been created"
+    );
+
+    // Number of dir entries should be #validators + 1 for the slashing protection DB
+    assert_eq!(dir_validator_count(validator_dir.path()), 1);
+    assert_eq!(dir_child_count(validator_dir.path()), 2);
 
     // Create a validator storing the withdraw key.
     validator.create_expect_success(COUNT_FLAG, 1, true);
 
-    assert_eq!(dir_child_count(validator_dir.path()), 2);
+    assert_eq!(dir_validator_count(validator_dir.path()), 2);
 
     // Use the at-most flag with less validators then are in the directory.
     assert_eq!(
@@ -348,7 +376,7 @@ fn validator_create() {
         0
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 2);
+    assert_eq!(dir_validator_count(validator_dir.path()), 2);
 
     // Use the at-most flag with the same number of validators that are in the directory.
     assert_eq!(
@@ -356,7 +384,7 @@ fn validator_create() {
         0
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 2);
+    assert_eq!(dir_validator_count(validator_dir.path()), 2);
 
     // Use the at-most flag with two more number of validators than are in the directory.
     assert_eq!(
@@ -364,7 +392,7 @@ fn validator_create() {
         2
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 4);
+    assert_eq!(dir_validator_count(validator_dir.path()), 4);
 
     // Create multiple validators with the count flag.
     assert_eq!(
@@ -372,7 +400,7 @@ fn validator_create() {
         2
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 6);
+    assert_eq!(dir_validator_count(validator_dir.path()), 6);
 }
 
 #[test]

@@ -10,8 +10,6 @@ use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
-/// Path to the slashing protection database within the datadir.
-pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
