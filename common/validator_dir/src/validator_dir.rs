@@ -2,13 +2,14 @@ use crate::builder::{
     ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE,
 };
-use deposit_contract::decode_eth1_tx_data;
+use bls::get_withdrawal_credentials;
+use deposit_contract::{decode_eth1_tx_data, encode_eth1_tx_data, Error as DepositError};
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use std::fs::{read, remove_file, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
-use types::{DepositData, Hash256, Keypair};
+use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
 
 /// The file used for indicating if a directory is in-use by another process.
 const LOCK_FILE: &str = ".lock";
@@ -27,6 +28,7 @@ pub enum Error {
     UnableToReadPassword(PathBuf),
     UnableToDecryptKeypair(KeystoreError),
     UnableToReadDepositData(io::Error),
+    UnableToEncodeDeposit(DepositError),
     DepositDataMissing0xPrefix,
     DepositDataNotUtf8,
     DepositDataInvalidHex(hex::FromHexError),
@@ -186,19 +188,46 @@ impl ValidatorDir {
         write(path, tx_hash.as_bytes()).map_err(Error::UnableToWriteEth1TxHash)
     }
 
+    /// Generate deposit data given the voting and withdrawal keypairs given the
+    /// topup amount.
+    pub fn eth1_deposit_data_topup(
+        &self,
+        amount: u64,
+        voting_keypair: &Keypair,
+        withdrawal_keypair: &Keypair,
+        spec: &ChainSpec,
+    ) -> Result<Eth1DepositData, Error> {
+        let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
+            &withdrawal_keypair.pk,
+            spec.bls_withdrawal_prefix_byte,
+        ));
+
+        let mut deposit_data = DepositData {
+            pubkey: voting_keypair.pk.clone().into(),
+            withdrawal_credentials,
+            amount,
+            signature: Signature::empty().into(),
+        };
+
+        deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
+
+        let rlp = encode_eth1_tx_data(&deposit_data).map_err(Error::UnableToEncodeDeposit)?;
+        let root = deposit_data.tree_hash_root();
+        Ok(Eth1DepositData {
+            rlp,
+            deposit_data,
+            root,
+        })
+    }
+
     /// Attempts to read files in `self.dir` and return an `Eth1DepositData` that can be used for
     /// submitting an Eth1 deposit.
-    /// Also takes in an optional deposit amount value. If present, we set the deposit amount to be
-    /// the value, else we try to read from the `ETH1_DEPOSIT_AMOUNT_FILE`.
     ///
     /// ## Errors
     ///
     /// If there is a file-system error, not all required files exist or the files are
     /// inconsistent.
-    pub fn eth1_deposit_data(
-        &self,
-        deposit_amount: Option<u64>,
-    ) -> Result<Option<Eth1DepositData>, Error> {
+    pub fn eth1_deposit_data(&self) -> Result<Option<Eth1DepositData>, Error> {
         // Read and parse `ETH1_DEPOSIT_DATA_FILE`.
         let path = self.dir.join(ETH1_DEPOSIT_DATA_FILE);
         if !path.exists() {
@@ -220,14 +249,11 @@ impl ValidatorDir {
         if !path.exists() {
             return Err(Error::DepositAmountDoesNotExist(path));
         }
-        let deposit_amount: u64 = if let Some(amount) = deposit_amount {
-            amount
-        } else {
+        let deposit_amount: u64 =
             String::from_utf8(read(path).map_err(Error::UnableToReadDepositAmount)?)
                 .map_err(Error::DepositAmountIsNotUtf8)?
                 .parse()
-                .map_err(Error::UnableToParseDepositAmount)?
-        };
+                .map_err(Error::UnableToParseDepositAmount)?;
 
         let (deposit_data, root) = decode_eth1_tx_data(&deposit_data_rlp, deposit_amount)
             .map_err(Error::UnableToParseDepositData)?;
