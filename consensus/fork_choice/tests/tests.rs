@@ -161,7 +161,7 @@ impl ForkChoiceTest {
         self
     }
 
-    /// Build the chain whilst `predicate` returns `true` and process_block_result does not error.
+    /// Build the chain whilst `predicate` returns `true` and `process_block_result` does not error.
     pub fn apply_blocks_while<F>(mut self, mut predicate: F) -> Self
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
