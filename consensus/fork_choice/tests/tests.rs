@@ -946,7 +946,8 @@ fn can_read_finalized_block() {
 }
 
 #[test]
-fn weak_subjectivity_fail() {
+#[should_panic]
+fn weak_subjectivity_fail_on_startup() {
     let epoch = Epoch::new(0);
     let root = Hash256::from_low_u64_le(1);
 
@@ -955,14 +956,11 @@ fn weak_subjectivity_fail() {
         import_max_skip_slots: None,
     };
 
-    ForkChoiceTest::new_with_chain_config(chain_config)
-        .apply_blocks(E::slots_per_epoch() as usize)
-        .assert_head_slot_greater_than(epoch.start_slot(E::slots_per_epoch()))
-        .assert_shutdown_signal_sent();
+    ForkChoiceTest::new_with_chain_config(chain_config);
 }
 
 #[test]
-fn weak_subjectivity_pass() {
+fn weak_subjectivity_pass_on_startup() {
     let epoch = Epoch::new(0);
     let root = Hash256::zero();
 
