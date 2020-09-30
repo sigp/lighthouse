@@ -603,7 +603,7 @@ where
                 &head.beacon_state,
             ) {
                 crit!(
-                    self.log,
+                    log,
                     "Weak subjectivity checkpoint verification failed on startup!";
                     "head_block_root" => format!("{}", head.beacon_block_root),
                     "head_slot" => format!("{}", head.beacon_block.slot()),
@@ -611,8 +611,8 @@ where
                     "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
                     "error" => format!("{:?}", e),
                 );
-                crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
-                Err(format!("Weak subjectivity verification failed: {:?}", e))
+                crit!(log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                return Err(format!("Weak subjectivity verification failed: {:?}", e));
             }
         }
 
