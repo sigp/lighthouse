@@ -1,4 +1,4 @@
-use crate::config::DEFAULT_HTTP_SERVER;
+use crate::config::DEFAULT_BEACON_NODE;
 use clap::{App, Arg};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -13,7 +13,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to connect to BeaconNode.")
-                .default_value(&DEFAULT_HTTP_SERVER)
+                .default_value(&DEFAULT_BEACON_NODE)
                 .takes_value(true),
         )
         .arg(

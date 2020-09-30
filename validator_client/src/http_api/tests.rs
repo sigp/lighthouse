@@ -31,7 +31,6 @@ struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     url: Url,
-    api_pubkey: String,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
 }
@@ -88,23 +87,21 @@ impl ApiTester {
         ))
         .unwrap();
 
-        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey.clone()).unwrap();
+        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey).unwrap();
 
         Self {
             initialized_validators,
             _validator_dir: validator_dir,
             client,
             url,
-            api_pubkey,
             _server_shutdown: shutdown_tx,
         }
     }
 
     pub fn invalidate_api_token(mut self) -> Self {
-        let mut invalid_pubkey = self.api_pubkey.clone();
-        invalid_pubkey.pop();
-        invalid_pubkey.push('0');
-        assert!(self.api_pubkey != invalid_pubkey);
+        let tmp = tempdir().unwrap();
+        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let invalid_pubkey = api_secret.api_token();
 
         self.client = ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap();
         self
