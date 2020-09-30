@@ -7,6 +7,7 @@ use crate::{
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
 };
+use deposit_contract::decode_eth1_tx_data;
 use environment::null_logger;
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
@@ -199,7 +200,7 @@ impl ApiTester {
         }
 
         /*
-         * Verify that we can regenerate all the validator public keys from the mnemonic.
+         * Verify that we can regenerate all the keys from the mnemonic.
          */
 
         let mnemonic = mnemonic_from_phrase(&mnemonic).unwrap();
@@ -217,7 +218,42 @@ impl ApiTester {
                 .next_validator(PASSWORD_BYTES, PASSWORD_BYTES, PASSWORD_BYTES)
                 .unwrap();
             let voting_keypair = keypairs.voting.decrypt_keypair(PASSWORD_BYTES).unwrap();
-            assert_eq!(response[i].voting_pubkey, voting_keypair.pk.into());
+
+            assert_eq!(
+                response[i].voting_pubkey,
+                voting_keypair.pk.clone().into(),
+                "the locally generated voting pk should match the server response"
+            );
+
+            let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
+
+            let deposit_bytes =
+                serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
+
+            let (deposit_data, _) =
+                decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
+                    .unwrap();
+
+            assert_eq!(
+                deposit_data.pubkey,
+                voting_keypair.pk.clone().into(),
+                "the locally generated voting pk should match the deposit data"
+            );
+
+            assert_eq!(
+                deposit_data.withdrawal_credentials,
+                Hash256::from_slice(&bls::get_withdrawal_credentials(
+                    &withdrawal_keypair.pk,
+                    E::default_spec().bls_withdrawal_prefix_byte
+                )),
+                "the locally generated withdrawal creds should match the deposit data"
+            );
+
+            assert_eq!(
+                deposit_data.signature,
+                deposit_data.create_signature(&voting_keypair.sk, &E::default_spec()),
+                "the locally-generated deposit sig should create the same deposit sig"
+            );
         }
 
         self
