@@ -3,6 +3,7 @@ pub mod deposit;
 pub mod import;
 pub mod list;
 pub mod recover;
+pub mod slashing_protection;
 
 use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
@@ -33,6 +34,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(import::cli_app())
         .subcommand(list::cli_app())
         .subcommand(recover::cli_app())
+        .subcommand(slashing_protection::cli_app())
 }
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
@@ -50,6 +52,9 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
         (import::CMD, Some(matches)) => import::cli_run(matches, validator_base_dir),
         (list::CMD, Some(_)) => list::cli_run(validator_base_dir),
         (recover::CMD, Some(matches)) => recover::cli_run(matches, validator_base_dir),
+        (slashing_protection::CMD, Some(matches)) => {
+            slashing_protection::cli_run(matches, env, validator_base_dir)
+        }
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown

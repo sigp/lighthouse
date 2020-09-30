@@ -6,4 +6,4 @@ target/
 flamegraph.svg
 perf.data*
 *.tar.gz
-bin/
+./bin
