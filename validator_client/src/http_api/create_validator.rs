@@ -13,6 +13,7 @@ use validator_dir::Builder as ValidatorDirBuilder;
 
 pub fn create_validators<P: AsRef<Path>>(
     mnemonic_opt: Option<Mnemonic>,
+    key_derivation_path_offset: Option<u32>,
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
     initialized_validators: &RwLock<InitializedValidators>,
@@ -30,6 +31,12 @@ pub fn create_validators<P: AsRef<Path>>(
                     e
                 ))
             })?;
+
+    if let Some(nextaccount) = key_derivation_path_offset {
+        wallet.set_nextaccount(nextaccount).map_err(|()| {
+            warp_utils::reject::custom_server_error("unable to set wallet nextaccount".to_string())
+        })?;
+    }
 
     let mut validators = Vec::with_capacity(validator_requests.len());
 

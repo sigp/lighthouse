@@ -215,6 +215,23 @@ impl Wallet {
         self.json.nextaccount
     }
 
+    /// Sets the value of the JSON wallet `nextaccount` field.
+    ///
+    /// This will be the index of the next wallet generated with `Self::next_validator`.
+    ///
+    /// ## Returns
+    ///
+    /// Returns `None` if `nextaccount` is less than `self.nextaccount()` and does not change the
+    /// value. This is to protect against duplicate validator generation.
+    pub fn set_nextaccount(&mut self, nextaccount: u32) -> Result<(), ()> {
+        if nextaccount >= self.nextaccount() {
+            self.json.nextaccount = nextaccount;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
     /// Returns the value of the JSON wallet `name` field.
     pub fn name(&self) -> &str {
         &self.json.name

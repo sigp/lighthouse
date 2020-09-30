@@ -265,6 +265,7 @@ pub fn serve<T: EthSpec>(
                 blocking_signed_json_task(signer, move || {
                     let (validators, mnemonic) = create_validators(
                         None,
+                        None,
                         &body,
                         &validator_dir,
                         &initialized_validators,
@@ -301,6 +302,7 @@ pub fn serve<T: EthSpec>(
                     })?;
                     let (validators, _mnemonic) = create_validators(
                         Some(mnemonic),
+                        Some(body.key_derivation_path_offset),
                         &body.validators,
                         &validator_dir,
                         &initialized_validators,

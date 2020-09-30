@@ -25,8 +25,8 @@ pub struct ValidatorRequest {
 #[zeroize(drop)]
 pub struct CreateValidatorsMnemonicRequest {
     pub mnemonic: String,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub key_derivation_path_offset: u64,
+    #[serde(with = "serde_utils::quoted_u32")]
+    pub key_derivation_path_offset: u32,
     pub validators: Vec<ValidatorRequest>,
 }
 
