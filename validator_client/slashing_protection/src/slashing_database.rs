@@ -151,7 +151,7 @@ impl SlashingDatabase {
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
-        self.register_validators_in_txn(&txn, public_keys)?;
+        self.register_validators_in_txn(public_keys, &txn)?;
         txn.commit()?;
         Ok(())
     }
@@ -161,8 +161,8 @@ impl SlashingDatabase {
     /// The caller must commit the transaction for the changes to be persisted.
     pub fn register_validators_in_txn<'a>(
         &self,
-        txn: &Transaction,
         public_keys: impl Iterator<Item = &'a PublicKey>,
+        txn: &Transaction,
     ) -> Result<(), NotSafe> {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
         for pubkey in public_keys {
@@ -459,14 +459,29 @@ impl SlashingDatabase {
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        let safe = self.check_and_insert_block_signing_root_txn(
+            validator_pubkey,
+            slot,
+            signing_root,
+            &txn,
+        )?;
+        txn.commit()?;
+        Ok(safe)
+    }
 
+    /// Transactional variant of `check_and_insert_block_signing_root`.
+    pub fn check_and_insert_block_signing_root_txn(
+        &self,
+        validator_pubkey: &PublicKey,
+        slot: Slot,
+        signing_root: Hash256,
+        txn: &Transaction,
+    ) -> Result<Safe, NotSafe> {
         let safe = self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
 
         if safe != Safe::SameData {
             self.insert_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
         }
-
-        txn.commit()?;
         Ok(safe)
     }
 
@@ -501,7 +516,26 @@ impl SlashingDatabase {
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        let safe = self.check_and_insert_attestation_signing_root_txn(
+            validator_pubkey,
+            att_source_epoch,
+            att_target_epoch,
+            att_signing_root,
+            &txn,
+        )?;
+        txn.commit()?;
+        Ok(safe)
+    }
 
+    /// Transactional variant of `check_and_insert_attestation_signing_root`.
+    fn check_and_insert_attestation_signing_root_txn(
+        &self,
+        validator_pubkey: &PublicKey,
+        att_source_epoch: Epoch,
+        att_target_epoch: Epoch,
+        att_signing_root: Hash256,
+        txn: &Transaction,
+    ) -> Result<Safe, NotSafe> {
         let safe = self.check_attestation(
             &txn,
             validator_pubkey,
@@ -519,8 +553,6 @@ impl SlashingDatabase {
                 att_signing_root,
             )?;
         }
-
-        txn.commit()?;
         Ok(safe)
     }
 
@@ -542,29 +574,35 @@ impl SlashingDatabase {
             });
         }
 
-        // TODO: it might be nice to make this whole operation atomic (one transaction)
+        // Import atomically, to prevent registering validators with partial information.
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+
         for record in &interchange.data {
-            self.register_validator(&record.pubkey)?;
+            self.register_validators_in_txn(std::iter::once(&record.pubkey), &txn)?;
 
             // Insert all signed blocks.
             for block in &record.signed_blocks {
-                self.check_and_insert_block_signing_root(
+                self.check_and_insert_block_signing_root_txn(
                     &record.pubkey,
                     block.slot,
                     block.signing_root.unwrap_or_else(Hash256::zero),
+                    &txn,
                 )?;
             }
 
             // Insert all signed attestations.
             for attestation in &record.signed_attestations {
-                self.check_and_insert_attestation_signing_root(
+                self.check_and_insert_attestation_signing_root_txn(
                     &record.pubkey,
                     attestation.source_epoch,
                     attestation.target_epoch,
                     attestation.signing_root.unwrap_or_else(Hash256::zero),
+                    &txn,
                 )?;
             }
         }
+        txn.commit()?;
 
         Ok(())
     }
@@ -633,7 +671,7 @@ impl SlashingDatabase {
             .into_iter()
             .map(|(pubkey, (signed_blocks, signed_attestations))| {
                 Ok(CompleteInterchangeData {
-                    pubkey: pubkey_from_str(&pubkey)?,
+                    pubkey: pubkey.parse().map_err(InterchangeError::InvalidPubkey)?,
                     signed_blocks,
                     signed_attestations,
                 })
@@ -653,11 +691,6 @@ impl SlashingDatabase {
     }
 }
 
-// XXX: this is quite hacky
-fn pubkey_from_str(s: &str) -> Result<PublicKey, serde_json::Error> {
-    serde_json::from_str(&format!("\"{}\"", s))
-}
-
 #[derive(Debug)]
 pub enum InterchangeError {
     UnsupportedVersion(u64),
@@ -669,6 +702,7 @@ pub enum InterchangeError {
     SQLError(String),
     SQLPoolError(r2d2::Error),
     SerdeJsonError(serde_json::Error),
+    InvalidPubkey(String),
     NotSafe(NotSafe),
 }
 

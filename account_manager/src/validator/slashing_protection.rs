@@ -85,12 +85,27 @@ pub fn cli_run<T: EthSpec>(
 
             slashing_protection_database
                 .import_interchange_info(&interchange, genesis_validators_root)
-                .map_err(|e| format!("Error during import: {:?}", e))?;
+                .map_err(|e| {
+                    format!(
+                        "Error during import, no data imported: {:?}\n\
+                         IT IS NOT SAFE TO START VALIDATING",
+                        e
+                    )
+                })?;
+
+            eprintln!("Import completed successfully");
 
             Ok(())
         }
         (EXPORT_CMD, Some(matches)) => {
             let export_filename: PathBuf = clap_utils::parse_required(&matches, EXPORT_FILE_ARG)?;
+
+            if !slashing_protection_db_path.exists() {
+                return Err(format!(
+                    "No slashing protection database exists at: {}",
+                    slashing_protection_db_path.display()
+                ));
+            }
 
             let slashing_protection_database = SlashingDatabase::open(&slashing_protection_db_path)
                 .map_err(|e| {
@@ -111,6 +126,8 @@ pub fn cli_run<T: EthSpec>(
             interchange
                 .write_to(&output_file)
                 .map_err(|e| format!("Error writing output file: {:?}", e))?;
+
+            eprintln!("Export completed successfully");
 
             Ok(())
         }
