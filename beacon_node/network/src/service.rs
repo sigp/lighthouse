@@ -281,6 +281,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 trace!(service.log, "Propagating gossipsub message";
                                     "propagation_peer" => format!("{:?}", propagation_source),
                                     "message_id" => message_id.to_string(),
+                                    "validation_result" => format!("{:?}", validation_result)
                                 );
                                 service
                                     .libp2p
