@@ -37,7 +37,7 @@ struct ForkChoiceTest {
     harness: BeaconChainHarness<NullMigratorEphemeralHarnessType<E>>,
 }
 
-/// Allows use to use `unwrap` in some cases.
+/// Allows us to use `unwrap` in some cases.
 impl fmt::Debug for ForkChoiceTest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ForkChoiceTest").finish()
