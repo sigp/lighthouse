@@ -40,3 +40,4 @@ serde = "1.0.110"
 clap_utils = { path = "../common/clap_utils" }
 hyper = "0.13.5"
 lighthouse_version = { path = "../common/lighthouse_version" }
+hex = "0.4.2"

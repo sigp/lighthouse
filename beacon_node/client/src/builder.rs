@@ -412,6 +412,12 @@ where
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
     pub fn build_beacon_chain(mut self) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "beacon_chain requires a runtime context")?
+            .clone();
+
         let chain = self
             .beacon_chain_builder
             .ok_or_else(|| "beacon_chain requires a beacon_chain_builder")?
@@ -424,6 +430,7 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
+            .shutdown_sender(context.executor.shutdown_sender())
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 

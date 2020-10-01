@@ -18,3 +18,4 @@ beacon_chain = { path = "../../beacon_node/beacon_chain" }
 store = { path = "../../beacon_node/store" }
 tree_hash = { path = "../../consensus/tree_hash" }
 slot_clock = { path = "../../common/slot_clock" }
+hex = "0.4.2"

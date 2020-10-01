@@ -47,6 +47,9 @@ mod tests {
             let store =
                 HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone())
                     .unwrap();
+
+            let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+
             let chain = Arc::new(
                 BeaconChainBuilder::new(MinimalEthSpec)
                     .logger(log.clone())
@@ -67,6 +70,7 @@ mod tests {
                         Duration::from_secs(recent_genesis_time()),
                         Duration::from_millis(SLOT_DURATION_MILLIS),
                     ))
+                    .shutdown_sender(shutdown_tx)
                     .build()
                     .expect("should build"),
             );
