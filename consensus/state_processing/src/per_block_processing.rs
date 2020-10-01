@@ -368,7 +368,7 @@ pub fn process_attestations<T: EthSpec>(
         let pending_attestation = PendingAttestation {
             aggregation_bits: attestation.aggregation_bits.clone(),
             data: attestation.data.clone(),
-            inclusion_delay: (state.slot - attestation.data.slot).as_u64(),
+            inclusion_delay: state.slot.safe_sub(attestation.data.slot)?.as_u64(),
             proposer_index,
         };
 
@@ -444,16 +444,8 @@ pub fn process_deposit<T: EthSpec>(
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    state.eth1_deposit_index.increment()?;
+    state.eth1_deposit_index.safe_add_assign(1)?;
 
-    // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
-    // depositing validator already exists in the registry.
-    state.update_pubkey_cache()?;
-
-    let pubkey: PublicKey = match deposit.data.pubkey.decompress() {
-        Err(_) => return Ok(()), //bad public key => return early
-        Ok(k) => k,
-    };
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
     let validator_index = get_existing_validator_index(state, &deposit.data.pubkey)
@@ -473,7 +465,7 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey: pubkey.into(),
+            pubkey: deposit.data.pubkey.clone(),
             withdrawal_credentials: deposit.data.withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,

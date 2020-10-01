@@ -1,5 +1,6 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
+use crate::rpc::methods::ErrorType;
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
@@ -8,12 +9,12 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::EthSpec;
 
 pub trait OutboundCodec<TItem>: Encoder<TItem> + Decoder {
-    type ErrorType;
+    type CodecErrorType;
 
     fn decode_error(
         &mut self,
         src: &mut BytesMut,
-    ) -> Result<Option<Self::ErrorType>, <Self as Decoder>::Error>;
+    ) -> Result<Option<Self::CodecErrorType>, <Self as Decoder>::Error>;
 }
 
 /* Global Inbound Codec */
@@ -130,8 +131,8 @@ where
 impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec:
-        OutboundCodec<RPCRequest<TSpec>, ErrorType = String> + Decoder<Item = RPCResponse<TSpec>>,
+    TCodec: OutboundCodec<RPCRequest<TSpec>, CodecErrorType = ErrorType>
+        + Decoder<Item = RPCResponse<TSpec>>,
 {
     type Item = RPCCodedResponse<TSpec>;
     type Error = <TCodec as Decoder>::Error;

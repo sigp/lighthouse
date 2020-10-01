@@ -15,7 +15,7 @@ rayon = "1.3.0"
 
 [dependencies]
 db-key = "0.0.5"
-leveldb = "0.8.5"
+leveldb = "0.8.6"
 parking_lot = "0.11.0"
 itertools = "0.9.0"
 eth2_ssz = "0.1.2"

@@ -1,5 +1,5 @@
 use crate::types::GossipKind;
-use crate::Enr;
+use crate::{Enr, PeerIdSerialized};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
@@ -58,6 +58,9 @@ pub struct Config {
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
 
+    /// List of trusted libp2p nodes which are not scored.
+    pub trusted_peers: Vec<PeerIdSerialized>,
+
     /// Client version
     pub client_version: String,
 
@@ -75,23 +78,10 @@ impl Default for Config {
         network_dir.push(".lighthouse");
         network_dir.push("network");
 
-        // The default topics that we will initially subscribe to
-        let topics = vec![
-            GossipKind::BeaconBlock,
-            GossipKind::BeaconAggregateAndProof,
-            GossipKind::VoluntaryExit,
-            GossipKind::ProposerSlashing,
-            GossipKind::AttesterSlashing,
-        ];
-
         // The function used to generate a gossipsub message id
-        // We use base64(SHA256(data)) for content addressing
-        let gossip_message_id = |message: &GossipsubMessage| {
-            MessageId::from(base64::encode_config(
-                &Sha256::digest(&message.data),
-                base64::URL_SAFE_NO_PAD,
-            ))
-        };
+        // We use the first 8 bytes of SHA256(data) for content addressing
+        let gossip_message_id =
+            |message: &GossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..8]);
 
         // gossipsub configuration
         // Note: The topics by default are sent as plain strings. Hashes are an optional
@@ -107,7 +97,7 @@ impl Default for Config {
             .history_length(6)
             .history_gossip(3)
             .validate_messages() // require validation before propagation
-            .validation_mode(ValidationMode::Permissive)
+            .validation_mode(ValidationMode::Anonymous)
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
             .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
@@ -143,9 +133,10 @@ impl Default for Config {
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
+            trusted_peers: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
-            topics,
+            topics: Vec::new(),
         }
     }
 }

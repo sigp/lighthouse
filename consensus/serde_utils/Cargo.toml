@@ -1,0 +1,12 @@
+[package]
+name = "serde_utils"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com", "Michael Sproul <michael@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+serde = { version = "1.0.110", features = ["derive"] }
+serde_derive = "1.0.110"
+
+[dev-dependencies]
+serde_json = "1.0.52"

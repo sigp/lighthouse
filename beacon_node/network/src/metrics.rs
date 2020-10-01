@@ -244,7 +244,9 @@ lazy_static! {
         "beacon_processor_aggregated_attestation_imported_total",
         "Total number of aggregated attestations imported to fork choice, etc."
     );
+}
 
+lazy_static! {
     /*
      * Attestation Errors
      */
@@ -336,6 +338,14 @@ lazy_static! {
         "gossipsub_attestation_error_invalid_too_many_skipped_slots",
         "Count of a specific error type (see metric name)"
     );
+    pub static ref GOSSIP_ATTESTATION_ERROR_INVALID_TARGET_ROOT: Result<IntCounter> = try_create_int_counter(
+        "gossip_attestation_error_invalid_target_root",
+        "Count of a specific error type (see metric name)"
+    );
+    pub static ref GOSSIP_ATTESTATION_ERROR_INVALID_TARGET_EPOCH: Result<IntCounter> = try_create_int_counter(
+        "gossip_attestation_error_invalid_target_epoch",
+        "Count of a specific error type (see metric name)"
+    );
     pub static ref GOSSIP_ATTESTATION_ERROR_BEACON_CHAIN_ERROR: Result<IntCounter> = try_create_int_counter(
         "gossipsub_attestation_error_beacon_chain_error",
         "Count of a specific error type (see metric name)"
@@ -393,6 +403,12 @@ pub fn register_attestation_error(error: &AttnError) {
             inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_SUBNET_ID)
         }
         AttnError::Invalid(_) => inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_STATE_PROCESSING),
+        AttnError::InvalidTargetRoot { .. } => {
+            inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_TARGET_ROOT)
+        }
+        AttnError::InvalidTargetEpoch { .. } => {
+            inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_TARGET_EPOCH)
+        }
         AttnError::TooManySkippedSlots { .. } => {
             inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_TOO_MANY_SKIPPED_SLOTS)
         }

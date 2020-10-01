@@ -82,10 +82,11 @@ impl<T: BeaconChainTypes> Processor<T> {
     }
 
     fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
-        self.sync_send.send(message).unwrap_or_else(|_| {
+        self.sync_send.send(message).unwrap_or_else(|e| {
             warn!(
                 self.log,
                 "Could not send message to the sync service";
+                "error" => %e,
             )
         });
     }
@@ -374,22 +375,29 @@ impl<T: BeaconChainTypes> Processor<T> {
             }
         };
 
-        // pick out the required blocks, ignoring skip-slots and stepping by the step parameter;
+        // Pick out the required blocks, ignoring skip-slots and stepping by the step parameter.
+        //
+        // NOTE: We don't mind if req.count * req.step overflows as it just ends the iterator early and
+        // the peer will get less blocks.
+        // The step parameter is quadratically weighted in the filter, so large values should be
+        // prevented before reaching this point.
         let mut last_block_root = None;
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
-                // map skip slots to None
-                .map(|(root, _)| {
-                    let result = if Some(root) == last_block_root {
-                        None
-                    } else {
-                        Some(root)
-                    };
-                    last_block_root = Some(root);
-                    result
-                })
-                .step_by(req.step as usize)
-                .collect::<Vec<Option<Hash256>>>()
+            iter.take_while(|(_, slot)| {
+                slot.as_u64() < req.start_slot.saturating_add(req.count * req.step)
+            })
+            // map skip slots to None
+            .map(|(root, _)| {
+                let result = if Some(root) == last_block_root {
+                    None
+                } else {
+                    Some(root)
+                };
+                last_block_root = Some(root);
+                result
+            })
+            .step_by(req.step as usize)
+            .collect::<Vec<Option<Hash256>>>()
         });
 
         let block_roots = match maybe_block_roots {
@@ -684,9 +692,10 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
 
     /// Sends a message to the network task.
     fn inform_network(&mut self, msg: NetworkMessage<T>) {
+        let msg_r = &format!("{:?}", msg);
         self.network_send
             .send(msg)
-            .unwrap_or_else(|_| warn!(self.log, "Could not send message to the network service"))
+            .unwrap_or_else(|e| warn!(self.log, "Could not send message to the network service"; "error" => %e, "message" => msg_r))
     }
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.

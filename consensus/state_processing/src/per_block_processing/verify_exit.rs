@@ -3,6 +3,7 @@ use crate::per_block_processing::{
     signature_sets::{exit_signature_set, get_pubkey_from_state},
     VerifySignatures,
 };
+use safe_arith::SafeArith;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<ExitInvalid>>;
@@ -77,11 +78,14 @@ fn verify_exit_parametric<T: EthSpec>(
     );
 
     // Verify the validator has been active long enough.
+    let earliest_exit_epoch = validator
+        .activation_epoch
+        .safe_add(spec.shard_committee_period)?;
     verify!(
-        state.current_epoch() >= validator.activation_epoch + spec.shard_committee_period,
+        state.current_epoch() >= earliest_exit_epoch,
         ExitInvalid::TooYoungToExit {
             current_epoch: state.current_epoch(),
-            earliest_exit_epoch: validator.activation_epoch + spec.shard_committee_period,
+            earliest_exit_epoch,
         }
     );
 

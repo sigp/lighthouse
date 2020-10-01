@@ -17,6 +17,8 @@ pub mod validator_definitions;
 pub use eth2_keystore;
 pub use eth2_wallet::PlainText;
 
+/// The minimum number of characters required for a wallet password.
+pub const MINIMUM_PASSWORD_LEN: usize = 12;
 /// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
 /// characters.
 ///
@@ -107,6 +109,47 @@ pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String>
     result.map(ZeroizeString::from)
 }
 
+/// Reads a mnemonic phrase from TTY or stdin if `use_stdin == true`.
+pub fn read_input_from_user(use_stdin: bool) -> Result<String, String> {
+    let mut input = String::new();
+    if use_stdin {
+        io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| format!("Error reading from stdin: {}", e))?;
+    } else {
+        let tty = File::open("/dev/tty").map_err(|e| format!("Error opening tty: {}", e))?;
+        let mut buf_reader = io::BufReader::new(tty);
+        buf_reader
+            .read_line(&mut input)
+            .map_err(|e| format!("Error reading from tty: {}", e))?;
+    }
+    trim_newline(&mut input);
+    Ok(input)
+}
+
+fn trim_newline(s: &mut String) {
+    if s.ends_with('\n') {
+        s.pop();
+        if s.ends_with('\r') {
+            s.pop();
+        }
+    }
+}
+
+/// Takes a string password and checks that it meets minimum requirements.
+///
+/// The current minimum password requirement is a 12 character length character length.
+pub fn is_password_sufficiently_complex(password: &[u8]) -> Result<(), String> {
+    if password.len() >= MINIMUM_PASSWORD_LEN {
+        Ok(())
+    } else {
+        Err(format!(
+            "Please use at least {} characters for your password.",
+            MINIMUM_PASSWORD_LEN
+        ))
+    }
+}
+
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
@@ -129,6 +172,7 @@ impl AsRef<[u8]> for ZeroizeString {
 
 #[cfg(test)]
 mod test {
+    use super::is_password_sufficiently_complex;
     use super::strip_off_newlines;
 
     #[test]
@@ -163,5 +207,21 @@ mod test {
             strip_off_newlines("hello world".as_bytes().to_vec()),
             expected
         );
+    }
+
+    #[test]
+    fn test_password_over_min_length() {
+        is_password_sufficiently_complex(b"TestPasswordLong").unwrap();
+    }
+
+    #[test]
+    fn test_password_exactly_min_length() {
+        is_password_sufficiently_complex(b"TestPassword").unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_password_too_short() {
+        is_password_sufficiently_complex(b"TestPass").unwrap();
     }
 }

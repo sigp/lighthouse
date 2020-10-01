@@ -1,80 +1,56 @@
 //! Downloads a testnet configuration from Github.
 
-use eth2_config::{altona, medalla, Eth2NetDirectory};
-use handlebars::Handlebars;
-use serde_json::json;
+use eth2_config::{altona, medalla, spadina, Eth2NetArchiveAndDirectory};
+use std::fs;
 use std::fs::File;
-use std::io::Write;
+use std::io;
+use zip::ZipArchive;
 
-const ETH2_NET_DIRS: &[Eth2NetDirectory<'static>] = &[altona::ETH2_NET_DIR, medalla::ETH2_NET_DIR];
+const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[
+    altona::ETH2_NET_DIR,
+    medalla::ETH2_NET_DIR,
+    spadina::ETH2_NET_DIR,
+];
 
 fn main() {
     for testnet in ETH2_NET_DIRS {
-        let testnet_dir = testnet.dir();
-
-        if !testnet_dir.exists() {
-            std::fs::create_dir_all(&testnet_dir)
-                .unwrap_or_else(|_| panic!("Unable to create {:?}", testnet_dir));
-
-            match get_all_files(testnet) {
-                Ok(()) => (),
-                Err(e) => {
-                    std::fs::remove_dir_all(&testnet_dir).unwrap_or_else(|_| panic!(
-                        "{}. Failed to remove {:?}, please remove the directory manually because it may contains incomplete testnet data.",
-                        e,
-                        testnet_dir,
-                    ));
-                    panic!(e);
-                }
-            }
+        match uncompress(testnet) {
+            Ok(()) => (),
+            Err(e) => panic!("Failed to uncompress testnet zip file: {}", e),
         }
     }
 }
 
-fn get_all_files(testnet: &Eth2NetDirectory<'static>) -> Result<(), String> {
-    get_file(testnet, "boot_enr.yaml")?;
-    get_file(testnet, "config.yaml")?;
-    get_file(testnet, "deploy_block.txt")?;
-    get_file(testnet, "deposit_contract.txt")?;
+/// Uncompress the testnet configs archive into a testnet configs folder.
+fn uncompress(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
+    let archive_file = File::open(&testnet.archive_fullpath())
+        .map_err(|e| format!("Failed to open archive file: {:?}", e))?;
 
-    if testnet.genesis_is_known {
-        get_file(testnet, "genesis.ssz")?;
-    } else {
-        File::create(testnet.dir().join("genesis.ssz")).unwrap();
+    let mut archive =
+        ZipArchive::new(archive_file).map_err(|e| format!("Error with zip file: {}", e))?;
+
+    // Create testnet dir
+    fs::create_dir_all(testnet.dir())
+        .map_err(|e| format!("Failed to create testnet directory: {:?}", e))?;
+
+    // Create empty genesis.ssz if genesis is unknown
+    if !testnet.genesis_is_known {
+        File::create(testnet.dir().join("genesis.ssz"))
+            .map_err(|e| format!("Failed to create genesis.ssz: {}", e))?;
     }
 
-    Ok(())
-}
+    for i in 0..archive.len() {
+        let mut file = archive
+            .by_index(i)
+            .map_err(|e| format!("Error retrieving file {} inside zip: {}", i, e))?;
 
-fn get_file(testnet: &Eth2NetDirectory, filename: &str) -> Result<(), String> {
-    let url = Handlebars::new()
-        .render_template(
-            testnet.url_template,
-            &json!({"commit": testnet.commit, "file": filename}),
-        )
-        .unwrap();
+        let path = testnet.dir().join(file.name());
 
-    let path = testnet.dir().join(filename);
-
-    let mut file =
-        File::create(path).map_err(|e| format!("Failed to create {}: {:?}", filename, e))?;
-
-    let request = reqwest::blocking::Client::builder()
-        .build()
-        .map_err(|_| "Could not build request client".to_string())?
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(120));
-
-    let contents = request
-        .send()
-        .map_err(|e| format!("Failed to download {}: {}", filename, e))?
-        .error_for_status()
-        .map_err(|e| format!("Error downloading {}: {}", filename, e))?
-        .bytes()
-        .map_err(|e| format!("Failed to read {} response bytes: {}", filename, e))?;
-
-    file.write(&contents)
-        .map_err(|e| format!("Failed to write to {}: {:?}", filename, e))?;
+        let mut outfile = File::create(&path)
+            .map_err(|e| format!("Error while creating file {:?}: {}", path, e))?;
+        io::copy(&mut file, &mut outfile)
+            .map_err(|e| format!("Error writing file {:?}: {}", path, e))?;
+    }
 
     Ok(())
 }

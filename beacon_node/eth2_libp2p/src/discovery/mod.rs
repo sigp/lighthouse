@@ -4,7 +4,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
-pub use enr_ext::{CombinedKeyExt, EnrExt};
+pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::Keypair;
 
 use crate::metrics;
@@ -20,7 +20,7 @@ use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
     collections::{HashMap, VecDeque},
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::Path,
     pin::Pin,
     sync::Arc,
@@ -31,12 +31,12 @@ use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec, SubnetId};
 
 mod subnet_predicate;
-use subnet_predicate::subnet_predicate;
+pub use subnet_predicate::subnet_predicate;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
 /// Target number of peers we'd like to have connected to a given long-lived subnet.
-const TARGET_SUBNET_PEERS: usize = 3;
+pub const TARGET_SUBNET_PEERS: usize = 3;
 /// Target number of peers to search for given a grouped subnet query.
 const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// Number of times to attempt a discovery request.
@@ -287,6 +287,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.discv5.local_enr()
     }
 
+    /// Return the cached enrs.
+    pub fn cached_enrs(&self) -> impl Iterator<Item = (&PeerId, &Enr)> {
+        self.cached_enrs.iter()
+    }
+
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
     pub fn discover_peers(&mut self) {
         // If the discv5 service isn't running or we are in the process of a query, don't bother queuing a new one.
@@ -431,6 +436,33 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
     }
 
+    // Bans a peer and it's associated seen IP addresses.
+    pub fn ban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
+        // first try and convert the peer_id to a node_id.
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
+            self.discv5.ban_node(&node_id);
+            // Remove the node from the routing table.
+            self.discv5.remove_node(&node_id);
+        }
+
+        for ip_address in ip_addresses {
+            self.discv5.ban_ip(ip_address);
+        }
+    }
+
+    pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
+        // first try and convert the peer_id to a node_id.
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
+            self.discv5.permit_node(&node_id);
+        }
+
+        for ip_address in ip_addresses {
+            self.discv5.permit_ip(ip_address);
+        }
+    }
+
     /* Internal Functions */
 
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
@@ -558,7 +590,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     .peers_on_subnet(subnet_query.subnet_id)
                     .count();
 
-                if peers_on_subnet > TARGET_SUBNET_PEERS {
+                if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     debug!(self.log, "Discovery ignored";
                         "reason" => "Already connected to desired peers",
                         "connected_peers_on_subnet" => peers_on_subnet,
