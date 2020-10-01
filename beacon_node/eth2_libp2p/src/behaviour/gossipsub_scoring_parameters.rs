@@ -75,7 +75,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         params.decay_to_zero = self.decay_to_zero;
         params.retain_score = self.epoch * 100;
         params.app_specific_weight = 1.0;
-        params.ip_colocation_factor_threshold = 2.0;
+        params.ip_colocation_factor_threshold = 3.0;
         params.behaviour_penalty_threshold = 6.0;
 
         params.behaviour_penalty_decay = self.score_parameter_decay(self.epoch * 10);
