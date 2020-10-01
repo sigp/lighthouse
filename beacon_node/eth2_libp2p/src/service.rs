@@ -21,7 +21,6 @@ use ssz::Decode;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
-use std::net::{IpAddr, SocketAddrV4};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -149,8 +148,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 return Err("Libp2p was unable to listen on the given listen address.".into());
             }
         };
-
-        connect_upnp(config, &log).await;
 
         // helper closure for dialing peers
         let mut dial_addr = |mut multiaddr: Multiaddr| {
@@ -322,43 +319,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
             }
         }
     }
-}
-
-async fn connect_upnp(config: &NetworkConfig, log: &slog::Logger) {
-    info!(log, "Connecting UPnP");
-    match igd::search_gateway(Default::default()) {
-        Err(_) => debug!(log, "Could not find default gateway for UPnP"),
-        Ok(gateway) => match config.listen_address {
-            IpAddr::V4(address) => {
-                let libp2p = SocketAddrV4::new(address, config.libp2p_port);
-
-                match gateway.add_port(
-                    igd::PortMappingProtocol::TCP,
-                    config.libp2p_port,
-                    libp2p,
-                    60,
-                    "libp2p",
-                ) {
-                    Err(_) => debug!(log, "UPnP could not connect libp2p port"),
-                    Ok(()) => debug!(log, "UPnP connected libp2p port"),
-                };
-
-                let discovery = SocketAddrV4::new(address, config.discovery_port);
-
-                match gateway.add_port(
-                    igd::PortMappingProtocol::UDP,
-                    config.discovery_port,
-                    discovery,
-                    60,
-                    "discovery",
-                ) {
-                    Err(_) => debug!(log, "UPnP could not connect discovery port"),
-                    Ok(()) => debug!(log, "UPnP connected discovery port"),
-                }
-            }
-            _ => (),
-        },
-    };
 }
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and

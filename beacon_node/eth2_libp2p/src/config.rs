@@ -67,6 +67,9 @@ pub struct Config {
     /// Disables the discovery protocol from starting.
     pub disable_discovery: bool,
 
+    /// Attempt to construct external port mappings with UPnP.
+    pub upnp_enabled: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -136,6 +139,7 @@ impl Default for Config {
             trusted_peers: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
+            upnp_enabled: true,
             topics: Vec::new(),
         }
     }
