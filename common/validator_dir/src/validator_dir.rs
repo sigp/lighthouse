@@ -2,7 +2,6 @@ use crate::builder::{
     ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE,
 };
-use bls::get_withdrawal_credentials;
 use deposit_contract::{decode_eth1_tx_data, encode_eth1_tx_data, Error as DepositError};
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use std::fs::{read, remove_file, write, OpenOptions};
@@ -189,13 +188,12 @@ impl ValidatorDir {
         write(path, tx_hash.as_bytes()).map_err(Error::UnableToWriteEth1TxHash)
     }
 
-    /// Generate deposit data given the voting and withdrawal keypairs given the
+    /// Generate deposit data given the voting keypair, withdrawal credentials and
     /// topup amount.
     pub fn eth1_deposit_data_topup(
-        &self,
         amount: u64,
         voting_keypair: &Keypair,
-        withdrawal_keypair: &Keypair,
+        withdrawal_credentials: Hash256,
         spec: &ChainSpec,
     ) -> Result<Eth1DepositData, Error> {
         if amount < spec.min_deposit_amount {
@@ -204,11 +202,6 @@ impl ValidatorDir {
                 spec.min_deposit_amount
             )));
         }
-        let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
-            &withdrawal_keypair.pk,
-            spec.bls_withdrawal_prefix_byte,
-        ));
-
         let mut deposit_data = DepositData {
             pubkey: voting_keypair.pk.clone().into(),
             withdrawal_credentials,

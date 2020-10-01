@@ -11,8 +11,9 @@ use eth2::{
 };
 use slog::info;
 use std::path::PathBuf;
-use types::{EthSpec, Hash256};
+use types::{ChainSpec, EthSpec, Hash256};
 use validator_dir::Manager as ValidatorManager;
+use validator_dir::{Eth1DepositData, ValidatorDir};
 use web3::{transports::Http, transports::Ipc, types::Address};
 
 pub const CMD: &str = "deposit";
@@ -177,32 +178,27 @@ pub fn cli_run<T: EthSpec>(
         parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
     };
 
-    let eth1_deposit_datas = validators
-        .into_iter()
-        .map(|v| {
-            let topup_amount: u64 = clap_utils::parse_required(matches, TOPUP_AMOUNT)?;
-            let voting_keypair = v
-                .voting_keypair(&secrets_dir)
-                .map_err(|e| format!("Failed to load voting keypair: {:?}", e))?;
-            let withdrawal_keypair = v
-                .withdrawal_keypair(&secrets_dir)
-                .map_err(|e| format!("Failed to load withdrawal keypair: {:?}", e))?;
+    let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER)?;
+    let client = BeaconNodeHttpClient::new(
+        Url::parse(&server_url)
+            .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+    );
+    let topup_amount: u64 = clap_utils::parse_required(matches, TOPUP_AMOUNT)?;
 
-            match v.eth1_deposit_data_topup(
-                topup_amount,
-                &voting_keypair,
-                &withdrawal_keypair,
-                &T::default_spec(),
-            ) {
-                Ok(data) => Ok((v, data)),
-                Err(e) => Err(format!(
-                    "Failed to create topup deposit data for {:?}: {:?}",
-                    v.dir(),
-                    e
-                )),
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let eth1_deposit_datas = env.runtime().block_on(generate_deposit_datas(
+        validators
+            .into_iter()
+            .map(|v| {
+                let voting_keypair = v.voting_keypair(&secrets_dir).map_err(|e| {
+                    format!("Failed to get voting keypair for {:?}: {:?}", v.dir(), e)
+                })?;
+                Ok((v, voting_keypair))
+            })
+            .collect::<Result<Vec<_>, String>>()?,
+        topup_amount,
+        &client,
+        &T::default_spec(),
+    ))?;
 
     let total_gwei: u64 = eth1_deposit_datas
         .iter()
@@ -270,6 +266,44 @@ pub fn cli_run<T: EthSpec>(
                 confirmation_batch_size,
             )
         }
+    }
+}
+
+async fn generate_deposit_datas(
+    data: Vec<(ValidatorDir, bls::Keypair)>,
+    amount: u64,
+    client: &BeaconNodeHttpClient,
+    spec: &ChainSpec,
+) -> Result<Vec<(ValidatorDir, Eth1DepositData)>, String> {
+    let mut res = vec![];
+    for d in data {
+        // Return an error if any of the deposit data generation returns an error
+        let deposit_data = generate_deposit_data(d.0, &d.1, amount, client, spec).await?;
+        res.push(deposit_data);
+    }
+    Ok(res)
+}
+
+async fn generate_deposit_data(
+    dir: ValidatorDir,
+    voting_keypair: &bls::Keypair,
+    amount: u64,
+    client: &BeaconNodeHttpClient,
+    spec: &ChainSpec,
+) -> Result<(ValidatorDir, Eth1DepositData), String> {
+    let withdrawal_credentials = get_withdrawal_credentials(&voting_keypair.pk, &client).await?;
+    match ValidatorDir::eth1_deposit_data_topup(
+        amount,
+        &voting_keypair,
+        withdrawal_credentials,
+        spec,
+    ) {
+        Ok(data) => Ok((dir, data)),
+        Err(e) => Err(format!(
+            "Unable to generate deposit data for validator topup {:?}: {:?}",
+            dir.dir(),
+            e
+        )),
     }
 }
 
