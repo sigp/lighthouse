@@ -31,7 +31,7 @@ mod metrics;
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
-const MAXIMUM_SHUTDOWN_TIME: u64 = 5;
+const MAXIMUM_SHUTDOWN_TIME: u64 = 3;
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
