@@ -1446,15 +1446,43 @@ impl ApiTester {
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub async fn test_get_lighthouse_health(self) -> Self {
-        self.client.get_lighthouse_health().await.unwrap();
+    pub async fn test_get_lighthouse_system(self) -> Self {
+        self.client.get_lighthouse_system().await.unwrap();
+
+        self
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub async fn test_get_lighthouse_system_health(self) -> Self {
+        self.client.get_lighthouse_system_health().await.unwrap();
+
+        self
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub async fn test_get_lighthouse_system_drives(self) -> Self {
+        self.client.get_lighthouse_system_drives().await.unwrap();
 
         self
     }
 
     #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
-    pub async fn test_get_lighthouse_health(self) -> Self {
-        self.client.get_lighthouse_health().await.unwrap_err();
+    pub async fn test_get_lighthouse_system(self) -> Self {
+        self.client.get_lighthouse_system().await.unwrap_err();
+
+        self
+    }
+
+    #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
+    pub async fn test_get_lighthouse_system_health(self) -> Self {
+        self.client.get_lighthouse_system_health().await.unwrap_err();
+
+        self
+    }
+
+    #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
+    pub async fn test_get_lighthouse_system_drives(self) -> Self {
+        self.client.get_lighthouse_system_drives().await.unwrap_err();
 
         self
     }
@@ -1773,7 +1801,11 @@ async fn get_validator_beacon_committee_subscriptions() {
 #[tokio::test(core_threads = 2)]
 async fn lighthouse_endpoints() {
     ApiTester::new()
-        .test_get_lighthouse_health()
+        .test_get_lighthouse_system()
+        .await
+        .test_get_lighthouse_system_health()
+        .await
+        .test_get_lighthouse_system_drives()
         .await
         .test_get_lighthouse_syncing()
         .await

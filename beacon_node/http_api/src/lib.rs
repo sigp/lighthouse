@@ -1516,13 +1516,39 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/health
-    let get_lighthouse_health = warp::path("lighthouse")
+    // GET lighthouse/system
+    let get_lighthouse_system = warp::path("lighthouse")
+        .and(warp::path("system"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                eth2::lighthouse::System::observe()
+                    .map(api_types::GenericResponse::from)
+                    .map_err(warp_utils::reject::custom_bad_request)
+            })
+        });
+
+    // GET lighthouse/system/health
+    let get_lighthouse_system_health = warp::path("lighthouse")
+        .and(warp::path("system"))
         .and(warp::path("health"))
         .and(warp::path::end())
         .and_then(|| {
             blocking_json_task(move || {
                 eth2::lighthouse::Health::observe()
+                    .map(api_types::GenericResponse::from)
+                    .map_err(warp_utils::reject::custom_bad_request)
+            })
+        });
+
+    // GET lighthouse/system/drives
+    let get_lighthouse_system_drives = warp::path("lighthouse")
+        .and(warp::path("system"))
+        .and(warp::path("drives"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                eth2::lighthouse::Drive::observe()
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })
@@ -1655,7 +1681,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_blocks.boxed())
                 .or(get_validator_attestation_data.boxed())
                 .or(get_validator_aggregate_attestation.boxed())
-                .or(get_lighthouse_health.boxed())
+                .or(get_lighthouse_system.boxed())
+                .or(get_lighthouse_system_health.boxed())
+                .or(get_lighthouse_system_drives.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_peers.boxed())
                 .or(get_lighthouse_peers_connected.boxed())

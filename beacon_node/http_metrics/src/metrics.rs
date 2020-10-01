@@ -6,10 +6,6 @@ use lighthouse_metrics::{Encoder, TextEncoder};
 pub use lighthouse_metrics::*;
 
 lazy_static! {
-    pub static ref PROCESS_NUM_THREADS: Result<IntGauge> = try_create_int_gauge(
-        "process_num_threads",
-        "Number of threads used by the current process"
-    );
     pub static ref PROCESS_RES_MEM: Result<IntGauge> = try_create_int_gauge(
         "process_resident_memory_bytes",
         "Resident memory used by the current process"
@@ -78,7 +74,6 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     // This will silently fail if we are unable to observe the health. This is desired behaviour
     // since we don't support `Health` for all platforms.
     if let Ok(health) = Health::observe() {
-        set_gauge(&PROCESS_NUM_THREADS, health.pid_num_threads as i64);
         set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
         set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
         set_gauge(&SYSTEM_VIRT_MEM_TOTAL, health.sys_virt_mem_total as i64);

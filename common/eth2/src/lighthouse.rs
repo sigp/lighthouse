@@ -6,6 +6,7 @@ use crate::{
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
+use sysinfo::{NetworksExt, System as SystemInfo, SystemExt, NetworkExt};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -76,16 +77,75 @@ use {procinfo::pid, psutil::process::Process};
 #[cfg(target_os = "macos")]
 use {
     psutil::process::Process,
-    systemstat::{Platform, System},
+    systemstat::{Platform, System as SystemStat},
 };
+
+/// Reports information about the system the Lighthouse instance is running on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct System {
+    pub health : Health,
+    pub drives : Vec<Drive>,
+}
+
+impl System {
+    pub fn observe() -> Result<Self, String> {
+        Ok(Self {
+            health: Health::observe()?,
+            drives: Drive::observe()?,
+        })
+    }
+}
+
+/// Reports information about a drive on the system the Lighthouse instance is running on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Drive {
+    pub filesystem: String,
+    pub used: u64,
+    pub avail: u64,
+    pub used_pct: u64,
+    pub total: u64,
+    pub mounted_on: String,
+}
+
+impl Drive {
+    pub fn observe() -> Result<Vec<Self>, String> {
+        let system = SystemStat::new();
+        Ok(system.mounts().expect("Could not find mounts.").into_iter().map(|drive| {
+            Drive {
+                filesystem: drive.fs_mounted_from ,
+                used: drive.total.as_u64() - drive.avail.as_u64() ,
+                avail: drive.avail.as_u64() ,
+                used_pct: (((drive.total.0 as f64 - drive.avail.0 as f64) / drive.total.0 as f64) * 100.0) as u64 ,
+                total: drive.total.as_u64() ,
+                mounted_on: drive.fs_mounted_on ,
+            }
+        }).collect())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Network {
+    /// Network interface name
+    pub name: String,
+    /// Network metric for received bytes.
+    pub rx_bytes: u64,
+    /// Network metric for received errors.
+    pub rx_errors: u64,
+    /// Network metric for received packets.
+    pub rx_packets: u64,
+    /// Network metric for transmitted bytes.
+    pub tx_bytes: u64,
+    /// Network metric for trasmitted errors.
+    pub tx_errors: u64,
+    /// Network metric for transmitted packets.
+    pub tx_packets: u64,
+}
 
 /// Reports on the health of the Lighthouse instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Health {
     /// The pid of this process.
     pub pid: u32,
-    /// The number of threads used by this pid.
-    pub pid_num_threads: i32,
     /// The total resident memory used by this pid.
     pub pid_mem_resident_set_size: u64,
     /// The total virtual memory used by this pid.
@@ -106,6 +166,8 @@ pub struct Health {
     pub sys_loadavg_5: f64,
     /// System load average over 15 minutes.
     pub sys_loadavg_15: f64,
+    /// Network interfaces and related statistics.
+    pub networks: Vec<Network>,
 }
 
 impl Health {
@@ -131,9 +193,29 @@ impl Health {
         let loadavg =
             psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
+        let s = SystemInfo::new_all();
+
+        let mut rx_bytes = 0;
+        let mut rx_errors = 0;
+        let mut rx_packets = 0;
+        let mut tx_bytes = 0;
+        let mut tx_errors = 0;
+        let mut tx_packets = 0;
+
+        let networks = s.get_networks().iter().map(|(name, network)| {
+            Network {
+                name: name.to_string(),
+                rx_bytes: network.get_total_received(),
+                rx_errors: network.get_total_transmitted(),
+                rx_packets: network.get_total_packets_received(),
+                tx_bytes: network.get_total_packets_transmitted(),
+                tx_errors: network.get_total_errors_on_received(),
+                tx_packets: network.get_total_errors_on_transmitted(),
+            }
+        }).collect();
+
         Ok(Self {
             pid: process.pid(),
-            pid_num_threads: stat.num_threads,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
             sys_virt_mem_total: vm.total(),
@@ -144,6 +226,7 @@ impl Health {
             sys_loadavg_1: loadavg.one,
             sys_loadavg_5: loadavg.five,
             sys_loadavg_15: loadavg.fifteen,
+            networks,
         })
     }
 
@@ -159,16 +242,27 @@ impl Health {
         let vm = psutil::memory::virtual_memory()
             .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
 
-        let sys = System::new();
+        let sys = SystemStat::new();
 
         let loadavg = sys
             .load_average()
             .map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
+       let s = SystemInfo::new_all();
+        let networks = s.get_networks().iter().map(|(name, network)| {
+            Network {
+                name: name.to_string(),
+                rx_bytes: network.get_total_received(),
+                rx_errors: network.get_total_transmitted(),
+                rx_packets: network.get_total_packets_received(),
+                tx_bytes: network.get_total_packets_transmitted(),
+                tx_errors: network.get_total_errors_on_received(),
+                tx_packets: network.get_total_errors_on_transmitted(),
+            }
+        }).collect();
+
         Ok(Self {
             pid: process.pid() as u32,
-            //TODO: figure out how to get threads for a PID on mac
-            pid_num_threads: 0,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
             sys_virt_mem_total: vm.total(),
@@ -179,19 +273,46 @@ impl Health {
             sys_loadavg_1: loadavg.one as f64,
             sys_loadavg_5: loadavg.five as f64,
             sys_loadavg_15: loadavg.fifteen as f64,
+            networks,
         })
     }
 }
 
 impl BeaconNodeHttpClient {
-    /// `GET lighthouse/health`
-    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
+    /// `GET lighthouse/system`
+    pub async fn get_lighthouse_system(&self) -> Result<GenericResponse<System>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
+            .push("system");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/system/health`
+    pub async fn get_lighthouse_system_health(&self) -> Result<GenericResponse<Health>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("system")
             .push("health");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/system/drives`
+    pub async fn get_lighthouse_system_drives(&self) -> Result<GenericResponse<Vec<Drive>>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("system")
+            .push("drives");
 
         self.get(path).await
     }
