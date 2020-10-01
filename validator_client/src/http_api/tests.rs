@@ -112,6 +112,16 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_lighthouse_spec(self) -> Self {
+        let result = self.client.get_lighthouse_spec().await.unwrap().data;
+
+        let expected = YamlConfig::from_spec::<E>(&E::default_spec());
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
     pub async fn test_get_lighthouse_version(self) -> Self {
         let result = self.client.get_lighthouse_version().await.unwrap().data;
 
@@ -403,6 +413,8 @@ async fn simple_getters() {
         .test_get_lighthouse_version()
         .await
         .test_get_lighthouse_health()
+        .await
+        .test_get_lighthouse_spec()
         .await;
 }
 

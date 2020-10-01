@@ -6,6 +6,7 @@ HTTP Path | Description |
 | --- | -- |
 [`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version
 [`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine
+[`GET /lighthouse/psec`](#get-lighthousespec) | Get the Eth2 specification used by the validator
 [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators
 [`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
 [`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
@@ -67,6 +68,86 @@ Typical Responses | 200
         "sys_loadavg_1": 0.98,
         "sys_loadavg_5": 0.98,
         "sys_loadavg_15": 1.01
+    }
+}
+```
+
+## `GET /lighthouse/spec`
+
+Returns the Eth2 specification loaded for this validator.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/spec`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+### Example Response Body
+
+```json
+{
+    "data": {
+        "CONFIG_NAME": "mainnet",
+        "MAX_COMMITTEES_PER_SLOT": "64",
+        "TARGET_COMMITTEE_SIZE": "128",
+        "MIN_PER_EPOCH_CHURN_LIMIT": "4",
+        "CHURN_LIMIT_QUOTIENT": "65536",
+        "SHUFFLE_ROUND_COUNT": "90",
+        "MIN_GENESIS_ACTIVE_VALIDATOR_COUNT": "1024",
+        "MIN_GENESIS_TIME": "1601380800",
+        "GENESIS_DELAY": "172800",
+        "MIN_DEPOSIT_AMOUNT": "1000000000",
+        "MAX_EFFECTIVE_BALANCE": "32000000000",
+        "EJECTION_BALANCE": "16000000000",
+        "EFFECTIVE_BALANCE_INCREMENT": "1000000000",
+        "HYSTERESIS_QUOTIENT": "4",
+        "HYSTERESIS_DOWNWARD_MULTIPLIER": "1",
+        "HYSTERESIS_UPWARD_MULTIPLIER": "5",
+        "PROPORTIONAL_SLASHING_MULTIPLIER": "3",
+        "GENESIS_FORK_VERSION": "0x00000002",
+        "BLS_WITHDRAWAL_PREFIX": "0x00",
+        "SECONDS_PER_SLOT": "12",
+        "MIN_ATTESTATION_INCLUSION_DELAY": "1",
+        "MIN_SEED_LOOKAHEAD": "1",
+        "MAX_SEED_LOOKAHEAD": "4",
+        "MIN_EPOCHS_TO_INACTIVITY_PENALTY": "4",
+        "MIN_VALIDATOR_WITHDRAWABILITY_DELAY": "256",
+        "SHARD_COMMITTEE_PERIOD": "256",
+        "BASE_REWARD_FACTOR": "64",
+        "WHISTLEBLOWER_REWARD_QUOTIENT": "512",
+        "PROPOSER_REWARD_QUOTIENT": "8",
+        "INACTIVITY_PENALTY_QUOTIENT": "16777216",
+        "MIN_SLASHING_PENALTY_QUOTIENT": "32",
+        "SAFE_SLOTS_TO_UPDATE_JUSTIFIED": "8",
+        "DOMAIN_BEACON_PROPOSER": "0x00000000",
+        "DOMAIN_BEACON_ATTESTER": "0x01000000",
+        "DOMAIN_RANDAO": "0x02000000",
+        "DOMAIN_DEPOSIT": "0x03000000",
+        "DOMAIN_VOLUNTARY_EXIT": "0x04000000",
+        "DOMAIN_SELECTION_PROOF": "0x05000000",
+        "DOMAIN_AGGREGATE_AND_PROOF": "0x06000000",
+        "MAX_VALIDATORS_PER_COMMITTEE": "2048",
+        "SLOTS_PER_EPOCH": "32",
+        "EPOCHS_PER_ETH1_VOTING_PERIOD": "32",
+        "SLOTS_PER_HISTORICAL_ROOT": "8192",
+        "EPOCHS_PER_HISTORICAL_VECTOR": "65536",
+        "EPOCHS_PER_SLASHINGS_VECTOR": "8192",
+        "HISTORICAL_ROOTS_LIMIT": "16777216",
+        "VALIDATOR_REGISTRY_LIMIT": "1099511627776",
+        "MAX_PROPOSER_SLASHINGS": "16",
+        "MAX_ATTESTER_SLASHINGS": "2",
+        "MAX_ATTESTATIONS": "128",
+        "MAX_DEPOSITS": "16",
+        "MAX_VOLUNTARY_EXITS": "16",
+        "ETH1_FOLLOW_DISTANCE": "1024",
+        "TARGET_AGGREGATORS_PER_COMMITTEE": "16",
+        "RANDOM_SUBNETS_PER_VALIDATOR": "1",
+        "EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION": "256",
+        "SECONDS_PER_ETH1_BLOCK": "14",
+        "DEPOSIT_CONTRACT_ADDRESS": "0x48b597f4b53c21b48ad95c7256b49d1779bd5890"
     }
 }
 ```

@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::Arc;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, YamlConfig};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
@@ -163,6 +163,20 @@ pub fn serve<T: EthSpec>(
                 eth2::lighthouse::Health::observe()
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
+            })
+        });
+
+    // GET lighthouse/spec
+    let get_lighthouse_spec = warp::path("lighthouse")
+        .and(warp::path("spec"))
+        .and(warp::path::end())
+        .and(spec_filter.clone())
+        .and(signer.clone())
+        .and_then(|spec: Arc<_>, signer| {
+            blocking_signed_json_task(signer, move || {
+                Ok(api_types::GenericResponse::from(
+                    YamlConfig::from_spec::<T>(&spec),
+                ))
             })
         });
 
@@ -411,6 +425,7 @@ pub fn serve<T: EthSpec>(
             warp::get().and(
                 get_node_version
                     .or(get_lighthouse_health)
+                    .or(get_lighthouse_spec)
                     .or(get_lighthouse_validators)
                     .or(get_lighthouse_validators_pubkey),
             ),

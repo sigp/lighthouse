@@ -209,6 +209,18 @@ impl ValidatorClientHttpClient {
         self.get(path).await
     }
 
+    /// `GET lighthouse/spec`
+    pub async fn get_lighthouse_spec(&self) -> Result<GenericResponse<YamlConfig>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("spec");
+
+        self.get(path).await
+    }
+
     /// `GET lighthouse/validators`
     pub async fn get_lighthouse_validators(
         &self,
