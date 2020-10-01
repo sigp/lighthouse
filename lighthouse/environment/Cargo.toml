@@ -10,6 +10,7 @@ slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.0"
 types = { "path" = "../../consensus/types" }
 eth2_config = { "path" = "../../common/eth2_config" }
+task_executor = { "path" = "../../common/task_executor" }
 eth2_testnet_config = { path = "../../common/eth2_testnet_config" }
 logging = { path = "../../common/logging" }
 slog-term = "2.5.0"
@@ -19,6 +20,3 @@ futures = "0.3.5"
 parking_lot = "0.11.0"
 slog-json = "2.3.0"
 exit-future = "0.2.0"
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-discv5 = { version = "0.1.0-alpha.12", features = ["libp2p"] }

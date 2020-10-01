@@ -9,7 +9,7 @@
 //!
 use eth2_config::{include_altona_file, include_medalla_file, include_spadina_file, unique_id};
 
-use enr::{CombinedKey, Enr};
+use eth2_libp2p::discv5::enr::{CombinedKey, Enr};
 use ssz::{Decode, Encode};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};

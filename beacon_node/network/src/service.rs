@@ -108,7 +108,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        executor: environment::TaskExecutor,
+        executor: task_executor::TaskExecutor,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 }
 
 fn spawn_service<T: BeaconChainTypes>(
-    executor: environment::TaskExecutor,
+    executor: task_executor::TaskExecutor,
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
     let mut exit_rx = executor.exit();

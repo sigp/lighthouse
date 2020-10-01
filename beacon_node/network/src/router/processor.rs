@@ -40,7 +40,7 @@ pub struct Processor<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> Processor<T> {
     /// Instantiate a `Processor` instance
     pub fn new(
-        executor: environment::TaskExecutor,
+        executor: task_executor::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,

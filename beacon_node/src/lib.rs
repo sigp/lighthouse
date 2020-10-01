@@ -122,7 +122,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .tee_event_handler(client_config.websocket_server.clone())?;
 
         // Inject the executor into the discv5 network config.
-        client_config.network.discv5_config.executor = Some(Box::new(executor));
+        let discv5_executor = Discv5Executor(executor);
+        client_config.network.discv5_config.executor = Some(Box::new(discv5_executor));
 
         builder
             .build_beacon_chain()?
@@ -151,5 +152,15 @@ impl<E: EthSpec> Deref for ProductionBeaconNode<E> {
 impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+// Implements the Discv5 Executor trait over our global executor
+#[derive(Clone)]
+struct Discv5Executor(task_executor::TaskExecutor);
+
+impl eth2_libp2p::discv5::Executor for Discv5Executor {
+    fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
+        self.0.spawn(future, "discv5")
     }
 }

@@ -392,7 +392,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // insert the bitfield into the ENR record
         let _ = self
             .discv5
-            .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
+            .enr_insert(BITFIELD_ENR_KEY, &current_bitfield.as_ssz_bytes());
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
@@ -420,7 +420,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY, enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -810,7 +810,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 // Still awaiting the event stream, poll it
                 if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
                     match event_stream {
-                        Ok(stream) => self.event_stream = EventStream::Present(stream),
+                        Ok(stream) => {
+                            debug!(self.log, "Discv5 event stream ready");
+                            self.event_stream = EventStream::Present(stream);
+                        }
                         Err(e) => {
                             slog::crit!(self.log, "Discv5 event stream failed"; "error" => e.to_string());
                             self.event_stream = EventStream::InActive;
@@ -856,3 +859,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         Poll::Pending
     }
 }
+
+/*
+impl discv5::Executor for TaskExecutor {
+    fn spawn(&self, future: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>) {
+        self.spawn(future, "discv5")
+    }
+}
+*/

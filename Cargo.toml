@@ -35,6 +35,7 @@ members = [
     "common/slot_clock",
     "common/test_random_derive",
     "common/warp_utils",
+    "common/task_executor",
     "common/validator_dir",
 
     "consensus/cached_tree_hash",
