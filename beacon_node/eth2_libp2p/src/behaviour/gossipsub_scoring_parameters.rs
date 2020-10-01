@@ -232,13 +232,13 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         &self,
         active_validators: usize,
     ) -> error::Result<(f64, usize)> {
-        let committees = TSpec::get_committee_count_per_slot_with(
+        let committees_per_slot = TSpec::get_committee_count_per_slot_with(
             active_validators,
             self.max_committees_per_slot,
             self.target_committee_size,
-        )
-        .map_err(|e| format!("Could not get committee count from spec: {:?}", e))?
-            * TSpec::slots_per_epoch() as usize;
+        ).map_err(|e| format!("Could not get committee count from spec: {:?}", e))?;
+
+        let committees = committees_per_slot * TSpec::slots_per_epoch() as usize;
 
         let smaller_committee_size = active_validators / committees;
         let num_larger_committees = active_validators - smaller_committee_size * committees;
@@ -258,7 +258,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                 + (num_larger_committees * (smaller_committee_size + 1)) as f64
                     / modulo_larger as f64)
                 / TSpec::slots_per_epoch() as f64,
-            committees,
+            committees_per_slot,
         ))
     }
 
