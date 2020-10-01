@@ -14,7 +14,7 @@ uuid = { version = "0.8", features = ["serde", "v4"] }
 rand = "0.7.2"
 eth2_keystore = { path = "../eth2_keystore" }
 eth2_key_derivation = { path = "../eth2_key_derivation" }
-tiny-bip39 = "0.7.3"
+tiny-bip39 = { git = "https://github.com/sigp/tiny-bip39.git", rev = "1137c32da91bd5e75db4305a84ddd15255423f7f" }
 
 [dev-dependencies]
 hex = "0.4.2"
