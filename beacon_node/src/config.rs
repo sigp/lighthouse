@@ -12,7 +12,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -302,6 +302,41 @@ pub fn get_config<E: EthSpec>(
     let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
     client_config.graffiti.0[..trimmed_graffiti_len]
         .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
+
+    if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {
+        let mut split = wss_checkpoint.split(':');
+        let root_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+        let epoch_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+
+        if !root_str.starts_with("0x") {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 0x prefix"
+                    .to_string(),
+            );
+        }
+
+        if !root_str.chars().count() == 66 {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 32 bytes".to_string(),
+            );
+        }
+
+        let root =
+            Hash256::from_slice(&hex::decode(&root_str[2..]).map_err(|e| {
+                format!("Unable to parse weak subjectivity checkpoint root: {:?}", e)
+            })?);
+        let epoch = Epoch::new(
+            epoch_str
+                .parse()
+                .map_err(|_| "Invalid weak subjectivity checkpoint epoch".to_string())?,
+        );
+
+        client_config.chain.weak_subjectivity_checkpoint = Some(Checkpoint { epoch, root })
+    }
 
     if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
         client_config.chain.import_max_skip_slots = match max_skip_slots {

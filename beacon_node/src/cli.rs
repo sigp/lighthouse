@@ -314,4 +314,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("700")
         )
+        .arg(
+            Arg::with_name("wss-checkpoint")
+                .long("wss-checkpoint")
+                .help(
+                    "Used to input a Weak Subjectivity State Checkpoint in `block_root:epoch_number` format,\
+                     where block_root is an '0x' prefixed 32-byte hex string and epoch_number is an integer."
+                )
+                .value_name("WSS_CHECKPOINT")
+                .takes_value(true)
+        )
 }
