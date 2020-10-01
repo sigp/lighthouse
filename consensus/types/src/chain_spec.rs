@@ -52,6 +52,7 @@ pub struct ChainSpec {
     pub hysteresis_quotient: u64,
     pub hysteresis_downward_multiplier: u64,
     pub hysteresis_upward_multiplier: u64,
+    pub proportional_slashing_multiplier: u64,
 
     /*
      *  Gwei values
@@ -243,7 +244,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.12.1
+    /// Spec v0.12.3
     pub fn mainnet() -> Self {
         Self {
             /*
@@ -267,6 +268,7 @@ impl ChainSpec {
             hysteresis_quotient: 4,
             hysteresis_downward_multiplier: 1,
             hysteresis_upward_multiplier: 5,
+            proportional_slashing_multiplier: 3,
 
             /*
              *  Gwei values
@@ -437,21 +439,15 @@ mod tests {
     }
 }
 
-/// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs
-/// from the Ethereum 2 specs repo (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
+/// YAML config file as defined by the spec.
 ///
-/// Doesn't include fields of the YAML that we don't need yet (e.g. Phase 1 stuff).
-///
-/// Spec v0.12.1
-// Yaml Config is declared here in order to access domain fields of ChainSpec which are private.
+/// Spec v0.12.3
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
-#[serde(default)]
 pub struct YamlConfig {
+    #[serde(default)]
+    config_name: String,
     // ChainSpec
-    far_future_epoch: u64,
-    base_rewards_per_epoch: u64,
-    deposit_contract_tree_depth: u64,
     max_committees_per_slot: usize,
     target_committee_size: usize,
     min_per_epoch_churn_limit: u64,
@@ -467,7 +463,9 @@ pub struct YamlConfig {
     hysteresis_quotient: u64,
     hysteresis_downward_multiplier: u64,
     hysteresis_upward_multiplier: u64,
-    genesis_slot: u64,
+    // Proportional slashing multiplier defaults to 3 for compatibility with Altona and Medalla.
+    #[serde(default = "default_proportional_slashing_multiplier")]
+    proportional_slashing_multiplier: u64,
     #[serde(
         serialize_with = "fork_to_hex_str",
         deserialize_with = "fork_from_hex_str"
@@ -524,14 +522,8 @@ pub struct YamlConfig {
         serialize_with = "u32_to_hex_str"
     )]
     domain_aggregate_and_proof: u32,
-    #[serde(
-        deserialize_with = "u32_from_hex_str",
-        serialize_with = "u32_to_hex_str"
-    )]
     // EthSpec
-    justification_bits_length: u32,
     max_validators_per_committee: u32,
-    genesis_epoch: Epoch,
     slots_per_epoch: u64,
     epochs_per_eth1_voting_period: u64,
     slots_per_historical_root: usize,
@@ -544,13 +536,22 @@ pub struct YamlConfig {
     max_attestations: u32,
     max_deposits: u32,
     max_voluntary_exits: u32,
-
     // Validator
     eth1_follow_distance: u64,
     target_aggregators_per_committee: u64,
     random_subnets_per_validator: u64,
     epochs_per_random_subnet_subscription: u64,
     seconds_per_eth1_block: u64,
+    /* TODO: incorporate these into ChainSpec and turn on `serde(deny_unknown_fields)`
+    deposit_chain_id: u64,
+    deposit_network_id: u64,
+    deposit_contract_address: String,
+    */
+}
+
+// Compatibility shim for proportional slashing multpilier on Altona and Medalla.
+fn default_proportional_slashing_multiplier() -> u64 {
+    3
 }
 
 impl Default for YamlConfig {
@@ -565,10 +566,8 @@ impl YamlConfig {
     #[allow(clippy::integer_arithmetic)]
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
+            config_name: T::spec_name().to_string(),
             // ChainSpec
-            far_future_epoch: spec.far_future_epoch.into(),
-            base_rewards_per_epoch: spec.base_rewards_per_epoch,
-            deposit_contract_tree_depth: spec.deposit_contract_tree_depth,
             max_committees_per_slot: spec.max_committees_per_slot,
             target_committee_size: spec.target_committee_size,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
@@ -584,7 +583,7 @@ impl YamlConfig {
             hysteresis_quotient: spec.hysteresis_quotient,
             hysteresis_downward_multiplier: spec.hysteresis_downward_multiplier,
             hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
-            genesis_slot: spec.genesis_slot.into(),
+            proportional_slashing_multiplier: spec.proportional_slashing_multiplier,
             bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
             seconds_per_slot: spec.milliseconds_per_slot / 1000,
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
@@ -609,9 +608,7 @@ impl YamlConfig {
             domain_aggregate_and_proof: spec.domain_aggregate_and_proof,
 
             // EthSpec
-            justification_bits_length: T::JustificationBitsLength::to_u32(),
             max_validators_per_committee: T::MaxValidatorsPerCommittee::to_u32(),
-            genesis_epoch: T::genesis_epoch(),
             slots_per_epoch: T::slots_per_epoch(),
             epochs_per_eth1_voting_period: T::EpochsPerEth1VotingPeriod::to_u64(),
             slots_per_historical_root: T::slots_per_historical_root(),
@@ -642,10 +639,8 @@ impl YamlConfig {
     }
 
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
-        // Checking for EthSpec constants
-        if self.justification_bits_length != T::JustificationBitsLength::to_u32()
-            || self.max_validators_per_committee != T::MaxValidatorsPerCommittee::to_u32()
-            || self.genesis_epoch != T::genesis_epoch()
+        // Check that YAML values match type-level EthSpec constants
+        if self.max_validators_per_committee != T::MaxValidatorsPerCommittee::to_u32()
             || self.slots_per_epoch != T::slots_per_epoch()
             || self.epochs_per_eth1_voting_period != T::EpochsPerEth1VotingPeriod::to_u64()
             || self.slots_per_historical_root != T::slots_per_historical_root()
@@ -664,25 +659,48 @@ impl YamlConfig {
 
         // Create a ChainSpec from the yaml config
         Some(ChainSpec {
-            far_future_epoch: Epoch::from(self.far_future_epoch),
-            base_rewards_per_epoch: self.base_rewards_per_epoch,
-            deposit_contract_tree_depth: self.deposit_contract_tree_depth,
+            /*
+             * Misc
+             */
+            max_committees_per_slot: self.max_committees_per_slot,
             target_committee_size: self.target_committee_size,
             min_per_epoch_churn_limit: self.min_per_epoch_churn_limit,
             churn_limit_quotient: self.churn_limit_quotient,
             shuffle_round_count: self.shuffle_round_count,
             min_genesis_active_validator_count: self.min_genesis_active_validator_count,
             min_genesis_time: self.min_genesis_time,
-            min_deposit_amount: self.min_deposit_amount,
-            genesis_delay: self.genesis_delay,
-            max_effective_balance: self.max_effective_balance,
             hysteresis_quotient: self.hysteresis_quotient,
             hysteresis_downward_multiplier: self.hysteresis_downward_multiplier,
             hysteresis_upward_multiplier: self.hysteresis_upward_multiplier,
+            proportional_slashing_multiplier: self.proportional_slashing_multiplier,
+            /*
+             * Fork Choice
+             */
+            safe_slots_to_update_justified: self.safe_slots_to_update_justified,
+            /*
+             * Validator
+             */
+            eth1_follow_distance: self.eth1_follow_distance,
+            target_aggregators_per_committee: self.target_aggregators_per_committee,
+            random_subnets_per_validator: self.random_subnets_per_validator,
+            epochs_per_random_subnet_subscription: self.epochs_per_random_subnet_subscription,
+            seconds_per_eth1_block: self.seconds_per_eth1_block,
+            /*
+             * Gwei values
+             */
+            min_deposit_amount: self.min_deposit_amount,
+            max_effective_balance: self.max_effective_balance,
             ejection_balance: self.ejection_balance,
             effective_balance_increment: self.effective_balance_increment,
-            genesis_slot: Slot::from(self.genesis_slot),
+            /*
+             * Initial values
+             */
+            genesis_fork_version: self.genesis_fork_version,
             bls_withdrawal_prefix_byte: self.bls_withdrawal_prefix,
+            /*
+             * Time parameters
+             */
+            genesis_delay: self.genesis_delay,
             milliseconds_per_slot: self.seconds_per_slot.saturating_mul(1000),
             min_attestation_inclusion_delay: self.min_attestation_inclusion_delay,
             min_seed_lookahead: Epoch::from(self.min_seed_lookahead),
@@ -692,20 +710,43 @@ impl YamlConfig {
             ),
             shard_committee_period: self.shard_committee_period,
             min_epochs_to_inactivity_penalty: self.min_epochs_to_inactivity_penalty,
+            /*
+             * Reward and penalty quotients
+             */
             base_reward_factor: self.base_reward_factor,
             whistleblower_reward_quotient: self.whistleblower_reward_quotient,
             proposer_reward_quotient: self.proposer_reward_quotient,
             inactivity_penalty_quotient: self.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: self.min_slashing_penalty_quotient,
+            /*
+             * Signature domains
+             */
             domain_beacon_proposer: self.domain_beacon_proposer,
             domain_beacon_attester: self.domain_beacon_attester,
             domain_randao: self.domain_randao,
             domain_deposit: self.domain_deposit,
             domain_voluntary_exit: self.domain_voluntary_exit,
+            domain_selection_proof: self.domain_selection_proof,
+            domain_aggregate_and_proof: self.domain_aggregate_and_proof,
+            /*
+             * Lighthouse-specific parameters
+             *
+             * These are paramaters that are present in the chain spec but aren't part of the YAML
+             * config. We avoid using `..chain_spec` so that changes to the set of fields don't
+             * accidentally get forgotten (explicit better than implicit, yada yada).
+             */
             boot_nodes: chain_spec.boot_nodes.clone(),
-            genesis_fork_version: self.genesis_fork_version,
-            eth1_follow_distance: self.eth1_follow_distance,
-            ..*chain_spec
+            network_id: chain_spec.network_id,
+            attestation_propagation_slot_range: chain_spec.attestation_propagation_slot_range,
+            maximum_gossip_clock_disparity_millis: chain_spec.maximum_gossip_clock_disparity_millis,
+            attestation_subnet_count: chain_spec.attestation_subnet_count,
+            /*
+             * Constants, not configurable.
+             */
+            genesis_slot: chain_spec.genesis_slot,
+            far_future_epoch: chain_spec.far_future_epoch,
+            base_rewards_per_epoch: chain_spec.base_rewards_per_epoch,
+            deposit_contract_tree_depth: chain_spec.deposit_contract_tree_depth,
         })
     }
 }
@@ -768,7 +809,7 @@ mod yaml_tests {
         let yamlconfig = YamlConfig::from_spec::<MinimalEthSpec>(&spec);
 
         // modifying the original spec
-        spec.deposit_contract_tree_depth += 1;
+        spec.max_committees_per_slot += 1;
         // Applying a yaml config with incorrect EthSpec should fail
         let res = yamlconfig.apply_to_chain_spec::<MainnetEthSpec>(&spec);
         assert_eq!(res, None);

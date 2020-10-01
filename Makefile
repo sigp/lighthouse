@@ -137,7 +137,11 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit
+	# TODO: we should address this --ignore.
+	#
+	# Tracking issue:
+	# https://github.com/sigp/lighthouse/issues/1669
+	cargo audit --ignore RUSTSEC-2020-0043
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:

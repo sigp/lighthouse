@@ -18,6 +18,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
+use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{info, Logger};
@@ -107,6 +108,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
+    shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
     data_dir: Option<PathBuf>,
     pubkey_cache_path: Option<PathBuf>,
@@ -154,6 +156,7 @@ where
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
+            shutdown_sender: None,
             head_tracker: None,
             pubkey_cache_path: None,
             data_dir: None,
@@ -405,6 +408,12 @@ where
         self
     }
 
+    /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
+    pub fn shutdown_sender(mut self, sender: Sender<&'static str>) -> Self {
+        self.shutdown_sender = Some(sender);
+        self
+    }
+
     /// Creates a new, empty operation pool.
     fn empty_op_pool(mut self) -> Self {
         self.op_pool = Some(OperationPool::new());
@@ -575,6 +584,9 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             disabled_forks: self.disabled_forks,
+            shutdown_sender: self
+                .shutdown_sender
+                .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
             log: log.clone(),
             graffiti: self.graffiti,
         };
@@ -582,6 +594,27 @@ where
         let head = beacon_chain
             .head()
             .map_err(|e| format!("Failed to get head: {:?}", e))?;
+
+        // Only perform the check if it was configured.
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
+            if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
+                wss_checkpoint,
+                head.beacon_block_root,
+                &head.beacon_state,
+            ) {
+                crit!(
+                    log,
+                    "Weak subjectivity checkpoint verification failed on startup!";
+                    "head_block_root" => format!("{}", head.beacon_block_root),
+                    "head_slot" => format!("{}", head.beacon_block.slot()),
+                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint.epoch),
+                    "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
+                    "error" => format!("{:?}", e),
+                );
+                crit!(log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                return Err(format!("Weak subjectivity verification failed: {:?}", e));
+            }
+        }
 
         info!(
             log,
@@ -761,6 +794,8 @@ mod test {
         )
         .expect("should create interop genesis state");
 
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
@@ -773,6 +808,7 @@ mod test {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
             .build()
             .expect("should build");
 

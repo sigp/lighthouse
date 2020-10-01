@@ -3,7 +3,7 @@
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::Eth2TestnetConfig;
 use std::path::PathBuf;
-use types::{Epoch, MainnetEthSpec, YamlConfig};
+use types::{MainnetEthSpec, YamlConfig};
 
 fn builder() -> EnvironmentBuilder<MainnetEthSpec> {
     EnvironmentBuilder::mainnet()
@@ -36,8 +36,8 @@ mod setup_eth2_config {
                 .expect("should build environment");
 
             assert_eq!(
-                environment.eth2_config.spec.far_future_epoch,
-                Epoch::new(999) // see testnet_dir/config.yaml
+                environment.eth2_config.spec.max_committees_per_slot,
+                128 // see testnet_dir/config.yaml
             );
         }
     }
