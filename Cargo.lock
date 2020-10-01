@@ -12,6 +12,7 @@ dependencies = [
  "directory",
  "dirs",
  "environment",
+ "eth2",
  "eth2_keystore",
  "eth2_ssz",
  "eth2_ssz_derive",
