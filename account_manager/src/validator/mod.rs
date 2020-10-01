@@ -1,9 +1,11 @@
 pub mod create;
 pub mod deposit;
+mod eth1_utils;
 pub mod import;
 pub mod list;
 pub mod recover;
 pub mod slashing_protection;
+pub mod topup;
 
 use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
