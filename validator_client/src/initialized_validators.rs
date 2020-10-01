@@ -13,6 +13,7 @@ use account_utils::{
     },
 };
 use eth2_keystore::Keystore;
+use rayon::prelude::*;
 use slog::{error, info, warn, Logger};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -363,51 +364,69 @@ impl InitializedValidators {
     /// I.e., if there are two different definitions with the same public key then the second will
     /// be ignored.
     fn update_validators(&mut self) -> Result<(), Error> {
-        for def in self.definitions.as_slice() {
-            if def.enabled {
-                match &def.signing_definition {
-                    SigningDefinition::LocalKeystore { .. } => {
-                        if self.validators.contains_key(&def.voting_public_key) {
-                            continue;
-                        }
-
+        let vals: Vec<(_, Result<Option<InitializedValidator>, Error>)> = self
+            .definitions
+            .as_slice()
+            .par_iter()
+            .filter_map(|def| match &def.signing_definition {
+                SigningDefinition::LocalKeystore { .. } => Some(def),
+            })
+            .map(|def| {
+                if !def.enabled {
+                    (def.voting_public_key.clone(), Ok(None))
+                } else {
+                    (
+                        def.voting_public_key.clone(),
                         match InitializedValidator::from_definition(
                             def.clone(),
                             self.strict_lockfiles,
                             &self.log,
                         ) {
-                            Ok(init) => {
-                                self.validators
-                                    .insert(init.voting_public_key().clone(), init);
-                                info!(
-                                    self.log,
-                                    "Enabled validator";
-                                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
-                                );
-                            }
-                            Err(e) => {
-                                error!(
-                                    self.log,
-                                    "Failed to initialize validator";
-                                    "error" => format!("{:?}", e),
-                                    "validator" => format!("{:?}", def.voting_public_key)
-                                );
-
-                                // Exit on an invalid validator.
-                                return Err(e);
-                            }
-                        }
-                    }
+                            Ok(init) => Ok(Some(init)),
+                            Err(e) => Err(e),
+                        },
+                    )
                 }
-            } else {
-                self.validators.remove(&def.voting_public_key);
-                info!(
-                    self.log,
-                    "Disabled validator";
-                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
-                );
+            })
+            .collect();
+
+        for val in vals {
+            match val {
+                (voting_public_key, Ok(None)) => {
+                    self.validators.remove(&voting_public_key);
+                    info!(
+                        self.log,
+                        "Disabled validator";
+                        "voting_pubkey" => format!("{:?}", voting_public_key)
+                    );
+                }
+                (voting_public_key, Ok(Some(init))) => {
+                    if self.validators.contains_key(&voting_public_key) {
+                        continue;
+                    }
+
+                    self.validators
+                        .insert(init.voting_public_key().clone(), init);
+                    info!(
+                        self.log,
+                        "Enabled validator";
+                        "voting_pubkey" => format!("{:?}", voting_public_key)
+                    );
+                }
+                (voting_public_key, Err(e)) => {
+                    error!(
+                        self.log,
+                        "Failed to initialize validator";
+                        "error" => format!("{:?}", e),
+                        "validator" => format!("{:?}", voting_public_key)
+                    );
+
+                    // Exit on an invalid validator.
+                    return Err(e);
+                }
             }
         }
+
         Ok(())
     }
 }
