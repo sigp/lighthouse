@@ -97,11 +97,17 @@ impl System {
 /// Reports information about a drive on the system the Lighthouse instance is running on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Drive {
+    /// The filesystem name.
     pub filesystem: String,
+    /// The amount of disk space available on the filesystem.
     pub avail: u64,
+    /// The amount of disk space used on the filesystem. Equivalent to `total-avail`.
     pub used: u64,
+    /// The percentage of disk space used on the filesystem. Equivalent to `(total-avail) / total`.
     pub used_pct: u64,
+    /// The total amount of disk space on the filesystem.
     pub total: u64,
+    /// The filesystem mount point.
     pub mounted_on: String,
 }
 
@@ -125,6 +131,7 @@ impl Drive {
     }
 }
 
+/// Reports information about the network on the system the Lighthouse instance is running on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Network {
     /// Network metric for total received bytes across all network interfaces.
@@ -139,6 +146,36 @@ pub struct Network {
     pub tx_errors: u64,
     /// Network metric for total transmitted packets across all network interfaces.
     pub tx_packets: u64,
+}
+
+impl Network {
+    pub fn observe() -> Result<Self, String> {
+        let mut rx_bytes = 0;
+        let mut rx_errors = 0;
+        let mut rx_packets = 0;
+        let mut tx_bytes = 0;
+        let mut tx_errors = 0;
+        let mut tx_packets = 0;
+
+        let s = SystemInfo::new_all();
+        s.get_networks().iter().for_each(|(_, network)| {
+            rx_bytes += network.get_total_received();
+            rx_errors += network.get_total_transmitted();
+            rx_packets += network.get_total_packets_received();
+            tx_bytes += network.get_total_packets_transmitted();
+            tx_errors += network.get_total_errors_on_received();
+            tx_packets += network.get_total_errors_on_transmitted();
+        });
+
+        Ok(Network {
+            rx_bytes,
+            rx_errors,
+            rx_packets,
+            tx_bytes,
+            tx_errors,
+            tx_packets,
+        })
+    }
 }
 
 /// Reports on the health of the Lighthouse instance.
@@ -191,23 +228,6 @@ impl Health {
         let loadavg =
             psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
-        let mut rx_bytes = 0;
-        let mut rx_errors = 0;
-        let mut rx_packets = 0;
-        let mut tx_bytes = 0;
-        let mut tx_errors = 0;
-        let mut tx_packets = 0;
-
-        let s = SystemInfo::new_all();
-        s.get_networks().iter().for_each(|(_, network)| {
-            rx_bytes += network.get_total_received();
-            rx_errors += network.get_total_transmitted();
-            rx_packets += network.get_total_packets_received();
-            tx_bytes += network.get_total_packets_transmitted();
-            tx_errors += network.get_total_errors_on_received();
-            tx_packets += network.get_total_errors_on_transmitted();
-        });
-
         Ok(Self {
             pid: process.pid(),
             pid_mem_resident_set_size: process_mem.rss(),
@@ -220,14 +240,7 @@ impl Health {
             sys_loadavg_1: loadavg.one,
             sys_loadavg_5: loadavg.five,
             sys_loadavg_15: loadavg.fifteen,
-            network: Network {
-                rx_bytes,
-                rx_errors,
-                rx_packets,
-                tx_bytes,
-                tx_errors,
-                tx_packets,
-            },
+            network: Network::observe()?,
         })
     }
 
@@ -249,23 +262,6 @@ impl Health {
             .load_average()
             .map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
-        let mut rx_bytes = 0;
-        let mut rx_errors = 0;
-        let mut rx_packets = 0;
-        let mut tx_bytes = 0;
-        let mut tx_errors = 0;
-        let mut tx_packets = 0;
-
-        let s = SystemInfo::new_all();
-        s.get_networks().iter().for_each(|(_, network)| {
-            rx_bytes += network.get_total_received();
-            rx_errors += network.get_total_transmitted();
-            rx_packets += network.get_total_packets_received();
-            tx_bytes += network.get_total_packets_transmitted();
-            tx_errors += network.get_total_errors_on_received();
-            tx_packets += network.get_total_errors_on_transmitted();
-        });
-
         Ok(Self {
             pid: process.pid() as u32,
             pid_mem_resident_set_size: process_mem.rss(),
@@ -278,14 +274,7 @@ impl Health {
             sys_loadavg_1: loadavg.one as f64,
             sys_loadavg_5: loadavg.five as f64,
             sys_loadavg_15: loadavg.fifteen as f64,
-            network: Network {
-                rx_bytes,
-                rx_errors,
-                rx_packets,
-                tx_bytes,
-                tx_errors,
-                tx_packets,
-            },
+            network: Network::observe()?,
         })
     }
 }

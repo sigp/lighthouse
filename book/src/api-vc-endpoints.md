@@ -36,7 +36,7 @@ Typical Responses | 200
 }
 ```
 
-## `GET /lighthouse/health`
+## `GET /lighthouse/system`
 
 Returns information regarding the health of the host machine.
 
@@ -44,32 +44,52 @@ Returns information regarding the health of the host machine.
 
 | Property | Specification |
 | --- |--- |
-Path | `/lighthouse/health`
+Path | `/lighthouse/system`
 Method | GET
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 200
 
-*Note: this endpoint is presently only available on Linux.*
+### Example Response Body
+
+```json
+
+```
+
+## `GET /lighthouse/system/health`
+
+Returns information regarding the health of the host machine.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/system/health`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
 
 ### Example Response Body
 
 ```json
-{
-    "data": {
-        "pid": 1476293,
-        "pid_num_threads": 19,
-        "pid_mem_resident_set_size": 4009984,
-        "pid_mem_virtual_memory_size": 1306775552,
-        "sys_virt_mem_total": 33596100608,
-        "sys_virt_mem_available": 23073017856,
-        "sys_virt_mem_used": 9346957312,
-        "sys_virt_mem_free": 22410510336,
-        "sys_virt_mem_percent": 31.322334,
-        "sys_loadavg_1": 0.98,
-        "sys_loadavg_5": 0.98,
-        "sys_loadavg_15": 1.01
-    }
-}
+```
+
+## `GET /lighthouse/system/drives`
+
+Returns information regarding the health of the host machine.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/system/drives`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+### Example Response Body
+
+```json
+
 ```
 
 ## `GET /lighthouse/spec`

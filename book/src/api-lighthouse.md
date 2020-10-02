@@ -16,30 +16,34 @@ Although we don't recommend that users rely on these endpoints, we
 document them briefly so they can be utilized by developers and
 researchers.
 
-### `/lighthouse/health`
+### `/lighthouse/system`
 
-*Presently only available on Linux.*
+```bash
+curl -X GET "http://localhost:5052/lighthouse/system" -H  "accept: application/json" | jq
+```
+
+```json
+
+```
+
+### `/lighthouse/system/health`
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/json" | jq
 ```
 
 ```json
-{
-  "data": {
-    "pid": 1728254,
-    "pid_mem_resident_set_size": 510054400,
-    "pid_mem_virtual_memory_size": 3963158528,
-    "sys_virt_mem_total": 16715530240,
-    "sys_virt_mem_available": 4065374208,
-    "sys_virt_mem_used": 11383402496,
-    "sys_virt_mem_free": 1368662016,
-    "sys_virt_mem_percent": 75.67906,
-    "sys_loadavg_1": 4.92,
-    "sys_loadavg_5": 5.53,
-    "sys_loadavg_15": 5.58
-  }
-}
+
+```
+
+### `/lighthouse/system/drives`
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/drives" -H  "accept: application/json" | jq
+```
+
+```json
+
 ```
 
 ### `/lighthouse/syncing`
