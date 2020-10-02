@@ -18,6 +18,8 @@ researchers.
 
 ### `/lighthouse/system`
 
+*Available on Linux and macOS.*
+
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/system" -H  "accept: application/json" | jq
 ```

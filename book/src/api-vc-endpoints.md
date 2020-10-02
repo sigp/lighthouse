@@ -38,7 +38,9 @@ Typical Responses | 200
 
 ## `GET /lighthouse/system`
 
-Returns information regarding the health of the host machine.
+*Available on Linux and macOS.*
+
+Returns system statistics and information about the host machine.
 
 ### HTTP Specification
 
@@ -148,7 +150,7 @@ Typical Responses | 200
 
 ## `GET /lighthouse/system/drives`
 
-Returns information regarding the health of the host machine.
+Returns information regarding drives on the host machine.
 
 ### HTTP Specification
 
