@@ -23,6 +23,14 @@ pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
+pub const MNEMONIC_LENGTH_FLAG: &str = "mnemonic-length";
+pub const MNEMONIC_TYPES: &[MnemonicType] = &[
+    MnemonicType::Words12,
+    MnemonicType::Words15,
+    MnemonicType::Words18,
+    MnemonicType::Words21,
+    MnemonicType::Words24,
+];
 pub const NEW_WALLET_PASSWORD_PROMPT: &str =
     "Enter a password for your new wallet that is at least 12 characters long:";
 pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
@@ -78,6 +86,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
+        .arg(
+            Arg::with_name(MNEMONIC_LENGTH_FLAG)
+                .long(MNEMONIC_LENGTH_FLAG)
+                .value_name("MNEMONIC_LENGTH")
+                .help("The number of words to use for the mnemonic phrase.")
+                .takes_value(true)
+                .validator(|len| {
+                    match len.parse::<usize>().ok().and_then(|words| MnemonicType::for_word_count(words).ok()) {
+                        Some(_) => Ok(()),
+                        None => Err(format!("Mnemonic length must be one of {}", MNEMONIC_TYPES.iter().map(|t| t.word_count().to_string()).collect::<Vec<_>>().join(", "))),
+                    }
+                })
+                .default_value("24"),
+        )
 }
 
 pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
@@ -86,7 +108,11 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     // Create a new random mnemonic.
     //
     // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
-    let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+    let mnemonic_length = clap_utils::parse_required(matches, MNEMONIC_LENGTH_FLAG)?;
+    let mnemonic = Mnemonic::new(
+        MnemonicType::for_word_count(mnemonic_length).expect("Mnemonic length already validated"),
+        Language::English,
+    );
 
     let wallet = create_wallet_from_mnemonic(matches, &base_dir.as_path(), &mnemonic)?;
 
@@ -95,7 +121,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
             .map_err(|e| format!("Unable to write mnemonic to {:?}: {:?}", path, e))?;
     }
 
-    println!("Your wallet's 12-word BIP-39 mnemonic is:");
+    println!("Your wallet's {}-word BIP-39 mnemonic is:", mnemonic_length);
     println!();
     println!("\t{}", mnemonic.phrase());
     println!();
