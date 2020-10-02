@@ -140,7 +140,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
 
-    // GET node/version
+    // GET lighthouse/version
     let get_node_version = warp::path("lighthouse")
         .and(warp::path("version"))
         .and(warp::path::end())
@@ -364,7 +364,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
-    // PATCH lighthouse/validators
+    // PATCH lighthouse/validators/{validator_pubkey}
     let patch_validators = warp::path("lighthouse")
         .and(warp::path("validators"))
         .and(warp::path::param::<PublicKey>())

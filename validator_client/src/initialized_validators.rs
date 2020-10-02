@@ -324,7 +324,7 @@ impl InitializedValidators {
             .map(|v| v.voting_keypair())
     }
 
-    /// Returns a slice of all defined validators (regardless of their enabled state).
+    /// Ad a validator definition to `self`, overwriting the on-disk representation of `self`.
     pub async fn add_definition(&mut self, def: ValidatorDefinition) -> Result<(), Error> {
         if self
             .definitions

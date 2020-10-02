@@ -80,8 +80,8 @@ impl Harness {
 
         let builder = Builder::new(self.validators_dir.path().into())
             .password_dir(self.password_dir.path())
-            // Note: setting the withdrawal keystore here ensure that it can get overriden by later
-            // calls to `random_withdrawal_keystore`.
+            // Note: setting the withdrawal keystore here ensure that it can get replaced by
+            // further calls to `random_withdrawal_keystore`.
             .store_withdrawal_keystore(config.store_withdrawal_keystore);
 
         let builder = if config.random_voting_keystore {

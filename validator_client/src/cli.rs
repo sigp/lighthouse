@@ -127,7 +127,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-port")
                 .long("http-port")
                 .value_name("PORT")
-                .help("Set the listen TCP port for the RESTful HTTP API server.")
+                .help("Set the listen TCP port for the RESTful HTTP API server. This server does **not** \
+                provide encryption and is completely unsuitable to expose to a public network. \
+                We do not provide a --http-address flag and restrict the user to listening on \
+                127.0.0.1. For access via the Internet, apply a transport-layer security like \
+                a HTTPS reverse-proxy or SSH tunnelling.")
                 .default_value("5062")
                 .takes_value(true),
         )
