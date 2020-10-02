@@ -1475,14 +1475,20 @@ impl ApiTester {
 
     #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
     pub async fn test_get_lighthouse_system_health(self) -> Self {
-        self.client.get_lighthouse_system_health().await.unwrap_err();
+        self.client
+            .get_lighthouse_system_health()
+            .await
+            .unwrap_err();
 
         self
     }
 
     #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
     pub async fn test_get_lighthouse_system_drives(self) -> Self {
-        self.client.get_lighthouse_system_drives().await.unwrap_err();
+        self.client
+            .get_lighthouse_system_drives()
+            .await
+            .unwrap_err();
 
         self
     }

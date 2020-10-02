@@ -6,7 +6,8 @@ use crate::{
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
-use sysinfo::{NetworksExt, System as SystemInfo, SystemExt, NetworkExt};
+use sysinfo::{NetworkExt, NetworksExt, System as SystemInfo, SystemExt};
+use systemstat::{Platform, System as SystemStat};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -72,19 +73,16 @@ pub struct ValidatorInclusionData {
     pub is_previous_epoch_head_attester: bool,
 }
 
+#[cfg(target_os = "macos")]
+use psutil::process::Process;
 #[cfg(target_os = "linux")]
 use {procinfo::pid, psutil::process::Process};
-#[cfg(target_os = "macos")]
-use {
-    psutil::process::Process,
-    systemstat::{Platform, System as SystemStat},
-};
 
 /// Reports information about the system the Lighthouse instance is running on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct System {
-    pub health : Health,
-    pub drives : Vec<Drive>,
+    pub health: Health,
+    pub drives: Vec<Drive>,
 }
 
 impl System {
@@ -110,16 +108,20 @@ pub struct Drive {
 impl Drive {
     pub fn observe() -> Result<Vec<Self>, String> {
         let system = SystemStat::new();
-        Ok(system.mounts().expect("Could not find mounts.").into_iter().map(|drive| {
-            Drive {
-                filesystem: drive.fs_mounted_from ,
-                used: drive.total.as_u64() - drive.avail.as_u64() ,
-                avail: drive.avail.as_u64() ,
-                used_pct: (((drive.total.0 as f64 - drive.avail.0 as f64) / drive.total.0 as f64) * 100.0) as u64 ,
-                total: drive.total.as_u64() ,
-                mounted_on: drive.fs_mounted_on ,
-            }
-        }).collect())
+        Ok(system
+            .mounts()
+            .expect("Could not find mounts.")
+            .into_iter()
+            .map(|drive| Drive {
+                filesystem: drive.fs_mounted_from,
+                used: drive.total.as_u64() - drive.avail.as_u64(),
+                avail: drive.avail.as_u64(),
+                used_pct: (((drive.total.0 as f64 - drive.avail.0 as f64) / drive.total.0 as f64)
+                    * 100.0) as u64,
+                total: drive.total.as_u64(),
+                mounted_on: drive.fs_mounted_on,
+            })
+            .collect())
     }
 }
 
@@ -169,7 +171,6 @@ pub struct Health {
 }
 
 impl Health {
-
     #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
     pub fn observe() -> Result<Self, String> {
         Err("Health is only available on Linux and MacOS".into())
@@ -200,12 +201,12 @@ impl Health {
 
         let s = SystemInfo::new_all();
         s.get_networks().iter().for_each(|(_, network)| {
-            rx_bytes = rx_bytes +  network.get_total_received();
-            rx_errors = rx_errors +  network.get_total_transmitted();
-            rx_packets = rx_packets +  network.get_total_packets_received();
-            tx_bytes = tx_bytes +  network.get_total_packets_transmitted();
-            tx_errors = tx_errors +  network.get_total_errors_on_received();
-            tx_packets = tx_packets +  network.get_total_errors_on_transmitted();
+            rx_bytes = rx_bytes + network.get_total_received();
+            rx_errors = rx_errors + network.get_total_transmitted();
+            rx_packets = rx_packets + network.get_total_packets_received();
+            tx_bytes = tx_bytes + network.get_total_packets_transmitted();
+            tx_errors = tx_errors + network.get_total_errors_on_received();
+            tx_packets = tx_packets + network.get_total_errors_on_transmitted();
         });
 
         Ok(Self {
@@ -220,7 +221,7 @@ impl Health {
             sys_loadavg_1: loadavg.one,
             sys_loadavg_5: loadavg.five,
             sys_loadavg_15: loadavg.fifteen,
-            network: Network{
+            network: Network {
                 rx_bytes,
                 rx_errors,
                 rx_packets,
@@ -256,14 +257,14 @@ impl Health {
         let mut tx_errors = 0;
         let mut tx_packets = 0;
 
-       let s = SystemInfo::new_all();
+        let s = SystemInfo::new_all();
         s.get_networks().iter().for_each(|(_, network)| {
-                rx_bytes = rx_bytes +  network.get_total_received();
-                rx_errors = rx_errors +  network.get_total_transmitted();
-                rx_packets = rx_packets +  network.get_total_packets_received();
-                tx_bytes = tx_bytes +  network.get_total_packets_transmitted();
-                tx_errors = tx_errors +  network.get_total_errors_on_received();
-                tx_packets = tx_packets +  network.get_total_errors_on_transmitted();
+            rx_bytes = rx_bytes + network.get_total_received();
+            rx_errors = rx_errors + network.get_total_transmitted();
+            rx_packets = rx_packets + network.get_total_packets_received();
+            tx_bytes = tx_bytes + network.get_total_packets_transmitted();
+            tx_errors = tx_errors + network.get_total_errors_on_received();
+            tx_packets = tx_packets + network.get_total_errors_on_transmitted();
         });
 
         Ok(Self {
@@ -278,7 +279,7 @@ impl Health {
             sys_loadavg_1: loadavg.one as f64,
             sys_loadavg_5: loadavg.five as f64,
             sys_loadavg_15: loadavg.fifteen as f64,
-            network: Network{
+            network: Network {
                 rx_bytes,
                 rx_errors,
                 rx_packets,
@@ -286,7 +287,6 @@ impl Health {
                 tx_errors,
                 tx_packets,
             },
-
         })
     }
 }
