@@ -99,7 +99,8 @@ impl System {
 pub struct Drive {
     pub filesystem: String,
     pub avail: u64,
-    pub avail_pct: u64,
+    pub used: u64,
+    pub used_pct: u64,
     pub total: u64,
     pub mounted_on: String,
 }
@@ -114,7 +115,8 @@ impl Drive {
             .map(|drive| Drive {
                 filesystem: drive.fs_mounted_from,
                 avail: drive.avail.as_u64(),
-                avail_pct: (((drive.total.0 as f64 - drive.avail.0 as f64) / drive.total.0 as f64)
+                used: (drive.total - drive.avail) as u64,
+                used_pct: (((drive.total.0 as f64 - drive.avail.0 as f64) / drive.total.0 as f64)
                     * 100.0) as u64,
                 total: drive.total.as_u64(),
                 mounted_on: drive.fs_mounted_on,
@@ -185,6 +187,7 @@ impl Health {
 
         let vm = psutil::memory::virtual_memory()
             .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
+
         let loadavg =
             psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
