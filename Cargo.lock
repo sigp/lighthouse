@@ -172,12 +172,8 @@ dependencies = [
 
 [[package]]
 name = "amcl"
-version = "0.2.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
-dependencies = [
- "hex 0.3.2",
- "lazy_static",
-]
+version = "0.3.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.3.0#5ecda0f75238f4255db7d58b9aac61038b192b81"
 
 [[package]]
 name = "ansi_term"
@@ -599,8 +595,8 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.1.1"
-source = "git+https://github.com/sigp/blst.git?rev=284f7059642851c760a09fb1708bcb59c7ca323c#284f7059642851c760a09fb1708bcb59c7ca323c"
+version = "0.2.0"
+source = "git+https://github.com/supranational/blst.git?rev=414ac6b185f6b2ef2e6364d5716f915af966c465#414ac6b185f6b2ef2e6364d5716f915af966c465"
 dependencies = [
  "cc",
  "glob",
@@ -3508,8 +3504,8 @@ dependencies = [
 
 [[package]]
 name = "milagro_bls"
-version = "1.1.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
+version = "1.3.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.3.0#5ecda0f75238f4255db7d58b9aac61038b192b81"
 dependencies = [
  "amcl",
  "hex 0.4.2",
