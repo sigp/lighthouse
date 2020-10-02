@@ -76,7 +76,7 @@ pub struct ValidatorInclusionData {
 #[cfg(target_os = "macos")]
 use psutil::process::Process;
 #[cfg(target_os = "linux")]
-use {procinfo::pid, psutil::process::Process};
+use psutil::process::Process;
 
 /// Reports information about the system the Lighthouse instance is running on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -184,8 +184,6 @@ impl Health {
         let process_mem = process
             .memory_info()
             .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
-
-        let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
 
         let vm = psutil::memory::virtual_memory()
             .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
