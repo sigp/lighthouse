@@ -6,7 +6,7 @@ use crate::{
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
-use sysinfo::{DiskExt, NetworkExt, NetworksExt, System as SystemInfo, SystemExt};
+use sysinfo::{NetworkExt, NetworksExt, System as SystemInfo, SystemExt};
 use systemstat::{Platform, System as SystemStat};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
@@ -115,7 +115,7 @@ impl Drive {
             .map(|drive| Drive {
                 filesystem: drive.fs_mounted_from,
                 avail: drive.avail.as_u64(),
-                used: (drive.total - drive.avail) as u64,
+                used: drive.total.as_u64() - drive.avail.as_u64(),
                 used_pct: (((drive.total.0 as f64 - drive.avail.0 as f64) / drive.total.0 as f64)
                     * 100.0) as u64,
                 total: drive.total.as_u64(),

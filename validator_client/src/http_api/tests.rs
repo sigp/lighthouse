@@ -156,8 +156,8 @@ impl ApiTester {
     }
 
     #[cfg(target_os = "linux")]
-    pub async fn test_get_lighthouse_health(self) -> Self {
-        self.client.get_lighthouse_health().await.unwrap();
+    pub async fn test_get_lighthouse_system_health(self) -> Self {
+        self.client.get_lighthouse_system_health().await.unwrap();
 
         self
     }
@@ -433,7 +433,7 @@ async fn simple_getters() {
         .await
         .test_get_lighthouse_version()
         .await
-        .test_get_lighthouse_health()
+        .test_get_lighthouse_system_health()
         .await
         .test_get_lighthouse_spec()
         .await;

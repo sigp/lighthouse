@@ -197,13 +197,14 @@ impl ValidatorClientHttpClient {
         self.get(path).await
     }
 
-    /// `GET lighthouse/health`
-    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
+    /// `GET lighthouse/system/health`
+    pub async fn get_lighthouse_system_health(&self) -> Result<GenericResponse<Health>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
+            .push("system")
             .push("health");
 
         self.get(path).await

@@ -153,8 +153,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
-    // GET lighthouse/health
-    let get_lighthouse_health = warp::path("lighthouse")
+    // GET lighthouse/system/health
+    let get_lighthouse_system_health = warp::path("lighthouse")
+        .and(warp::path("system"))
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(signer.clone())
@@ -412,7 +413,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(
             warp::get().and(
                 get_node_version
-                    .or(get_lighthouse_health)
+                    .or(get_lighthouse_system_health)
                     .or(get_lighthouse_spec)
                     .or(get_lighthouse_validators)
                     .or(get_lighthouse_validators_pubkey),
