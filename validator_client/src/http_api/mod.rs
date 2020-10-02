@@ -153,6 +153,19 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    // GET lighthouse/system
+    let get_lighthouse_system = warp::path("lighthouse")
+        .and(warp::path("system"))
+        .and(warp::path::end())
+        .and(signer.clone())
+        .and_then(|signer| {
+            blocking_signed_json_task(signer, move || {
+                eth2::lighthouse::System::observe()
+                    .map(api_types::GenericResponse::from)
+                    .map_err(warp_utils::reject::custom_bad_request)
+            })
+        });
+
     // GET lighthouse/system/health
     let get_lighthouse_system_health = warp::path("lighthouse")
         .and(warp::path("system"))
@@ -162,6 +175,20 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(|signer| {
             blocking_signed_json_task(signer, move || {
                 eth2::lighthouse::Health::observe()
+                    .map(api_types::GenericResponse::from)
+                    .map_err(warp_utils::reject::custom_bad_request)
+            })
+        });
+
+    // GET lighthouse/system/drives
+    let get_lighthouse_system_drives = warp::path("lighthouse")
+        .and(warp::path("system"))
+        .and(warp::path("drives"))
+        .and(warp::path::end())
+        .and(signer.clone())
+        .and_then(|signer| {
+            blocking_signed_json_task(signer, move || {
+                eth2::lighthouse::Drive::observe()
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })
@@ -413,7 +440,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(
             warp::get().and(
                 get_node_version
+                    .or(get_lighthouse_system)
                     .or(get_lighthouse_system_health)
+                    .or(get_lighthouse_system_drives)
                     .or(get_lighthouse_spec)
                     .or(get_lighthouse_validators)
                     .or(get_lighthouse_validators_pubkey),
