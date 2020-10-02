@@ -5529,8 +5529,7 @@ dependencies = [
 [[package]]
 name = "tiny-bip39"
 version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0165e045cc2ae1660270ca65e1676dbaab60feb0f91b10f7d0665e9b47e31f2"
+source = "git+https://github.com/sigp/tiny-bip39.git?rev=1137c32da91bd5e75db4305a84ddd15255423f7f#1137c32da91bd5e75db4305a84ddd15255423f7f"
 dependencies = [
  "failure",
  "hmac 0.7.1",
@@ -5540,6 +5539,7 @@ dependencies = [
  "rustc-hash",
  "sha2 0.8.2",
  "unicode-normalization",
+ "zeroize",
 ]
 
 [[package]]
