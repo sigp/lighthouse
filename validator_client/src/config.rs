@@ -7,6 +7,7 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
+use slog::{warn, Logger};
 use std::fs;
 use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
@@ -23,7 +24,7 @@ pub struct Config {
     /// The http endpoint of the beacon node API.
     ///
     /// Should be similar to `http://localhost:8080`
-    pub http_server: String,
+    pub beacon_node: String,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -53,7 +54,7 @@ impl Default for Config {
         Self {
             validator_dir,
             secrets_dir,
-            http_server: DEFAULT_BEACON_NODE.to_string(),
+            beacon_node: DEFAULT_BEACON_NODE.to_string(),
             allow_unsynced_beacon_node: false,
             delete_lockfiles: false,
             disable_auto_discover: false,
@@ -67,7 +68,7 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
+    pub fn from_cli(cli_args: &ArgMatches, log: &Logger) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
@@ -104,8 +105,17 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
+        if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
+            config.beacon_node = beacon_node;
+        }
+
         if let Some(server) = parse_optional(cli_args, "server")? {
-            config.http_server = server;
+            warn!(
+                log,
+                "The --server flag is deprecated.";
+                "msg" => "please use --beacon-node instead"
+            );
+            config.beacon_node = server;
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");

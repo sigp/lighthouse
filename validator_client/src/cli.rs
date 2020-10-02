@@ -9,12 +9,22 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 validator (e.g., proposing blocks and attestations).",
         )
         .arg(
+            Arg::with_name("beacon-node")
+                .long("beacon-node")
+                .value_name("NETWORK_ADDRESS")
+                .help("Address to a beacon node HTTP API")
+                .default_value(&DEFAULT_BEACON_NODE)
+                .takes_value(true),
+        )
+        // This argument is deprecated, use `--beacon-node` instead.
+        .arg(
             Arg::with_name("server")
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to connect to BeaconNode.")
                 .default_value(&DEFAULT_BEACON_NODE)
-                .takes_value(true),
+                .takes_value(true)
+                .conflicts_with("beacon_node"),
         )
         .arg(
             Arg::with_name("validators-dir")

@@ -75,7 +75,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         info!(
             log,
             "Starting validator client";
-            "beacon_node" => &config.http_server,
+            "beacon_node" => &config.beacon_node,
             "validator_dir" => format!("{:?}", config.validator_dir),
         );
 
@@ -113,7 +113,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         );
 
         let beacon_node_url: Url = config
-            .http_server
+            .beacon_node
             .parse()
             .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         let beacon_node_http_client = ClientBuilder::new()
