@@ -75,9 +75,9 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// If a block is imported for this batch, the chain advances to this point.
     optimistic_start: Option<BatchId>,
 
-    /// When a batch for an optimistic start fails processing, it is stored to avoid trying it
-    /// again due to chain stopping/re-starting on chain switching.
-    failed_optimistic_starts: HashSet<BatchId>,
+    /// When a batch for an optimistic start is tried (either successful or not), it is stored to
+    /// avoid trying it again due to chain stopping/re-starting on chain switching.
+    attempted_optimistic_starts: HashSet<BatchId>,
 
     /// The current state of the chain.
     pub state: ChainSyncingState,
@@ -135,7 +135,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             to_be_downloaded: start_epoch,
             processing_target: start_epoch,
             optimistic_start: None,
-            failed_optimistic_starts: HashSet::default(),
+            attempted_optimistic_starts: HashSet::default(),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
             beacon_processor_send,
@@ -442,6 +442,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // blocks.
                 if *was_non_empty {
                     self.advance_chain(network, batch_id);
+                    // we register so that on chain switching we don't try it again
+                    self.attempted_optimistic_starts.insert(batch_id);
                 } else if let Some(epoch) = self.optimistic_start {
                     // check if this batch corresponds to an optimistic batch. In this case, we
                     // reject it as an optimistic candidate since the batch was empty
@@ -520,9 +522,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         redownload: bool,
         reason: &str,
     ) -> ProcessingResult {
-        if let Some(epoch) = self.optimistic_start {
-            self.optimistic_start = None;
-            self.failed_optimistic_starts.insert(epoch);
+        if let Some(epoch) = self.optimistic_start.take() {
+            self.attempted_optimistic_starts.insert(epoch);
             // if this batch is inside the current processing range, keep it, otherwise drop
             // it. NOTE: this is done to prevent non-sequential batches coming from optimistic
             // starts from filling up the buffer size
@@ -628,7 +629,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.start_epoch = validating_epoch;
         self.to_be_downloaded = self.to_be_downloaded.max(validating_epoch);
         if self.batches.contains_key(&self.to_be_downloaded) {
-            // if a chain is advanced by Range beyond the previous `seld.to_be_downloaded`, we
+            // if a chain is advanced by Range beyond the previous `self.to_be_downloaded`, we
             // won't have this batch, so we need to request it.
             self.to_be_downloaded += EPOCHS_PER_BATCH;
         }
@@ -732,8 +733,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // advance the chain to the new validating epoch
         self.advance_chain(network, validating_epoch);
         if self.optimistic_start.is_none()
-            && optimistic_epoch > self.start_epoch
-            && !self.failed_optimistic_starts.contains(&optimistic_epoch)
+            && optimistic_epoch > self.processing_target
+            && !self.attempted_optimistic_starts.contains(&optimistic_epoch)
         {
             self.optimistic_start = Some(optimistic_epoch);
         }
