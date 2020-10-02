@@ -125,19 +125,17 @@ impl Drive {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Network {
-    /// Network interface name
-    pub name: String,
-    /// Network metric for received bytes.
+    /// Network metric for received bytes across all network interfaces.
     pub rx_bytes: u64,
-    /// Network metric for received errors.
+    /// Network metric for received errors across all network interfaces.
     pub rx_errors: u64,
-    /// Network metric for received packets.
+    /// Network metric for received packets across all network interfaces.
     pub rx_packets: u64,
-    /// Network metric for transmitted bytes.
+    /// Network metric for transmitted bytes across all network interfaces.
     pub tx_bytes: u64,
-    /// Network metric for trasmitted errors.
+    /// Network metric for trasmitted errors across all network interfaces.
     pub tx_errors: u64,
-    /// Network metric for transmitted packets.
+    /// Network metric for transmitted packets across all network interfaces.
     pub tx_packets: u64,
 }
 
@@ -166,8 +164,8 @@ pub struct Health {
     pub sys_loadavg_5: f64,
     /// System load average over 15 minutes.
     pub sys_loadavg_15: f64,
-    /// Network interfaces and related statistics.
-    pub networks: Vec<Network>,
+    /// Network statistics.
+    pub network: Network,
 }
 
 impl Health {
@@ -193,8 +191,6 @@ impl Health {
         let loadavg =
             psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
-        let s = SystemInfo::new_all();
-
         let mut rx_bytes = 0;
         let mut rx_errors = 0;
         let mut rx_packets = 0;
@@ -202,17 +198,15 @@ impl Health {
         let mut tx_errors = 0;
         let mut tx_packets = 0;
 
-        let networks = s.get_networks().iter().map(|(name, network)| {
-            Network {
-                name: name.to_string(),
-                rx_bytes: network.get_total_received(),
-                rx_errors: network.get_total_transmitted(),
-                rx_packets: network.get_total_packets_received(),
-                tx_bytes: network.get_total_packets_transmitted(),
-                tx_errors: network.get_total_errors_on_received(),
-                tx_packets: network.get_total_errors_on_transmitted(),
-            }
-        }).collect();
+        let s = SystemInfo::new_all();
+        s.get_networks().iter().for_each(|(_, network)| {
+            rx_bytes = rx_bytes +  network.get_total_received();
+            rx_errors = rx_errors +  network.get_total_transmitted();
+            rx_packets = rx_packets +  network.get_total_packets_received();
+            tx_bytes = tx_bytes +  network.get_total_packets_transmitted();
+            tx_errors = tx_errors +  network.get_total_errors_on_received();
+            tx_packets = tx_packets +  network.get_total_errors_on_transmitted();
+        });
 
         Ok(Self {
             pid: process.pid(),
@@ -226,7 +220,14 @@ impl Health {
             sys_loadavg_1: loadavg.one,
             sys_loadavg_5: loadavg.five,
             sys_loadavg_15: loadavg.fifteen,
-            networks,
+            network: Network{
+                rx_bytes,
+                rx_errors,
+                rx_packets,
+                tx_bytes,
+                tx_errors,
+                tx_packets,
+            },
         })
     }
 
@@ -248,18 +249,22 @@ impl Health {
             .load_average()
             .map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
+        let mut rx_bytes = 0;
+        let mut rx_errors = 0;
+        let mut rx_packets = 0;
+        let mut tx_bytes = 0;
+        let mut tx_errors = 0;
+        let mut tx_packets = 0;
+
        let s = SystemInfo::new_all();
-        let networks = s.get_networks().iter().map(|(name, network)| {
-            Network {
-                name: name.to_string(),
-                rx_bytes: network.get_total_received(),
-                rx_errors: network.get_total_transmitted(),
-                rx_packets: network.get_total_packets_received(),
-                tx_bytes: network.get_total_packets_transmitted(),
-                tx_errors: network.get_total_errors_on_received(),
-                tx_packets: network.get_total_errors_on_transmitted(),
-            }
-        }).collect();
+        s.get_networks().iter().for_each(|(_, network)| {
+                rx_bytes = rx_bytes +  network.get_total_received();
+                rx_errors = rx_errors +  network.get_total_transmitted();
+                rx_packets = rx_packets +  network.get_total_packets_received();
+                tx_bytes = tx_bytes +  network.get_total_packets_transmitted();
+                tx_errors = tx_errors +  network.get_total_errors_on_received();
+                tx_packets = tx_packets +  network.get_total_errors_on_transmitted();
+        });
 
         Ok(Self {
             pid: process.pid() as u32,
@@ -273,7 +278,15 @@ impl Health {
             sys_loadavg_1: loadavg.one as f64,
             sys_loadavg_5: loadavg.five as f64,
             sys_loadavg_15: loadavg.fifteen as f64,
-            networks,
+            network: Network{
+                rx_bytes,
+                rx_errors,
+                rx_packets,
+                tx_bytes,
+                tx_errors,
+                tx_packets,
+            },
+
         })
     }
 }
