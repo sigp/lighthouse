@@ -2,14 +2,14 @@ mod api_secret;
 mod create_validator;
 mod tests;
 
-use crate::InitializedValidators;
-use account_utils::{mnemonic_from_phrase, validator_definitions::ValidatorDefinition};
+use crate::ValidatorStore;
+use account_utils::mnemonic_from_phrase;
 use create_validator::create_validators;
 use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
+use slot_clock::SlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -49,9 +49,9 @@ impl From<String> for Error {
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<E: EthSpec> {
+pub struct Context<T: Clone, E: EthSpec> {
     pub api_secret: ApiSecret,
-    pub initialized_validators: Option<Arc<RwLock<InitializedValidators>>>,
+    pub validator_store: Option<ValidatorStore<T, E>>,
     pub validator_dir: Option<PathBuf>,
     pub spec: ChainSpec,
     pub config: Config,
@@ -94,8 +94,8 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: EthSpec>(
-    ctx: Arc<Context<T>>,
+pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
+    ctx: Arc<Context<T, E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -115,11 +115,11 @@ pub fn serve<T: EthSpec>(
     let signer = ctx.api_secret.signer();
     let signer = warp::any().map(move || signer.clone());
 
-    let inner_initialized_validators = ctx.initialized_validators.clone();
-    let initialized_validators_filter = warp::any()
-        .map(move || inner_initialized_validators.clone())
-        .and_then(|initialized_validators: Option<_>| async move {
-            initialized_validators.ok_or_else(|| {
+    let inner_validator_store = ctx.validator_store.clone();
+    let validator_store_filter = warp::any()
+        .map(move || inner_validator_store.clone())
+        .and_then(|validator_store: Option<_>| async move {
+            validator_store.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
                     "validator store is not initialized.".to_string(),
                 )
@@ -175,7 +175,7 @@ pub fn serve<T: EthSpec>(
         .and_then(|spec: Arc<_>, signer| {
             blocking_signed_json_task(signer, move || {
                 Ok(api_types::GenericResponse::from(
-                    YamlConfig::from_spec::<T>(&spec),
+                    YamlConfig::from_spec::<E>(&spec),
                 ))
             })
         });
@@ -184,40 +184,38 @@ pub fn serve<T: EthSpec>(
     let get_lighthouse_validators = warp::path("lighthouse")
         .and(warp::path("validators"))
         .and(warp::path::end())
-        .and(initialized_validators_filter.clone())
+        .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
-            |initialized_validators: Arc<RwLock<InitializedValidators>>, signer| {
-                blocking_signed_json_task(signer, move || {
-                    let validators = initialized_validators
-                        .read()
-                        .validator_definitions()
-                        .iter()
-                        .map(|def| api_types::ValidatorData {
-                            enabled: def.enabled,
-                            description: def.description.clone(),
-                            voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
-                        })
-                        .collect::<Vec<_>>();
+        .and_then(|validator_store: ValidatorStore<T, E>, signer| {
+            blocking_signed_json_task(signer, move || {
+                let validators = validator_store
+                    .initialized_validators()
+                    .read()
+                    .validator_definitions()
+                    .iter()
+                    .map(|def| api_types::ValidatorData {
+                        enabled: def.enabled,
+                        description: def.description.clone(),
+                        voting_pubkey: PublicKeyBytes::from(&def.voting_public_key),
+                    })
+                    .collect::<Vec<_>>();
 
-                    Ok(api_types::GenericResponse::from(validators))
-                })
-            },
-        );
+                Ok(api_types::GenericResponse::from(validators))
+            })
+        });
 
     // GET lighthouse/validators/{validator_pubkey}
     let get_lighthouse_validators_pubkey = warp::path("lighthouse")
         .and(warp::path("validators"))
         .and(warp::path::param::<PublicKey>())
         .and(warp::path::end())
-        .and(initialized_validators_filter.clone())
+        .and(validator_store_filter.clone())
         .and(signer.clone())
         .and_then(
-            |validator_pubkey: PublicKey,
-             initialized_validators: Arc<RwLock<InitializedValidators>>,
-             signer| {
+            |validator_pubkey: PublicKey, validator_store: ValidatorStore<T, E>, signer| {
                 blocking_signed_json_task(signer, move || {
-                    let validator = initialized_validators
+                    let validator = validator_store
+                        .initialized_validators()
                         .read()
                         .validator_definitions()
                         .iter()
@@ -245,13 +243,13 @@ pub fn serve<T: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
-        .and(initialized_validators_filter.clone())
+        .and(validator_store_filter.clone())
         .and(spec_filter.clone())
         .and(signer.clone())
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
              validator_dir: PathBuf,
-             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             validator_store: ValidatorStore<T, E>,
              spec: Arc<ChainSpec>,
              signer| {
                 blocking_signed_json_task(signer, move || {
@@ -260,7 +258,7 @@ pub fn serve<T: EthSpec>(
                         None,
                         &body,
                         &validator_dir,
-                        &initialized_validators,
+                        &validator_store,
                         &spec,
                     )?;
                     let response = api_types::PostValidatorsResponseData {
@@ -279,13 +277,13 @@ pub fn serve<T: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
-        .and(initialized_validators_filter.clone())
+        .and(validator_store_filter.clone())
         .and(spec_filter)
         .and(signer.clone())
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
              validator_dir: PathBuf,
-             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             validator_store: ValidatorStore<T, E>,
              spec: Arc<ChainSpec>,
              signer| {
                 blocking_signed_json_task(signer, move || {
@@ -297,7 +295,7 @@ pub fn serve<T: EthSpec>(
                         Some(body.key_derivation_path_offset),
                         &body.validators,
                         &validator_dir,
-                        &initialized_validators,
+                        &validator_store,
                         &spec,
                     )?;
                     Ok(api_types::GenericResponse::from(validators))
@@ -312,12 +310,12 @@ pub fn serve<T: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter)
-        .and(initialized_validators_filter.clone())
+        .and(validator_store_filter.clone())
         .and(signer.clone())
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              validator_dir: PathBuf,
-             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             validator_store: ValidatorStore<T, E>,
              signer| {
                 blocking_signed_json_task(signer, move || {
                     // Check to ensure the password is correct.
@@ -344,23 +342,12 @@ pub fn serve<T: EthSpec>(
 
                     let voting_password = body.password.clone();
 
-                    let mut validator_def = ValidatorDefinition::new_keystore_with_password(
-                        validator_dir.voting_keystore_path(),
-                        Some(voting_password),
-                    )
-                    .map_err(|e| {
-                        warp_utils::reject::custom_server_error(format!(
-                            "failed to create validator definitions: {:?}",
-                            e
+                    let validator_def = tokio::runtime::Handle::current()
+                        .block_on(validator_store.add_validator_keystore(
+                            validator_dir.voting_keystore_path(),
+                            voting_password,
+                            body.enable,
                         ))
-                    })?;
-
-                    let description = validator_def.description.clone();
-
-                    validator_def.enabled = body.enable;
-
-                    tokio::runtime::Handle::current()
-                        .block_on(initialized_validators.write().add_definition(validator_def))
                         .map_err(|e| {
                             warp_utils::reject::custom_server_error(format!(
                                 "failed to initialize validator: {:?}",
@@ -370,7 +357,7 @@ pub fn serve<T: EthSpec>(
 
                     Ok(api_types::GenericResponse::from(api_types::ValidatorData {
                         enabled: body.enable,
-                        description,
+                        description: validator_def.description,
                         voting_pubkey: keypair.pk.into(),
                     }))
                 })
@@ -383,15 +370,16 @@ pub fn serve<T: EthSpec>(
         .and(warp::path::param::<PublicKey>())
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(initialized_validators_filter)
+        .and(validator_store_filter)
         .and(signer)
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
-             initialized_validators: Arc<RwLock<InitializedValidators>>,
+             validator_store: ValidatorStore<T, E>,
              signer| {
                 blocking_signed_json_task(signer, move || {
-                    let mut initialized_validators = initialized_validators.write();
+                    let initialized_validators_rw_lock = validator_store.initialized_validators();
+                    let mut initialized_validators = initialized_validators_rw_lock.write();
 
                     match initialized_validators.is_enabled(&validator_pubkey) {
                         None => Err(warp_utils::reject::custom_not_found(format!(

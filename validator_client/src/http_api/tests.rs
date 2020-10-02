@@ -2,8 +2,8 @@
 #![cfg(not(debug_assertions))]
 
 use crate::{
-    http_api::{ApiSecret, Config, Context},
-    InitializedValidators, ValidatorDefinitions,
+    http_api::{ApiSecret, Config as HttpConfig, Context},
+    Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
@@ -17,6 +17,7 @@ use eth2::{
 };
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
+use slot_clock::TestingSlotClock;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -40,6 +41,7 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         let validator_dir = tempdir().unwrap();
+        let secrets_dir = tempdir().unwrap();
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -52,16 +54,36 @@ impl ApiTester {
         .await
         .unwrap();
 
-        let initialized_validators = Arc::new(RwLock::new(initialized_validators));
+        // let initialized_validators = Arc::new(RwLock::new(initialized_validators));
         let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
-        let context: Arc<Context<E>> = Arc::new(Context {
+        let mut config = Config::default();
+        config.validator_dir = validator_dir.path().into();
+        config.secrets_dir = secrets_dir.path().into();
+
+        let fork_service = ForkServiceBuilder::testing_only(log.clone())
+            .build()
+            .unwrap();
+
+        let validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
+            initialized_validators,
+            &config,
+            Hash256::repeat_byte(42),
+            E::default_spec(),
+            fork_service.clone(),
+            log.clone(),
+        )
+        .unwrap();
+
+        let initialized_validators = validator_store.initialized_validators();
+
+        let context: Arc<Context<TestingSlotClock, E>> = Arc::new(Context {
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
+            validator_store: Some(validator_store),
             spec: E::default_spec(),
-            initialized_validators: Some(initialized_validators.clone()),
-            config: Config {
+            config: HttpConfig {
                 enabled: true,
                 listen_addr: Ipv4Addr::new(127, 0, 0, 1),
                 listen_port: 0,

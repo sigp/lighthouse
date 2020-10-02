@@ -47,7 +47,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
     duties_service: DutiesService<SystemTimeSlotClock, T>,
-    fork_service: ForkService<SystemTimeSlotClock, T>,
+    fork_service: ForkService<SystemTimeSlotClock>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
@@ -62,7 +62,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         context: RuntimeContext<T>,
         cli_args: &ArgMatches<'_>,
     ) -> Result<Self, String> {
-        let config = Config::from_cli(&cli_args)
+        let config = Config::from_cli(&cli_args, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
         Self::new(context, config).await
     }
@@ -151,7 +151,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let fork_service = ForkServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .beacon_node(beacon_node.clone())
-            .runtime_context(context.service_context("fork".into()))
+            .log(log.clone())
             .build()?;
 
         let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
@@ -225,7 +225,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.fork_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service(&self.context)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
 
         self.block_service
@@ -243,9 +243,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
-            let ctx: Arc<http_api::Context<T>> = Arc::new(http_api::Context {
+            let ctx: Arc<http_api::Context<SystemTimeSlotClock, T>> = Arc::new(http_api::Context {
                 api_secret,
-                initialized_validators: Some(self.validator_store.initialized_validators()),
+                validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),

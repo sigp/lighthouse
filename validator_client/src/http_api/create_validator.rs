@@ -1,14 +1,13 @@
-use crate::InitializedValidators;
+use crate::ValidatorStore;
 use account_utils::{
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
-    random_mnemonic, random_password,
-    validator_definitions::ValidatorDefinition,
-    ZeroizeString,
+    random_mnemonic, random_password, ZeroizeString,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
-use parking_lot::RwLock;
+use slot_clock::SlotClock;
 use std::path::Path;
 use types::ChainSpec;
+use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
 /// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in
@@ -18,16 +17,16 @@ use validator_dir::Builder as ValidatorDirBuilder;
 ///
 /// ## Detail
 ///
-/// If `mnemoic_opt` is not supplied it will be randomly generated and returned in the response.
+/// If `mnemonic_opt` is not supplied it will be randomly generated and returned in the response.
 ///
 /// If `key_derivation_path_offset` is supplied then the EIP-2334 validator index will start at
 /// this point.
-pub fn create_validators<P: AsRef<Path>>(
+pub fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
     mnemonic_opt: Option<Mnemonic>,
     key_derivation_path_offset: Option<u32>,
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
-    initialized_validators: &RwLock<InitializedValidators>,
+    validator_store: &ValidatorStore<T, E>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
     let mnemonic = mnemonic_opt.unwrap_or_else(random_mnemonic);
@@ -126,21 +125,12 @@ pub fn create_validators<P: AsRef<Path>>(
             )));
         }
 
-        let mut validator_def = ValidatorDefinition::new_keystore_with_password(
-            validator_dir.voting_keystore_path(),
-            Some(voting_password_string),
-        )
-        .map_err(|e| {
-            warp_utils::reject::custom_server_error(format!(
-                "failed to create validator definitions: {:?}",
-                e
-            ))
-        })?;
-
-        validator_def.enabled = request.enable;
-
         tokio::runtime::Handle::current()
-            .block_on(initialized_validators.write().add_definition(validator_def))
+            .block_on(validator_store.add_validator_keystore(
+                validator_dir.voting_keystore_path(),
+                voting_password_string,
+                request.enable,
+            ))
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
                     "failed to initialize validator: {:?}",
