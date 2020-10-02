@@ -108,6 +108,18 @@ pub fn slog_logging(
     log: Logger,
 ) -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
     warp::log::custom(move |info| {
+        let remote_port = info.remote_addr().unwrap().port();
+        let remote_ip = info.remote_addr().unwrap().ip().to_string();
+        let remote_addr = info.remote_addr().unwrap().to_string();
+        let mut header = "".to_string();
+        info.request_headers().into_iter().for_each(| h| {
+            header.push_str(h.0.as_str());
+            header.push_str(h.1.to_str().unwrap());
+        });
+
+        let user_agent = info.user_agent().unwrap();
+        let host = info.host().unwrap().to_string();
+
         match info.status() {
             status if status == StatusCode::OK || status == StatusCode::NOT_FOUND => {
                 trace!(
@@ -127,6 +139,12 @@ pub fn slog_logging(
                     "status" => status.to_string(),
                     "path" => info.path(),
                     "method" => info.method().to_string(),
+                    "remote_port" => remote_port,
+"remote_ip" => remote_ip,
+"remote_addr" => remote_addr,
+"header" => header,
+"user_agent" => user_agent,
+"host" => host,
                 );
             }
         };
