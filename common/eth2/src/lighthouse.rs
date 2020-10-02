@@ -201,12 +201,12 @@ impl Health {
 
         let s = SystemInfo::new_all();
         s.get_networks().iter().for_each(|(_, network)| {
-            rx_bytes = rx_bytes + network.get_total_received();
-            rx_errors = rx_errors + network.get_total_transmitted();
-            rx_packets = rx_packets + network.get_total_packets_received();
-            tx_bytes = tx_bytes + network.get_total_packets_transmitted();
-            tx_errors = tx_errors + network.get_total_errors_on_received();
-            tx_packets = tx_packets + network.get_total_errors_on_transmitted();
+            rx_bytes += network.get_total_received();
+            rx_errors += network.get_total_transmitted();
+            rx_packets += network.get_total_packets_received();
+            tx_bytes += network.get_total_packets_transmitted();
+            tx_errors += network.get_total_errors_on_received();
+            tx_packets += network.get_total_errors_on_transmitted();
         });
 
         Ok(Self {
@@ -259,12 +259,12 @@ impl Health {
 
         let s = SystemInfo::new_all();
         s.get_networks().iter().for_each(|(_, network)| {
-            rx_bytes = rx_bytes + network.get_total_received();
-            rx_errors = rx_errors + network.get_total_transmitted();
-            rx_packets = rx_packets + network.get_total_packets_received();
-            tx_bytes = tx_bytes + network.get_total_packets_transmitted();
-            tx_errors = tx_errors + network.get_total_errors_on_received();
-            tx_packets = tx_packets + network.get_total_errors_on_transmitted();
+            rx_bytes += network.get_total_received();
+            rx_errors += network.get_total_transmitted();
+            rx_packets += network.get_total_packets_received();
+            tx_bytes += network.get_total_packets_transmitted();
+            tx_errors += network.get_total_errors_on_received();
+            tx_packets += network.get_total_errors_on_transmitted();
         });
 
         Ok(Self {
