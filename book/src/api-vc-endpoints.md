@@ -6,7 +6,7 @@ HTTP Path | Description |
 | --- | -- |
 [`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version
 [`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine
-[`GET /lighthouse/psec`](#get-lighthousespec) | Get the Eth2 specification used by the validator
+[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Eth2 specification used by the validator
 [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators
 [`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
 [`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
