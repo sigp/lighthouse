@@ -218,7 +218,8 @@ pub fn cli_run<T: EthSpec>(
                 )
             })?;
 
-        ValidatorDirBuilder::new(validator_dir.clone(), secrets_dir.clone())
+        ValidatorDirBuilder::new(validator_dir.clone())
+            .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(deposit_gwei, &spec)

@@ -73,7 +73,8 @@ pub fn build_deterministic_validator_dirs(
     indices: &[usize],
 ) -> Result<(), String> {
     for &i in indices {
-        Builder::new(validators_dir.clone(), password_dir.clone())
+        Builder::new(validators_dir.clone())
+            .password_dir(password_dir.clone())
             .insecure_voting_keypair(i)
             .map_err(|e| format!("Unable to generate insecure keypair: {:?}", e))?
             .store_withdrawal_keystore(false)

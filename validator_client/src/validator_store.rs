@@ -1,11 +1,13 @@
 use crate::{
     config::Config, fork_service::ForkService, initialized_validators::InitializedValidators,
 };
+use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::RwLock;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
@@ -47,7 +49,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
-    fork_service: ForkService<T, E>,
+    fork_service: ForkService<T>,
     _phantom: PhantomData<E>,
 }
 
@@ -57,7 +59,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         config: &Config,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
-        fork_service: ForkService<T, E>,
+        fork_service: ForkService<T>,
         log: Logger,
     ) -> Result<Self, String> {
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
@@ -89,6 +91,43 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             fork_service,
             _phantom: PhantomData,
         })
+    }
+
+    pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
+        self.validators.clone()
+    }
+
+    /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
+    /// keystore on the filesystem.
+    ///
+    /// This function includes:
+    ///
+    /// - Add the validator definition to the YAML file, saving it to the filesystem.
+    /// - Enable validator with the slashing protection database.
+    /// - If `enable == true`, start performing duties for the validator.
+    pub async fn add_validator_keystore<P: AsRef<Path>>(
+        &self,
+        voting_keystore_path: P,
+        password: ZeroizeString,
+        enable: bool,
+    ) -> Result<ValidatorDefinition, String> {
+        let mut validator_def =
+            ValidatorDefinition::new_keystore_with_password(voting_keystore_path, Some(password))
+                .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
+
+        self.slashing_protection
+            .register_validator(&validator_def.voting_public_key)
+            .map_err(|e| format!("failed to register validator: {:?}", e))?;
+
+        validator_def.enabled = enable;
+
+        self.validators
+            .write()
+            .add_definition(validator_def.clone())
+            .await
+            .map_err(|e| format!("Unable to add definition: {:?}", e))?;
+
+        Ok(validator_def)
     }
 
     /// Register all known validators with the slashing protection database.

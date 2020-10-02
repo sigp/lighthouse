@@ -45,7 +45,12 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                 let attesting_validators = duties_service.attester_count(epoch);
 
                 if total_validators == 0 {
-                    error!(log, "No validators present")
+                    info!(
+                        log,
+                        "No validators present";
+                        "msg" => "see `lighthouse account validator create --help` \
+                        or the HTTP API documentation"
+                    )
                 } else if total_validators == attesting_validators {
                     info!(
                         log,

@@ -1,3 +1,4 @@
+use crate::http_api;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use directory::{
@@ -6,10 +7,12 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
+use slog::{warn, Logger};
+use std::fs;
 use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
 
-pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
+pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
@@ -21,7 +24,7 @@ pub struct Config {
     /// The http endpoint of the beacon node API.
     ///
     /// Should be similar to `http://localhost:8080`
-    pub http_server: String,
+    pub beacon_node: String,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -33,6 +36,8 @@ pub struct Config {
     pub strict_slashing_protection: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
+    /// Configuration for the HTTP REST API.
+    pub http_api: http_api::Config,
 }
 
 impl Default for Config {
@@ -49,12 +54,13 @@ impl Default for Config {
         Self {
             validator_dir,
             secrets_dir,
-            http_server: DEFAULT_HTTP_SERVER.to_string(),
+            beacon_node: DEFAULT_BEACON_NODE.to_string(),
             allow_unsynced_beacon_node: false,
             delete_lockfiles: false,
             disable_auto_discover: false,
             strict_slashing_protection: false,
             graffiti: None,
+            http_api: <_>::default(),
         }
     }
 }
@@ -62,7 +68,7 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
+    pub fn from_cli(cli_args: &ArgMatches, log: &Logger) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
@@ -95,14 +101,22 @@ impl Config {
         });
 
         if !config.validator_dir.exists() {
-            return Err(format!(
-                "The directory for validator data does not exist: {:?}",
-                config.validator_dir
-            ));
+            fs::create_dir_all(&config.validator_dir)
+                .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
+        if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
+            config.beacon_node = beacon_node;
+        }
+
+        // To be deprecated.
         if let Some(server) = parse_optional(cli_args, "server")? {
-            config.http_server = server;
+            warn!(
+                log,
+                "The --server flag is deprecated";
+                "msg" => "please use --beacon-node instead"
+            );
+            config.beacon_node = server;
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
@@ -127,6 +141,29 @@ impl Config {
 
                 config.graffiti = Some(graffiti.into());
             }
+        }
+
+        /*
+         * Http API server
+         */
+
+        if cli_args.is_present("http") {
+            config.http_api.enabled = true;
+        }
+
+        if let Some(port) = cli_args.value_of("http-port") {
+            config.http_api.listen_port = port
+                .parse::<u16>()
+                .map_err(|_| "http-port is not a valid u16.")?;
+        }
+
+        if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+            // Pre-validate the config value to give feedback to the user on node startup, instead of
+            // as late as when the first API response is produced.
+            hyper::header::HeaderValue::from_str(allow_origin)
+                .map_err(|_| "Invalid allow-origin value")?;
+
+            config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
         Ok(config)

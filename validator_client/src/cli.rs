@@ -1,4 +1,4 @@
-use crate::config::DEFAULT_HTTP_SERVER;
+use crate::config::DEFAULT_BEACON_NODE;
 use clap::{App, Arg};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -9,12 +9,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 validator (e.g., proposing blocks and attestations).",
         )
         .arg(
+            Arg::with_name("beacon-node")
+                .long("beacon-node")
+                .value_name("NETWORK_ADDRESS")
+                .help("Address to a beacon node HTTP API")
+                .default_value(&DEFAULT_BEACON_NODE)
+                .takes_value(true),
+        )
+        // This argument is deprecated, use `--beacon-node` instead.
+        .arg(
             Arg::with_name("server")
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
-                .help("Address to connect to BeaconNode.")
-                .default_value(&DEFAULT_HTTP_SERVER)
-                .takes_value(true),
+                .help("Deprecated. Use --beacon-node.")
+                .takes_value(true)
+                .conflicts_with("beacon-node"),
         )
         .arg(
             Arg::with_name("validators-dir")
@@ -96,5 +105,41 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specify your custom graffiti to be included in blocks.")
                 .value_name("GRAFFITI")
                 .takes_value(true)
+        )
+        /* REST API related arguments */
+        .arg(
+            Arg::with_name("http")
+                .long("http")
+                .help("Enable the RESTful HTTP API server. Disabled by default.")
+                .takes_value(false),
+        )
+        /*
+         * Note: there is purposefully no `--http-address` flag provided.
+         *
+         * The HTTP server is **not** encrypted (i.e., not HTTPS) and therefore it is unsafe to
+         * publish on a public network.
+         *
+         * We restrict the user to `127.0.0.1` and they must provide some other transport-layer
+         * encryption (e.g., SSH tunnels).
+         */
+        .arg(
+            Arg::with_name("http-port")
+                .long("http-port")
+                .value_name("PORT")
+                .help("Set the listen TCP port for the RESTful HTTP API server. This server does **not** \
+                provide encryption and is completely unsuitable to expose to a public network. \
+                We do not provide a --http-address flag and restrict the user to listening on \
+                127.0.0.1. For access via the Internet, apply a transport-layer security like \
+                a HTTPS reverse-proxy or SSH tunnelling.")
+                .default_value("5062")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-allow-origin")
+                .long("http-allow-origin")
+                .value_name("ORIGIN")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
+                .default_value("")
+                .takes_value(true),
         )
 }
