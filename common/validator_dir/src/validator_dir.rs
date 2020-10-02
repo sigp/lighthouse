@@ -129,6 +129,11 @@ impl ValidatorDir {
         &self.dir
     }
 
+    /// Returns the path to the voting keystore JSON file.
+    pub fn voting_keystore_path(&self) -> PathBuf {
+        self.dir.join(VOTING_KEYSTORE_FILE)
+    }
+
     /// Attempts to read the keystore in `self.dir` and decrypt the keypair using a password file
     /// in `password_dir`.
     ///

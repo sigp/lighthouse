@@ -78,13 +78,11 @@ impl Harness {
          * Build the `ValidatorDir`.
          */
 
-        let builder = Builder::new(
-            self.validators_dir.path().into(),
-            self.password_dir.path().into(),
-        )
-        // Note: setting the withdrawal keystore here ensure that it can get overriden by later
-        // calls to `random_withdrawal_keystore`.
-        .store_withdrawal_keystore(config.store_withdrawal_keystore);
+        let builder = Builder::new(self.validators_dir.path().into())
+            .password_dir(self.password_dir.path())
+            // Note: setting the withdrawal keystore here ensure that it can get replaced by
+            // further calls to `random_withdrawal_keystore`.
+            .store_withdrawal_keystore(config.store_withdrawal_keystore);
 
         let builder = if config.random_voting_keystore {
             builder.random_voting_keystore().unwrap()
@@ -208,13 +206,11 @@ fn without_voting_keystore() {
     let harness = Harness::new();
 
     assert!(matches!(
-        Builder::new(
-            harness.validators_dir.path().into(),
-            harness.password_dir.path().into(),
-        )
-        .random_withdrawal_keystore()
-        .unwrap()
-        .build(),
+        Builder::new(harness.validators_dir.path().into(),)
+            .password_dir(harness.password_dir.path())
+            .random_withdrawal_keystore()
+            .unwrap()
+            .build(),
         Err(BuilderError::UninitializedVotingKeystore)
     ))
 }
@@ -225,26 +221,22 @@ fn without_withdrawal_keystore() {
     let spec = &MainnetEthSpec::default_spec();
 
     // Should build without withdrawal keystore if not storing the it or creating eth1 data.
-    Builder::new(
-        harness.validators_dir.path().into(),
-        harness.password_dir.path().into(),
-    )
-    .random_voting_keystore()
-    .unwrap()
-    .store_withdrawal_keystore(false)
-    .build()
-    .unwrap();
+    Builder::new(harness.validators_dir.path().into())
+        .password_dir(harness.password_dir.path())
+        .random_voting_keystore()
+        .unwrap()
+        .store_withdrawal_keystore(false)
+        .build()
+        .unwrap();
 
     assert!(
         matches!(
-            Builder::new(
-                harness.validators_dir.path().into(),
-                harness.password_dir.path().into(),
-            )
-            .random_voting_keystore()
-            .unwrap()
-            .store_withdrawal_keystore(true)
-            .build(),
+            Builder::new(harness.validators_dir.path().into(),)
+                .password_dir(harness.password_dir.path())
+                .random_voting_keystore()
+                .unwrap()
+                .store_withdrawal_keystore(true)
+                .build(),
             Err(BuilderError::UninitializedWithdrawalKeystore)
         ),
         "storing the keystore requires keystore"
@@ -252,14 +244,12 @@ fn without_withdrawal_keystore() {
 
     assert!(
         matches!(
-            Builder::new(
-                harness.validators_dir.path().into(),
-                harness.password_dir.path().into(),
-            )
-            .random_voting_keystore()
-            .unwrap()
-            .create_eth1_tx_data(42, spec)
-            .build(),
+            Builder::new(harness.validators_dir.path().into(),)
+                .password_dir(harness.password_dir.path())
+                .random_voting_keystore()
+                .unwrap()
+                .create_eth1_tx_data(42, spec)
+                .build(),
             Err(BuilderError::UninitializedWithdrawalKeystore)
         ),
         "storing the keystore requires keystore"

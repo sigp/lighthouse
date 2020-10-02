@@ -128,7 +128,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .expect("Must have http started")
         };
 
-        validator_config.http_server =
+        validator_config.beacon_node =
             format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,

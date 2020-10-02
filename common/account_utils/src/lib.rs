@@ -2,7 +2,10 @@
 //! Lighthouse project.
 
 use eth2_keystore::Keystore;
-use eth2_wallet::Wallet;
+use eth2_wallet::{
+    bip39::{Language, Mnemonic, MnemonicType},
+    Wallet,
+};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_derive::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -15,6 +18,7 @@ use zeroize::Zeroize;
 pub mod validator_definitions;
 
 pub use eth2_keystore;
+pub use eth2_wallet;
 pub use eth2_wallet::PlainText;
 
 /// The minimum number of characters required for a wallet password.
@@ -150,6 +154,16 @@ pub fn is_password_sufficiently_complex(password: &[u8]) -> Result<(), String> {
     }
 }
 
+/// Returns a random 24-word english mnemonic.
+pub fn random_mnemonic() -> Mnemonic {
+    Mnemonic::new(MnemonicType::Words24, Language::English)
+}
+
+/// Attempts to parse a mnemonic phrase.
+pub fn mnemonic_from_phrase(phrase: &str) -> Result<Mnemonic, String> {
+    Mnemonic::from_phrase(phrase, Language::English).map_err(|e| e.to_string())
+}
+
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
@@ -161,6 +175,12 @@ pub struct ZeroizeString(String);
 impl From<String> for ZeroizeString {
     fn from(s: String) -> Self {
         Self(s)
+    }
+}
+
+impl ZeroizeString {
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

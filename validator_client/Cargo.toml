@@ -10,6 +10,8 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["time", "rt-threaded", "macros"] }
+tempfile = "3.1.0"
+deposit_contract = { path = "../common/deposit_contract" }
 
 [dependencies]
 eth2_ssz = "0.1.2"
@@ -47,3 +49,11 @@ validator_dir = { path = "../common/validator_dir" }
 clap_utils = { path = "../common/clap_utils" }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
+lighthouse_version = { path = "../common/lighthouse_version" }
+warp_utils = { path = "../common/warp_utils" }
+warp = "0.2.5"
+hyper = "0.13.5"
+serde_utils = { path = "../consensus/serde_utils" }
+libsecp256k1 = "0.3.5"
+ring = "0.16.12"
+rand = "0.7.3"

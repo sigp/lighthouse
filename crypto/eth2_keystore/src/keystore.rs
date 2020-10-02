@@ -81,6 +81,7 @@ pub struct KeystoreBuilder<'a> {
     cipher: Cipher,
     uuid: Uuid,
     path: String,
+    description: String,
 }
 
 impl<'a> KeystoreBuilder<'a> {
@@ -105,8 +106,15 @@ impl<'a> KeystoreBuilder<'a> {
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
                 uuid: Uuid::new_v4(),
                 path,
+                description: "".to_string(),
             })
         }
+    }
+
+    /// Build the keystore with a specific description instead of an empty string.
+    pub fn description(mut self, description: String) -> Self {
+        self.description = description;
+        self
     }
 
     /// Build the keystore using the supplied `kdf` instead of `crate::default_kdf`.
@@ -124,6 +132,7 @@ impl<'a> KeystoreBuilder<'a> {
             self.cipher,
             self.uuid,
             self.path,
+            self.description,
         )
     }
 }
@@ -147,6 +156,7 @@ impl Keystore {
         cipher: Cipher,
         uuid: Uuid,
         path: String,
+        description: String,
     ) -> Result<Self, Error> {
         let secret: ZeroizeHash = keypair.sk.serialize();
 
@@ -175,7 +185,7 @@ impl Keystore {
                 path: Some(path),
                 pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
-                description: None,
+                description: Some(description),
                 name: None,
             },
         })
@@ -226,6 +236,18 @@ impl Keystore {
     /// Returns the pubkey for the keystore.
     pub fn pubkey(&self) -> &str {
         &self.json.pubkey
+    }
+
+    /// Returns the description for the keystore, if the field is present.
+    pub fn description(&self) -> Option<&str> {
+        self.json.description.as_deref()
+    }
+
+    /// Sets the description for the keystore.
+    ///
+    /// Note: this does not save the keystore to disk.
+    pub fn set_description(&mut self, description: String) {
+        self.json.description = Some(description)
     }
 
     /// Returns the pubkey for the keystore, parsed as a `PublicKey` if it parses.

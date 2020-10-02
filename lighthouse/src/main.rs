@@ -283,7 +283,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(&matches)
+            let config = validator_client::Config::from_cli(&matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             environment.runtime().spawn(async move {
                 let run = async {
