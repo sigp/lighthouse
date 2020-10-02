@@ -102,7 +102,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ///
     /// This function includes:
     ///
-    /// - Add the validator definition the to YAML file, saving it to the filesystem.
+    /// - Add the validator definition to the YAML file, saving it to the filesystem.
     /// - Enable validator with the slashing protection database.
     /// - If `enable == true`, start performing duties for the validator.
     pub async fn add_validator_keystore<P: AsRef<Path>>(

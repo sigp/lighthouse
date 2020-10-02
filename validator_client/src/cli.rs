@@ -22,9 +22,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
                 .help("Deprecated. Use --beacon-node.")
-                .default_value(&DEFAULT_BEACON_NODE)
                 .takes_value(true)
-                .conflicts_with("beacon_node"),
+                .conflicts_with("beacon-node"),
         )
         .arg(
             Arg::with_name("validators-dir")
