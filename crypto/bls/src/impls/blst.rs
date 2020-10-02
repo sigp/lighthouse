@@ -50,15 +50,6 @@ pub fn verify_signature_sets<'a>(
     let mut pks = Vec::with_capacity(sets.len());
 
     for set in &sets {
-        // If this set is simply an infinity signature and infinity pubkey then skip verification.
-        // This has the effect of always declaring that this sig/pubkey combination is valid.
-        if set.signature.is_infinity
-            && set.signing_keys.len() == 1
-            && set.signing_keys.first().map_or(false, |pk| pk.is_infinity)
-        {
-            continue;
-        }
-
         // Generate random scalars.
         let mut vals = [0u64; 4];
         vals[0] = rng.gen();

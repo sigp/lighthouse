@@ -58,8 +58,7 @@ where
 
     /// Returns the public key that corresponds to self.
     pub fn public_key(&self) -> GenericPublicKey<Pub> {
-        let is_infinity = false;
-        GenericPublicKey::from_point(self.point.public_key(), is_infinity)
+        GenericPublicKey::from_point(self.point.public_key())
     }
 
     /// Serialize `self` as compressed bytes.

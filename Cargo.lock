@@ -160,12 +160,8 @@ dependencies = [
 
 [[package]]
 name = "amcl"
-version = "0.2.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
-dependencies = [
- "hex 0.3.2",
- "lazy_static",
-]
+version = "0.3.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.2.0#515201c5d165f1e08bca93e24cad4044eeed6e21"
 
 [[package]]
 name = "ansi_term"
@@ -3225,8 +3221,8 @@ dependencies = [
 
 [[package]]
 name = "milagro_bls"
-version = "1.1.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
+version = "1.2.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.2.0#515201c5d165f1e08bca93e24cad4044eeed6e21"
 dependencies = [
  "amcl",
  "hex 0.4.2",
