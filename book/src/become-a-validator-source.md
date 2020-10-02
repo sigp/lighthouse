@@ -97,9 +97,9 @@ lighthouse --testnet medalla account wallet create
 You will be prompted for a wallet name and a password. The output will look like this:
 
 ```
-Your wallet's 12-word BIP-39 mnemonic is:
+Your wallet's 24-word BIP-39 mnemonic is:
 
-	thank beach essence clerk gun library key grape hotel wise dutch segment
+	glad marble art pelican nurse large guilt response brave affair kite essence welcome gauge peace once picnic debris devote ticket blood bike solar junk
 
 This mnemonic can be used to fully restore your wallet, should
 you lose the JSON file or your password.
@@ -114,12 +114,12 @@ a piece of paper and storing it in a safe place would be prudent.
 
 Your wallet's UUID is:
 
-	e762671a-2a33-4922-901b-62a43dbd5227
+	1c8c13d5-d065-4ef7-bad3-14e9d8146140
 
 You do not need to backup your UUID or keep it secret.
 ```
 
-**Don't forget to make a backup** of the 12-word BIP-39 mnemonic. It can be
+**Don't forget to make a backup** of the 24-word BIP-39 mnemonic. It can be
 used to restore your validator if there is a data loss.
 
 ### 4.2 Create a Validator from the Wallet
