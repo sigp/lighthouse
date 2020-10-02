@@ -18,6 +18,7 @@ use account_utils::{
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
     ZeroizeString,
 };
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
@@ -25,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
-use types::Keypair;
+use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
 
 // TODO: create tests for the `lighthouse account validator deposit` command. This involves getting
@@ -350,16 +351,16 @@ fn validator_create() {
     let validator = TestValidator::new(validator_dir.path(), secrets_dir.path(), wallet);
 
     // Create a validator _without_ storing the withdraw key.
-    validator.create_expect_success(COUNT_FLAG, 1, false);
+    let created_validators = validator.create_expect_success(COUNT_FLAG, 1, false);
 
-    // Slashing protection database should be created.
-    assert!(
-        validator_dir
-            .path()
-            .join("slashing_protection.sqlite")
-            .exists(),
-        "slashing protection DB should have been created"
+    // Validator should be registered with slashing protection.
+    check_slashing_protection(
+        &validator_dir,
+        created_validators
+            .iter()
+            .map(|v| v.voting_keypair(&secrets_dir).unwrap().pk),
     );
+    drop(created_validators);
 
     // Number of dir entries should be #validators + 1 for the slashing protection DB
     assert_eq!(dir_validator_count(validator_dir.path()), 1);
@@ -473,6 +474,9 @@ fn validator_import_launchpad() {
         "not-keystore should not be present in dst dir"
     );
 
+    // Validator should be registered with slashing protection.
+    check_slashing_protection(&dst_dir, std::iter::once(keystore.public_key().unwrap()));
+
     let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
 
     let expected_def = ValidatorDefinition {
@@ -489,4 +493,13 @@ fn validator_import_launchpad() {
         defs.as_slice() == &[expected_def],
         "validator defs file should be accurate"
     );
+}
+
+/// Check that all of the given pubkeys have been registered with slashing protection.
+fn check_slashing_protection(validator_dir: &TempDir, pubkeys: impl Iterator<Item = PublicKey>) {
+    let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
+    let slashing_db = SlashingDatabase::open(&slashing_db_path).unwrap();
+    for validator_pk in pubkeys {
+        slashing_db.get_validator_id(&validator_pk).unwrap();
+    }
 }

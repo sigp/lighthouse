@@ -3058,6 +3058,7 @@ dependencies = [
  "futures 0.3.5",
  "lighthouse_version",
  "logging",
+ "slashing_protection",
  "slog",
  "slog-async",
  "slog-term",
