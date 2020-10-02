@@ -10,6 +10,7 @@ use ring::digest::{digest, SHA256};
 use secp256k1::{Message, PublicKey, Signature};
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::lighthouse::{Drive, System};
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
 
@@ -198,7 +199,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET lighthouse/system`
-    pub async fn get_lighthouse_system(&self) -> Result<GenericResponse<Health>, Error> {
+    pub async fn get_lighthouse_system(&self) -> Result<GenericResponse<System>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
@@ -223,7 +224,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET lighthouse/system/drives`
-    pub async fn get_lighthouse_system_drives(&self) -> Result<GenericResponse<Health>, Error> {
+    pub async fn get_lighthouse_system_drives(&self) -> Result<GenericResponse<Vec<Drive>>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
