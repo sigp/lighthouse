@@ -341,8 +341,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(topic.clone().into(),
-                                                               message_data) {
+                        if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
                             slog::warn!(self.log, "Could not publish message";
                                         "error" => format!("{:?}", e));
 
