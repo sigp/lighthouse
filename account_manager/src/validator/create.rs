@@ -10,6 +10,7 @@ use directory::{
 };
 use environment::Environment;
 use eth2_wallet_manager::WalletManager;
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -178,6 +179,16 @@ pub fn cli_run<T: EthSpec>(
         .wallet_by_name(&wallet_name)
         .map_err(|e| format!("Unable to open wallet: {:?}", e))?;
 
+    let slashing_protection_path = validator_dir.join(SLASHING_PROTECTION_FILENAME);
+    let slashing_protection =
+        SlashingDatabase::open_or_create(&slashing_protection_path).map_err(|e| {
+            format!(
+                "Unable to open or create slashing protection database at {}: {:?}",
+                slashing_protection_path.display(),
+                e
+            )
+        })?;
+
     for i in 0..n {
         let voting_password = random_password();
         let withdrawal_password = random_password();
@@ -190,7 +201,22 @@ pub fn cli_run<T: EthSpec>(
             )
             .map_err(|e| format!("Unable to create validator keys: {:?}", e))?;
 
-        let voting_pubkey = keystores.voting.pubkey().to_string();
+        let voting_pubkey = keystores.voting.public_key().ok_or_else(|| {
+            format!(
+                "Keystore public key is invalid: {}",
+                keystores.voting.pubkey()
+            )
+        })?;
+
+        slashing_protection
+            .register_validator(&voting_pubkey)
+            .map_err(|e| {
+                format!(
+                    "Error registering validator {}: {:?}",
+                    voting_pubkey.to_hex_string(),
+                    e
+                )
+            })?;
 
         ValidatorDirBuilder::new(validator_dir.clone(), secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
@@ -200,7 +226,7 @@ pub fn cli_run<T: EthSpec>(
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
-        println!("{}/{}\t0x{}", i + 1, n, voting_pubkey);
+        println!("{}/{}\t{}", i + 1, n, voting_pubkey.to_hex_string());
     }
 
     Ok(())
@@ -208,14 +234,18 @@ pub fn cli_run<T: EthSpec>(
 
 /// Returns the number of validators that exist in the given `validator_dir`.
 ///
-/// This function just assumes all files and directories, excluding the validator definitions YAML,
-/// are validator directories, making it likely to return a higher number than accurate
-/// but never a lower one.
+/// This function just assumes all files and directories, excluding the validator definitions YAML
+/// and slashing protection database are validator directories, making it likely to return a higher
+/// number than accurate but never a lower one.
 fn existing_validator_count<P: AsRef<Path>>(validator_dir: P) -> Result<usize, String> {
     fs::read_dir(validator_dir.as_ref())
         .map(|iter| {
             iter.filter_map(|e| e.ok())
-                .filter(|e| e.file_name() != OsStr::new(validator_definitions::CONFIG_FILENAME))
+                .filter(|e| {
+                    e.file_name() != OsStr::new(validator_definitions::CONFIG_FILENAME)
+                        && e.file_name()
+                            != OsStr::new(slashing_protection::SLASHING_PROTECTION_FILENAME)
+                })
                 .count()
         })
         .map_err(|e| format!("Unable to read {:?}: {}", validator_dir.as_ref(), e))

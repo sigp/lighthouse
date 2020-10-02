@@ -38,3 +38,4 @@ account_utils = { path = "../common/account_utils" }
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
+slashing_protection = { path = "../validator_client/slashing_protection" }

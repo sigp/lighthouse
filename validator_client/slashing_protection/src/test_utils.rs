@@ -1,13 +1,12 @@
-#![cfg(test)]
-
 use crate::*;
-use tempfile::tempdir;
+use tempfile::{tempdir, TempDir};
 use types::{
     test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader, Hash256,
 };
 
 pub const DEFAULT_VALIDATOR_INDEX: usize = 0;
 pub const DEFAULT_DOMAIN: Hash256 = Hash256::zero();
+pub const DEFAULT_GENESIS_VALIDATORS_ROOT: Hash256 = Hash256::zero();
 
 pub fn pubkey(index: usize) -> PublicKey {
     generate_deterministic_keypair(index).pk
@@ -73,6 +72,16 @@ impl<T> Default for StreamTest<T> {
     }
 }
 
+impl<T> StreamTest<T> {
+    /// The number of test cases that are expected to pass processing successfully.
+    fn num_expected_successes(&self) -> usize {
+        self.cases
+            .iter()
+            .filter(|case| case.expected.is_ok())
+            .count()
+    }
+}
+
 impl StreamTest<AttestationData> {
     pub fn run(&self) {
         let dir = tempdir().unwrap();
@@ -91,6 +100,8 @@ impl StreamTest<AttestationData> {
                 i
             );
         }
+
+        roundtrip_database(&dir, &slashing_db, self.num_expected_successes() == 0);
     }
 }
 
@@ -112,5 +123,24 @@ impl StreamTest<BeaconBlockHeader> {
                 i
             );
         }
+
+        roundtrip_database(&dir, &slashing_db, self.num_expected_successes() == 0);
     }
+}
+
+fn roundtrip_database(dir: &TempDir, db: &SlashingDatabase, is_empty: bool) {
+    let exported = db
+        .export_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
+        .unwrap();
+    let new_db =
+        SlashingDatabase::create(&dir.path().join("roundtrip_slashing_protection.sqlite")).unwrap();
+    new_db
+        .import_interchange_info(&exported, DEFAULT_GENESIS_VALIDATORS_ROOT)
+        .unwrap();
+    let reexported = new_db
+        .export_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
+        .unwrap();
+
+    assert_eq!(exported, reexported);
+    assert_eq!(is_empty, exported.is_empty());
 }

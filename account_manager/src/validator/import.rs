@@ -9,6 +9,7 @@ use account_utils::{
     ZeroizeString,
 };
 use clap::{App, Arg, ArgMatches};
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
@@ -75,6 +76,16 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let mut defs = ValidatorDefinitions::open_or_create(&validator_dir)
         .map_err(|e| format!("Unable to open {}: {:?}", CONFIG_FILENAME, e))?;
 
+    let slashing_protection_path = validator_dir.join(SLASHING_PROTECTION_FILENAME);
+    let slashing_protection =
+        SlashingDatabase::open_or_create(&slashing_protection_path).map_err(|e| {
+            format!(
+                "Unable to open or create slashing protection database at {}: {:?}",
+                slashing_protection_path.display(),
+                e
+            )
+        })?;
+
     // Collect the paths for the keystores that should be imported.
     let keystore_paths = match (keystore, keystores_dir) {
         (Some(keystore), None) => vec![keystore],
@@ -105,6 +116,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     //
     // - Obtain the keystore password, if the user desires.
     // - Copy the keystore into the `validator_dir`.
+    // - Register the voting key with the slashing protection database.
     // - Add the keystore to the validator definitions file.
     //
     // Skip keystores that already exist, but exit early if any operation fails.
@@ -184,6 +196,20 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         // Copy the keystore to the new location.
         fs::copy(&src_keystore, &dest_keystore)
             .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
+
+        // Register with slashing protection.
+        let voting_pubkey = keystore
+            .public_key()
+            .ok_or_else(|| format!("Keystore public key is invalid: {}", keystore.pubkey()))?;
+        slashing_protection
+            .register_validator(&voting_pubkey)
+            .map_err(|e| {
+                format!(
+                    "Error registering validator {}: {:?}",
+                    voting_pubkey.to_hex_string(),
+                    e
+                )
+            })?;
 
         eprintln!("Successfully imported keystore.");
         num_imported_keystores += 1;
