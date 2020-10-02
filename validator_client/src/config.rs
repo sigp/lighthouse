@@ -105,10 +105,6 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
-        if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
-            config.beacon_node = beacon_node;
-        }
-
         if let Some(server) = parse_optional(cli_args, "server")? {
             warn!(
                 log,
@@ -116,6 +112,10 @@ impl Config {
                 "msg" => "please use --beacon-node instead"
             );
             config.beacon_node = server;
+        }
+
+        if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
+            config.beacon_node = beacon_node;
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");

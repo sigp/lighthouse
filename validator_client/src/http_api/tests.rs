@@ -54,7 +54,6 @@ impl ApiTester {
         .await
         .unwrap();
 
-        // let initialized_validators = Arc::new(RwLock::new(initialized_validators));
         let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 

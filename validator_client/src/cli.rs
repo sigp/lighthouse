@@ -21,7 +21,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("server")
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
-                .help("Address to connect to BeaconNode.")
+                .help("Deprecated. Use --beacon-node.")
                 .default_value(&DEFAULT_BEACON_NODE)
                 .takes_value(true)
                 .conflicts_with("beacon_node"),
