@@ -127,17 +127,17 @@ impl Drive {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Network {
-    /// Network metric for received bytes across all network interfaces.
+    /// Network metric for total received bytes across all network interfaces.
     pub rx_bytes: u64,
-    /// Network metric for received errors across all network interfaces.
+    /// Network metric for total received errors across all network interfaces.
     pub rx_errors: u64,
-    /// Network metric for received packets across all network interfaces.
+    /// Network metric for total received packets across all network interfaces.
     pub rx_packets: u64,
-    /// Network metric for transmitted bytes across all network interfaces.
+    /// Network metric for total transmitted bytes across all network interfaces.
     pub tx_bytes: u64,
-    /// Network metric for trasmitted errors across all network interfaces.
+    /// Network metric for total trasmitted errors across all network interfaces.
     pub tx_errors: u64,
-    /// Network metric for transmitted packets across all network interfaces.
+    /// Network metric for total transmitted packets across all network interfaces.
     pub tx_packets: u64,
 }
 
@@ -166,7 +166,7 @@ pub struct Health {
     pub sys_loadavg_5: f64,
     /// System load average over 15 minutes.
     pub sys_loadavg_15: f64,
-    /// Network statistics.
+    /// Network statistics, totals across all network interfaces.
     pub network: Network,
 }
 
