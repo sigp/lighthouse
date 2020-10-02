@@ -507,13 +507,17 @@ pub fn set_network_config(
         config.enr_address = Some(resolved_addr);
     }
 
-    if cli_args.is_present("disable_enr_auto_update") {
+    if cli_args.is_present("disable-enr-auto-update") {
         config.discv5_config.enr_update = false;
     }
 
     if cli_args.is_present("disable-discovery") {
         config.disable_discovery = true;
         warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    if cli_args.is_present("disable-upnp") {
+        config.upnp_enabled = false;
     }
 
     Ok(())
