@@ -42,7 +42,7 @@ endif
 # optimized CPU functions that may not be available on some systems. This
 # results in a more portable binary with ~20% slower BLS verification.
 build-x86_64:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu
+	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern
 build-x86_64-portable:
 	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features portable
 build-aarch64:

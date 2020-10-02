@@ -144,7 +144,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxValidatorsPerCommittee = U2048;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
-    type EpochsPerEth1VotingPeriod = U32;
+    type EpochsPerEth1VotingPeriod = U64;
     type SlotsPerHistoricalRoot = U8192;
     type EpochsPerHistoricalVector = U65536;
     type EpochsPerSlashingsVector = U8192;
@@ -156,7 +156,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
-    type SlotsPerEth1VotingPeriod = U1024; // 32 epochs * 32 slots per epoch
+    type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
