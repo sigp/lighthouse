@@ -9,7 +9,7 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "0.2.21", features = ["time", "rt-threaded", "macros"] }
+tokio = { version = "0.2.22", features = ["time", "rt-threaded", "macros"] }
 
 [dependencies]
 eth2_ssz = "0.1.2"
@@ -28,7 +28,7 @@ serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
 slog-term = "2.5.0"
-tokio = { version = "0.2.21", features = ["time"] }
+tokio = { version = "0.2.22", features = ["time"] }
 futures = { version = "0.3.5", features = ["compat"] }
 dirs = "2.0.2"
 logging = { path = "../common/logging" }
