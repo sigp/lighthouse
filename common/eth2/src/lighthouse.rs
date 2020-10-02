@@ -118,6 +118,8 @@ impl Drive {
             .mounts()
             .expect("Could not find mounts.")
             .into_iter()
+            // filter out drives with zero total disk space
+            .filter(|drive|drive.total.as_u64() != 0)
             .map(|drive| Drive {
                 filesystem: drive.fs_mounted_from,
                 avail: drive.avail.as_u64(),

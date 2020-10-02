@@ -33,7 +33,29 @@ curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/j
 ```
 
 ```json
-
+{
+    "data": {
+        "pid": 92063,
+        "pid_mem_resident_set_size": 188657664,
+        "pid_mem_virtual_memory_size": 4852129792,
+        "sys_virt_mem_total": 17179869184,
+        "sys_virt_mem_available": 6760796160,
+        "sys_virt_mem_used": 8087846912,
+        "sys_virt_mem_free": 1614999552,
+        "sys_virt_mem_percent": 60.646988,
+        "sys_loadavg_1": 4.01708984375,
+        "sys_loadavg_5": 3.17626953125,
+        "sys_loadavg_15": 3.8837890625,
+        "network": {
+            "rx_bytes": 193094299648,
+            "rx_errors": 66251016192,
+            "rx_packets": 106043274,
+            "tx_bytes": 47319518,
+            "tx_errors": 0,
+            "tx_packets": 0
+        }
+    }
+}
 ```
 
 ### `/lighthouse/system/drives`
