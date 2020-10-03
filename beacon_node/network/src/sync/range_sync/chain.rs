@@ -1,7 +1,7 @@
 use super::batch::{BatchInfo, BatchState};
 use crate::beacon_processor::ProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
-use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult};
+use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
@@ -200,7 +200,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
-        peer_id: PeerId,
+        peer_id: &PeerId,
+        request_id: RequestId,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
@@ -213,9 +214,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             Some(batch) => {
                 // A batch could be retried without the peer failing the request (disconnecting/
                 // sending an error /timeout) if the peer is removed from the chain for other
-                // reasons. Check that this block belongs to the expected peer
-                if Some(&peer_id) != batch.current_peer() {
-                    return ProcessingResult::KeepChain;
+                // reasons. Check that this block belongs to the expected peer, and that the
+                // request_id matches
+                if let BatchState::Downloading(expected_peer, _, expected_request_id) =
+                    batch.state()
+                {
+                    if expected_peer != peer_id || expected_request_id != &request_id {
+                        return ProcessingResult::KeepChain;
+                    }
                 }
                 batch
             }
@@ -228,11 +234,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         } else {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
             // Remove the request from the peer's active batches
-            let peer = batch
-                .current_peer()
-                .expect("Batch is downloading from a peer");
+
             self.peers
-                .get_mut(peer)
+                .get_mut(peer_id)
                 .unwrap_or_else(|| panic!("Batch is registered for the peer"))
                 .remove(&batch_id);
 
@@ -783,21 +787,21 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
-        peer_id: PeerId,
+        peer_id: &PeerId,
+        request_id: RequestId,
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if Some(&peer_id) != batch.current_peer() {
-                return ProcessingResult::KeepChain;
+            if let BatchState::Downloading(expected_peer, _, expected_request_id) = batch.state() {
+                if expected_peer != peer_id || expected_request_id != &request_id {
+                    return ProcessingResult::KeepChain;
+                }
             }
             debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
-            let failed_peer = batch
-                .current_peer()
-                .expect("Batch is downloading from a peer");
             self.peers
-                .get_mut(failed_peer)
+                .get_mut(peer_id)
                 .expect("Peer belongs to the chain")
                 .remove(&batch_id);
             if let BatchState::Failed = batch.download_failed() {
@@ -852,10 +856,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let request = batch.to_blocks_by_range_request();
-            // inform the batch about the new request
-            batch.start_downloading_from_peer(peer.clone());
             match network.blocks_by_range_request(peer.clone(), request, self.id, batch_id) {
-                Ok(()) => {
+                Ok(request_id) => {
+                    // inform the batch about the new request
+                    batch.start_downloading_from_peer(peer.clone(), request_id);
                     if self
                         .optimistic_start
                         .map(|epoch| epoch == batch_id)
@@ -877,6 +881,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => e, &batch);
                     // register the failed download and check if the batch can be retried
+                    batch.start_downloading_from_peer(peer.clone(), 1); // fake request_id is not relevant
                     self.peers
                         .get_mut(&peer)
                         .expect("peer belongs to the peer pool")
