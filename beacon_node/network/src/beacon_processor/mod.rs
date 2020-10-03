@@ -700,6 +700,11 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let log = self.log.clone();
         let executor = self.executor.clone();
 
+        let send_idle_on_drop = SendOnDrop {
+            tx: idle_tx,
+            log: log.clone(),
+        };
+
         let worker = Worker {
             chain,
             network_tx: self.network_tx.clone(),
@@ -717,11 +722,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         executor.spawn_blocking(
             move || {
                 let _worker_timer = worker_timer;
-
-                let send_idle_on_drop = SendOnDrop {
-                    tx: idle_tx,
-                    log: &log,
-                };
 
                 match work {
                     /*
@@ -810,7 +810,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 );
 
                 // This explicit `drop` is used to remind the programmer that this variable must
-                // not be dropped until the worker is finished. Dropping it early will cause the
+                // not be dropped until the worker is complete. Dropping it early will cause the
                 // worker to be marked as "free" and cause an over-spawning of workers.
                 drop(send_idle_on_drop);
             },
@@ -829,12 +829,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 /// The Rust docs for `Drop` state that `Drop` is called during an unwind in a panic:
 ///
 /// https://doc.rust-lang.org/std/ops/trait.Drop.html#panics
-pub struct SendOnDrop<'a> {
+pub struct SendOnDrop {
     tx: mpsc::Sender<()>,
-    log: &'a Logger,
+    log: Logger,
 }
 
-impl<'a> Drop for SendOnDrop<'a> {
+impl Drop for SendOnDrop {
     fn drop(&mut self) {
         if let Err(e) = self.tx.try_send(()) {
             warn!(
