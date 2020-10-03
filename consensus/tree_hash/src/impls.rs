@@ -22,7 +22,7 @@ macro_rules! impl_for_bitsize {
                 HASHSIZE / ($bit_size / 8)
             }
 
-            #[allow(clippy::cast_lossless)]
+            #[allow(clippy::cast_lossless)] // Lint does not apply to all uses of this macro.
             fn tree_hash_root(&self) -> Hash256 {
                 int_to_hash256(*self as u64)
             }

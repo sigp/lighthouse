@@ -66,7 +66,7 @@ impl<T: SlotClock + 'static> ForkServiceBuilder<T> {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Only used during testing.
 impl ForkServiceBuilder<slot_clock::TestingSlotClock> {
     pub fn testing_only(log: Logger) -> Self {
         Self {

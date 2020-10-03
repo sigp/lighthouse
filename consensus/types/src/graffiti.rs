@@ -18,7 +18,7 @@ pub struct Graffiti(#[serde(with = "serde_graffiti")] pub [u8; GRAFFITI_BYTES_LE
 
 impl Graffiti {
     pub fn as_utf8_lossy(&self) -> String {
-        #[allow(clippy::invalid_regex)]
+        #[allow(clippy::invalid_regex)] // This is a false positive, this regex is valid.
         let re = Regex::new("\\p{C}").expect("graffiti regex is valid");
         String::from_utf8_lossy(&re.replace_all(&self.0[..], &b""[..])).to_string()
     }

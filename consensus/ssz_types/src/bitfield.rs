@@ -762,7 +762,6 @@ mod bitvector {
 }
 
 #[cfg(test)]
-#[allow(clippy::cognitive_complexity)]
 mod bitlist {
     use super::*;
     use crate::BitList;

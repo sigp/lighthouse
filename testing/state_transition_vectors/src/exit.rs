@@ -16,7 +16,7 @@ struct ExitTest {
     state_epoch: Epoch,
     block_modifier: Box<dyn FnOnce(&mut BeaconBlock<E>)>,
     builder_modifier: Box<dyn FnOnce(BlockProcessingBuilder<E>) -> BlockProcessingBuilder<E>>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Only used during tests.
     expected: Result<(), BlockProcessingError>,
 }
 

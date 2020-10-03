@@ -73,7 +73,6 @@ fn get_worst_block<T: EthSpec>(
     builder.build(&spec)
 }
 
-#[allow(clippy::unit_arg)]
 fn bench_block<T: EthSpec>(
     c: &mut Criterion,
     block: SignedBeaconBlock<T>,

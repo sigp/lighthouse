@@ -121,7 +121,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant)] // Tracked at https://github.com/sigp/lighthouse/issues/1713
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(SignedBeaconBlockHash, SignedBeaconBlock<E>),
     PutState(BeaconStateHash, Cow<'a, BeaconState<E>>),
