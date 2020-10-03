@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 }
             }
         } else {
-            warn!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
+            debug!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
         }
     }
 
