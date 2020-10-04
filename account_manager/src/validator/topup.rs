@@ -188,6 +188,7 @@ pub fn cli_run<T: EthSpec>(
     );
     let topup_amount: u64 = clap_utils::parse_required(matches, TOPUP_AMOUNT)?;
     let topup_amount_gwei = topup_amount * GWEI;
+    let spec = env.core_context().eth2_config.spec;
 
     let eth1_deposit_datas = env.runtime().block_on(generate_deposit_datas(
         validators
@@ -199,7 +200,7 @@ pub fn cli_run<T: EthSpec>(
             .collect::<Result<Vec<_>, String>>()?,
         topup_amount_gwei,
         &client,
-        &T::default_spec(),
+        &spec,
     ))?;
 
     let total_gwei: u64 = eth1_deposit_datas
@@ -217,7 +218,7 @@ pub fn cli_run<T: EthSpec>(
         log,
         "Starting deposits";
         "deposit_count" => eth1_deposit_datas.len(),
-        "total_eth" => total_gwei as f64 / GWEI as f64,
+        "total_eth" => total_gwei / GWEI,
     );
 
     let deposit_contract = env
@@ -271,6 +272,7 @@ pub fn cli_run<T: EthSpec>(
     }
 }
 
+/// Generate deposit data for a list of validators.
 async fn generate_deposit_datas(
     data: Vec<(ValidatorDir, bls::Keypair)>,
     amount: u64,
@@ -287,7 +289,7 @@ async fn generate_deposit_datas(
     Ok(res)
 }
 
-/// Generate deposit data for a single
+/// Generate deposit data for a single validator.
 async fn generate_deposit_data(
     dir: ValidatorDir,
     voting_keypair: &bls::Keypair,
@@ -297,7 +299,7 @@ async fn generate_deposit_data(
 ) -> Result<Option<(ValidatorDir, Eth1DepositData)>, String> {
     let withdrawal_credentials = get_withdrawal_credentials(&voting_keypair.pk, &client).await?;
     eprintln!(
-        "Withdrawal credentials for validator pubkey {} is {}",
+        "Withdrawal credentials for validator pubkey {} is {:?}",
         voting_keypair.pk, withdrawal_credentials
     );
     eprintln!("Please verify the withdrawal credentials. Enter (y/Y) to continue or anything else to abort: ");
@@ -355,7 +357,11 @@ pub async fn get_withdrawal_credentials(
     }
 }
 
-// TODO(pawan) -> keypair should be dropped correctly
+/// Load the voting keypair by loading the keystore and decrypting the keystore
+///
+/// First attempt to load the password for the validator from the `secrets_dir`, if not
+/// present, prompt user for the password.
+///  TODO(pawan) -> keypair should be dropped correctly in the caller.
 fn load_voting_keypair(
     validator_dir: &ValidatorDir,
     secrets_dir: &PathBuf,
