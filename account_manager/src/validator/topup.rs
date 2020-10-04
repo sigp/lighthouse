@@ -16,7 +16,7 @@ use validator_dir::Manager as ValidatorManager;
 use validator_dir::{Eth1DepositData, ValidatorDir};
 use web3::{transports::Http, transports::Ipc, types::Address};
 
-pub const CMD: &str = "deposit";
+pub const CMD: &str = "topup";
 pub const VALIDATOR_FLAG: &str = "validator";
 pub const ETH1_IPC_FLAG: &str = "eth1-ipc";
 pub const ETH1_HTTP_FLAG: &str = "eth1-http";
@@ -29,7 +29,7 @@ pub const BEACON_SERVER: &str = "beacon-server-addr";
 const GWEI: u64 = 1_000_000_000;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("deposit")
+    App::new("topup")
         .about(
             "Submits a deposit to an Eth1 validator registration contract via an IPC endpoint \
             of an Eth1 client (e.g., Geth, OpenEthereum, etc.). The validators must already \
@@ -106,15 +106,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(TOPUP_AMOUNT)
                 .long(TOPUP_AMOUNT)
                 .value_name("TOPUP-AMOUNT")
-                .help("Amount that you want to topup the given validator with in GWEI")
-                .takes_value(true),
+                .help("Amount that you want to topup the given validator with in ETH. Minimum value 1")
+                .takes_value(true)
+                .required(true),
         )
         .arg(
             Arg::with_name(BEACON_SERVER)
                 .long(BEACON_SERVER)
                 .value_name("BEACON_SERVER")
                 .help("URL to a beacon node http endpoint")
-                .takes_value(true),
+                .takes_value(true)
+                .required(true),
         )
         .arg(
             Arg::with_name(SECRETS_DIR_FLAG)
@@ -184,6 +186,7 @@ pub fn cli_run<T: EthSpec>(
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
     );
     let topup_amount: u64 = clap_utils::parse_required(matches, TOPUP_AMOUNT)?;
+    let topup_amount_gwei = topup_amount * GWEI;
 
     let eth1_deposit_datas = env.runtime().block_on(generate_deposit_datas(
         validators
@@ -195,7 +198,7 @@ pub fn cli_run<T: EthSpec>(
                 Ok((v, voting_keypair))
             })
             .collect::<Result<Vec<_>, String>>()?,
-        topup_amount,
+        topup_amount_gwei,
         &client,
         &T::default_spec(),
     ))?;
@@ -278,27 +281,38 @@ async fn generate_deposit_datas(
     let mut res = vec![];
     for d in data {
         // Return an error if any of the deposit data generation returns an error
-        let deposit_data = generate_deposit_data(d.0, &d.1, amount, client, spec).await?;
-        res.push(deposit_data);
+        if let Some(deposit_data) = generate_deposit_data(d.0, &d.1, amount, client, spec).await? {
+            res.push(deposit_data);
+        }
     }
     Ok(res)
 }
 
+/// Generate deposit data for a single
 async fn generate_deposit_data(
     dir: ValidatorDir,
     voting_keypair: &bls::Keypair,
     amount: u64,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
-) -> Result<(ValidatorDir, Eth1DepositData), String> {
+) -> Result<Option<(ValidatorDir, Eth1DepositData)>, String> {
     let withdrawal_credentials = get_withdrawal_credentials(&voting_keypair.pk, &client).await?;
+    eprintln!(
+        "Withdrawal credentials for validator pubkey {} is {}",
+        voting_keypair.pk, withdrawal_credentials
+    );
+    eprintln!("Please verify the withdrawal credentials. Enter (y/Y) to continue or anything else to abort: ");
+    let confirmation = account_utils::read_input_from_user(false)?;
+    if confirmation != "y" || confirmation != "Y" {
+        return Ok(None);
+    }
     match ValidatorDir::eth1_deposit_data_topup(
         amount,
         &voting_keypair,
         withdrawal_credentials,
         spec,
     ) {
-        Ok(data) => Ok((dir, data)),
+        Ok(data) => Ok(Some((dir, data))),
         Err(e) => Err(format!(
             "Unable to generate deposit data for validator topup {:?}: {:?}",
             dir.dir(),
@@ -319,13 +333,13 @@ pub async fn get_withdrawal_credentials(
         )
         .await
         .map_err(|e| format!("Failed to get validator details: {:?}", e))?
-        .ok_or_else(|| format!("Server returned 404"))?
+        .ok_or_else(|| "Server returned 404".to_string())?
         .data;
 
     match response.status {
-        // TODO(pawan): check that this is true.
-        // Note: we return withdrawal credentials only in cases where topping up the balance is
-        // useful. Topping up the validator balance after the validator has exited/withdrawn
+        // TODO(pawan): check that this is true. May need to add more valid states.
+        // Note: we return withdrawal credentials only in cases where topping up the balance will
+        // have some useful effect. Topping up the validator balance after the validator has exited/withdrawn
         // is waste of money.
         WaitingForEligibility
         | WaitingForFinality
@@ -335,7 +349,7 @@ pub async fn get_withdrawal_credentials(
         | ActiveAwaitingVoluntaryExit(_)
         | ActiveAwaitingSlashedExit(_) => Ok(response.validator.withdrawal_credentials),
         status => Err(format!(
-            "The validator is in an invalid state to make a topup deposit. Status: {:?}",
+            "Topping this validator is of no use. Status: {:?}",
             status
         )),
     }

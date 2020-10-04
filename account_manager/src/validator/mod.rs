@@ -37,6 +37,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(list::cli_app())
         .subcommand(recover::cli_app())
         .subcommand(slashing_protection::cli_app())
+        .subcommand(topup::cli_app())
 }
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
@@ -51,6 +52,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, validator_base_dir),
         (deposit::CMD, Some(matches)) => deposit::cli_run::<T>(matches, env, validator_base_dir),
+        (topup::CMD, Some(matches)) => topup::cli_run::<T>(matches, env, validator_base_dir),
         (import::CMD, Some(matches)) => import::cli_run(matches, validator_base_dir),
         (list::CMD, Some(_)) => list::cli_run(validator_base_dir),
         (recover::CMD, Some(matches)) => recover::cli_run(matches, validator_base_dir),
