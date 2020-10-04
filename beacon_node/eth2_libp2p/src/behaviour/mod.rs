@@ -623,8 +623,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // TODO: inform the peer manager?
                     }
                     RPCRequest::Goodbye(reason) => {
-                        // let the peer manager know this peer is in the process of disconnecting
-                        self.peer_manager._disconnecting_peer(&peer_id);
                         // queue for disconnection without a goodbye message
                         debug!(
                             self.log, "Peer sent Goodbye";
