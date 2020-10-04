@@ -163,7 +163,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     pub fn randao_reveal(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<Signature> {
-        // TODO: check this against the slot clock to make sure it's not an early reveal?
         self.validators
             .read()
             .voting_keypair(validator_pubkey)
