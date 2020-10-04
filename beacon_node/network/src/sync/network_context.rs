@@ -87,7 +87,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         request: BlocksByRangeRequest,
         chain_id: ChainId,
         batch_id: BatchId,
-    ) -> Result<(), &'static str> {
+    ) -> Result<SyncRequestId, &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRange Request";
@@ -97,7 +97,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         );
         let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
         self.range_requests.insert(req_id, (chain_id, batch_id));
-        Ok(())
+        Ok(req_id)
     }
 
     pub fn blocks_by_range_response(
