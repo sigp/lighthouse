@@ -30,7 +30,6 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 #[derive(PartialEq)]
 #[must_use = "Should be checked, since a failed chain must be removed. A chain that requested
  being removed and continued is now in an inconsistent state"]
-
 pub enum ProcessingResult {
     KeepChain,
     RemoveChain,
@@ -234,7 +233,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         } else {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
             // Remove the request from the peer's active batches
-
             self.peers
                 .get_mut(peer_id)
                 .unwrap_or_else(|| panic!("Batch is registered for the peer"))
@@ -299,7 +297,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // blocks to continue, and the chain is expecting a processing result that won't
             // arrive.  To mitigate this, (fake) fail this processing so that the batch is
             // re-downloaded.
-            // TODO: needs better handling
             self.on_batch_process_result(network, batch_id, &BatchProcessResult::Failed(false))
         } else {
             ProcessingResult::KeepChain
