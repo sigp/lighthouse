@@ -1,0 +1,26 @@
+[package]
+name = "eth2_keystore"
+version = "0.1.0"
+authors = ["Pawan Dhananjay <pawan@sigmaprime.io", "Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.7.2"
+aes-ctr = "0.4.0"
+hmac = "0.8.0"
+pbkdf2 = { version = "0.4.0", default-features = false }
+scrypt = { version = "0.3.0", default-features = false }
+sha2 = "0.9.0"
+uuid = { version = "0.8", features = ["serde", "v4"] }
+zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
+serde = "1.0.110"
+serde_repr = "0.1"
+hex = "0.4.2"
+bls = { path = "../bls" }
+eth2_ssz = { path = "../../consensus/ssz" }
+serde_json = "1.0.41"
+eth2_key_derivation = { path = "../eth2_key_derivation" }
+[dev-dependencies]
+tempfile = "3.1.0"

@@ -2,7 +2,7 @@
 
 An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
 
-[![Build Status]][Build Link] [![Book Status]][Book Link] [![RustDoc Status]][RustDoc Link] [![Chat Badge]][Chat Link] [![Swagger Badge]][Swagger Link]
+[![Build Status]][Build Link] [![Book Status]][Book Link] [![Chat Badge]][Chat Link]
 
 [Build Status]: https://github.com/sigp/lighthouse/workflows/test-suite/badge.svg?branch=master
 [Build Link]: https://github.com/sigp/lighthouse/actions
@@ -10,10 +10,6 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Chat Link]: https://discord.gg/cyAszAh
 [Book Status]:https://img.shields.io/badge/user--docs-master-informational
 [Book Link]: http://lighthouse-book.sigmaprime.io/
-[RustDoc Status]:https://img.shields.io/badge/code--docs-master-orange
-[RustDoc Link]: http://lighthouse-docs.sigmaprime.io/
-[Swagger Badge]: https://img.shields.io/badge/Open%20API-0.2.0-success
-[Swagger Link]: https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0
 
 [Documentation](http://lighthouse-book.sigmaprime.io/)
 
@@ -24,8 +20,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 Lighthouse is:
 
 - Fully open-source, licensed under Apache 2.0.
-- Security-focused. Fuzzing has begun and security reviews are planned
-	for late-2019.
+- Security-focused. Fuzzing has begun and security reviews are underway.
 - Built in [Rust](https://www.rust-lang.org/), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the
@@ -39,7 +34,7 @@ Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
 
 Current development overview:
 
-- Specification `v0.8.3` implemented, optimized and passing test vectors.
+- Specification `v0.12.3` implemented, optimized and passing test vectors.
 - Rust-native libp2p with Gossipsub and Discv5.
 - RESTful JSON API via HTTP server.
 - Events via WebSocket.
@@ -49,20 +44,18 @@ Current development overview:
 
 - ~~**April 2019**: Inital single-client testnets.~~
 - ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- **Q4 2019**: `lighthouse-0.0.1` release: All major phase 0
-     features implemented.
-- **Q4 2019**: Public, multi-client testnet with user-facing functionality.
-- **Q4 2019**: Third-party security review.
-- **Q1 2020**: Production Beacon Chain testnet (tentative).
+- ~~**Q1 2020**: `lighthouse-0.1.0` release: All major phase 0 features implemented.~~
+- ~~**Q2 2020**: Public, multi-client testnet with user-facing functionality.~~
+- ~~**Q2 2020**: Third-party security review.~~
+- **Q3 2020**: Additional third-party security reviews.
+- **Q3 2020**: Long-lived, multi-client Beacon Chain testnet
+- **Q4 2020**: Production Beacon Chain (tentative).
 
 
 ## Documentation
 
 The [Lighthouse Book](http://lighthouse-book.sigmaprime.io/) contains information
 for testnet users and developers.
-
-Code documentation is generated via `cargo doc` and hosted at
-[lighthouse-docs.sigmaprime.io](http://lighthouse-docs.sigmaprime.io/).
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or

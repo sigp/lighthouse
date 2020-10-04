@@ -1,22 +1,13 @@
-use crate::{ApiError, ApiResult};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use crate::{ApiError, NetworkChannel};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
-use eth2_libp2p::{PubsubMessage, Topic};
-use eth2_libp2p::{
-    BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX,
-};
-use hex;
-use http::header;
-use hyper::{Body, Request};
+use eth2_libp2p::PubsubMessage;
+use itertools::process_results;
 use network::NetworkMessage;
-use parking_lot::RwLock;
-use ssz::{Decode, Encode};
-use std::sync::Arc;
-use store::{iter::AncestorIter, Store};
-use tokio::sync::mpsc;
+use ssz::Decode;
+use store::iter::AncestorIter;
 use types::{
-    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, Slot,
+    BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 /// Parse a slot.
@@ -48,39 +39,26 @@ pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
         .map_err(|e| ApiError::BadRequest(format!("Unable to parse committee index: {:?}", e)))
 }
 
-/// Checks the provided request to ensure that the `content-type` header.
+/// Parse an SSZ object from some hex-encoded bytes.
 ///
-/// The content-type header should either be omitted, in which case JSON is assumed, or it should
-/// explicity specify `application/json`. If anything else is provided, an error is returned.
-pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
-    match req.headers().get(header::CONTENT_TYPE) {
-        Some(h) if h == "application/json" => Ok(()),
-        Some(h) => Err(ApiError::BadRequest(format!(
-            "The provided content-type {:?} is not available, this endpoint only supports json.",
-            h
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// Parse a signature from a `0x` preixed string.
-pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
+/// E.g., A signature is `"0x0000000000000000000000000000000000000000000000000000000000000000"`
+pub fn parse_hex_ssz_bytes<T: Decode>(string: &str) -> Result<T, ApiError> {
     const PREFIX: &str = "0x";
 
     if string.starts_with(PREFIX) {
         let trimmed = string.trim_start_matches(PREFIX);
         let bytes = hex::decode(trimmed)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature hex: {:?}", e)))?;
-        Signature::from_ssz_bytes(&bytes)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature bytes: {:?}", e)))
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ hex: {:?}", e)))?;
+        T::from_ssz_bytes(&bytes)
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ bytes: {:?}", e)))
     } else {
         Err(ApiError::BadRequest(
-            "Signature must have a 0x prefix".to_string(),
+            "Hex bytes must have a 0x prefix".to_string(),
         ))
     }
 }
 
-/// Parse a root from a `0x` preixed string.
+/// Parse a root from a `0x` prefixed string.
 ///
 /// E.g., `"0x0000000000000000000000000000000000000000000000000000000000000000"`
 pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
@@ -104,7 +82,7 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     if string.starts_with(PREFIX) {
         let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
             .map_err(|e| ApiError::BadRequest(format!("Invalid hex string: {:?}", e)))?;
-        let pubkey = PublicKeyBytes::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
+        let pubkey = PublicKeyBytes::deserialize(pubkey_bytes.as_slice()).map_err(|e| {
             ApiError::BadRequest(format!("Unable to deserialize public key: {:?}.", e))
         })?;
         Ok(pubkey)
@@ -115,19 +93,22 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     }
 }
 
-/// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
+/// Returns the root of the `SignedBeaconBlock` in the canonical chain of `beacon_chain` at the given
 /// `slot`, if possible.
 ///
 /// May return a root for a previous slot, in the case of skip slots.
 pub fn block_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     target: Slot,
-) -> Option<Hash256> {
-    beacon_chain
-        .rev_iter_block_roots()
-        .take_while(|(_root, slot)| *slot >= target)
-        .find(|(_root, slot)| *slot == target)
-        .map(|(root, _slot)| root)
+) -> Result<Option<Hash256>, ApiError> {
+    Ok(process_results(
+        beacon_chain.rev_iter_block_roots()?,
+        |iter| {
+            iter.take_while(|(_, slot)| *slot >= target)
+                .find(|(_, slot)| *slot == target)
+                .map(|(root, _)| root)
+        },
+    )?)
 }
 
 /// Returns a `BeaconState` and it's root in the canonical chain of `beacon_chain` at the given
@@ -139,18 +120,12 @@ pub fn state_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
 ) -> Result<(Hash256, BeaconState<T::EthSpec>), ApiError> {
-    let head_state = &beacon_chain.head().beacon_state;
+    let head = beacon_chain.head()?;
 
-    if head_state.slot == slot {
-        // The request slot is the same as the best block (head) slot.
-
-        // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
-        Ok((
-            beacon_chain.head().beacon_state_root,
-            beacon_chain.head().beacon_state.clone(),
-        ))
+    if head.beacon_state.slot == slot {
+        Ok((head.beacon_state_root, head.beacon_state))
     } else {
-        let root = state_root_at_slot(beacon_chain, slot)?;
+        let root = state_root_at_slot(beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
 
         let state: BeaconState<T::EthSpec> = beacon_chain
             .store
@@ -169,8 +144,9 @@ pub fn state_at_slot<T: BeaconChainTypes>(
 pub fn state_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
+    config: StateSkipConfig,
 ) -> Result<Hash256, ApiError> {
-    let head_state = &beacon_chain.head().beacon_state;
+    let head_state = &beacon_chain.head()?.beacon_state;
     let current_slot = beacon_chain
         .slot()
         .map_err(|_| ApiError::ServerError("Unable to read slot clock".to_string()))?;
@@ -194,31 +170,39 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         // 2. The request slot is the same as the best block (head) slot.
         //
         // The head state root is stored in memory, return a reference.
-        Ok(beacon_chain.head().beacon_state_root)
+        Ok(beacon_chain.head()?.beacon_state_root)
     } else if head_state.slot > slot {
         // 3. The request slot is prior to the head slot.
         //
         // Iterate through the state roots on the head state to find the root for that
         // slot. Once the root is found, load it from the database.
-        Ok(head_state
-            .try_iter_ancestor_roots(beacon_chain.store.clone())
-            .ok_or_else(|| ApiError::ServerError("Failed to create roots iterator".to_string()))?
-            .find(|(_root, s)| *s == slot)
-            .map(|(root, _slot)| root)
-            .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at slot {}", slot)))?)
+        process_results(
+            head_state
+                .try_iter_ancestor_roots(beacon_chain.store.clone())
+                .ok_or_else(|| {
+                    ApiError::ServerError("Failed to create roots iterator".to_string())
+                })?,
+            |mut iter| iter.find(|(_, s)| *s == slot).map(|(root, _)| root),
+        )?
+        .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at slot {}", slot)))
     } else {
         // 4. The request slot is later than the head slot.
         //
         // Use `per_slot_processing` to advance the head state to the present slot,
         // assuming that all slots do not contain a block (i.e., they are skipped slots).
-        let mut state = beacon_chain.head().beacon_state.clone();
+        let mut state = beacon_chain.head()?.beacon_state;
         let spec = &T::EthSpec::default_spec();
+
+        let skip_state_root = match config {
+            StateSkipConfig::WithStateRoots => None,
+            StateSkipConfig::WithoutStateRoots => Some(Hash256::zero()),
+        };
 
         for _ in state.slot.as_u64()..slot.as_u64() {
             // Ensure the next epoch state caches are built in case of an epoch transition.
             state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-            state_processing::per_slot_processing(&mut state, spec)?;
+            state_processing::per_slot_processing(&mut state, skip_state_root, spec)?;
         }
 
         // Note: this is an expensive operation. Once the tree hash cache is implement it may be
@@ -227,57 +211,17 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
     }
 }
 
-pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
-    Err(ApiError::NotImplemented(
-        "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
-    ))
-}
-
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    block: BeaconBlock<T::EthSpec>,
+    chan: &NetworkChannel<T::EthSpec>,
+    block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic_string = format!(
-        "/{}/{}/{}",
-        TOPIC_PREFIX, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX
-    );
-    let topic = Topic::new(topic_string);
-    let message = PubsubMessage::Block(block.as_ssz_bytes());
+    // send the block via SSZ encoding
+    let messages = vec![PubsubMessage::BeaconBlock(Box::new(block))];
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic],
-        message,
-    }) {
+    if let Err(e) = chan.send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
-            e
-        )));
-    }
-
-    Ok(())
-}
-
-pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    attestation: Attestation<T::EthSpec>,
-) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic_string = format!(
-        "/{}/{}/{}",
-        TOPIC_PREFIX, BEACON_ATTESTATION_TOPIC, TOPIC_ENCODING_POSTFIX
-    );
-    let topic = Topic::new(topic_string);
-    let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
-
-    // Publish the attestation to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic],
-        message,
-    }) {
-        return Err(ApiError::ServerError(format!(
-            "Unable to send new attestation to network: {:?}",
             e
         )));
     }

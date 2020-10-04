@@ -2,7 +2,7 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots, RandaoMixes,
     StateRoots,
 };
-use crate::{Error, Store};
+use crate::{Error, KeyValueStore};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::*;
@@ -11,7 +11,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 ///
-/// Spec v0.9.1
+/// Spec v0.12.1
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PartialBeaconState<T>
 where
@@ -19,6 +19,7 @@ where
 {
     // Versioning
     pub genesis_time: u64,
+    pub genesis_validators_root: Hash256,
     pub slot: Slot,
     pub fork: Fork,
 
@@ -72,8 +73,9 @@ impl<T: EthSpec> PartialBeaconState<T> {
         // TODO: could use references/Cow for fields to avoid cloning
         PartialBeaconState {
             genesis_time: s.genesis_time,
+            genesis_validators_root: s.genesis_validators_root,
             slot: s.slot,
-            fork: s.fork.clone(),
+            fork: s.fork,
 
             // History
             latest_block_header: s.latest_block_header.clone(),
@@ -105,13 +107,13 @@ impl<T: EthSpec> PartialBeaconState<T> {
 
             // Finality
             justification_bits: s.justification_bits.clone(),
-            previous_justified_checkpoint: s.previous_justified_checkpoint.clone(),
-            current_justified_checkpoint: s.current_justified_checkpoint.clone(),
-            finalized_checkpoint: s.finalized_checkpoint.clone(),
+            previous_justified_checkpoint: s.previous_justified_checkpoint,
+            current_justified_checkpoint: s.current_justified_checkpoint,
+            finalized_checkpoint: s.finalized_checkpoint,
         }
     }
 
-    pub fn load_block_roots<S: Store<T>>(
+    pub fn load_block_roots<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -124,7 +126,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_state_roots<S: Store<T>>(
+    pub fn load_state_roots<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -137,7 +139,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_historical_roots<S: Store<T>>(
+    pub fn load_historical_roots<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -150,7 +152,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_randao_mixes<S: Store<T>>(
+    pub fn load_randao_mixes<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -181,6 +183,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
 
         Ok(BeaconState {
             genesis_time: self.genesis_time,
+            genesis_validators_root: self.genesis_validators_root,
             slot: self.slot,
             fork: self.fork,
 

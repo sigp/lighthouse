@@ -1,5 +1,4 @@
-use clap::{App, Arg, SubCommand};
-use store::StoreConfig;
+use clap::{App, Arg};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -25,15 +24,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("freezer-dir")
                 .value_name("DIR")
                 .help("Data directory for the freezer database.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("testnet-dir")
-                .long("testnet-dir")
-                .value_name("DIR")
-                .help("Path to directory containing eth2_testnet specs. Defaults to \
-                      a hard-coded Lighthouse testnet. Only effective if there is no \
-                      existing database.")
                 .takes_value(true)
         )
         /*
@@ -64,42 +54,73 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("maxpeers")
-                .long("maxpeers")
-                .help("The maximum number of peers.")
-                .default_value("10")
+            Arg::with_name("discovery-port")
+                .long("discovery-port")
+                .value_name("PORT")
+                .help("The UDP port that discovery will listen on. Defaults to `port`")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("target-peers")
+                .long("target-peers")
+                .help("The target number of peers.")
+                .default_value("50")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("boot-nodes")
                 .long("boot-nodes")
                 .allow_hyphen_values(true)
-                .value_name("ENR-LIST")
-                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network.")
+                .value_name("ENR/MULTIADDR LIST")
+                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("discovery-port")
-                .long("disc-port")
+            Arg::with_name("disable-upnp")
+                .long("disable-upnp")
+                .help("Disables UPnP support. Setting this will prevent Lighthouse from attempting to automatically establish external port mappings.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("enr-udp-port")
+                .long("enr-udp-port")
                 .value_name("PORT")
-                .help("The discovery UDP port.")
-                .default_value("9000")
+                .help("The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("discovery-address")
-                .long("discovery-address")
+            Arg::with_name("enr-tcp-port")
+                .long("enr-tcp-port")
+                .value_name("PORT")
+                .help("The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
+                    The --port flag is used if this is not set.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-address")
+                .long("enr-address")
                 .value_name("ADDRESS")
-                .help("The IP address to broadcast to other peers on how to reach this node. \
-                       Default is determined automatically.")
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach this node. \
+                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
+                does not auto-update based on PONG responses in discovery. \
+                Set this only if you are sure other nodes can connect to your local node on this address. \
+                Discovery will automatically find your external address,if possible.")
+                .requires("enr-udp-port")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("topics")
-                .long("topics")
-                .value_name("STRING")
-                .help("One or more comma-delimited gossipsub topic strings to subscribe to. Default \
-                       is determined automatically.")
+            Arg::with_name("enr-match")
+                .short("e")
+                .long("enr-match")
+                .help("Sets the local ENR IP address and port to match those set for lighthouse. \
+                Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port.")
+        )
+        .arg(
+            Arg::with_name("disable-enr-auto-update")
+                .short("x")
+                .long("disable-enr-auto-update")
+                .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
+                This disables this feature, fixing the ENR's IP/PORT to those specified on boot.")
                 .takes_value(true),
         )
         .arg(
@@ -111,12 +132,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("p2p-priv-key")
-                .long("p2p-priv-key")
-                .value_name("HEX")
-                .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or \
-                       without 0x prefix). Default is either loaded from disk or generated \
-                       automatically.")
+            Arg::with_name("disable-discovery")
+                .long("disable-discovery")
+                .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("trusted-peers")
+                .long("trusted-peers")
+                .value_name("TRUSTED_PEERS")
+                .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
                 .takes_value(true),
         )
         /* REST API related arguments */
@@ -140,6 +165,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .default_value("5052")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-allow-origin")
+                .long("http-allow-origin")
+                .value_name("ORIGIN")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
+                .default_value("")
                 .takes_value(true),
         )
         /* Websocket related arguments */
@@ -167,6 +200,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
+         * Standard staking flags
+         */
+
+        .arg(
+            Arg::with_name("staking")
+                .long("staking")
+                .help("Standard option for a staking beacon node. Equivalent to \
+                `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
+                and try connecting to an eth1 node on localhost:8545")
+                .takes_value(false)
+        )
+
+        /*
          * Eth1 Integration
          */
         .arg(
@@ -187,127 +233,68 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
-                .help("Specifies the server for a web3 connection to the Eth1 chain.")
+                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag. Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
-                .default_value("https://goerli.public.sigp.io")
         )
         .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
-                       DO NOT CHANGE AFTER INITIALIZATION.")
+                       DO NOT DECREASE AFTER INITIALIZATION. [default: 2048 (mainnet) or 64 (minimal)]")
                 .takes_value(true)
-                .default_value(
-                    Box::leak(
-                        format!("{}", StoreConfig::default().slots_per_restore_point)
-                            .into_boxed_str()
-                    )
-                )
         )
+        .arg(
+            Arg::with_name("block-cache-size")
+                .long("block-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many blocks the database should cache in memory [default: 5]")
+                .takes_value(true)
+        )
+
         /*
-         * The "testnet" sub-command.
-         *
-         * Allows for creating a new datadir with testnet-specific configs.
+         * Purge.
          */
-        .subcommand(SubCommand::with_name("testnet")
-            .about("Create a new Lighthouse datadir using a testnet strategy.")
-            .arg(
-                Arg::with_name("random-datadir")
-                    .long("random-datadir")
-                    .short("r")
-                    .help("If present, append a random string to the datadir path. Useful for fast development \
-                          iteration.")
-            )
-            .arg(
-                Arg::with_name("force")
-                    .long("force")
-                    .short("f")
-                    .help("If present, will create new config and database files and move the any existing to a \
-                           backup directory.")
-                    .conflicts_with("random-datadir")
-            )
-            .arg(
-                Arg::with_name("random-propagation")
-                    .long("random-propagation")
-                    .value_name("INTEGER")
-                    .takes_value(true)
-                    .help("Specifies (as a percentage) the likelihood of propagating blocks and \
-                           attestations. This should only be used for testing networking elements. The \
-                           value must like in the range 1-100. Default is 100.")
-            )
-            .arg(
-                Arg::with_name("slot-time")
-                    .long("slot-time")
-                    .short("t")
-                    .value_name("MILLISECONDS")
-                    .help("Defines the slot time when creating a new testnet. The default is \
-                           specified by the spec.")
-            )
-            /*
-             * `recent`
-             *
-             * Start a new node, with a specified number of validators with a genesis time in the last
-             * 30-minutes.
-             */
-            .subcommand(SubCommand::with_name("recent")
-                .about("Creates a new genesis state where the genesis time was at the previous \
-                       MINUTES boundary (e.g., when MINUTES == 30; 12:00, 12:30, 13:00, etc.)")
-                .arg(Arg::with_name("validator_count")
-                    .value_name("VALIDATOR_COUNT")
-                    .required(true)
-                    .help("The number of validators in the genesis state"))
-                .arg(Arg::with_name("minutes")
-                    .long("minutes")
-                    .short("m")
-                    .value_name("MINUTES")
-                    .required(true)
-                    .default_value("30")
-                    .help("The maximum number of minutes that will have elapsed before genesis"))
-            )
-            /*
-             * `quick`
-             *
-             * Start a new node, specifying the number of validators and genesis time
-             */
-            .subcommand(SubCommand::with_name("quick")
-                .about("Creates a new genesis state from the specified validator count and genesis time. \
-                        Compatible with the `quick-start genesis` defined in the eth2.0-pm repo.")
-                .arg(Arg::with_name("validator_count")
-                    .value_name("VALIDATOR_COUNT")
-                    .required(true)
-                    .help("The number of validators in the genesis state"))
-                .arg(Arg::with_name("genesis_time")
-                    .value_name("UNIX_EPOCH_SECONDS")
-                    .required(true)
-                    .help("The genesis time for the given state."))
-            )
-            /*
-             * `yaml`
-             *
-             * Start a new node, using a genesis state loaded from a YAML file
-             */
-            .subcommand(SubCommand::with_name("file")
-                .about("Creates a new datadir where the genesis state is read from file. May fail to parse \
-                       a file that was generated to a different spec than that specified by --spec.")
-                .arg(Arg::with_name("format")
-                    .value_name("FORMAT")
-                    .required(true)
-                    .possible_values(&["ssz"])
-                    .help("The encoding of the state in the file."))
-                .arg(Arg::with_name("file")
-                    .value_name("FILE")
-                    .required(true)
-                    .help("A file from which to read the state"))
-            )
-            /*
-             * `prysm`
-             *
-             * Connect to the Prysmatic Labs testnet.
-             */
-            .subcommand(SubCommand::with_name("prysm")
-                .about("Connect to the Prysmatic Labs testnet on Goerli. Not guaranteed to be \
-                    up-to-date or functioning.")
-            )
+        .arg(
+            Arg::with_name("purge-db")
+                .long("purge-db")
+                .help("If present, the chain database will be deleted. Use with caution.")
+        )
+
+        /*
+         * Misc.
+         */
+        .arg(
+            Arg::with_name("graffiti")
+                .long("graffiti")
+                .help(
+                    "Specify your custom graffiti to be included in blocks. \
+                    Defaults to the current version and commit, truncated to fit in 32 bytes. "
+                )
+                .value_name("GRAFFITI")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("max-skip-slots")
+                .long("max-skip-slots")
+                .help(
+                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    This prevents nodes on minority forks from wasting our time and RAM, \
+                    but might need to be raised or set to 'none' in times of extreme network \
+                    outage."
+                )
+                .value_name("NUM_SLOTS")
+                .takes_value(true)
+                .default_value("700")
+        )
+        .arg(
+            Arg::with_name("wss-checkpoint")
+                .long("wss-checkpoint")
+                .help(
+                    "Used to input a Weak Subjectivity State Checkpoint in `block_root:epoch_number` format,\
+                     where block_root is an '0x' prefixed 32-byte hex string and epoch_number is an integer."
+                )
+                .value_name("WSS_CHECKPOINT")
+                .takes_value(true)
         )
 }

@@ -19,7 +19,7 @@ As with most other Rust projects, Lighthouse uses `cargo test` for unit and
 integration tests. For example, to test the `ssz` crate run:
 
 ```bash
-cd eth2/utils/ssz
+cd consensus/ssz
 cargo test
 ```
 

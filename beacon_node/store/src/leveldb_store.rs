@@ -1,8 +1,7 @@
 use super::*;
-use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
-use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::metrics;
 use db_key::Key;
+use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
@@ -39,12 +38,109 @@ impl<E: EthSpec> LevelDB<E> {
         WriteOptions::new()
     }
 
-    fn get_key_for_col(col: &str, key: &[u8]) -> BytesKey {
-        let mut col = col.as_bytes().to_vec();
-        col.append(&mut key.to_vec());
-        BytesKey { key: col }
+    fn write_options_sync(&self) -> WriteOptions {
+        let mut opts = WriteOptions::new();
+        opts.sync = true;
+        opts
+    }
+
+    fn put_bytes_with_options(
+        &self,
+        col: &str,
+        key: &[u8],
+        val: &[u8],
+        opts: WriteOptions,
+    ) -> Result<(), Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
+        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
+        let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
+
+        self.db
+            .put(opts, BytesKey::from_vec(column_key), val)
+            .map_err(Into::into)
+            .map(|()| {
+                metrics::stop_timer(timer);
+            })
     }
 }
+
+impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
+    /// Store some `value` in `column`, indexed with `key`.
+    fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+        self.put_bytes_with_options(col, key, val, self.write_options())
+    }
+
+    fn put_bytes_sync(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+        self.put_bytes_with_options(col, key, val, self.write_options_sync())
+    }
+
+    fn sync(&self) -> Result<(), Error> {
+        self.put_bytes_sync("sync", b"sync", b"sync")
+    }
+
+    /// Retrieve some bytes in `column` with `key`.
+    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
+        let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
+
+        self.db
+            .get(self.read_options(), BytesKey::from_vec(column_key))
+            .map_err(Into::into)
+            .map(|opt| {
+                opt.map(|bytes| {
+                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as i64);
+                    metrics::stop_timer(timer);
+                    bytes
+                })
+            })
+    }
+
+    /// Return `true` if `key` exists in `column`.
+    fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
+
+        self.db
+            .get(self.read_options(), BytesKey::from_vec(column_key))
+            .map_err(Into::into)
+            .map(|val| val.is_some())
+    }
+
+    /// Removes `key` from `column`.
+    fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
+
+        self.db
+            .delete(self.write_options(), BytesKey::from_vec(column_key))
+            .map_err(Into::into)
+    }
+
+    fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
+        let mut leveldb_batch = Writebatch::new();
+        for op in ops_batch {
+            match op {
+                KeyValueStoreOp::PutKeyValue(key, value) => {
+                    leveldb_batch.put(BytesKey::from_vec(key), &value);
+                }
+
+                KeyValueStoreOp::DeleteKey(key) => {
+                    leveldb_batch.delete(BytesKey::from_vec(key));
+                }
+            }
+        }
+        self.db.write(self.write_options(), &leveldb_batch)?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
 /// Used for keying leveldb.
 pub struct BytesKey {
@@ -61,89 +157,9 @@ impl Key for BytesKey {
     }
 }
 
-impl<E: EthSpec> Store<E> for LevelDB<E> {
-    type ForwardsBlockRootsIterator = SimpleForwardsBlockRootsIterator;
-
-    /// Retrieve some bytes in `column` with `key`.
-    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        let column_key = Self::get_key_for_col(col, key);
-
-        metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
-        let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
-
-        self.db
-            .get(self.read_options(), column_key)
-            .map_err(Into::into)
-            .map(|opt| {
-                opt.map(|bytes| {
-                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as i64);
-                    metrics::stop_timer(timer);
-                    bytes
-                })
-            })
-    }
-
-    /// Store some `value` in `column`, indexed with `key`.
-    fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
-        let column_key = Self::get_key_for_col(col, key);
-
-        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
-        let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
-
-        self.db
-            .put(self.write_options(), column_key, val)
-            .map_err(Into::into)
-            .map(|()| {
-                metrics::stop_timer(timer);
-            })
-    }
-
-    /// Return `true` if `key` exists in `column`.
-    fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
-        let column_key = Self::get_key_for_col(col, key);
-
-        metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
-
-        self.db
-            .get(self.read_options(), column_key)
-            .map_err(Into::into)
-            .and_then(|val| Ok(val.is_some()))
-    }
-
-    /// Removes `key` from `column`.
-    fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
-        let column_key = Self::get_key_for_col(col, key);
-
-        metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
-
-        self.db
-            .delete(self.write_options(), column_key)
-            .map_err(Into::into)
-    }
-
-    /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
-        store_full_state(self, state_root, state)
-    }
-
-    /// Fetch a state from the store.
-    fn get_state(
-        &self,
-        state_root: &Hash256,
-        _: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        get_full_state(self, state_root)
-    }
-
-    fn forwards_block_roots_iterator(
-        store: Arc<Self>,
-        start_slot: Slot,
-        end_state: BeaconState<E>,
-        end_block_root: Hash256,
-        _: &ChainSpec,
-    ) -> Self::ForwardsBlockRootsIterator {
-        SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
+impl BytesKey {
+    fn from_vec(key: Vec<u8>) -> Self {
+        Self { key }
     }
 }
 

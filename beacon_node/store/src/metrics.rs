@@ -46,6 +46,22 @@ lazy_static! {
     /*
      * Beacon State
      */
+    pub static ref BEACON_STATE_GET_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_state_get_total",
+        "Total number of beacon states requested from the store (cache or DB)"
+    );
+    pub static ref BEACON_STATE_HOT_GET_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_state_hot_get_total",
+        "Total number of hot beacon states requested from the store (cache or DB)"
+    );
+    pub static ref BEACON_STATE_CACHE_HIT_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_state_cache_hit_total",
+        "Number of hits to the store's state cache"
+    );
+    pub static ref BEACON_STATE_CACHE_CLONE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_cache_clone_time",
+        "Time to load a beacon block from the block cache"
+    );
     pub static ref BEACON_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_read_seconds",
         "Total time required to read a BeaconState from the database"
@@ -62,10 +78,6 @@ lazy_static! {
         "store_beacon_state_read_bytes_total",
         "Total number of beacon state bytes read from the DB"
     );
-    pub static ref BEACON_STATE_WRITE_TIMES: Result<Histogram> = try_create_histogram(
-        "store_beacon_state_write_seconds",
-        "Total time required to write a BeaconState to the database"
-    );
     pub static ref BEACON_STATE_WRITE_OVERHEAD_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_write_overhead_seconds",
         "Overhead on writing a beacon state to the DB (e.g., encoding)"
@@ -81,6 +93,14 @@ lazy_static! {
     /*
      * Beacon Block
      */
+    pub static ref BEACON_BLOCK_GET_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_block_get_total",
+        "Total number of beacon blocks requested from the store (cache or DB)"
+    );
+    pub static ref BEACON_BLOCK_CACHE_HIT_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_block_cache_hit_total",
+        "Number of hits to the store's block cache"
+    );
     pub static ref BEACON_BLOCK_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_block_read_overhead_seconds",
         "Overhead on reading a beacon block from the DB (e.g., decoding)"

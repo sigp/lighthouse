@@ -1,0 +1,11 @@
+[package]
+name = "compare_fields"
+version = "0.2.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dev-dependencies]
+compare_fields_derive = { path = "../compare_fields_derive" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["compare_fields_derive"] # used in doc-tests

@@ -1,24 +1,51 @@
-use crate::fork_service::ForkService;
-use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
+use crate::{
+    config::{Config, SLASHING_PROTECTION_FILENAME},
+    fork_service::ForkService,
+    initialized_validators::InitializedValidators,
+};
 use parking_lot::RwLock;
-use rayon::prelude::*;
-use slog::{error, Logger};
+use slashing_protection::{NotSafe, Safe, SlashingDatabase};
+use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
-use std::fs::read_dir;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
-use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
+use validator_dir::ValidatorDir;
+
+struct LocalValidator {
+    validator_dir: ValidatorDir,
+    voting_keypair: Keypair,
+}
+
+/// We derive our own `PartialEq` to avoid doing equality checks between secret keys.
+///
+/// It's nice to avoid secret key comparisons from a security perspective, but it's also a little
+/// risky when it comes to `HashMap` integrity (that's why we need `PartialEq`).
+///
+/// Currently, we obtain keypairs from keystores where we derive the `PublicKey` from a `SecretKey`
+/// via a hash function. In order to have two equal `PublicKey` with different `SecretKey` we would
+/// need to have either:
+///
+/// - A serious upstream integrity error.
+/// - A hash collision.
+///
+/// It seems reasonable to make these two assumptions in order to avoid the equality checks.
+impl PartialEq for LocalValidator {
+    fn eq(&self, other: &Self) -> bool {
+        self.validator_dir == other.validator_dir
+            && self.voting_keypair.pk == other.voting_keypair.pk
+    }
+}
 
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
-    validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
+    validators: Arc<RwLock<InitializedValidators>>,
+    slashing_protection: SlashingDatabase,
+    genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
@@ -27,43 +54,27 @@ pub struct ValidatorStore<T, E: EthSpec> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
-    pub fn load_from_disk(
-        base_dir: PathBuf,
+    pub fn new(
+        validators: InitializedValidators,
+        config: &Config,
+        genesis_validators_root: Hash256,
         spec: ChainSpec,
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        let validator_iter = read_dir(&base_dir)
-            .map_err(|e| format!("Failed to read base directory {:?}: {:?}", base_dir, e))?
-            .filter_map(|validator_dir| {
-                let path = validator_dir.ok()?.path();
-
-                if path.is_dir() {
-                    match ValidatorDirectory::load_for_signing(path.clone()) {
-                        Ok(validator_directory) => Some(validator_directory),
-                        Err(e) => {
-                            error!(
-                                log,
-                                "Failed to load a validator directory";
-                                "error" => e,
-                                "path" => path.to_str(),
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .filter_map(|validator_directory| {
-                validator_directory
-                    .voting_keypair
-                    .clone()
-                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
-            });
+        let slashing_db_path = config.data_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection =
+            SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open or create slashing protection database: {:?}",
+                    e
+                )
+            })?;
 
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(validator_iter))),
+            validators: Arc::new(RwLock::new(validators)),
+            slashing_protection,
+            genesis_validators_root,
             spec: Arc::new(spec),
             log,
             temp_dir: None,
@@ -72,57 +83,26 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
-    pub fn insecure_ephemeral_validators(
-        validator_indices: &[usize],
-        spec: ChainSpec,
-        fork_service: ForkService<T, E>,
-        log: Logger,
-    ) -> Result<Self, String> {
-        let temp_dir = TempDir::new("insecure_validator")
-            .map_err(|e| format!("Unable to create temp dir: {:?}", e))?;
-        let data_dir = PathBuf::from(temp_dir.path());
-
-        let validators = validator_indices
-            .par_iter()
-            .map(|index| {
-                ValidatorDirectoryBuilder::default()
-                    .spec(spec.clone())
-                    .full_deposit_amount()?
-                    .insecure_keypairs(*index)
-                    .create_directory(data_dir.clone())?
-                    .write_keypair_files()?
-                    .write_eth1_data_file()?
-                    .build()
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter_map(|validator_directory| {
-                validator_directory
-                    .voting_keypair
-                    .clone()
-                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
-            });
-
-        Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(validators))),
-            spec: Arc::new(spec),
-            log,
-            temp_dir: Some(Arc::new(temp_dir)),
-            fork_service,
-            _phantom: PhantomData,
-        })
+    /// Register all known validators with the slashing protection database.
+    ///
+    /// Registration is required to protect against a lost or missing slashing database,
+    /// such as when relocating validator keys to a new machine.
+    pub fn register_all_validators_for_slashing_protection(&self) -> Result<(), String> {
+        self.slashing_protection
+            .register_validators(self.validators.read().iter_voting_pubkeys())
+            .map_err(|e| format!("Error while registering validators: {:?}", e))
     }
 
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
         self.validators
             .read()
-            .iter()
-            .map(|(pubkey, _dir)| pubkey.clone())
+            .iter_voting_pubkeys()
+            .cloned()
             .collect()
     }
 
     pub fn num_voting_validators(&self) -> usize {
-        self.validators.read().len()
+        self.validators.read().num_enabled()
     }
 
     fn fork(&self) -> Option<Fork> {
@@ -139,30 +119,90 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // TODO: check this against the slot clock to make sure it's not an early reveal?
         self.validators
             .read()
-            .get(validator_pubkey)
-            .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                let message = epoch.tree_hash_root();
-                let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
+            .voting_keypair(validator_pubkey)
+            .and_then(|voting_keypair| {
+                let domain = self.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &self.fork()?,
+                    self.genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
 
-                Some(Signature::new(&message, domain, &voting_keypair.sk))
+                Some(voting_keypair.sk.sign(message))
             })
     }
 
     pub fn sign_block(
         &self,
         validator_pubkey: &PublicKey,
-        mut block: BeaconBlock<E>,
-    ) -> Option<BeaconBlock<E>> {
-        // TODO: check for slashing.
-        self.validators
-            .read()
-            .get(validator_pubkey)
-            .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
-                Some(block)
-            })
+        block: BeaconBlock<E>,
+        current_slot: Slot,
+    ) -> Option<SignedBeaconBlock<E>> {
+        // Make sure the block slot is not higher than the current slot to avoid potential attacks.
+        if block.slot > current_slot {
+            warn!(
+                self.log,
+                "Not signing block with slot greater than current slot";
+                "block_slot" => block.slot.as_u64(),
+                "current_slot" => current_slot.as_u64()
+            );
+            return None;
+        }
+
+        // Check for slashing conditions.
+        let fork = self.fork()?;
+        let domain = self.spec.get_domain(
+            block.epoch(),
+            Domain::BeaconProposer,
+            &fork,
+            self.genesis_validators_root,
+        );
+
+        let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
+            validator_pubkey,
+            &block.block_header(),
+            domain,
+        );
+
+        match slashing_status {
+            // We can safely sign this block.
+            Ok(Safe::Valid) => {
+                let validators = self.validators.read();
+                let voting_keypair = validators.voting_keypair(validator_pubkey)?;
+
+                Some(block.sign(
+                    &voting_keypair.sk,
+                    &fork,
+                    self.genesis_validators_root,
+                    &self.spec,
+                ))
+            }
+            Ok(Safe::SameData) => {
+                warn!(
+                    self.log,
+                    "Skipping signing of previously signed block";
+                );
+                None
+            }
+            Err(NotSafe::UnregisteredValidator(pk)) => {
+                warn!(
+                    self.log,
+                    "Not signing block for unregistered validator";
+                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "public_key" => format!("{:?}", pk)
+                );
+                None
+            }
+            Err(e) => {
+                crit!(
+                    self.log,
+                    "Not signing slashable block";
+                    "error" => format!("{:?}", e)
+                );
+                None
+            }
+        }
     }
 
     pub fn sign_attestation(
@@ -170,19 +210,40 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKey,
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
+        current_epoch: Epoch,
     ) -> Option<()> {
-        // TODO: check for slashing.
-        self.validators
-            .read()
-            .get(validator_pubkey)
-            .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+        // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
+        if attestation.data.target.epoch > current_epoch {
+            return None;
+        }
+
+        // Checking for slashing conditions.
+        let fork = self.fork()?;
+
+        let domain = self.spec.get_domain(
+            attestation.data.target.epoch,
+            Domain::BeaconAttester,
+            &fork,
+            self.genesis_validators_root,
+        );
+        let slashing_status = self.slashing_protection.check_and_insert_attestation(
+            validator_pubkey,
+            &attestation.data,
+            domain,
+        );
+
+        match slashing_status {
+            // We can safely sign this attestation.
+            Ok(Safe::Valid) => {
+                let validators = self.validators.read();
+                let voting_keypair = validators.voting_keypair(validator_pubkey)?;
 
                 attestation
                     .sign(
                         &voting_keypair.sk,
                         validator_committee_position,
-                        &self.fork()?,
+                        &fork,
+                        self.genesis_validators_root,
                         &self.spec,
                     )
                     .map_err(|e| {
@@ -195,6 +256,76 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .ok()?;
 
                 Some(())
-            })
+            }
+            Ok(Safe::SameData) => {
+                warn!(
+                    self.log,
+                    "Skipping signing of previously signed attestation"
+                );
+                None
+            }
+            Err(NotSafe::UnregisteredValidator(pk)) => {
+                warn!(
+                    self.log,
+                    "Not signing attestation for unregistered validator";
+                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "public_key" => format!("{:?}", pk)
+                );
+                None
+            }
+            Err(e) => {
+                crit!(
+                    self.log,
+                    "Not signing slashable attestation";
+                    "attestation" => format!("{:?}", attestation.data),
+                    "error" => format!("{:?}", e)
+                );
+                None
+            }
+        }
+    }
+
+    /// Signs an `AggregateAndProof` for a given validator.
+    ///
+    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
+    /// modified by actors other than the signing validator.
+    pub fn produce_signed_aggregate_and_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        validator_index: u64,
+        aggregate: Attestation<E>,
+        selection_proof: SelectionProof,
+    ) -> Option<SignedAggregateAndProof<E>> {
+        let validators = self.validators.read();
+        let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
+
+        Some(SignedAggregateAndProof::from_aggregate(
+            validator_index,
+            aggregate,
+            Some(selection_proof),
+            &voting_keypair.sk,
+            &self.fork()?,
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
+    /// `validator_pubkey`.
+    pub fn produce_selection_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        slot: Slot,
+    ) -> Option<SelectionProof> {
+        let validators = self.validators.read();
+        let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
+
+        Some(SelectionProof::new::<E>(
+            slot,
+            &voting_keypair.sk,
+            &self.fork()?,
+            self.genesis_validators_root,
+            &self.spec,
+        ))
     }
 }

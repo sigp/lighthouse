@@ -1,156 +1,96 @@
+use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
-use client::{ClientConfig, ClientGenesis, Eth2Config};
-use eth2_config::{read_from_file, write_to_file};
-use eth2_libp2p::{Enr, Multiaddr};
+use clap_utils::BAD_TESTNET_DIR_MESSAGE;
+use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
+use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
-use genesis::recent_genesis_time;
-use rand::{distributions::Alphanumeric, Rng};
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use ssz::Encode;
+use std::cmp;
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{Epoch, EthSpec, Fork};
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 
-pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
 
-type Result<T> = std::result::Result<T, String>;
-type Config = (ClientConfig, Eth2Config, Logger);
-
-/// Gets the fully-initialized global client and eth2 configuration objects.
+/// Gets the fully-initialized global client.
 ///
 /// The top-level `clap` arguments should be provided as `cli_args`.
 ///
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-pub fn get_configs<E: EthSpec>(
+#[allow(clippy::cognitive_complexity)]
+pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    mut eth2_config: Eth2Config,
-    core_log: Logger,
-) -> Result<Config> {
-    let log = core_log.clone();
-
+    spec_constants: &str,
+    spec: &ChainSpec,
+    log: Logger,
+) -> Result<ClientConfig, String> {
     let mut client_config = ClientConfig::default();
 
-    client_config.spec_constants = eth2_config.spec_constants.clone();
+    client_config.data_dir = get_data_dir(cli_args);
 
-    // Read the `--datadir` flag.
-    //
-    // If it's not present, try and find the home directory (`~`) and push the default data
-    // directory onto it.
-    client_config.data_dir = cli_args
-        .value_of("datadir")
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
-        .unwrap_or_else(|| PathBuf::from("."));
+    // If necessary, remove any existing database and configuration
+    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+        // Remove the chain_db.
+        fs::remove_dir_all(
+            client_config
+                .get_db_path()
+                .ok_or_else(|| "Failed to get db_path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
-    // Load the client config, if it exists .
-    let path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
-    if path.exists() {
-        client_config = read_from_file(path.clone())
-            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
-            .ok_or_else(|| format!("{:?} file does not exist", path))?;
-    }
+        // Remove the freezer db.
+        fs::remove_dir_all(
+            client_config
+                .get_freezer_db_path()
+                .ok_or_else(|| "Failed to get freezer db path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
-    // Load the eth2 config, if it exists .
-    let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
-    if path.exists() {
-        let loaded_eth2_config: Eth2Config = read_from_file(path.clone())
-            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
-            .ok_or_else(|| format!("{:?} file does not exist", path))?;
-
-        // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
-        // client expects.
-        if loaded_eth2_config.spec_constants == client_config.spec_constants {
-            eth2_config = loaded_eth2_config
-        } else {
-            return Err(
-                format!(
-                    "Eth2 config loaded from disk does not match client spec version. Got {} expected {}",
-                    &loaded_eth2_config.spec_constants,
-                    &client_config.spec_constants
-                )
-            );
+        // Remove the pubkey cache file if it exists
+        let pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
+        if pubkey_cache_file.exists() {
+            fs::remove_file(&pubkey_cache_file)
+                .map_err(|e| format!("Failed to remove {:?}: {:?}", pubkey_cache_file, e))?;
         }
     }
 
-    // Read the `--testnet-dir` flag.
-    if let Some(val) = cli_args.value_of("testnet-dir") {
-        client_config.testnet_dir = Some(PathBuf::from(val));
-    }
+    // Create `datadir` and any non-existing parent directories.
+    fs::create_dir_all(&client_config.data_dir)
+        .map_err(|e| format!("Failed to create data dir: {}", e))?;
+
+    // logs the chosen data directory
+    let mut log_dir = client_config.data_dir.clone();
+    // remove /beacon from the end
+    log_dir.pop();
+    info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
+
+    client_config.spec_constants = spec_constants.into();
 
     /*
      * Networking
      */
-    // If a network dir has been specified, override the `datadir` definition.
-    if let Some(dir) = cli_args.value_of("network-dir") {
-        client_config.network.network_dir = PathBuf::from(dir);
-    } else {
-        client_config.network.network_dir = client_config.data_dir.join(NETWORK_DIR);
-    };
+    set_network_config(
+        &mut client_config.network,
+        cli_args,
+        &client_config.data_dir,
+        &log,
+        false,
+    )?;
 
-    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
-        let listen_address = listen_address_str
-            .parse()
-            .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
-        client_config.network.listen_address = listen_address;
-        client_config.network.discovery_address = listen_address;
-    }
+    /*
+     * Staking flag
+     * Note: the config values set here can be overwritten by other more specific cli params
+     */
 
-    if let Some(max_peers_str) = cli_args.value_of("maxpeers") {
-        client_config.network.max_peers = max_peers_str
-            .parse::<usize>()
-            .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
-    }
-
-    if let Some(port_str) = cli_args.value_of("port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        client_config.network.libp2p_port = port;
-        client_config.network.discovery_port = port;
-    }
-
-    if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
-        client_config.network.boot_nodes = boot_enr_str
-            .split(',')
-            .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
-            .collect::<Result<Vec<Enr>>>()?;
-    }
-
-    if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
-        client_config.network.libp2p_nodes = libp2p_addresses_str
-            .split(',')
-            .map(|multiaddr| {
-                multiaddr
-                    .parse()
-                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
-            })
-            .collect::<Result<Vec<Multiaddr>>>()?;
-    }
-
-    if let Some(topics_str) = cli_args.value_of("topics") {
-        client_config.network.topics = topics_str.split(',').map(|s| s.into()).collect();
-    }
-
-    if let Some(discovery_address_str) = cli_args.value_of("discovery-address") {
-        client_config.network.discovery_address = discovery_address_str
-            .parse()
-            .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?
-    }
-
-    if let Some(disc_port_str) = cli_args.value_of("disc-port") {
-        client_config.network.discovery_port = disc_port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid discovery port: {}", disc_port_str))?;
-    }
-
-    if let Some(p2p_priv_key) = cli_args.value_of("p2p-priv-key") {
-        client_config.network.secret_key_hex = Some(p2p_priv_key.to_string());
+    if cli_args.is_present("staking") {
+        client_config.rest_api.enabled = true;
+        client_config.sync_eth1_chain = true;
     }
 
     /*
@@ -171,6 +111,24 @@ pub fn get_configs<E: EthSpec>(
         client_config.rest_api.port = port
             .parse::<u16>()
             .map_err(|_| "http-port is not a valid u16.")?;
+    }
+
+    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
+        hyper::header::HeaderValue::from_str(allow_origin)
+            .map_err(|_| "Invalid allow-origin value")?;
+
+        client_config.rest_api.allow_origin = allow_origin.to_string();
+    }
+
+    // Log a warning indicating an open HTTP server if it wasn't specified explicitly
+    // (e.g. using the --staking flag).
+    if cli_args.is_present("staking") {
+        warn!(
+            log,
+            "Running HTTP server on port {}", client_config.rest_api.port
+        );
     }
 
     /*
@@ -213,55 +171,35 @@ pub fn get_configs<E: EthSpec>(
 
     // Defines the URL to reach the eth1 node.
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
+        client_config.sync_eth1_chain = true;
         client_config.eth1.endpoint = val.to_string();
     }
 
-    match cli_args.subcommand() {
-        ("testnet", Some(sub_cmd_args)) => {
-            process_testnet_subcommand(&mut client_config, &mut eth2_config, sub_cmd_args)?
-        }
-        // No sub-command assumes a resume operation.
-        _ => {
-            // If no primary subcommand was given, start the beacon chain from an existing
-            // database.
-            client_config.genesis = ClientGenesis::Resume;
-
-            // Whilst there is no large testnet or mainnet force the user to specify how they want
-            // to start a new chain (e.g., from a genesis YAML file, another node, etc).
-            if !client_config.data_dir.exists() {
-                info!(
-                    log,
-                    "Starting from an empty database";
-                    "data_dir" => format!("{:?}", client_config.data_dir)
-                );
-                init_new_client::<E>(&mut client_config, &mut eth2_config)?
-            } else {
-                info!(
-                    log,
-                    "Resuming from existing datadir";
-                    "data_dir" => format!("{:?}", client_config.data_dir)
-                );
-                // If the `testnet` command was not provided, attempt to load an existing datadir and
-                // continue with an existing chain.
-                load_from_datadir(&mut client_config)?
-            }
-        }
-    };
-
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
-        client_config.store.freezer_db_path = Some(PathBuf::from(freezer_dir));
+        client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
     if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
         client_config.store.slots_per_restore_point = slots_per_restore_point
             .parse()
             .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
+    } else {
+        client_config.store.slots_per_restore_point = std::cmp::min(
+            E::slots_per_historical_root() as u64,
+            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
+        );
     }
 
-    if eth2_config.spec_constants != client_config.spec_constants {
+    if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
+        client_config.store.block_cache_size = block_cache_size
+            .parse()
+            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    }
+
+    if spec_constants != client_config.spec_constants {
         crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants.to_string(),
-              "eth2_config" => eth2_config.spec_constants.to_string()
+              "client_config" => client_config.spec_constants,
+              "eth2_config" => spec_constants
         );
         return Err("Specification constant mismatch".into());
     }
@@ -270,92 +208,38 @@ pub fn get_configs<E: EthSpec>(
      * Zero-ports
      *
      * Replaces previously set flags.
+     * Libp2p and discovery ports are set explicitly by selecting
+     * a random free port so that we aren't needlessly updating ENR
+     * from lighthouse.
+     * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        client_config.network.libp2p_port = 0;
-        client_config.network.discovery_port = 0;
+        if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
+            client_config.network.enr_address = None
+        }
+        client_config.network.libp2p_port =
+            unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
+        client_config.network.discovery_port =
+            unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.rest_api.port = 0;
         client_config.websocket_server.port = 0;
     }
 
-    Ok((client_config, eth2_config, log))
-}
-
-/// Load from an existing database.
-fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
-    // Check to ensure the datadir exists.
-    //
-    // For now we return an error. In the future we may decide to boot a default (e.g.,
-    // public testnet or mainnet).
-    if !client_config.get_data_dir().map_or(false, |d| d.exists()) {
-        return Err(
-            "No datadir found. Either create a new testnet or specify a different `--datadir`."
-                .into(),
-        );
-    }
-
-    // If there is a path to a database in the config, ensure it exists.
-    if !client_config
-        .get_db_path()
-        .map_or(false, |path| path.exists())
-    {
-        return Err(
-            "No database found in datadir. Use 'testnet -f' to overwrite the existing \
-             datadir, or specify a different `--datadir`."
-                .into(),
-        );
-    }
-
-    client_config.genesis = ClientGenesis::Resume;
-
-    Ok(())
-}
-
-/// Create a new client with the default configuration.
-fn init_new_client<E: EthSpec>(
-    client_config: &mut ClientConfig,
-    eth2_config: &mut Eth2Config,
-) -> Result<()> {
-    let eth2_testnet_config: Eth2TestnetConfig<E> =
-        if let Some(testnet_dir) = &client_config.testnet_dir {
-            Eth2TestnetConfig::load(testnet_dir.clone())
-                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
-        } else {
-            Eth2TestnetConfig::hard_coded()
-                .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
-        };
-
-    eth2_config.spec = eth2_testnet_config
-        .yaml_config
-        .as_ref()
-        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
-        .apply_to_chain_spec::<E>(&eth2_config.spec)
-        .ok_or_else(|| {
-            format!(
-                "The loaded config is not compatible with the {} spec",
-                &eth2_config.spec_constants
-            )
-        })?;
-
-    let spec = &mut eth2_config.spec;
+    /*
+     * Load the eth2 testnet dir to obtain some additional config values.
+     */
+    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
+    client_config.eth1.lowest_cached_block_number =
+        client_config.eth1.deposit_contract_deploy_block;
+    client_config.eth1.follow_distance = spec.eth1_follow_distance;
 
-    client_config.eth1.follow_distance = spec.eth1_follow_distance / 2;
-    client_config.dummy_eth1_backend = false;
-    client_config.eth1.lowest_cached_block_number = client_config
-        .eth1
-        .deposit_contract_deploy_block
-        .saturating_sub(client_config.eth1.follow_distance * 2);
-
-    if let Some(boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config
-            .network
-            .boot_nodes
-            .append(&mut boot_nodes.clone())
+    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+        client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
@@ -369,189 +253,308 @@ fn init_new_client<E: EthSpec>(
         client_config.genesis = ClientGenesis::DepositContract;
     }
 
-    create_new_datadir(&client_config, &eth2_config)?;
+    let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
+        if graffiti.len() > GRAFFITI_BYTES_LEN {
+            return Err(format!(
+                "Your graffiti is too long! {} bytes maximum!",
+                GRAFFITI_BYTES_LEN
+            ));
+        }
 
-    Ok(())
-}
+        graffiti.as_bytes()
+    } else {
+        lighthouse_version::VERSION.as_bytes()
+    };
 
-/// Writes the configs in `self` to `self.data_dir`.
-///
-/// Returns an error if `self.data_dir` already exists.
-pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config) -> Result<()> {
-    if client_config.data_dir.exists() {
-        return Err(format!(
-            "Data dir already exists at {:?}",
-            client_config.data_dir
-        ))?;
+    let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
+    client_config.graffiti[..trimmed_graffiti_len]
+        .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
+
+    if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {
+        let mut split = wss_checkpoint.split(':');
+        let root_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+        let epoch_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+
+        if !root_str.starts_with("0x") {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 0x prefix"
+                    .to_string(),
+            );
+        }
+
+        if !root_str.chars().count() == 66 {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 32 bytes".to_string(),
+            );
+        }
+
+        let root =
+            Hash256::from_slice(&hex::decode(&root_str[2..]).map_err(|e| {
+                format!("Unable to parse weak subjectivity checkpoint root: {:?}", e)
+            })?);
+        let epoch = Epoch::new(
+            epoch_str
+                .parse()
+                .map_err(|_| "Invalid weak subjectivity checkpoint epoch".to_string())?,
+        );
+
+        client_config.chain.weak_subjectivity_checkpoint = Some(Checkpoint { epoch, root })
     }
 
-    // Create `datadir` and any non-existing parent directories.
-    fs::create_dir_all(&client_config.data_dir)
-        .map_err(|e| format!("Failed to create data dir: {}", e))?;
-
-    macro_rules! write_to_file {
-        ($file: ident, $variable: ident) => {
-            let file = client_config.data_dir.join($file);
-            if file.exists() {
-                return Err(format!("Datadir is not clean, {} exists.", $file));
-            } else {
-                // Write the onfig to a TOML file in the datadir.
-                write_to_file(client_config.data_dir.join($file), $variable)
-                    .map_err(|e| format!("Unable to write {} file: {:?}", $file, e))?;
-            }
+    if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
+        client_config.chain.import_max_skip_slots = match max_skip_slots {
+            "none" => None,
+            n => Some(
+                n.parse()
+                    .map_err(|_| "Invalid max-skip-slots".to_string())?,
+            ),
         };
     }
 
-    write_to_file!(CLIENT_CONFIG_FILENAME, client_config);
-    write_to_file!(ETH2_CONFIG_FILENAME, eth2_config);
-
-    Ok(())
+    Ok(client_config)
 }
 
-/// Process the `testnet` CLI subcommand arguments, updating the `builder`.
-fn process_testnet_subcommand(
-    client_config: &mut ClientConfig,
-    eth2_config: &mut Eth2Config,
+/// Sets the network config from the command line arguments
+pub fn set_network_config(
+    config: &mut NetworkConfig,
     cli_args: &ArgMatches,
-) -> Result<()> {
-    // Specifies that a random datadir should be used.
-    if cli_args.is_present("random-datadir") {
-        client_config
-            .data_dir
-            .push(format!("random_{}", random_string(6)));
-        client_config.network.network_dir = client_config.data_dir.join("network");
-    }
-
-    // Deletes the existing datadir.
-    if cli_args.is_present("force") {
-        if client_config.data_dir.exists() {
-            fs::remove_dir_all(&client_config.data_dir)
-                .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
-        }
-    }
-
-    // Define a percentage of messages that should be propogated, useful for simulating bad network
-    // conditions.
-    //
-    // WARNING: setting this to anything less than 100 will cause bad behaviour.
-    if let Some(propagation_percentage_string) = cli_args.value_of("random-propagation") {
-        let percentage = propagation_percentage_string
-            .parse::<u8>()
-            .map_err(|_| "Unable to parse the propagation percentage".to_string())?;
-        if percentage > 100 {
-            return Err("Propagation percentage greater than 100".to_string());
-        }
-        client_config.network.propagation_percentage = Some(percentage);
-    }
-
-    // Modify the `SECONDS_PER_SLOT` "constant".
-    if let Some(slot_time) = cli_args.value_of("slot-time") {
-        let slot_time = slot_time
-            .parse::<u64>()
-            .map_err(|e| format!("Unable to parse slot-time: {:?}", e))?;
-
-        eth2_config.spec.milliseconds_per_slot = slot_time;
-    }
-
-    // Start matching on the second subcommand (e.g., `testnet bootstrap ...`).
-    match cli_args.subcommand() {
-        ("recent", Some(cli_args)) => {
-            let validator_count = cli_args
-                .value_of("validator_count")
-                .ok_or_else(|| "No validator_count specified")?
-                .parse::<usize>()
-                .map_err(|e| format!("Unable to parse validator_count: {:?}", e))?;
-
-            let minutes = cli_args
-                .value_of("minutes")
-                .ok_or_else(|| "No recent genesis minutes supplied")?
-                .parse::<u64>()
-                .map_err(|e| format!("Unable to parse minutes: {:?}", e))?;
-
-            client_config.dummy_eth1_backend = true;
-
-            client_config.genesis = ClientGenesis::Interop {
-                validator_count,
-                genesis_time: recent_genesis_time(minutes),
-            };
-        }
-        ("quick", Some(cli_args)) => {
-            let validator_count = cli_args
-                .value_of("validator_count")
-                .ok_or_else(|| "No validator_count specified")?
-                .parse::<usize>()
-                .map_err(|e| format!("Unable to parse validator_count: {:?}", e))?;
-
-            let genesis_time = cli_args
-                .value_of("genesis_time")
-                .ok_or_else(|| "No genesis time supplied")?
-                .parse::<u64>()
-                .map_err(|e| format!("Unable to parse genesis time: {:?}", e))?;
-
-            client_config.dummy_eth1_backend = true;
-
-            client_config.genesis = ClientGenesis::Interop {
-                validator_count,
-                genesis_time,
-            };
-        }
-        ("file", Some(cli_args)) => {
-            let path = cli_args
-                .value_of("file")
-                .ok_or_else(|| "No filename specified")?
-                .parse::<PathBuf>()
-                .map_err(|e| format!("Unable to parse filename: {:?}", e))?;
-
-            let format = cli_args
-                .value_of("format")
-                .ok_or_else(|| "No file format specified")?;
-
-            let start_method = match format {
-                "ssz" => ClientGenesis::SszFile { path },
-                other => return Err(format!("Unknown genesis file format: {}", other)),
-            };
-
-            client_config.genesis = start_method;
-        }
-        ("prysm", Some(_)) => {
-            let mut spec = &mut eth2_config.spec;
-
-            spec.min_deposit_amount = 100;
-            spec.max_effective_balance = 3_200_000_000;
-            spec.ejection_balance = 1_600_000_000;
-            spec.effective_balance_increment = 100_000_000;
-            spec.min_genesis_time = 0;
-            spec.genesis_fork = Fork {
-                previous_version: [0; 4],
-                current_version: [0, 0, 0, 2],
-                epoch: Epoch::new(0),
-            };
-
-            client_config.eth1.deposit_contract_address =
-                "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
-            client_config.eth1.deposit_contract_deploy_block = 1_487_270;
-            client_config.eth1.follow_distance = 16;
-            client_config.dummy_eth1_backend = false;
-
-            client_config.genesis = ClientGenesis::DepositContract;
-        }
-        (cmd, Some(_)) => {
-            return Err(format!(
-                "Invalid valid method specified: {}. See 'testnet --help'.",
-                cmd
-            ))
-        }
-        _ => return Err("No testnet method specified. See 'testnet --help'.".into()),
+    data_dir: &PathBuf,
+    log: &Logger,
+    use_listening_port_as_enr_port_by_default: bool,
+) -> Result<(), String> {
+    // If a network dir has been specified, override the `datadir` definition.
+    if let Some(dir) = cli_args.value_of("network-dir") {
+        config.network_dir = PathBuf::from(dir);
+    } else {
+        config.network_dir = data_dir.join(NETWORK_DIR);
     };
 
-    create_new_datadir(&client_config, &eth2_config)?;
+    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
+        let listen_address = listen_address_str
+            .parse()
+            .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
+        config.listen_address = listen_address;
+    }
+
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        config.target_peers = target_peers_str
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    }
+
+    if let Some(port_str) = cli_args.value_of("port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
+        config.libp2p_port = port;
+        config.discovery_port = port;
+    }
+
+    if let Some(port_str) = cli_args.value_of("discovery-port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
+        config.discovery_port = port;
+    }
+
+    if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
+        let mut enrs: Vec<Enr> = vec![];
+        let mut multiaddrs: Vec<Multiaddr> = vec![];
+        for addr in boot_enr_str.split(',') {
+            match addr.parse() {
+                Ok(enr) => enrs.push(enr),
+                Err(_) => {
+                    // parsing as ENR failed, try as Multiaddr
+                    let multi: Multiaddr = addr
+                        .parse()
+                        .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
+                        slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                    }
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
+                        slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                    }
+                    multiaddrs.push(multi);
+                }
+            }
+        }
+        config.boot_nodes_enr = enrs;
+        config.boot_nodes_multiaddr = multiaddrs;
+    }
+
+    if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
+        config.libp2p_nodes = libp2p_addresses_str
+            .split(',')
+            .map(|multiaddr| {
+                multiaddr
+                    .parse()
+                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
+            })
+            .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
+        config.trusted_peers = trusted_peers_str
+            .split(',')
+            .map(|peer_id| {
+                peer_id
+                    .parse()
+                    .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
+            })
+            .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+    }
+
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
+        config.enr_udp_port = Some(
+            enr_udp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+        config.enr_tcp_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if cli_args.is_present("enr-match") {
+        // set the enr address to localhost if the address is 0.0.0.0
+        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
+            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        } else {
+            config.enr_address = Some(config.listen_address);
+        }
+        config.enr_udp_port = Some(config.discovery_port);
+    }
+
+    if let Some(enr_address) = cli_args.value_of("enr-address") {
+        let resolved_addr = match enr_address.parse::<IpAddr>() {
+            Ok(addr) => addr, // // Input is an IpAddr
+            Err(_) => {
+                let mut addr = enr_address.to_string();
+                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
+                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
+                // will make the node undiscoverable.
+                if let Some(enr_udp_port) = config.enr_udp_port.or_else(|| {
+                    if use_listening_port_as_enr_port_by_default {
+                        Some(config.discovery_port)
+                    } else {
+                        None
+                    }
+                }) {
+                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                } else {
+                    return Err(
+                        "enr-udp-port must be set for node to be discoverable with dns address"
+                            .into(),
+                    );
+                }
+                // `to_socket_addr()` does the dns resolution
+                // Note: `to_socket_addrs()` is a blocking call
+                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
+                    // Pick the first ip from the list of resolved addresses
+                    resolved_addrs
+                        .next()
+                        .map(|a| a.ip())
+                        .ok_or_else(|| "Resolved dns addr contains no entries".to_string())?
+                } else {
+                    return Err(format!("Failed to parse enr-address: {}", enr_address));
+                };
+                config.discv5_config.enr_update = false;
+                resolved_addr
+            }
+        };
+        config.enr_address = Some(resolved_addr);
+    }
+
+    if cli_args.is_present("disable-enr-auto-update") {
+        config.discv5_config.enr_update = false;
+    }
+
+    if cli_args.is_present("disable-discovery") {
+        config.disable_discovery = true;
+        warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    if cli_args.is_present("disable-upnp") {
+        config.upnp_enabled = false;
+    }
 
     Ok(())
 }
 
-fn random_string(len: usize) -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(len)
-        .collect::<String>()
+/// Gets the datadir which should be used.
+pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
+    // Read the `--datadir` flag.
+    //
+    // If it's not present, try and find the home directory (`~`) and push the default data
+    // directory onto it.
+    cli_args
+        .value_of("datadir")
+        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
+        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
+/// Returns the default hardcoded testnet if neither flags are set.
+pub fn get_eth2_testnet_config<E: EthSpec>(
+    cli_args: &ArgMatches,
+) -> Result<Eth2TestnetConfig<E>, String> {
+    let optional_testnet_config = if cli_args.is_present("testnet") {
+        clap_utils::parse_hardcoded_network(cli_args, "testnet")?
+    } else if cli_args.is_present("testnet-dir") {
+        clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
+    } else {
+        Eth2TestnetConfig::hard_coded_default()?
+    };
+    optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
+}
+
+/// A bit of hack to find an unused port.
+///
+/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// unused before the function started (i.e., it does not reserve a port).
+///
+/// Used for passing unused ports to libp2 so that lighthouse won't have to update
+/// its own ENR.
+///
+/// NOTE: It is possible that libp2p/discv5 is unable to bind to the
+/// ports returned by this function as the OS has a buffer period where
+/// it doesn't allow binding to the same port even after the socket is closed.
+/// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
+/// that case.
+pub fn unused_port(transport: &str) -> Result<u16, String> {
+    let local_addr = match transport {
+        "tcp" => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
+                format!("Failed to create TCP listener to find unused port: {:?}", e)
+            })?;
+            listener.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read TCP listener local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        "udp" => {
+            let socket = UdpSocket::bind("127.0.0.1:0")
+                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
+            socket.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read UDP socket local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        _ => return Err("Invalid transport to find unused port".into()),
+    };
+    Ok(local_addr.port())
 }

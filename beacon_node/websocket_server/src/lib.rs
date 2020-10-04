@@ -1,9 +1,6 @@
-use futures::Future;
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, error, info, warn};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
-use std::thread;
-use tokio::runtime::TaskExecutor;
 use types::EthSpec;
 use ws::{Sender, WebSocket};
 
@@ -37,10 +34,10 @@ impl<T: EthSpec> WebSocketSender<T> {
 }
 
 pub fn start_server<T: EthSpec>(
+    executor: environment::TaskExecutor,
     config: &Config,
-    executor: &TaskExecutor,
-    log: &Logger,
-) -> Result<(WebSocketSender<T>, exit_future::Signal, SocketAddr), String> {
+) -> Result<(WebSocketSender<T>, SocketAddr), String> {
+    let log = executor.log();
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
     // Create a server that simply ignores any incoming messages.
@@ -64,33 +61,29 @@ pub fn start_server<T: EthSpec>(
     let broadcaster = server.broadcaster();
 
     // Produce a signal/channel that can gracefully shutdown the websocket server.
-    let exit_signal = {
-        let (exit_signal, exit) = exit_future::signal();
-
-        let log_inner = log.clone();
-        let broadcaster_inner = server.broadcaster();
-        let exit_future = exit.and_then(move |_| {
-            if let Err(e) = broadcaster_inner.shutdown() {
-                warn!(
-                    log_inner,
-                    "Websocket server errored on shutdown";
-                    "error" => format!("{:?}", e)
-                );
-            } else {
-                info!(log_inner, "Websocket server shutdown");
-            }
-            Ok(())
-        });
-
-        // Place a future on the executor that will shutdown the websocket server when the
-        // application exits.
-        executor.spawn(exit_future);
-
-        exit_signal
+    let exit = executor.exit();
+    let log_inner = log.clone();
+    let broadcaster_inner = server.broadcaster();
+    let exit_future = async move {
+        let _ = exit.await;
+        if let Err(e) = broadcaster_inner.shutdown() {
+            warn!(
+                log_inner,
+                "Websocket server errored on shutdown";
+                "error" => format!("{:?}", e)
+            );
+        } else {
+            info!(log_inner, "Websocket server shutdown");
+        }
     };
 
+    // Place a future on the handle that will shutdown the websocket server when the
+    // application exits.
+    executor.runtime_handle().spawn(exit_future);
+
     let log_inner = log.clone();
-    let _handle = thread::spawn(move || match server.run() {
+
+    let _ = std::thread::spawn(move || match server.run() {
         Ok(_) => {
             debug!(
                 log_inner,
@@ -118,7 +111,6 @@ pub fn start_server<T: EthSpec>(
             sender: Some(broadcaster),
             _phantom: PhantomData,
         },
-        exit_signal,
         actual_listen_addr,
     ))
 }

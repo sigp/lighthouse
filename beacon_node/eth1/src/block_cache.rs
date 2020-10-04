@@ -1,3 +1,4 @@
+use ssz_derive::{Decode, Encode};
 use std::ops::RangeInclusive;
 use types::{Eth1Data, Hash256};
 
@@ -17,7 +18,7 @@ pub enum Error {
 /// A block of the eth1 chain.
 ///
 /// Contains all information required to add a `BlockCache` entry.
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Encode, Decode)]
 pub struct Eth1Block {
     pub hash: Hash256,
     pub timestamp: u64,
@@ -38,7 +39,7 @@ impl Eth1Block {
 
 /// Stores block and deposit contract information and provides queries based upon the block
 /// timestamp.
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct BlockCache {
     blocks: Vec<Eth1Block>,
 }
@@ -192,10 +193,7 @@ mod tests {
     }
 
     fn get_blocks(n: usize, interval_secs: u64) -> Vec<Eth1Block> {
-        (0..n as u64)
-            .into_iter()
-            .map(|i| get_block(i, interval_secs))
-            .collect()
+        (0..n as u64).map(|i| get_block(i, interval_secs)).collect()
     }
 
     fn insert(cache: &mut BlockCache, s: Eth1Block) -> Result<(), Error> {
@@ -213,20 +211,20 @@ mod tests {
             insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
-        for len in vec![0, 1, 2, 3, 4, 8, 15, 16] {
+        for len in &[0, 1, 2, 3, 4, 8, 15, 16] {
             let mut cache = cache.clone();
 
-            cache.truncate(len);
+            cache.truncate(*len);
 
             assert_eq!(
                 cache.blocks.len(),
-                len,
+                *len,
                 "should truncate to length: {}",
-                len
+                *len
             );
         }
 
-        let mut cache_2 = cache.clone();
+        let mut cache_2 = cache;
         cache_2.truncate(17);
         assert_eq!(
             cache_2.blocks.len(),

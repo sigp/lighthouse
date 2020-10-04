@@ -1,10 +1,11 @@
 use crate::DepositLog;
-use eth2_hashing::hash;
-use std::ops::Range;
+use ssz_derive::{Decode, Encode};
+use state_processing::common::DepositDataTree;
+use std::cmp::Ordering;
 use tree_hash::TreeHash;
-use types::{Deposit, Hash256};
+use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// A deposit log was added when a prior deposit was not already in the cache.
     ///
@@ -24,61 +25,93 @@ pub enum Error {
     ///
     /// E.g., you cannot request deposit 10 when the deposit count is 9.
     DepositCountInvalid { deposit_count: u64, range_end: u64 },
+    /// Error with the merkle tree for deposits.
+    DepositTreeError(merkle_proof::MerkleTreeError),
     /// An unexpected condition was encountered.
     InternalError(String),
 }
 
-/// Emulates the eth1 deposit contract merkle tree.
-pub struct DepositDataTree {
-    tree: merkle_proof::MerkleTree,
-    mix_in_length: usize,
-    depth: usize,
+#[derive(Encode, Decode, Clone)]
+pub struct SszDepositCache {
+    logs: Vec<DepositLog>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+    deposit_roots: Vec<Hash256>,
 }
 
-impl DepositDataTree {
-    /// Create a new Merkle tree from a list of leaves (`DepositData::tree_hash_root`) and a fixed depth.
-    pub fn create(leaves: &[Hash256], mix_in_length: usize, depth: usize) -> Self {
+impl SszDepositCache {
+    pub fn from_deposit_cache(cache: &DepositCache) -> Self {
         Self {
-            tree: merkle_proof::MerkleTree::create(leaves, depth),
-            mix_in_length,
-            depth,
+            logs: cache.logs.clone(),
+            leaves: cache.leaves.clone(),
+            deposit_contract_deploy_block: cache.deposit_contract_deploy_block,
+            deposit_roots: cache.deposit_roots.clone(),
         }
     }
 
-    /// Returns 32 bytes representing the "mix in length" for the merkle root of this tree.
-    fn length_bytes(&self) -> Vec<u8> {
-        int_to_bytes32(self.mix_in_length)
-    }
-
-    /// Retrieve the root hash of this Merkle tree with the length mixed in.
-    pub fn root(&self) -> Hash256 {
-        let mut preimage = [0; 64];
-        preimage[0..32].copy_from_slice(&self.tree.hash()[..]);
-        preimage[32..64].copy_from_slice(&self.length_bytes());
-        Hash256::from_slice(&hash(&preimage))
-    }
-
-    /// Return the leaf at `index` and a Merkle proof of its inclusion.
-    ///
-    /// The Merkle proof is in "bottom-up" order, starting with a leaf node
-    /// and moving up the tree. Its length will be exactly equal to `depth + 1`.
-    pub fn generate_proof(&self, index: usize) -> (Hash256, Vec<Hash256>) {
-        let (root, mut proof) = self.tree.generate_proof(index, self.depth);
-        proof.push(Hash256::from_slice(&self.length_bytes()));
-        (root, proof)
+    pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
+        let deposit_tree =
+            DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
+        // Check for invalid SszDepositCache conditions
+        if self.leaves.len() != self.logs.len() {
+            return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
+        }
+        // `deposit_roots` also includes the zero root
+        if self.leaves.len() + 1 != self.deposit_roots.len() {
+            return Err(
+                "Invalid SszDepositCache: deposit_roots length must be only one more than leaves"
+                    .into(),
+            );
+        }
+        Ok(DepositCache {
+            logs: self.logs.clone(),
+            leaves: self.leaves.clone(),
+            deposit_contract_deploy_block: self.deposit_contract_deploy_block,
+            deposit_tree,
+            deposit_roots: self.deposit_roots.clone(),
+        })
     }
 }
 
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
 /// Provides `Deposit` objects with merkle proofs included.
-#[derive(Default)]
 pub struct DepositCache {
     logs: Vec<DepositLog>,
-    roots: Vec<Hash256>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+    /// An incremental merkle tree which represents the current state of the
+    /// deposit contract tree.
+    deposit_tree: DepositDataTree,
+    /// Vector of deposit roots. `deposit_roots[i]` denotes `deposit_root` at
+    /// `deposit_index` `i`.
+    deposit_roots: Vec<Hash256>,
+}
+
+impl Default for DepositCache {
+    fn default() -> Self {
+        let deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
+        let deposit_roots = vec![deposit_tree.root()];
+        DepositCache {
+            logs: Vec::new(),
+            leaves: Vec::new(),
+            deposit_contract_deploy_block: 1,
+            deposit_tree,
+            deposit_roots,
+        }
+    }
 }
 
 impl DepositCache {
+    /// Create new `DepositCache` given block number at which deposit
+    /// contract was deployed.
+    pub fn new(deposit_contract_deploy_block: u64) -> Self {
+        DepositCache {
+            deposit_contract_deploy_block,
+            ..Self::default()
+        }
+    }
+
     /// Returns the number of deposits available in the cache.
     pub fn len(&self) -> usize {
         self.logs.len()
@@ -114,23 +147,28 @@ impl DepositCache {
     /// - If a log with index `log.index - 1` is not already present in `self` (ignored when empty).
     /// - If a log with `log.index` is already known, but the given `log` is distinct to it.
     pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
-        if log.index == self.logs.len() as u64 {
-            self.roots
-                .push(Hash256::from_slice(&log.deposit_data.tree_hash_root()));
-            self.logs.push(log);
-
-            Ok(())
-        } else if log.index < self.logs.len() as u64 {
-            if self.logs[log.index as usize] == log {
+        match log.index.cmp(&(self.logs.len() as u64)) {
+            Ordering::Equal => {
+                let deposit = log.deposit_data.tree_hash_root();
+                self.leaves.push(deposit);
+                self.logs.push(log);
+                self.deposit_tree
+                    .push_leaf(deposit)
+                    .map_err(Error::DepositTreeError)?;
+                self.deposit_roots.push(self.deposit_tree.root());
                 Ok(())
-            } else {
-                Err(Error::DuplicateDistinctLog(log.index))
             }
-        } else {
-            Err(Error::NonConsecutive {
+            Ordering::Less => {
+                if self.logs[log.index as usize] == log {
+                    Ok(())
+                } else {
+                    Err(Error::DuplicateDistinctLog(log.index))
+                }
+            }
+            Ordering::Greater => Err(Error::NonConsecutive {
                 log_index: log.index,
                 expected: self.logs.len(),
-            })
+            }),
         }
     }
 
@@ -143,27 +181,28 @@ impl DepositCache {
     ///
     /// ## Errors
     ///
-    /// - If `deposit_count` is larger than `range.end`.
+    /// - If `deposit_count` is larger than `end`.
     /// - There are not sufficient deposits in the tree to generate the proof.
     pub fn get_deposits(
         &self,
-        range: Range<u64>,
+        start: u64,
+        end: u64,
         deposit_count: u64,
         tree_depth: usize,
     ) -> Result<(Hash256, Vec<Deposit>), Error> {
-        if deposit_count < range.end {
+        if deposit_count < end {
             // It's invalid to ask for more deposits than should exist.
             Err(Error::DepositCountInvalid {
                 deposit_count,
-                range_end: range.end,
+                range_end: end,
             })
-        } else if range.end > self.logs.len() as u64 {
+        } else if end > self.logs.len() as u64 {
             // The range of requested deposits exceeds the deposits stored locally.
             Err(Error::InsufficientDeposits {
-                requested: range.end,
+                requested: end,
                 known_deposits: self.logs.len(),
             })
-        } else if deposit_count > self.roots.len() as u64 {
+        } else if deposit_count > self.leaves.len() as u64 {
             // There are not `deposit_count` known deposit roots, so we can't build the merkle tree
             // to prove into.
             Err(Error::InsufficientDeposits {
@@ -171,10 +210,10 @@ impl DepositCache {
                 known_deposits: self.logs.len(),
             })
         } else {
-            let roots = self
-                .roots
+            let leaves = self
+                .leaves
                 .get(0..deposit_count as usize)
-                .ok_or_else(|| Error::InternalError("Unable to get known root".into()))?;
+                .ok_or_else(|| Error::InternalError("Unable to get known leaves".into()))?;
 
             // Note: there is likely a more optimal solution than recreating the `DepositDataTree`
             // each time this function is called.
@@ -183,11 +222,11 @@ impl DepositCache {
             // last finalized eth1 deposit count. Then, that tree could be cloned and extended for
             // each of these calls.
 
-            let tree = DepositDataTree::create(roots, deposit_count as usize, tree_depth);
+            let tree = DepositDataTree::create(leaves, deposit_count as usize, tree_depth);
 
             let deposits = self
                 .logs
-                .get(range.start as usize..range.end as usize)
+                .get(start as usize..end as usize)
                 .ok_or_else(|| Error::InternalError("Unable to get known log".into()))?
                 .iter()
                 .map(|deposit_log| {
@@ -203,13 +242,50 @@ impl DepositCache {
             Ok((tree.root(), deposits))
         }
     }
-}
 
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: usize) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
+    /// Returns the number of deposits with valid signatures that have been observed up to and
+    /// including the block at `block_number`.
+    ///
+    /// Returns `None` if the `block_number` is zero or prior to contract deployment.
+    pub fn get_valid_signature_count(&self, block_number: u64) -> Option<usize> {
+        if block_number == 0 || block_number < self.deposit_contract_deploy_block {
+            None
+        } else {
+            Some(
+                self.logs
+                    .iter()
+                    .take_while(|deposit| deposit.block_number <= block_number)
+                    .filter(|deposit| deposit.signature_is_valid)
+                    .count(),
+            )
+        }
+    }
+
+    /// Returns the number of deposits that have been observed up to and
+    /// including the block at `block_number`.
+    ///
+    /// Returns `None` if the `block_number` is zero or prior to contract deployment.
+    pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
+        if block_number == 0 || block_number < self.deposit_contract_deploy_block {
+            None
+        } else {
+            Some(
+                self.logs
+                    .iter()
+                    .take_while(|deposit| deposit.block_number <= block_number)
+                    .count() as u64,
+            )
+        }
+    }
+
+    /// Gets the deposit root at block height = block_number.
+    ///
+    /// Fetches the `deposit_count` on or just before the queried `block_number`
+    /// and queries the `deposit_roots` map to get the corresponding `deposit_root`.
+    pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
+        let index = self.get_deposit_count_from_cache(block_number)?;
+        Some(*self.deposit_roots.get(index as usize)?)
+    }
 }
 
 #[cfg(test)]
@@ -217,15 +293,18 @@ pub mod tests {
     use super::*;
     use crate::deposit_log::tests::EXAMPLE_LOG;
     use crate::http::Log;
+    use types::{EthSpec, MainnetEthSpec};
 
     pub const TREE_DEPTH: usize = 32;
 
     fn example_log() -> DepositLog {
+        let spec = MainnetEthSpec::default_spec();
+
         let log = Log {
             block_number: 42,
             data: EXAMPLE_LOG.to_vec(),
         };
-        DepositLog::from_log(&log).expect("should decode log")
+        DepositLog::from_log(&log, &spec).expect("should decode log")
     }
 
     #[test]
@@ -281,31 +360,31 @@ pub mod tests {
 
         // Get 0 deposits, with max deposit count.
         let (_, deposits) = tree
-            .get_deposits(0..0, n, TREE_DEPTH)
+            .get_deposits(0, 0, n, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get 0 deposits, with 0 deposit count.
         let (_, deposits) = tree
-            .get_deposits(0..0, 0, TREE_DEPTH)
+            .get_deposits(0, 0, 0, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get 0 deposits, with 0 deposit count, tree depth 0.
         let (_, deposits) = tree
-            .get_deposits(0..0, 0, 0)
+            .get_deposits(0, 0, 0, 0)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get all deposits, with max deposit count.
         let (full_root, deposits) = tree
-            .get_deposits(0..n, n, TREE_DEPTH)
+            .get_deposits(0, n, n, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), n as usize, "should return all deposits");
 
         // Get 4 deposits, with max deposit count.
         let (root, deposits) = tree
-            .get_deposits(0..4, n, TREE_DEPTH)
+            .get_deposits(0, 4, n, TREE_DEPTH)
             .expect("should get the four from the full tree");
         assert_eq!(
             deposits.len(),
@@ -318,18 +397,15 @@ pub mod tests {
         );
 
         // Get half of the deposits, with half deposit count.
+        let half = n / 2;
         let (half_root, deposits) = tree
-            .get_deposits(0..n / 2, n / 2, TREE_DEPTH)
+            .get_deposits(0, half, half, TREE_DEPTH)
             .expect("should get the half tree");
-        assert_eq!(
-            deposits.len(),
-            n as usize / 2,
-            "should return half deposits"
-        );
+        assert_eq!(deposits.len(), half as usize, "should return half deposits");
 
         // Get 4 deposits, with half deposit count.
         let (root, deposits) = tree
-            .get_deposits(0..4, n / 2, TREE_DEPTH)
+            .get_deposits(0, 4, n / 2, TREE_DEPTH)
             .expect("should get the half tree");
         assert_eq!(
             deposits.len(),
@@ -360,12 +436,12 @@ pub mod tests {
         }
 
         // Range too high.
-        assert!(tree.get_deposits(0..n + 1, n, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, n + 1, n, TREE_DEPTH).is_err());
 
         // Count too high.
-        assert!(tree.get_deposits(0..n, n + 1, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, n, n + 1, TREE_DEPTH).is_err());
 
         // Range higher than count.
-        assert!(tree.get_deposits(0..4, 2, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, 4, 2, TREE_DEPTH).is_err());
     }
 }

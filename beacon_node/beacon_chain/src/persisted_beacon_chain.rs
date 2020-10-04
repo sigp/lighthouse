@@ -1,26 +1,24 @@
-use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::SszHeadTracker;
-use crate::{BeaconChainTypes, CheckPoint};
-use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
+use store::{DBColumn, Error as StoreError, StoreItem};
 use types::Hash256;
 
-/// 32-byte key for accessing the `PersistedBeaconChain`.
-pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
-
 #[derive(Clone, Encode, Decode)]
-pub struct PersistedBeaconChain<T: BeaconChainTypes> {
-    pub canonical_head: CheckPoint<T::EthSpec>,
-    pub finalized_checkpoint: CheckPoint<T::EthSpec>,
-    pub op_pool: PersistedOperationPool<T::EthSpec>,
+pub struct PersistedBeaconChain {
+    /// This value is ignored to resolve the issue described here:
+    ///
+    /// https://github.com/sigp/lighthouse/pull/1639
+    ///
+    /// The following PR will clean-up and remove this field:
+    ///
+    /// https://github.com/sigp/lighthouse/pull/1638
+    pub canonical_head_block_root: Hash256,
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
-    pub fork_choice: SszForkChoice,
 }
 
-impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {
+impl StoreItem for PersistedBeaconChain {
     fn db_column() -> DBColumn {
         DBColumn::BeaconChain
     }

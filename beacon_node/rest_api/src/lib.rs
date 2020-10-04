@@ -1,90 +1,86 @@
 #[macro_use]
-mod macros;
-#[macro_use]
 extern crate lazy_static;
+mod router;
 extern crate network as client_network;
 
 mod beacon;
 pub mod config;
-mod error;
+mod consensus;
 mod helpers;
+mod lighthouse;
 mod metrics;
-mod network;
 mod node;
-mod response_builder;
-mod router;
-mod spec;
 mod url_query;
 mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use bus::Bus;
 use client_network::NetworkMessage;
-use client_network::Service as NetworkService;
 pub use config::ApiEncodingFormat;
-use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
-use hyper::rt::Future;
+use eth2_libp2p::NetworkGlobals;
+use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
-use parking_lot::RwLock;
+use hyper::{Body, Request, Server};
+use parking_lot::Mutex;
+use rest_types::ApiError;
 use slog::{info, warn};
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
+use types::SignedBeaconBlockHash;
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
-pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config;
-pub use validator::{BulkValidatorDutiesRequest, ValidatorDuty};
+pub use router::Context;
 
-pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
-pub type NetworkChannel = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>;
+pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
 pub struct NetworkInfo<T: BeaconChainTypes> {
-    pub network_service: Arc<NetworkService<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
+    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    pub network_chan: NetworkChannel<T::EthSpec>,
 }
 
+// Allowing more than 7 arguments.
+#[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
+    executor: environment::TaskExecutor,
     config: &Config,
-    executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: slog::Logger,
-) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
-    let inner_log = log.clone();
+    events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
+) -> Result<SocketAddr, hyper::Error> {
+    let log = executor.log();
     let eth2_config = Arc::new(eth2_config);
+
+    let context = Arc::new(Context {
+        executor: executor.clone(),
+        config: config.clone(),
+        beacon_chain,
+        network_globals: network_info.network_globals.clone(),
+        network_chan: network_info.network_chan,
+        eth2_config,
+        log: log.clone(),
+        db_path,
+        freezer_db_path,
+        events,
+    });
 
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
-        let beacon_chain = beacon_chain.clone();
-        let log = inner_log.clone();
-        let eth2_config = eth2_config.clone();
-        let network_service = network_info.network_service.clone();
-        let network_channel = Arc::new(RwLock::new(network_info.network_chan.clone()));
-        let db_path = db_path.clone();
-        let freezer_db_path = freezer_db_path.clone();
+        let ctx = context.clone();
 
-        service_fn(move |req: Request<Body>| {
-            router::route(
-                req,
-                beacon_chain.clone(),
-                network_service.clone(),
-                network_channel.clone(),
-                eth2_config.clone(),
-                log.clone(),
-                db_path.clone(),
-                freezer_db_path.clone(),
-            )
-        })
+        async move {
+            Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
+                router::on_http_request(req, ctx.clone())
+            }))
+        }
     });
 
     let bind_addr = (config.listen_address, config.port).into();
@@ -97,22 +93,26 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let (exit_signal, exit) = exit_future::signal();
+    let exit = executor.exit();
     let inner_log = log.clone();
-    let server_exit = exit.and_then(move |_| {
+    let server_exit = async move {
+        let _ = exit.await;
         info!(inner_log, "HTTP service shutdown");
-        Ok(())
-    });
+    };
+
     // Configure the `hyper` server to gracefully shutdown when the shutdown channel is triggered.
     let inner_log = log.clone();
     let server_future = server
-        .with_graceful_shutdown(server_exit)
+        .with_graceful_shutdown(async {
+            server_exit.await;
+        })
         .map_err(move |e| {
             warn!(
             inner_log,
             "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
             )
-        });
+        })
+        .unwrap_or_else(|_| ());
 
     info!(
         log,
@@ -121,18 +121,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    executor.spawn(server_future);
+    executor.spawn_without_exit(server_future, "http");
 
-    Ok((exit_signal, actual_listen_addr))
-}
-
-#[derive(Clone)]
-pub struct DBPath(PathBuf);
-
-impl Deref for DBPath {
-    type Target = PathBuf;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+    Ok(actual_listen_addr)
 }

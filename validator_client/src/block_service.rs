@@ -1,42 +1,32 @@
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
+use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{stream, Future, IntoFuture, Stream};
+use futures::channel::mpsc::Receiver;
+use futures::{StreamExt, TryFutureExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use slog::{crit, error, info, trace};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
-use types::{ChainSpec, EthSpec};
-
-/// Delay this period of time after the slot starts. This allows the node to process the new slot.
-const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
+use types::{EthSpec, Graffiti, PublicKey, Slot};
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
-    duties_service: Option<DutiesService<T, E>>,
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
+    graffiti: Option<Graffiti>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
-            duties_service: None,
             validator_store: None,
             slot_clock: None,
             beacon_node: None,
             context: None,
+            graffiti: None,
         }
-    }
-
-    pub fn duties_service(mut self, service: DutiesService<T, E>) -> Self {
-        self.duties_service = Some(service);
-        self
     }
 
     pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
@@ -59,12 +49,14 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
+    pub fn graffiti(mut self, graffiti: Option<Graffiti>) -> Self {
+        self.graffiti = graffiti;
+        self
+    }
+
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
-                duties_service: self
-                    .duties_service
-                    .ok_or_else(|| "Cannot build BlockService without duties_service")?,
                 validator_store: self
                     .validator_store
                     .ok_or_else(|| "Cannot build BlockService without validator_store")?,
@@ -77,6 +69,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or_else(|| "Cannot build BlockService without runtime_context")?,
+                graffiti: self.graffiti,
             }),
         })
     }
@@ -84,11 +77,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    duties_service: DutiesService<T, E>,
     validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
+    graffiti: Option<Graffiti>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -112,155 +105,158 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
     }
 }
 
+/// Notification from the duties service that we should try to produce a block.
+pub struct BlockServiceNotification {
+    pub slot: Slot,
+    pub block_proposers: Vec<PublicKey>,
+}
+
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
-    /// Starts the service that periodically attempts to produce blocks.
-    pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
-        let log = self.context.log.clone();
+    pub fn start_update_service(
+        self,
+        notification_rx: Receiver<BlockServiceNotification>,
+    ) -> Result<(), String> {
+        let log = self.context.log().clone();
 
-        let duration_to_next_slot = self
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
+        info!(log, "Block production service started");
 
-        let interval = {
-            let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            Interval::new(
-                Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,
-                slot_duration,
-            )
-        };
+        let executor = self.inner.context.executor.clone();
 
-        let (exit_signal, exit_fut) = exit_future::signal();
-        let service = self.clone();
-        let log_1 = log.clone();
-        let log_2 = log.clone();
+        let block_service_fut = notification_rx.for_each(move |notif| {
+            let service = self.clone();
+            async move {
+                service.do_update(notif).await.ok();
+            }
+        });
 
-        self.context.executor.spawn(
-            exit_fut
-                .until(
-                    interval
-                        .map_err(move |e| {
-                            crit! {
-                                log_1,
-                                "Timer thread failed";
-                                "error" => format!("{}", e)
-                            }
-                        })
-                        .for_each(move |_| service.clone().do_update().then(|_| Ok(()))),
-                )
-                .map(move |_| info!(log_2, "Shutdown complete")),
-        );
+        executor.spawn(block_service_fut, "block_service");
 
-        Ok(exit_signal)
+        Ok(())
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    fn do_update(self) -> impl Future<Item = (), Error = ()> {
-        let service = self.clone();
-        let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
+    async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
+        let log = self.context.log();
 
-        self.slot_clock
+        let slot = self.slot_clock.now().ok_or_else(move || {
+            crit!(log, "Duties manager failed to read slot clock");
+        })?;
+
+        if notification.slot != slot {
+            warn!(
+                log,
+                "Skipping block production for expired slot";
+                "current_slot" => slot.as_u64(),
+                "notification_slot" => notification.slot.as_u64(),
+                "info" => "Your machine could be overloaded"
+            );
+            return Ok(());
+        }
+
+        if slot == self.context.eth2_config.spec.genesis_slot {
+            debug!(
+                log,
+                "Not producing block at genesis slot";
+                "proposers" => format!("{:?}", notification.block_proposers),
+            );
+            return Ok(());
+        }
+
+        trace!(
+            log,
+            "Block service update started";
+            "slot" => slot.as_u64()
+        );
+
+        let proposers = notification.block_proposers;
+
+        if proposers.is_empty() {
+            trace!(
+                log,
+                "No local block proposers for this slot";
+                "slot" => slot.as_u64()
+            )
+        } else if proposers.len() > 1 {
+            error!(
+                log,
+                "Multiple block proposers for this slot";
+                "action" => "producing blocks for all proposers",
+                "num_proposers" => proposers.len(),
+                "slot" => slot.as_u64(),
+            )
+        }
+
+        proposers.into_iter().for_each(|validator_pubkey| {
+            let service = self.clone();
+            let log = log.clone();
+            self.inner.context.executor.runtime_handle().spawn(
+                service
+                    .publish_block(slot, validator_pubkey)
+                    .map_err(move |e| {
+                        crit!(
+                            log,
+                            "Error whilst producing block";
+                            "message" => e
+                        )
+                    }),
+            );
+        });
+
+        Ok(())
+    }
+
+    /// Produce a block at the given slot for validator_pubkey
+    async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
+        let log = self.context.log();
+
+        let current_slot = self
+            .slot_clock
             .now()
-            .ok_or_else(move || {
-                crit!(log_1, "Duties manager failed to read slot clock");
-            })
-            .into_future()
-            .and_then(move |slot| {
-                let iter = service.duties_service.block_producers(slot).into_iter();
+            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?;
 
-                if iter.len() == 0 {
-                    trace!(
-                        log_2,
-                        "No local block proposers for this slot";
-                        "slot" => slot.as_u64()
-                    )
-                } else if iter.len() > 1 {
-                    error!(
-                        log_2,
-                        "Multiple block proposers for this slot";
-                        "action" => "producing blocks for all proposers",
-                        "num_proposers" => iter.len(),
-                        "slot" => slot.as_u64(),
-                    )
-                }
+        let randao_reveal = self
+            .validator_store
+            .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
+            .ok_or_else(|| "Unable to produce randao reveal".to_string())?;
 
-                stream::unfold(iter, move |mut block_producers| {
-                    let log_1 = service.context.log.clone();
-                    let log_2 = service.context.log.clone();
-                    let service_1 = service.clone();
-                    let service_2 = service.clone();
-                    let service_3 = service.clone();
+        let block = self
+            .beacon_node
+            .http
+            .validator()
+            .produce_block(slot, randao_reveal, self.graffiti)
+            .await
+            .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?;
 
-                    block_producers.next().map(move |validator_pubkey| {
-                        service_1
-                            .validator_store
-                            .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
-                            .ok_or_else(|| "Unable to produce randao reveal".to_string())
-                            .into_future()
-                            .and_then(move |randao_reveal| {
-                                service_1
-                                    .beacon_node
-                                    .http
-                                    .validator()
-                                    .produce_block(slot, randao_reveal)
-                                    .map_err(|e| {
-                                        format!(
-                                            "Error from beacon node when producing block: {:?}",
-                                            e
-                                        )
-                                    })
-                            })
-                            .and_then(move |block| {
-                                service_2
-                                    .validator_store
-                                    .sign_block(&validator_pubkey, block)
-                                    .ok_or_else(|| "Unable to sign block".to_string())
-                            })
-                            .and_then(move |block| {
-                                service_3
-                                    .beacon_node
-                                    .http
-                                    .validator()
-                                    .publish_block(block.clone())
-                                    .map(|publish_status| (block, publish_status))
-                                    .map_err(|e| {
-                                        format!(
-                                            "Error from beacon node when publishing block: {:?}",
-                                            e
-                                        )
-                                    })
-                            })
-                            .map(move |(block, publish_status)| match publish_status {
-                                PublishStatus::Valid => info!(
-                                    log_1,
-                                    "Successfully published block";
-                                    "deposits" => block.body.deposits.len(),
-                                    "attestations" => block.body.attestations.len(),
-                                    "slot" => block.slot.as_u64(),
-                                ),
-                                PublishStatus::Invalid(msg) => crit!(
-                                    log_1,
-                                    "Published block was invalid";
-                                    "message" => msg,
-                                    "slot" => block.slot.as_u64(),
-                                ),
-                                PublishStatus::Unknown => {
-                                    crit!(log_1, "Unknown condition when publishing block")
-                                }
-                            })
-                            .map_err(move |e| {
-                                crit!(
-                                    log_2,
-                                    "Error whilst producing block";
-                                    "message" => e
-                                )
-                            })
-                            .then(|_| Ok(((), block_producers)))
-                    })
-                })
-                .collect()
-                .map(|_| ())
-            })
+        let signed_block = self
+            .validator_store
+            .sign_block(&validator_pubkey, block, current_slot)
+            .ok_or_else(|| "Unable to sign block".to_string())?;
+
+        let publish_status = self
+            .beacon_node
+            .http
+            .validator()
+            .publish_block(signed_block.clone())
+            .await
+            .map_err(|e| format!("Error from beacon node when publishing block: {:?}", e))?;
+
+        match publish_status {
+            PublishStatus::Valid => info!(
+                log,
+                "Successfully published block";
+                "deposits" => signed_block.message.body.deposits.len(),
+                "attestations" => signed_block.message.body.attestations.len(),
+                "slot" => signed_block.slot().as_u64(),
+            ),
+            PublishStatus::Invalid(msg) => crit!(
+                log,
+                "Published block was invalid";
+                "message" => msg,
+                "slot" => signed_block.slot().as_u64(),
+            ),
+            PublishStatus::Unknown => crit!(log, "Unknown condition when publishing block"),
+        }
+
+        Ok(())
     }
 }

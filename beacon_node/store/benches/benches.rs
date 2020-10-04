@@ -24,7 +24,6 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     }
 
     state.validators = (0..validator_count)
-        .into_iter()
         .collect::<Vec<_>>()
         .par_iter()
         .map(|&i| Validator {
@@ -77,7 +76,7 @@ fn all_benches(c: &mut Criterion) {
         .sample_size(10),
     );
 
-    let inner_state = state.clone();
+    let inner_state = state;
     c.bench(
         &format!("{}_validators", validator_count),
         Benchmark::new("encode/beacon_state/committee_cache[0]", move |b| {

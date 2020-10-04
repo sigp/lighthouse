@@ -1,43 +1,32 @@
+use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{Future, Stream};
-use network::Service as NetworkService;
+use eth2_libp2p::NetworkGlobals;
+use futures::prelude::*;
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::time::delay_for;
 use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
 
-const SECS_PER_MINUTE: f64 = 60.0;
-const SECS_PER_HOUR: f64 = 3600.0;
-const SECS_PER_DAY: f64 = 86400.0; // non-leap
-const SECS_PER_WEEK: f64 = 604800.0; // non-leap
-const DAYS_PER_WEEK: f64 = 7.0;
-const HOURS_PER_DAY: f64 = 24.0;
-const MINUTES_PER_HOUR: f64 = 60.0;
-
-/// How long to wait for the lock on `network.libp2p_service()` before we give up.
-const LIBP2P_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
+const DAYS_PER_WEEK: i64 = 7;
+const HOURS_PER_DAY: i64 = 24;
+const MINUTES_PER_HOUR: i64 = 60;
 
 /// The number of historical observations that should be used to determine the average sync time.
 const SPEEDO_OBSERVATIONS: usize = 4;
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: BeaconChainTypes>(
-    context: RuntimeContext<T::EthSpec>,
+    executor: environment::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
-) -> Result<Signal, String> {
-    let log_1 = context.log.clone();
-    let log_2 = context.log.clone();
-
+) -> Result<(), String> {
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
         .slot_clock
@@ -45,34 +34,48 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
 
     // Run this half way through each slot.
-    let start_instant = Instant::now() + duration_to_next_slot + (slot_duration / 2);
+    let start_instant = tokio::time::Instant::now() + duration_to_next_slot + (slot_duration / 2);
 
     // Run this each slot.
     let interval_duration = slot_duration;
 
     let speedo = Mutex::new(Speedo::default());
+    let log = executor.log().clone();
+    let mut interval = tokio::time::interval_at(start_instant, interval_duration);
 
-    let interval_future = Interval::new(start_instant, interval_duration)
-        .map_err(
-            move |e| error!(log_1, "Slot notifier timer failed"; "error" => format!("{:?}", e)),
-        )
-        .for_each(move |_| {
-            let log = log_2.clone();
+    let interval_future = async move {
+        // Perform pre-genesis logging.
+        loop {
+            match beacon_chain.slot_clock.duration_to_next_slot() {
+                // If the duration to the next slot is greater than the slot duration, then we are
+                // waiting for genesis.
+                Some(next_slot) if next_slot > slot_duration => {
+                    info!(
+                        log,
+                        "Waiting for genesis";
+                        "peers" => peer_count_pretty(network.connected_peers()),
+                        "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
+                    );
+                    delay_for(slot_duration).await;
+                }
+                _ => break,
+            }
+        }
 
-            let connected_peer_count = if let Some(libp2p) = network
-                .libp2p_service()
-                .try_lock_until(Instant::now() + LIBP2P_LOCK_TIMEOUT)
-            {
-                libp2p.swarm.connected_peers()
-            } else {
-                // Use max_value here and we'll print something pretty later.
-                usize::max_value()
-            };
+        // Perform post-genesis logging.
+        while interval.next().await.is_some() {
+            let connected_peer_count = network.connected_peers();
+            let sync_state = network.sync_state();
 
-            let head = beacon_chain.head();
+            let head_info = beacon_chain.head_info().map_err(|e| {
+                error!(
+                    log,
+                    "Failed to get beacon chain head info";
+                    "error" => format!("{:?}", e)
+                )
+            })?;
 
-            let head_slot = head.beacon_block.slot;
-            let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
+            let head_slot = head_info.slot;
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
                     log,
@@ -81,12 +84,17 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 )
             })?;
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-            let finalized_epoch = head.beacon_state.finalized_checkpoint.epoch;
-            let finalized_root = head.beacon_state.finalized_checkpoint.root;
-            let head_root = head.beacon_block_root;
+            let finalized_epoch = head_info.finalized_checkpoint.epoch;
+            let finalized_root = head_info.finalized_checkpoint.root;
+            let head_root = head_info.block_root;
 
             let mut speedo = speedo.lock();
             speedo.observe(head_slot, Instant::now());
+
+            metrics::set_gauge(
+                &metrics::SYNC_SLOTS_PER_SECOND,
+                speedo.slots_per_second().unwrap_or_else(|| 0_f64) as i64,
+            );
 
             // The next two lines take advantage of saturating subtraction on `Slot`.
             let head_distance = current_slot - head_slot;
@@ -104,66 +112,73 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 "head_block" => format!("{}", head_root),
                 "head_slot" => head_slot,
                 "current_slot" => current_slot,
+                "sync_state" =>format!("{}", sync_state)
             );
 
-            if head_epoch + 1 < current_epoch {
+            // Log if we are syncing
+            if sync_state.is_syncing() {
                 let distance = format!(
                     "{} slots ({})",
                     head_distance.as_u64(),
                     slot_distance_pretty(head_distance, slot_duration)
                 );
 
-                info!(
-                    log,
-                    "Syncing";
-                    "peers" => peer_count_pretty(connected_peer_count),
-                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
-                    "speed" => sync_speed_pretty(speedo.slots_per_second()),
-                    "distance" => distance
-                );
+                let speed = speedo.slots_per_second();
+                let display_speed = speed.map_or(false, |speed| speed != 0.0);
 
-                return Ok(());
-            };
-
-            macro_rules! not_quite_synced_log {
-                ($message: expr) => {
+                if display_speed {
                     info!(
-                        log_2,
-                        $message;
+                        log,
+                        "Syncing";
                         "peers" => peer_count_pretty(connected_peer_count),
-                        "finalized_root" => format!("{}", finalized_root),
-                        "finalized_epoch" => finalized_epoch,
-                        "head_slot" => head_slot,
-                        "current_slot" => current_slot,
+                        "distance" => distance,
+                        "speed" => sync_speed_pretty(speed),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    );
+                } else {
+                    info!(
+                        log,
+                        "Syncing";
+                        "peers" => peer_count_pretty(connected_peer_count),
+                        "distance" => distance,
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                     );
                 }
-            }
-
-            if head_epoch + 1 == current_epoch {
-                not_quite_synced_log!("Synced to previous epoch")
-            } else if head_slot != current_slot {
-                not_quite_synced_log!("Synced to current epoch")
-            } else {
+            } else if sync_state.is_synced() {
+                let block_info = if current_slot > head_slot {
+                    "   …  empty".to_string()
+                } else {
+                    head_root.to_string()
+                };
                 info!(
-                    log_2,
+                    log,
                     "Synced";
                     "peers" => peer_count_pretty(connected_peer_count),
                     "finalized_root" => format!("{}", finalized_root),
                     "finalized_epoch" => finalized_epoch,
                     "epoch" => current_epoch,
+                    "block" => block_info,
                     "slot" => current_slot,
                 );
-            };
+            } else {
+                info!(
+                    log,
+                    "Searching for peers";
+                    "peers" => peer_count_pretty(connected_peer_count),
+                    "finalized_root" => format!("{}", finalized_root),
+                    "finalized_epoch" => finalized_epoch,
+                    "head_slot" => head_slot,
+                    "current_slot" => current_slot,
+                );
+            }
+        }
+        Ok::<(), ()>(())
+    };
 
-            Ok(())
-        });
+    // run the notifier on the current executor
+    executor.spawn(interval_future.unwrap_or_else(|_| ()), "notifier");
 
-    let (exit_signal, exit) = exit_future::signal();
-    context
-        .executor
-        .spawn(exit.until(interval_future).map(|_| ()));
-
-    Ok(exit_signal)
+    Ok(())
 }
 
 /// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a
@@ -212,31 +227,44 @@ fn seconds_pretty(secs: f64) -> String {
         return "--".into();
     }
 
-    let weeks = secs / SECS_PER_WEEK;
-    let days = secs / SECS_PER_DAY;
-    let hours = secs / SECS_PER_HOUR;
-    let minutes = secs / SECS_PER_MINUTE;
+    let d = time::Duration::seconds_f64(secs);
 
-    if weeks.floor() > 0.0 {
+    let weeks = d.whole_weeks();
+    let days = d.whole_days();
+    let hours = d.whole_hours();
+    let minutes = d.whole_minutes();
+
+    let week_string = if weeks == 1 { "week" } else { "weeks" };
+    let day_string = if days == 1 { "day" } else { "days" };
+    let hour_string = if hours == 1 { "hr" } else { "hrs" };
+    let min_string = if minutes == 1 { "min" } else { "mins" };
+
+    if weeks > 0 {
         format!(
-            "{:.0} weeks {:.0} days",
+            "{:.0} {} {:.0} {}",
             weeks,
-            (days % DAYS_PER_WEEK).round()
+            week_string,
+            days % DAYS_PER_WEEK,
+            day_string
         )
-    } else if days.floor() > 0.0 {
+    } else if days > 0 {
         format!(
-            "{:.0} days {:.0} hrs",
+            "{:.0} {} {:.0} {}",
             days,
-            (hours % HOURS_PER_DAY).round()
+            day_string,
+            hours % HOURS_PER_DAY,
+            hour_string
         )
-    } else if hours.floor() > 0.0 {
+    } else if hours > 0 {
         format!(
-            "{:.0} hrs {:.0} mins",
+            "{:.0} {} {:.0} {}",
             hours,
-            (minutes % MINUTES_PER_HOUR).round()
+            hour_string,
+            minutes % MINUTES_PER_HOUR,
+            min_string
         )
     } else {
-        format!("{:.0} mins", minutes.round())
+        format!("{:.0} {}", minutes, min_string)
     }
 }
 

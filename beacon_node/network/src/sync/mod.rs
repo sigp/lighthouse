@@ -1,14 +1,14 @@
 //! Syncing for lighthouse.
 //!
 //! Stores the various syncing methods for the beacon chain.
-mod manager;
-mod message_processor;
+pub mod manager;
 mod network_context;
+mod peer_sync_info;
 mod range_sync;
 
-pub use message_processor::MessageProcessor;
+pub use manager::{BatchProcessResult, SyncMessage};
+pub use peer_sync_info::PeerSyncInfo;
+pub use range_sync::ChainId;
 
-/// Currently implemented sync methods.
-pub enum SyncMethod {
-    SimpleSync,
-}
+/// Type of id of rpc requests sent by sync
+pub type RequestId = usize;

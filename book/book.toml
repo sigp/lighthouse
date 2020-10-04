@@ -1,6 +1,11 @@
 [book]
-authors = ["Paul Hauner"]
+authors = ["Paul Hauner", "Age Manning"]
 language = "en"
 multilingual = false
 src = "src"
 title = "Lighthouse Book"
+
+[output.html]
+additional-css =["src/css/custom.css"]
+default-theme = "coal"
+

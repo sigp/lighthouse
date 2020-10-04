@@ -2,7 +2,7 @@
 //!
 //! Provides the following stores:
 //!
-//! - `DiskStore`: an on-disk store backed by leveldb. Used in production.
+//! - `HotColdDB`: an on-disk store backed by leveldb. Used in production.
 //! - `MemoryStore`: an in-memory store backed by a hash-map. Used for testing.
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
@@ -10,13 +10,12 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod block_at_slot;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
-mod errors;
+pub mod errors;
 mod forwards_iter;
-mod hot_cold_store;
+pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
@@ -24,34 +23,33 @@ mod metrics;
 mod partial_beacon_state;
 
 pub mod iter;
-pub mod migrate;
 
-use std::sync::Arc;
+use std::borrow::Cow;
 
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::HotColdDB as DiskStore;
-pub use self::leveldb_store::LevelDB as SimpleDiskStore;
+pub use self::hot_cold_store::{BlockReplay, HotColdDB, HotStateSummary, Split};
+pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
-pub use self::migrate::Migrate;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
 pub use types::*;
 
-/// An object capable of storing and retrieving objects implementing `StoreItem`.
-///
-/// A `Store` is fundamentally backed by a key-value database, however it provides support for
-/// columns. A simple column implementation might involve prefixing a key with some bytes unique to
-/// each column.
-pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
-    type ForwardsBlockRootsIterator: Iterator<Item = (Hash256, Slot)>;
-
+pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
     /// Store some `value` in `column`, indexed with `key`.
     fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+
+    /// Same as put_bytes() but also force a flush to disk
+    fn put_bytes_sync(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+
+    /// Flush to disk.  See
+    /// https://chromium.googlesource.com/external/leveldb/+/HEAD/doc/index.md#synchronous-writes
+    /// for details.
+    fn sync(&self) -> Result<(), Error>;
 
     /// Return `true` if `key` exists in `column`.
     fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error>;
@@ -59,75 +57,76 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Removes `key` from `column`.
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 
+    /// Execute either all of the operations in `batch` or none at all, returning an error.
+    fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error>;
+}
+
+pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
+    let mut result = column.as_bytes().to_vec();
+    result.extend_from_slice(key);
+    result
+}
+
+pub enum KeyValueStoreOp {
+    PutKeyValue(Vec<u8>, Vec<u8>),
+    DeleteKey(Vec<u8>),
+}
+
+pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
     fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
-        item.db_put(self, key)
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.put_bytes(column, key, &item.as_store_bytes())
+            .map_err(Into::into)
+    }
+
+    fn put_sync<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.put_bytes_sync(column, key, &item.as_store_bytes())
+            .map_err(Into::into)
     }
 
     /// Retrieve an item from `Self`.
     fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
-        I::db_get(self, key)
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        match self.get_bytes(column, key)? {
+            Some(bytes) => Ok(Some(I::from_store_bytes(&bytes[..])?)),
+            None => Ok(None),
+        }
     }
 
     /// Returns `true` if the given key represents an item in `Self`.
     fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
-        I::db_exists(self, key)
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.key_exists(column, key)
     }
 
     /// Remove an item from `Self`.
     fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
-        I::db_delete(self, key)
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.key_delete(column, key)
     }
+}
 
-    /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
-
-    /// Fetch a state from the store.
-    fn get_state(
-        &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error>;
-
-    /// Given the root of an existing block in the store (`start_block_root`), return a parent
-    /// block with the specified `slot`.
-    ///
-    /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
-    /// slot of `start_block_root`.
-    fn get_block_at_preceeding_slot(
-        &self,
-        start_block_root: Hash256,
-        slot: Slot,
-    ) -> Result<Option<(Hash256, BeaconBlock<E>)>, Error> {
-        block_at_slot::get_block_at_preceeding_slot::<_, E>(self, slot, start_block_root)
-    }
-
-    /// (Optionally) Move all data before the frozen slot to the freezer database.
-    fn freeze_to_state(
-        _store: Arc<Self>,
-        _frozen_head_root: Hash256,
-        _frozen_head: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    /// Get a forwards (slot-ascending) iterator over the beacon block roots since `start_slot`.
-    ///
-    /// Will be efficient for frozen portions of the database if using `DiskStore`.
-    ///
-    /// The `end_state` and `end_block_root` are required for backtracking in the post-finalization
-    /// part of the chain, and should be usually be set to the current head. Importantly, the
-    /// `end_state` must be a state that has had a block applied to it, and the hash of that
-    /// block must be `end_block_root`.
-    // NOTE: could maybe optimise by getting the `BeaconState` and end block root from a closure, as
-    // it's not always required.
-    fn forwards_block_roots_iterator(
-        store: Arc<Self>,
-        start_slot: Slot,
-        end_state: BeaconState<E>,
-        end_block_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Self::ForwardsBlockRootsIterator;
+/// Reified key-value storage operation.  Helps in modifying the storage atomically.
+/// See also https://github.com/sigp/lighthouse/issues/692
+#[allow(clippy::large_enum_variant)]
+pub enum StoreOp<'a, E: EthSpec> {
+    PutBlock(SignedBeaconBlockHash, SignedBeaconBlock<E>),
+    PutState(BeaconStateHash, Cow<'a, BeaconState<E>>),
+    PutStateSummary(BeaconStateHash, HotStateSummary),
+    DeleteBlock(SignedBeaconBlockHash),
+    DeleteState(BeaconStateHash, Slot),
 }
 
 /// A unique column identifier.
@@ -137,15 +136,20 @@ pub enum DBColumn {
     BeaconMeta,
     BeaconBlock,
     BeaconState,
+    /// For persisting in-memory state to the database.
     BeaconChain,
+    OpPool,
+    Eth1Cache,
+    ForkChoice,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
-    /// For the mapping from state roots to their slots.
-    BeaconStateSlot,
+    /// For the mapping from state roots to their slots or summaries.
+    BeaconStateSummary,
     BeaconBlockRoots,
     BeaconStateRoots,
     BeaconHistoricalRoots,
     BeaconRandaoMixes,
+    DhtEnrs,
 }
 
 impl Into<&'static str> for DBColumn {
@@ -156,18 +160,22 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",
+            DBColumn::OpPool => "opo",
+            DBColumn::Eth1Cache => "etc",
+            DBColumn::ForkChoice => "frk",
             DBColumn::BeaconRestorePoint => "brp",
-            DBColumn::BeaconStateSlot => "bss",
+            DBColumn::BeaconStateSummary => "bss",
             DBColumn::BeaconBlockRoots => "bbr",
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",
             DBColumn::BeaconRandaoMixes => "brm",
+            DBColumn::DhtEnrs => "dht",
         }
     }
 }
 
 /// An item that may stored in a `Store` by serializing and deserializing from bytes.
-pub trait SimpleStoreItem: Sized {
+pub trait StoreItem: Sized {
     /// Identifies which column this item should be placed in.
     fn db_column() -> DBColumn;
 
@@ -178,62 +186,10 @@ pub trait SimpleStoreItem: Sized {
     ///
     /// Return an instance of the type and the number of bytes that were read.
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
-}
 
-/// An item that may be stored in a `Store`.
-pub trait StoreItem: Sized {
-    /// Store `self`.
-    fn db_put<S: Store<E>, E: EthSpec>(&self, store: &S, key: &Hash256) -> Result<(), Error>;
-
-    /// Retrieve an instance of `Self` from `store`.
-    fn db_get<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<Option<Self>, Error>;
-
-    /// Return `true` if an instance of `Self` exists in `store`.
-    fn db_exists<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<bool, Error>;
-
-    /// Delete an instance of `Self` from `store`.
-    fn db_delete<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<(), Error>;
-}
-
-impl<T> StoreItem for T
-where
-    T: SimpleStoreItem,
-{
-    /// Store `self`.
-    fn db_put<S: Store<E>, E: EthSpec>(&self, store: &S, key: &Hash256) -> Result<(), Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        store
-            .put_bytes(column, key, &self.as_store_bytes())
-            .map_err(Into::into)
-    }
-
-    /// Retrieve an instance of `Self`.
-    fn db_get<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<Option<Self>, Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        match store.get_bytes(column, key)? {
-            Some(bytes) => Ok(Some(Self::from_store_bytes(&bytes[..])?)),
-            None => Ok(None),
-        }
-    }
-
-    /// Return `true` if an instance of `Self` exists in `Store`.
-    fn db_exists<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<bool, Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        store.key_exists(column, key)
-    }
-
-    /// Delete `self` from the `Store`.
-    fn db_delete<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<(), Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        store.key_delete(column, key)
+    fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
+        let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
+        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
     }
 }
 
@@ -250,7 +206,7 @@ mod tests {
         b: u64,
     }
 
-    impl SimpleStoreItem for StorableThing {
+    impl StoreItem for StorableThing {
         fn db_column() -> DBColumn {
             DBColumn::BeaconBlock
         }
@@ -264,52 +220,31 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl Store<MinimalEthSpec>) {
+    fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
-        assert_eq!(store.exists::<StorableThing>(&key), Ok(false));
+        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
 
         store.put(&key, &item).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key), Ok(true));
+        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), true);
 
         let retrieved = store.get(&key).unwrap().unwrap();
         assert_eq!(item, retrieved);
 
         store.delete::<StorableThing>(&key).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key), Ok(false));
+        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
 
-        assert_eq!(store.get::<StorableThing>(&key), Ok(None));
-    }
-
-    #[test]
-    fn diskdb() {
-        use sloggers::{null::NullLoggerBuilder, Build};
-
-        let hot_dir = tempdir().unwrap();
-        let cold_dir = tempdir().unwrap();
-        let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
-        let spec = MinimalEthSpec::default_spec();
-        let log = NullLoggerBuilder.build().unwrap();
-        let store = DiskStore::open(
-            &hot_dir.path(),
-            &cold_dir.path(),
-            slots_per_restore_point,
-            spec,
-            log,
-        )
-        .unwrap();
-
-        test_impl(store);
+        assert_eq!(store.get::<StorableThing>(&key).unwrap(), None);
     }
 
     #[test]
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = SimpleDiskStore::open(&path).unwrap();
+        let store = LevelDB::open(&path).unwrap();
 
         test_impl(store);
     }

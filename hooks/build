@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# Build hook to run on Docker Hub to ensure that the image is built with `PORTABLE=true`.
+docker build --build-arg PORTABLE=true -f $DOCKERFILE_PATH -t $IMAGE_NAME .
