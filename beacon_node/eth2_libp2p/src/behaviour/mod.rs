@@ -996,7 +996,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             self.waker = Some(cx.waker().clone());
         }
 
-        // TODO: move where it's less distracting
         macro_rules! poll_behaviour {
             /* $behaviour:  The sub-behaviour being polled.
              * $on_event_fn:  Function to call if we get an event from the sub-behaviour.
