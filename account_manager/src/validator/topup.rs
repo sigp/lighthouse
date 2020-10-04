@@ -1,6 +1,6 @@
 use crate::validator::eth1_utils::send_deposit_transactions;
 use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
-use bls::PublicKey;
+use bls::{Keypair, PublicKey};
 use clap::{App, Arg, ArgMatches};
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use environment::Environment;
@@ -17,6 +17,7 @@ use validator_dir::{Eth1DepositData, ValidatorDir};
 use web3::{transports::Http, transports::Ipc, types::Address};
 
 pub const CMD: &str = "topup";
+pub const PASSWORD_PROMPT: &str = "Enter the keystore password: ";
 pub const VALIDATOR_FLAG: &str = "validator";
 pub const ETH1_IPC_FLAG: &str = "eth1-ipc";
 pub const ETH1_HTTP_FLAG: &str = "eth1-http";
@@ -192,9 +193,7 @@ pub fn cli_run<T: EthSpec>(
         validators
             .into_iter()
             .map(|v| {
-                let voting_keypair = v.voting_keypair(&secrets_dir).map_err(|e| {
-                    format!("Failed to get voting keypair for {:?}: {:?}", v.dir(), e)
-                })?;
+                let voting_keypair = load_voting_keypair(&v, &secrets_dir)?;
                 Ok((v, voting_keypair))
             })
             .collect::<Result<Vec<_>, String>>()?,
@@ -303,21 +302,22 @@ async fn generate_deposit_data(
     );
     eprintln!("Please verify the withdrawal credentials. Enter (y/Y) to continue or anything else to abort: ");
     let confirmation = account_utils::read_input_from_user(false)?;
-    if confirmation != "y" || confirmation != "Y" {
+    if confirmation == "y" || confirmation == "Y" {
+        match ValidatorDir::eth1_deposit_data_topup(
+            amount,
+            &voting_keypair,
+            withdrawal_credentials,
+            spec,
+        ) {
+            Ok(data) => Ok(Some((dir, data))),
+            Err(e) => Err(format!(
+                "Unable to generate deposit data for validator topup {:?}: {:?}",
+                dir.dir(),
+                e
+            )),
+        }
+    } else {
         return Ok(None);
-    }
-    match ValidatorDir::eth1_deposit_data_topup(
-        amount,
-        &voting_keypair,
-        withdrawal_credentials,
-        spec,
-    ) {
-        Ok(data) => Ok(Some((dir, data))),
-        Err(e) => Err(format!(
-            "Unable to generate deposit data for validator topup {:?}: {:?}",
-            dir.dir(),
-            e
-        )),
     }
 }
 
@@ -353,4 +353,76 @@ pub async fn get_withdrawal_credentials(
             status
         )),
     }
+}
+
+// TODO(pawan) -> keypair should be dropped correctly
+fn load_voting_keypair(
+    validator_dir: &ValidatorDir,
+    secrets_dir: &PathBuf,
+) -> Result<Keypair, String> {
+    match validator_dir.voting_keypair(&secrets_dir) {
+        Ok(keypair) => Ok(keypair),
+        Err(validator_dir::Error::UnableToOpenKeystore(_)) => {
+            let mut voting_keystore_path: Option<PathBuf> = None;
+            read_voting_keystore(validator_dir.dir(), &mut voting_keystore_path).map_err(|e| {
+                format!(
+                    "Failed to find a valid keystore file in validator_dir {:?}: {:?}",
+                    validator_dir.dir(),
+                    e
+                )
+            })?;
+            if let Some(keystore_path) = voting_keystore_path {
+                eprintln!("");
+                eprintln!("{}", PASSWORD_PROMPT);
+                let password = account_utils::read_password_from_user(false)?;
+                let keystore =
+                    eth2_keystore::Keystore::from_json_file(&keystore_path).map_err(|e| {
+                        format!("Unable to read keystore JSON {:?}: {:?}", keystore_path, e)
+                    })?;
+                match keystore.decrypt_keypair(password.as_ref()) {
+                    Ok(keypair) => {
+                        eprintln!("Password is correct.");
+                        eprintln!("");
+                        std::thread::sleep(std::time::Duration::from_secs(1)); // Provides nicer UX.
+                        return Ok(keypair);
+                    }
+                    Err(eth2_keystore::Error::InvalidPassword) => {
+                        return Err("Invalid password".to_string());
+                    }
+                    Err(e) => {
+                        return Err(format!("Error whilst decrypting keypair: {:?}", e));
+                    }
+                }
+            } else {
+                return Err("Failed to find valid keystore in validator_dir".to_string());
+            }
+        }
+        Err(e) => {
+            return Err(format!(
+                "Failed to load voting keypair for {:?}: {:?}",
+                validator_dir.dir(),
+                e
+            ))
+        }
+    }
+}
+
+/// Reads a `validator_dir` and returns the first valid keystore path found in the directory.
+fn read_voting_keystore(
+    path: &PathBuf,
+    voting_keystore: &mut Option<PathBuf>,
+) -> Result<(), std::io::Error> {
+    std::fs::read_dir(path)?.try_for_each(|dir_entry| {
+        let dir_entry = dir_entry?;
+        let file_type = dir_entry.file_type()?;
+        if file_type.is_file()
+            && dir_entry.file_name().to_str().map_or(
+                false,
+                account_utils::validator_definitions::is_voting_keystore,
+            )
+        {
+            *voting_keystore = Some(dir_entry.path());
+        }
+        Ok(())
+    })
 }
