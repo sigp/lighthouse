@@ -179,7 +179,7 @@ impl InitializedValidator {
                         match (voting_keystore_password_path, voting_keystore_password) {
                             // If the password is supplied, use it and ignore the path (if supplied).
                             (_, Some(password)) => (
-                                password.as_ref().into(),
+                                password.as_ref().to_vec().into(),
                                 voting_keystore
                                     .decrypt_keypair(password.as_ref())
                                     .map_err(Error::UnableToDecryptKeystore)?,
@@ -188,13 +188,10 @@ impl InitializedValidator {
                             (Some(path), None) => {
                                 let password = read_password(path)
                                     .map_err(Error::UnableToReadVotingKeystorePassword)?;
-
-                                (
-                                    password.as_ref().into(),
-                                    voting_keystore
-                                        .decrypt_keypair(password.as_bytes())
-                                        .map_err(Error::UnableToDecryptKeystore)?,
-                                )
+                                let keypair = voting_keystore
+                                    .decrypt_keypair(password.as_bytes())
+                                    .map_err(Error::UnableToDecryptKeystore)?;
+                                (password, keypair)
                             }
                             // If there is no password available, maybe prompt for a password.
                             (None, None) => {
@@ -202,7 +199,7 @@ impl InitializedValidator {
                                     voting_keystore,
                                     &voting_keystore_path,
                                 )?;
-                                (password.as_ref().into(), keypair)
+                                (password.as_ref().to_vec().into(), keypair)
                             }
                         };
                     key_cache.add(keypair.clone(), voting_keystore.uuid(), password);
@@ -401,11 +398,11 @@ impl InitializedValidators {
     /// Returns `Ok(true)` if decryption was successful, `Ok(false)` if it couldn't get decrypted
     /// and an error if a needed password couldn't get extracted.
     ///
-    fn try_decrypt_key_cache(
+    fn decrypt_key_cache(
         &self,
-        cache: &mut KeyCache,
+        mut cache: KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
-    ) -> Result<bool, Error> {
+    ) -> Result<KeyCache, Error> {
         //read relevant key_stores
         let mut definitions_map = HashMap::new();
         for def in self.definitions.as_slice() {
@@ -432,7 +429,7 @@ impl InitializedValidators {
                     "Unknown uuid in cache";
                     "uuid" => format!("{}", uuid)
                 );
-                return Ok(false);
+                return Ok(KeyCache::new());
             }
         }
 
@@ -448,17 +445,15 @@ impl InitializedValidators {
                     voting_keystore_path,
                 } => {
                     if let Some(p) = voting_keystore_password {
-                        p.as_ref().into()
+                        p.as_ref().to_vec().into()
                     } else if let Some(path) = voting_keystore_password_path {
-                        read_password(path)
-                            .map_err(Error::UnableToReadVotingKeystorePassword)?
-                            .as_ref()
-                            .into()
+                        read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
                     } else {
                         let keystore = open_keystore(voting_keystore_path)?;
                         unlock_keystore_via_stdin_password(&keystore, &voting_keystore_path)?
                             .0
                             .as_ref()
+                            .to_vec()
                             .into()
                     }
                 }
@@ -468,10 +463,10 @@ impl InitializedValidators {
         }
 
         //decrypt
-        match cache.decrypt(passwords, public_keys) {
-            Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => Ok(true),
-            Err(_) => Ok(false),
-        }
+        Ok(match cache.decrypt(passwords, public_keys) {
+            Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => cache,
+            _ => KeyCache::new(),
+        })
     }
 
     /// Scans `self.definitions` and attempts to initialize and validators which are not already
@@ -495,15 +490,10 @@ impl InitializedValidators {
             .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
         create_lock_file(&cache_lockfile_path, self.strict_lockfiles, &self.log)?;
 
-        let mut key_cache = {
-            let mut cache = KeyCache::open_or_create(&self.validators_dir)
-                .map_err(Error::UnableToOpenKeyCache)?;
-            if self.try_decrypt_key_cache(&mut cache, &mut key_stores)? {
-                cache
-            } else {
-                KeyCache::new()
-            }
-        };
+        let mut key_cache = self.decrypt_key_cache(
+            KeyCache::open_or_create(&self.validators_dir).map_err(Error::UnableToOpenKeyCache)?,
+            &mut key_stores,
+        )?;
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
