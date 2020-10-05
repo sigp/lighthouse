@@ -109,10 +109,10 @@ fn create_lock_file(
     if file_path.exists() {
         if delete_lockfiles {
             warn!(
-                            log,
-                            "Deleting validator lockfile";
-                            "file" => format!("{:?}", file_path)
-                        );
+                log,
+                "Deleting validator lockfile";
+                "file" => format!("{:?}", file_path)
+            );
 
             fs::remove_file(file_path).map_err(Error::UnableToDeleteLockfile)?;
         } else {
@@ -181,36 +181,38 @@ impl InitializedValidator {
                     // to keep if off the core executor. This also has the fortunate effect of
                     // interrupting the potentially long-running task during shut down.
                     let (password, keypair) = tokio::task::spawn_blocking(move || {
-                        Ok(match (voting_keystore_password_path, voting_keystore_password) {
-                            // If the password is supplied, use it and ignore the path
-                            // (if supplied).
-                            (_, Some(password)) => (
-                                password.as_ref().to_vec().into(),
-                                keystore
-                                    .decrypt_keypair(password.as_ref())
-                                    .map_err(Error::UnableToDecryptKeystore)?,
-                            ),
-                            // If only the path is supplied, use the path.
-                            (Some(path), None) => {
-                                let password = read_password(path)
-                                    .map_err(Error::UnableToReadVotingKeystorePassword)?;
-                                let keypair = keystore
-                                    .decrypt_keypair(password.as_bytes())
-                                    .map_err(Error::UnableToDecryptKeystore)?;
-                                (password, keypair)
-                            }
-                            // If there is no password available, maybe prompt for a password.
-                            (None, None) => {
-                                let (password, keypair) = unlock_keystore_via_stdin_password(
-                                    &keystore,
-                                    &keystore_path,
-                                )?;
-                                (password.as_ref().to_vec().into(), keypair)
-                            }
-                        })
+                        Ok(
+                            match (voting_keystore_password_path, voting_keystore_password) {
+                                // If the password is supplied, use it and ignore the path
+                                // (if supplied).
+                                (_, Some(password)) => (
+                                    password.as_ref().to_vec().into(),
+                                    keystore
+                                        .decrypt_keypair(password.as_ref())
+                                        .map_err(Error::UnableToDecryptKeystore)?,
+                                ),
+                                // If only the path is supplied, use the path.
+                                (Some(path), None) => {
+                                    let password = read_password(path)
+                                        .map_err(Error::UnableToReadVotingKeystorePassword)?;
+                                    let keypair = keystore
+                                        .decrypt_keypair(password.as_bytes())
+                                        .map_err(Error::UnableToDecryptKeystore)?;
+                                    (password, keypair)
+                                }
+                                // If there is no password available, maybe prompt for a password.
+                                (None, None) => {
+                                    let (password, keypair) = unlock_keystore_via_stdin_password(
+                                        &keystore,
+                                        &keystore_path,
+                                    )?;
+                                    (password.as_ref().to_vec().into(), keypair)
+                                }
+                            },
+                        )
                     })
-                        .await
-                        .map_err(Error::TokioJoin)??;
+                    .await
+                    .map_err(Error::TokioJoin)??;
                     key_cache.add(keypair.clone(), voting_keystore.uuid(), password);
                     keypair
                 };
@@ -560,7 +562,9 @@ impl InitializedValidators {
                             &self.log,
                             &mut key_cache,
                             &mut key_stores,
-                        ).await {
+                        )
+                        .await
+                        {
                             Ok(init) => {
                                 self.validators
                                     .insert(init.voting_public_key().clone(), init);
@@ -611,22 +615,20 @@ impl InitializedValidators {
         let validators_dir = self.validators_dir.clone();
         let log = self.log.clone();
         if key_cache.is_modified() {
-            tokio::task::spawn_blocking(
-                move || {
-                    match key_cache.save(validators_dir) {
-                        Err(e) => warn!(
-                            log,
-                            "Error during saving of key_cache";
-                            "err" => format!("{:?}", e)
-                        ),
-                        Ok(true) => info!(log, "Modified key_cache saved successfully"),
-                        _ => {}
-                    };
-                    remove_lock(&cache_lockfile_path);
-                }
-            )
-                .await
-                .map_err(Error::TokioJoin)?;
+            tokio::task::spawn_blocking(move || {
+                match key_cache.save(validators_dir) {
+                    Err(e) => warn!(
+                        log,
+                        "Error during saving of key_cache";
+                        "err" => format!("{:?}", e)
+                    ),
+                    Ok(true) => info!(log, "Modified key_cache saved successfully"),
+                    _ => {}
+                };
+                remove_lock(&cache_lockfile_path);
+            })
+            .await
+            .map_err(Error::TokioJoin)?;
         } else {
             debug!(log, "Key cache not modified");
             remove_lock(&cache_lockfile_path);
