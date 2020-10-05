@@ -207,7 +207,7 @@ impl KeyCache {
     }
 
     pub fn remove(&mut self, uuid: &Uuid) {
-        //do nothing in unencrypted state
+        //do nothing in not decrypted state
         if let State::NotDecrypted = self.state {
             return;
         }
@@ -220,7 +220,7 @@ impl KeyCache {
     }
 
     pub fn add(&mut self, keypair: Keypair, uuid: &Uuid, password: PlainText) {
-        //do nothing in unencrypted state
+        //do nothing in not decrypted state
         if let State::NotDecrypted = self.state {
             return;
         }
