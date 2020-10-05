@@ -137,33 +137,21 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let discv5_executor = Discv5Executor(executor);
         client_config.network.discv5_config.executor = Some(Box::new(discv5_executor));
 
-        builder
+        let builder = builder
             .build_beacon_chain()?
             .network(&client_config.network)
             .await?
-<<<<<<< HEAD
             .notifier()?
             .http_api_config(client_config.http_api.clone())
-            .http_metrics_config(client_config.http_metrics.clone())
-            .build()
-            .map(Self)
-=======
-            .notifier()?;
+            .http_metrics_config(client_config.http_metrics.clone());
 
-        let builder = if client_config.rest_api.enabled {
-            builder.http_server(&client_config, &http_eth2_config, events)?
-        } else {
-            builder
-        };
-
+        // FIXME(sproul): chain this
         let builder = if client_config.slasher.is_some() {
             builder.slasher_server()?
         } else {
             builder
         };
-
-        Ok(Self(builder.build()))
->>>>>>> 039b06603... Experimental slasher implementation
+        builder.build().map(Self)
     }
 
     pub fn into_inner(self) -> ProductionClient<E> {

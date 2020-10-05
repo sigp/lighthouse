@@ -1,9 +1,9 @@
 use crate::Slasher;
-use environment::TaskExecutor;
 use slog::{debug, error, info, trace};
 use slot_clock::SlotClock;
 use std::sync::mpsc::{sync_channel, TrySendError};
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use tokio::stream::StreamExt;
 use tokio::time::{interval_at, Duration, Instant};
 use types::EthSpec;

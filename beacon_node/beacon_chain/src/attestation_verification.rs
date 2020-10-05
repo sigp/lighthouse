@@ -45,7 +45,6 @@ use state_processing::{
         errors::{AttestationValidationError, BlockOperationError, IndexedAttestationInvalid},
         VerifySignatures,
     },
-    per_slot_processing,
     signature_sets::{
         indexed_attestation_signature_set_from_pubkeys,
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
@@ -633,7 +632,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         committees_per_slot: u64,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<u64, Error> {
+    ) -> Result<(u64, SubnetId), Error> {
         let expected_subnet_id = SubnetId::compute_subnet_for_attestation_data::<T::EthSpec>(
             &indexed_attestation.data,
             committees_per_slot,
@@ -671,7 +670,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             });
         }
 
-        Ok(validator_index)
+        Ok((validator_index, expected_subnet_id))
     }
 
     fn verify_late_checks(
@@ -714,7 +713,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
     pub fn verify_slashable(
         attestation: Attestation<T::EthSpec>,
-        subnet_id: SubnetId,
+        subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, AttestationSlashInfo<T, Error>> {
         use AttestationSlashInfo::*;
@@ -731,14 +730,14 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
                 }
             };
 
-        let validator_index = match Self::verify_middle_checks(
+        let (validator_index, expected_subnet_id) = match Self::verify_middle_checks(
             &attestation,
             &indexed_attestation,
             committees_per_slot,
             subnet_id,
             chain,
         ) {
-            Ok(idx) => idx,
+            Ok(t) => t,
             Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
         };
 
