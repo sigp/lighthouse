@@ -37,6 +37,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
+use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
@@ -226,6 +227,21 @@ pub enum Error {
         head_block_slot: Slot,
         attestation_slot: Slot,
     },
+    /// The attestation has an invalid target epoch.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    InvalidTargetEpoch { slot: Slot, epoch: Epoch },
+    /// The attestation references an invalid target block.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    InvalidTargetRoot {
+        attestation: Hash256,
+        expected: Option<Hash256>,
+    },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -334,7 +350,16 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        verify_head_block_is_known(chain, &attestation, None)?;
+        let head_block = verify_head_block_is_known(chain, &attestation, None)?;
+
+        // Check the attestation target root is consistent with the head root.
+        //
+        // This check is not in the specification, however we guard against it since it opens us up
+        // to weird edge cases during verification.
+        //
+        // Whilst this attestation *technically* could be used to add value to a block, it is
+        // invalid in the spirit of the protocol. Here we choose safety over profit.
+        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
 
         // Ensure that the attestation has participants.
         if attestation.aggregation_bits.is_zero() {
@@ -425,6 +450,16 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         subnet_id: SubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
+        let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // Check the attestation's epoch matches its target.
+        if attestation_epoch != attestation.data.target.epoch {
+            return Err(Error::InvalidTargetEpoch {
+                slot: attestation.data.slot,
+                epoch: attestation.data.target.epoch,
+            });
+        }
+
         // Ensure attestation is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
@@ -433,16 +468,20 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
-        let num_aggreagtion_bits = attestation.aggregation_bits.num_set_bits();
-        if num_aggreagtion_bits != 1 {
-            return Err(Error::NotExactlyOneAggregationBitSet(num_aggreagtion_bits));
+        let num_aggregation_bits = attestation.aggregation_bits.num_set_bits();
+        if num_aggregation_bits != 1 {
+            return Err(Error::NotExactlyOneAggregationBitSet(num_aggregation_bits));
         }
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
         //
         // Enforce a maximum skip distance for unaggregated attestations.
-        verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
+        let head_block =
+            verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
+
+        // Check the attestation target root is consistent with the head root.
+        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
 
         let (indexed_attestation, committees_per_slot) =
             obtain_indexed_attestation_and_committees_per_slot(chain, &attestation)?;
@@ -541,7 +580,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
     max_skip_slots: Option<u64>,
-) -> Result<(), Error> {
+) -> Result<ProtoBlock, Error> {
     if let Some(block) = chain
         .fork_choice
         .read()
@@ -556,7 +595,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
                 });
             }
         }
-        Ok(())
+        Ok(block)
     } else {
         Err(Error::UnknownHeadBlock {
             beacon_block_root: attestation.data.beacon_block_root,
@@ -642,6 +681,57 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     }
 }
 
+/// Verifies that the `attestation.data.target.root` is indeed the target root of the block at
+/// `attestation.data.beacon_block_root`.
+pub fn verify_attestation_target_root<T: EthSpec>(
+    head_block: &ProtoBlock,
+    attestation: &Attestation<T>,
+) -> Result<(), Error> {
+    // Check the attestation target root.
+    let head_block_epoch = head_block.slot.epoch(T::slots_per_epoch());
+    let attestation_epoch = attestation.data.slot.epoch(T::slots_per_epoch());
+    if head_block_epoch > attestation_epoch {
+        // The epoch references an invalid head block from a future epoch.
+        //
+        // This check is not in the specification, however we guard against it since it opens us up
+        // to weird edge cases during verification.
+        //
+        // Whilst this attestation *technically* could be used to add value to a block, it is
+        // invalid in the spirit of the protocol. Here we choose safety over profit.
+        //
+        // Reference:
+        // https://github.com/ethereum/eth2.0-specs/pull/2001#issuecomment-699246659
+        return Err(Error::InvalidTargetRoot {
+            attestation: attestation.data.target.root,
+            // It is not clear what root we should expect in this case, since the attestation is
+            // fundamentally invalid.
+            expected: None,
+        });
+    } else {
+        let target_root = if head_block_epoch == attestation_epoch {
+            // If the block is in the same epoch as the attestation, then use the target root
+            // from the block.
+            head_block.target_root
+        } else {
+            // If the head block is from a previous epoch then skip slots will cause the head block
+            // root to become the target block root.
+            //
+            // We know the head block is from a previous epoch due to a previous check.
+            head_block.root
+        };
+
+        // Reject any attestation with an invalid target root.
+        if target_root != attestation.data.target.root {
+            return Err(Error::InvalidTargetRoot {
+                attestation: attestation.data.target.root,
+                expected: Some(target_root),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Verifies all the signatures in a `SignedAggregateAndProof` using BLS batch verification. This
 /// includes three signatures:
 ///
@@ -718,7 +808,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
         get_indexed_attestation(committee.committee, &attestation)
             .map(|attestation| (attestation, committees_per_slot))
-            .map_err(|e| BeaconChainError::from(e).into())
+            .map_err(Error::Invalid)
     })
 }
 

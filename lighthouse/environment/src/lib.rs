@@ -30,6 +30,8 @@ mod metrics;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
+/// The maximum time in seconds the client will wait for all internal tasks to shutdown.
+const MAXIMUM_SHUTDOWN_TIME: u64 = 3;
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
@@ -424,7 +426,7 @@ impl<E: EthSpec> Environment<E> {
     /// Shutdown the `tokio` runtime when all tasks are idle.
     pub fn shutdown_on_idle(self) {
         self.runtime
-            .shutdown_timeout(std::time::Duration::from_secs(2))
+            .shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))
     }
 
     /// Fire exit signal which shuts down all spawned services

@@ -2,16 +2,16 @@ use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
-use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig};
+use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use ssz::Encode;
 use std::cmp;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
@@ -84,6 +84,16 @@ pub fn get_config<E: EthSpec>(
     )?;
 
     /*
+     * Staking flag
+     * Note: the config values set here can be overwritten by other more specific cli params
+     */
+
+    if cli_args.is_present("staking") {
+        client_config.rest_api.enabled = true;
+        client_config.sync_eth1_chain = true;
+    }
+
+    /*
      * Http server
      */
 
@@ -110,6 +120,15 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "Invalid allow-origin value")?;
 
         client_config.rest_api.allow_origin = allow_origin.to_string();
+    }
+
+    // Log a warning indicating an open HTTP server if it wasn't specified explicitly
+    // (e.g. using the --staking flag).
+    if cli_args.is_present("staking") {
+        warn!(
+            log,
+            "Running HTTP server on port {}", client_config.rest_api.port
+        );
     }
 
     /*
@@ -251,6 +270,41 @@ pub fn get_config<E: EthSpec>(
     client_config.graffiti[..trimmed_graffiti_len]
         .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
 
+    if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {
+        let mut split = wss_checkpoint.split(':');
+        let root_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+        let epoch_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+
+        if !root_str.starts_with("0x") {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 0x prefix"
+                    .to_string(),
+            );
+        }
+
+        if !root_str.chars().count() == 66 {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 32 bytes".to_string(),
+            );
+        }
+
+        let root =
+            Hash256::from_slice(&hex::decode(&root_str[2..]).map_err(|e| {
+                format!("Unable to parse weak subjectivity checkpoint root: {:?}", e)
+            })?);
+        let epoch = Epoch::new(
+            epoch_str
+                .parse()
+                .map_err(|_| "Invalid weak subjectivity checkpoint epoch".to_string())?,
+        );
+
+        client_config.chain.weak_subjectivity_checkpoint = Some(Checkpoint { epoch, root })
+    }
+
     if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
         client_config.chain.import_max_skip_slots = match max_skip_slots {
             "none" => None,
@@ -343,6 +397,17 @@ pub fn set_network_config(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
+    if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
+        config.trusted_peers = trusted_peers_str
+            .split(',')
+            .map(|peer_id| {
+                peer_id
+                    .parse()
+                    .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
+            })
+            .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+    }
+
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
         config.enr_udp_port = Some(
             enr_udp_port_str
@@ -409,13 +474,17 @@ pub fn set_network_config(
         config.enr_address = Some(resolved_addr);
     }
 
-    if cli_args.is_present("disable_enr_auto_update") {
+    if cli_args.is_present("disable-enr-auto-update") {
         config.discv5_config.enr_update = false;
     }
 
     if cli_args.is_present("disable-discovery") {
         config.disable_discovery = true;
-        slog::warn!(log, "Discovery is disabled. New peers will not be found");
+        warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    if cli_args.is_present("disable-upnp") {
+        config.upnp_enabled = false;
     }
 
     Ok(())

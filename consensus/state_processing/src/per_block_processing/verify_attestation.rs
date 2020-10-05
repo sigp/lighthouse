@@ -2,6 +2,7 @@ use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use super::VerifySignatures;
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::is_valid_indexed_attestation;
+use safe_arith::SafeArith;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
@@ -25,7 +26,7 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     let data = &attestation.data;
 
     verify!(
-        data.slot + spec.min_attestation_inclusion_delay <= state.slot,
+        data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot,
         Invalid::IncludedTooEarly {
             state: state.slot,
             delay: spec.min_attestation_inclusion_delay,
@@ -33,7 +34,7 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
         }
     );
     verify!(
-        state.slot <= data.slot + T::slots_per_epoch(),
+        state.slot <= data.slot.safe_add(T::slots_per_epoch())?,
         Invalid::IncludedTooLate {
             state: state.slot,
             attestation: data.slot,

@@ -6,6 +6,8 @@ pub enum Error {
     DidntFail(String),
     /// Failed to parse the test (internal error).
     FailedToParseTest(String),
+    /// Test case contained invalid BLS data.
+    InvalidBLSInput(String),
     /// Skipped the test because the BLS setting was mismatched.
     SkippedBls,
     /// Skipped the test because it's known to fail.
@@ -18,6 +20,7 @@ impl Error {
             Error::NotEqual(_) => "NotEqual",
             Error::DidntFail(_) => "DidntFail",
             Error::FailedToParseTest(_) => "FailedToParseTest",
+            Error::InvalidBLSInput(_) => "InvalidBLSInput",
             Error::SkippedBls => "SkippedBls",
             Error::SkippedKnownFailure => "SkippedKnownFailure",
         }
@@ -28,6 +31,7 @@ impl Error {
             Error::NotEqual(m) => m.as_str(),
             Error::DidntFail(m) => m.as_str(),
             Error::FailedToParseTest(m) => m.as_str(),
+            Error::InvalidBLSInput(m) => m.as_str(),
             _ => self.name(),
         }
     }

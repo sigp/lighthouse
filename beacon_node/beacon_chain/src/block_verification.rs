@@ -207,6 +207,13 @@ pub enum BlockError<T: EthSpec> {
     /// We were unable to process this block due to an internal error. It's unclear if the block is
     /// valid.
     BeaconChainError(BeaconChainError),
+    /// There was an error whilst verifying weak subjectivity. This block conflicts with the
+    /// configured weak subjectivity checkpoint and was not imported.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    WeakSubjectivityConflict,
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {

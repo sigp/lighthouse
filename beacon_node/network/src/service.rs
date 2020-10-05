@@ -17,7 +17,7 @@ use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace, warn};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
@@ -35,6 +35,9 @@ pub enum NetworkMessage<T: EthSpec> {
     Subscribe {
         subscriptions: Vec<ValidatorSubscription>,
     },
+    /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
+    /// synced or close to the head slot.
+    SubscribeCoreTopics,
     /// Send an RPC request to the libp2p service.
     SendRequest {
         peer_id: PeerId,
@@ -67,6 +70,13 @@ pub enum NetworkMessage<T: EthSpec> {
         /// The result of the validation
         validation_result: MessageAcceptance,
     },
+    /// Called if a known external TCP socket address has been updated.
+    UPnPMappingEstablished {
+        /// The external TCP address has been updated.
+        tcp_socket: Option<SocketAddr>,
+        /// The external UDP address has been updated.
+        udp_socket: Option<SocketAddr>,
+    },
     /// Reports a peer to the peer manager for performing an action.
     ReportPeer { peer_id: PeerId, action: PeerAction },
     /// Disconnect an ban a peer, providing a reason.
@@ -93,6 +103,12 @@ pub struct NetworkService<T: BeaconChainTypes> {
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    /// Stores potentially created UPnP mappings to be removed on shutdown. (TCP port and UDP
+    /// port).
+    upnp_mappings: (Option<u16>, Option<u16>),
+    /// Keeps track of if discovery is auto-updating or not. This is used to inform us if we should
+    /// update the UDP socket of discovery if the UPnP mappings get established.
+    discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Option<Delay>,
     /// A timer for updating various network metrics.
@@ -114,6 +130,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let network_log = executor.log().clone();
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
+
+        // try and construct UPnP port mappings if required.
+        let upnp_config = crate::nat::UPnPConfig::from(config);
+        let upnp_log = network_log.new(o!("service" => "UPnP"));
+        let upnp_network_send = network_send.clone();
+        if config.upnp_enabled {
+            executor.spawn_blocking(
+                move || {
+                    crate::nat::construct_upnp_mappings(upnp_config, upnp_network_send, upnp_log)
+                },
+                "UPnP",
+            );
+        }
+
         // get a reference to the beacon chain store
         let store = beacon_chain.store.clone();
 
@@ -149,8 +179,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         // attestation service
-        let attestation_service =
-            AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
+        let attestation_service = AttestationService::new(beacon_chain.clone(), &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -165,6 +194,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             router_send,
             store,
             network_globals: network_globals.clone(),
+            upnp_mappings: (None, None),
+            discovery_auto_update: config.discv5_config.enr_update,
             next_fork_update,
             metrics_update,
             log: network_log,
@@ -199,7 +230,6 @@ fn spawn_service<T: BeaconChainTypes>(
                         "Persisting DHT to store";
                         "Number of peers" => format!("{}", enrs.len()),
                     );
-
                     match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(service.store.clone(), enrs) {
                         Err(e) => error!(
                             service.log,
@@ -211,6 +241,9 @@ fn spawn_service<T: BeaconChainTypes>(
                             "Saved DHT state";
                         ),
                     }
+
+                    // attempt to remove port mappings
+                    crate::nat::remove_mappings(service.upnp_mappings.0, service.upnp_mappings.1, &service.log);
 
                     info!(service.log, "Network service shutdown");
                     return;
@@ -238,6 +271,24 @@ fn spawn_service<T: BeaconChainTypes>(
                         NetworkMessage::SendError{ peer_id, error, id, reason } => {
                             service.libp2p.respond_with_error(peer_id, id, error, reason);
                         }
+                        NetworkMessage::UPnPMappingEstablished { tcp_socket, udp_socket} => {
+                            service.upnp_mappings = (tcp_socket.map(|s| s.port()), udp_socket.map(|s| s.port()));
+                            // If there is an external TCP port update, modify our local ENR.
+                            if let Some(tcp_socket) = tcp_socket {
+                                if let Err(e) = service.libp2p.swarm.peer_manager().discovery_mut().update_enr_tcp_port(tcp_socket.port()) {
+                                    warn!(service.log, "Failed to update ENR"; "error" => e);
+                                }
+                            }
+                            // if the discovery service is not auto-updating, update it with the
+                            // UPnP mappings
+                            if !service.discovery_auto_update {
+                                if let Some(udp_socket) = udp_socket {
+                                    if let Err(e) = service.libp2p.swarm.peer_manager().discovery_mut().update_enr_udp_socket(udp_socket) {
+                                    warn!(service.log, "Failed to update ENR"; "error" => e);
+                                }
+                                }
+                            }
+                        },
                         NetworkMessage::ValidationResult {
                             propagation_source,
                             message_id,
@@ -279,6 +330,21 @@ fn spawn_service<T: BeaconChainTypes>(
                                     warn!(service.log, "Validator subscription failed"; "error" => e);
                                 }
                         }
+                        NetworkMessage::SubscribeCoreTopics => {
+                            let mut subscribed_topics: Vec<GossipKind> = vec![];
+                            let already_subscribed = service.network_globals.gossipsub_subscriptions.read().clone();
+                            let already_subscribed = already_subscribed.iter().map(|x| x.kind()).collect::<std::collections::HashSet<_>>();
+                            for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter().filter(|topic| already_subscribed.get(topic).is_none()) {
+                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
+                                    subscribed_topics.push(topic_kind.clone());
+                                } else {
+                                    warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                                }
+                            }
+                            if !subscribed_topics.is_empty() {
+                                info!(service.log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
+                            }
+                        }
                     }
                 }
                 // process any attestation service events
@@ -289,7 +355,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             service.libp2p.swarm.subscribe_to_subnet(subnet_id);
                         }
                         AttServiceMessage::Unsubscribe(subnet_id) => {
-                            service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                            service.libp2p.swarm.unsubscribe_from_subnet(subnet_id);
                         }
                         AttServiceMessage::EnrAdd(subnet_id) => {
                             service.libp2p.swarm.update_enr_subnet(subnet_id, true);

@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, IndexedAttestation, Slot,
+    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256,
+    IndexedAttestation, Slot,
 };
 
 use crate::ForkChoiceStore;
@@ -756,6 +757,11 @@ where
     pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
         self.proto_array
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
+    }
+
+    /// Return the current finalized checkpoint.
+    pub fn finalized_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.finalized_checkpoint()
     }
 
     /// Returns the latest message for a given validator, if any.

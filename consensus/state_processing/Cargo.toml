@@ -27,14 +27,16 @@ log = "0.4.8"
 safe_arith = { path = "../safe_arith" }
 tree_hash = "0.1.0"
 tree_hash_derive = "0.2.0"
-types = { path = "../types" }
+types = { path = "../types", default-features = false }
 rayon = "1.3.0"
 eth2_hashing = "0.1.0"
 int_to_bytes = { path = "../int_to_bytes" }
 arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
 
 [features]
+default = ["legacy-arith"]
 fake_crypto = ["bls/fake_crypto"]
+legacy-arith = ["types/legacy-arith"]
 arbitrary-fuzz = [
   "arbitrary",
   "types/arbitrary-fuzz",

@@ -42,22 +42,84 @@ macro_rules! impl_from_into_usize {
     };
 }
 
+macro_rules! impl_u64_eq_ord {
+    ($type: ident) => {
+        impl PartialEq<u64> for $type {
+            fn eq(&self, other: &u64) -> bool {
+                self.as_u64() == *other
+            }
+        }
+
+        impl PartialOrd<u64> for $type {
+            fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
+                self.as_u64().partial_cmp(other)
+            }
+        }
+    };
+}
+
+macro_rules! impl_safe_arith {
+    ($type: ident, $rhs_ty: ident) => {
+        impl safe_arith::SafeArith<$rhs_ty> for $type {
+            const ZERO: Self = $type::new(0);
+            const ONE: Self = $type::new(1);
+
+            fn safe_add(&self, other: $rhs_ty) -> safe_arith::Result<Self> {
+                self.0
+                    .checked_add(other.into())
+                    .map(Self::new)
+                    .ok_or(safe_arith::ArithError::Overflow)
+            }
+
+            fn safe_sub(&self, other: $rhs_ty) -> safe_arith::Result<Self> {
+                self.0
+                    .checked_sub(other.into())
+                    .map(Self::new)
+                    .ok_or(safe_arith::ArithError::Overflow)
+            }
+
+            fn safe_mul(&self, other: $rhs_ty) -> safe_arith::Result<Self> {
+                self.0
+                    .checked_mul(other.into())
+                    .map(Self::new)
+                    .ok_or(safe_arith::ArithError::Overflow)
+            }
+
+            fn safe_div(&self, other: $rhs_ty) -> safe_arith::Result<Self> {
+                self.0
+                    .checked_div(other.into())
+                    .map(Self::new)
+                    .ok_or(safe_arith::ArithError::DivisionByZero)
+            }
+
+            fn safe_rem(&self, other: $rhs_ty) -> safe_arith::Result<Self> {
+                self.0
+                    .checked_rem(other.into())
+                    .map(Self::new)
+                    .ok_or(safe_arith::ArithError::DivisionByZero)
+            }
+
+            fn safe_shl(&self, other: u32) -> safe_arith::Result<Self> {
+                self.0
+                    .checked_shl(other)
+                    .map(Self::new)
+                    .ok_or(safe_arith::ArithError::Overflow)
+            }
+
+            fn safe_shr(&self, other: u32) -> safe_arith::Result<Self> {
+                self.0
+                    .checked_shr(other)
+                    .map(Self::new)
+                    .ok_or(safe_arith::ArithError::Overflow)
+            }
+        }
+    };
+}
+
+// Deprecated: prefer `SafeArith` methods for new code.
+#[cfg(feature = "legacy-arith")]
 macro_rules! impl_math_between {
     ($main: ident, $other: ident) => {
-        impl PartialOrd<$other> for $main {
-            /// Utilizes `partial_cmp` on the underlying `u64`.
-            fn partial_cmp(&self, other: &$other) -> Option<Ordering> {
-                Some(self.0.cmp(&(*other).into()))
-            }
-        }
-
-        impl PartialEq<$other> for $main {
-            fn eq(&self, other: &$other) -> bool {
-                let other: u64 = (*other).into();
-                self.0 == other
-            }
-        }
-
         impl Add<$other> for $main {
             type Output = $main;
 
@@ -144,31 +206,15 @@ macro_rules! impl_math {
     ($type: ident) => {
         impl $type {
             pub fn saturating_sub<T: Into<$type>>(&self, other: T) -> $type {
-                *self - other.into()
+                $type::new(self.as_u64().saturating_sub(other.into().as_u64()))
             }
 
             pub fn saturating_add<T: Into<$type>>(&self, other: T) -> $type {
-                *self + other.into()
-            }
-
-            pub fn checked_div<T: Into<$type>>(&self, rhs: T) -> Option<$type> {
-                let rhs: $type = rhs.into();
-                if rhs == 0 {
-                    None
-                } else {
-                    Some(*self / rhs)
-                }
+                $type::new(self.as_u64().saturating_add(other.into().as_u64()))
             }
 
             pub fn is_power_of_two(&self) -> bool {
                 self.0.is_power_of_two()
-            }
-        }
-
-        impl Ord for $type {
-            fn cmp(&self, other: &$type) -> Ordering {
-                let other: u64 = (*other).into();
-                self.0.cmp(&other)
             }
         }
     };
@@ -257,21 +303,11 @@ macro_rules! impl_ssz {
             }
         }
 
+        impl SignedRoot for $type {}
+
         impl TestRandom for $type {
             fn random_for_test(rng: &mut impl RngCore) -> Self {
                 $type::from(u64::random_for_test(rng))
-            }
-        }
-    };
-}
-
-macro_rules! impl_hash {
-    ($type: ident) => {
-        // Implemented to stop clippy lint:
-        // https://rust-lang.github.io/rust-clippy/master/index.html#derive_hash_xor_eq
-        impl Hash for $type {
-            fn hash<H: Hasher>(&self, state: &mut H) {
-                ssz_encode(self).hash(state)
             }
         }
     };
@@ -281,13 +317,17 @@ macro_rules! impl_common {
     ($type: ident) => {
         impl_from_into_u64!($type);
         impl_from_into_usize!($type);
+        impl_u64_eq_ord!($type);
+        impl_safe_arith!($type, $type);
+        impl_safe_arith!($type, u64);
+        #[cfg(feature = "legacy-arith")]
         impl_math_between!($type, $type);
+        #[cfg(feature = "legacy-arith")]
         impl_math_between!($type, u64);
         impl_math!($type);
         impl_display!($type);
         impl_debug!($type);
         impl_ssz!($type);
-        impl_hash!($type);
     };
 }
 
@@ -335,6 +375,7 @@ macro_rules! math_between_tests {
     ($type: ident, $other: ident) => {
         #[test]
         fn partial_ord() {
+            use std::cmp::Ordering;
             let assert_partial_ord = |a: u64, partial_ord: Ordering, b: u64| {
                 let other: $other = $type(b).into();
                 assert_eq!($type(a).partial_cmp(&other), Some(partial_ord));
@@ -518,7 +559,7 @@ macro_rules! math_tests {
         #[test]
         fn checked_div() {
             let assert_checked_div = |a: u64, b: u64, result: Option<u64>| {
-                let division_result_as_u64 = match $type(a).checked_div($type(b)) {
+                let division_result_as_u64 = match $type(a).safe_div($type(b)).ok() {
                     None => None,
                     Some(val) => Some(val.as_u64()),
                 };
@@ -560,6 +601,7 @@ macro_rules! math_tests {
 
         #[test]
         fn ord() {
+            use std::cmp::Ordering;
             let assert_ord = |a: u64, ord: Ordering, b: u64| {
                 assert_eq!($type(a).cmp(&$type(b)), ord);
             };

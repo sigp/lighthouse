@@ -47,7 +47,7 @@ impl DepositDataTree {
     /// Add a deposit to the merkle tree.
     pub fn push_leaf(&mut self, leaf: Hash256) -> Result<(), MerkleTreeError> {
         self.tree.push_leaf(leaf, self.depth)?;
-        self.mix_in_length.increment()?;
+        self.mix_in_length.safe_add_assign(1)?;
         Ok(())
     }
 }

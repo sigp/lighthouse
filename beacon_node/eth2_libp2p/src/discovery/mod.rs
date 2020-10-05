@@ -4,7 +4,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
-pub use enr_ext::{CombinedKeyExt, EnrExt};
+pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::Keypair;
 
 use crate::metrics;
@@ -20,7 +20,7 @@ use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
     collections::{HashMap, VecDeque},
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::Path,
     pin::Pin,
     sync::Arc,
@@ -155,7 +155,7 @@ pub struct Discovery<TSpec: EthSpec> {
 
     /// Indicates if the discovery service has been started. When the service is disabled, this is
     /// always false.
-    started: bool,
+    pub started: bool,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -358,6 +358,54 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
     }
 
+    /// Updates the local ENR TCP port.
+    /// There currently isn't a case to update the address here. We opt for discovery to
+    /// automatically update the external address.
+    ///
+    /// If the external address needs to be modified, use `update_enr_udp_socket.
+    pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
+        self.discv5
+            .enr_insert("tcp", port.to_be_bytes().into())
+            .map_err(|e| format!("{:?}", e))?;
+
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        Ok(())
+    }
+
+    /// Updates the local ENR UDP socket.
+    ///
+    /// This is with caution. Discovery should automatically maintain this. This should only be
+    /// used when automatic discovery is disabled.
+    pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
+        match socket_addr {
+            SocketAddr::V4(socket) => {
+                self.discv5
+                    .enr_insert("ip", socket.ip().octets().into())
+                    .map_err(|e| format!("{:?}", e))?;
+                self.discv5
+                    .enr_insert("udp", socket.port().to_be_bytes().into())
+                    .map_err(|e| format!("{:?}", e))?;
+            }
+            SocketAddr::V6(socket) => {
+                self.discv5
+                    .enr_insert("ip6", socket.ip().octets().into())
+                    .map_err(|e| format!("{:?}", e))?;
+                self.discv5
+                    .enr_insert("udp6", socket.port().to_be_bytes().into())
+                    .map_err(|e| format!("{:?}", e))?;
+            }
+        }
+
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        Ok(())
+    }
+
     /// Adds/Removes a subnet from the ENR Bitfield
     pub fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
         let id = *subnet_id as usize;
@@ -390,9 +438,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .map_err(|_| String::from("Subnet ID out of bounds, could not set subnet ID"))?;
 
         // insert the bitfield into the ENR record
-        let _ = self
-            .discv5
-            .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
+        self.discv5
+            .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes())
+            .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
@@ -434,6 +482,33 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+    }
+
+    // Bans a peer and it's associated seen IP addresses.
+    pub fn ban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
+        // first try and convert the peer_id to a node_id.
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
+            self.discv5.ban_node(&node_id);
+            // Remove the node from the routing table.
+            self.discv5.remove_node(&node_id);
+        }
+
+        for ip_address in ip_addresses {
+            self.discv5.ban_ip(ip_address);
+        }
+    }
+
+    pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
+        // first try and convert the peer_id to a node_id.
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
+            self.discv5.permit_node(&node_id);
+        }
+
+        for ip_address in ip_addresses {
+            self.discv5.permit_ip(ip_address);
+        }
     }
 
     /* Internal Functions */

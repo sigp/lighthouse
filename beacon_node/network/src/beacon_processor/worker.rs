@@ -231,6 +231,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
             | Err(e @ BlockError::InvalidSignature)
             | Err(e @ BlockError::TooManySkippedSlots { .. })
+            | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => e.to_string());
@@ -535,9 +536,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///
     /// Creates a log if there is an interal error.
     fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
-        self.sync_tx
-            .send(message)
-            .unwrap_or_else(|_| error!(self.log, "Could not send message to the sync service"));
+        self.sync_tx.send(message).unwrap_or_else(|e| {
+            error!(self.log, "Could not send message to the sync service";
+                "error" => %e)
+        });
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
@@ -836,6 +838,32 @@ impl<T: BeaconChainTypes> Worker<T> {
             AttnError::Invalid(_) => {
                 /*
                  * The attestation failed the state_processing verification.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
+            }
+            AttnError::InvalidTargetEpoch { .. } => {
+                /*
+                 * The attestation is malformed.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(
+                    message_id,
+                    peer_id.clone(),
+                    MessageAcceptance::Reject,
+                );
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
+            }
+            AttnError::InvalidTargetRoot { .. } => {
+                /*
+                 * The attestation is malformed.
                  *
                  * The peer has published an invalid consensus message.
                  */

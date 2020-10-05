@@ -1,5 +1,5 @@
 use crate::types::GossipKind;
-use crate::Enr;
+use crate::{Enr, PeerIdSerialized};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
@@ -58,11 +58,17 @@ pub struct Config {
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
 
+    /// List of trusted libp2p nodes which are not scored.
+    pub trusted_peers: Vec<PeerIdSerialized>,
+
     /// Client version
     pub client_version: String,
 
     /// Disables the discovery protocol from starting.
     pub disable_discovery: bool,
+
+    /// Attempt to construct external port mappings with UPnP.
+    pub upnp_enabled: bool,
 
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
@@ -75,19 +81,10 @@ impl Default for Config {
         network_dir.push(".lighthouse");
         network_dir.push("network");
 
-        // The default topics that we will initially subscribe to
-        let topics = vec![
-            GossipKind::BeaconBlock,
-            GossipKind::BeaconAggregateAndProof,
-            GossipKind::VoluntaryExit,
-            GossipKind::ProposerSlashing,
-            GossipKind::AttesterSlashing,
-        ];
-
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing
         let gossip_message_id =
-            |message: &GossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..8]);
+            |message: &GossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..]);
 
         // gossipsub configuration
         // Note: The topics by default are sent as plain strings. Hashes are an optional
@@ -139,9 +136,11 @@ impl Default for Config {
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
+            trusted_peers: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
-            topics,
+            upnp_enabled: true,
+            topics: Vec::new(),
         }
     }
 }

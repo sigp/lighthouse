@@ -44,7 +44,7 @@ impl ExitCache {
         self.exit_epoch_counts
             .entry(exit_epoch)
             .or_insert(0)
-            .increment()?;
+            .safe_add_assign(1)?;
         Ok(())
     }
 

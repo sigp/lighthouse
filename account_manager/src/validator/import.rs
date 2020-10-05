@@ -1,3 +1,4 @@
+use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
 use account_utils::{
     eth2_keystore::Keystore,
@@ -17,7 +18,6 @@ use std::time::Duration;
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
-pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 pub const REUSE_PASSWORD_FLAG: &str = "reuse-password";
 
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter to omit it:";
@@ -66,9 +66,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(STDIN_PASSWORD_FLAG)
-                .long(STDIN_PASSWORD_FLAG)
-                .help("If present, read passwords from stdin instead of tty."),
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
         .arg(
             Arg::with_name(REUSE_PASSWORD_FLAG)
@@ -85,7 +85,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         VALIDATOR_DIR_FLAG,
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
-    let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
     let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
 
     ensure_dir_exists(&validator_dir)?;
@@ -153,7 +153,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             eprintln!("");
             eprintln!("{}", PASSWORD_PROMPT);
 
-            let password = read_password_from_user(stdin_password)?;
+            let password = read_password_from_user(stdin_inputs)?;
 
             if password.as_ref().is_empty() {
                 eprintln!("Continuing without password.");

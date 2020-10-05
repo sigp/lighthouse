@@ -14,21 +14,23 @@ use crate::test_utils::TestRandom;
 use crate::SignedRoot;
 
 use rand::RngCore;
+use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
-use std::cmp::{Ord, Ordering};
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::iter::Iterator;
+
+#[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Slot(u64);
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Epoch(u64);
 
@@ -41,7 +43,9 @@ impl Slot {
     }
 
     pub fn epoch(self, slots_per_epoch: u64) -> Epoch {
-        Epoch::from(self.0) / Epoch::from(slots_per_epoch)
+        Epoch::new(self.0)
+            .safe_div(slots_per_epoch)
+            .expect("slots_per_epoch is not 0")
     }
 
     pub fn max_value() -> Slot {
@@ -96,9 +100,6 @@ impl Epoch {
     }
 }
 
-impl SignedRoot for Epoch {}
-impl SignedRoot for Slot {}
-
 pub struct SlotIter<'a> {
     current_iteration: u64,
     epoch: &'a Epoch,
@@ -115,7 +116,7 @@ impl<'a> Iterator for SlotIter<'a> {
             let start_slot = self.epoch.start_slot(self.slots_per_epoch);
             let previous = self.current_iteration;
             self.current_iteration = self.current_iteration.checked_add(1)?;
-            Some(start_slot + previous)
+            start_slot.safe_add(previous).ok()
         }
     }
 }

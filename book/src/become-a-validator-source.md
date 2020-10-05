@@ -47,7 +47,7 @@ the internet and maintains a view of the chain.
 Start your beacon node with:
 
 ```bash
- lighthouse --testnet medalla beacon --eth1 --http
+ lighthouse --testnet medalla beacon --staking
 ```
 
 > The `--testnet` parameter is optional. Omitting it will default to the
@@ -55,8 +55,17 @@ Start your beacon node with:
 > Current values are either `altona` or `medalla`. This is true for all the
 > following commands in this document.
 
->Note:  the `--http` flag enables the HTTP API for the validator client. And the `--eth1` flag tells the beacon node that it should sync with an Ethereum1 node (e.g. Geth). These flags are only required if you wish to run a validator.
+> Note: Lighthouse, by default, opens port 9000 over TCP and UDP. Although not
+> strictly required, we recommend setting up port forwards to expose these
+> ports publicly. For more information see the FAQ or the [Advanced Networking](advanced_networking.html)
+> section
 
+
+You can also pass an external http endpoint (e.g. Infura) for the Eth1 node using the `--eth1-endpoint` flag:
+
+```bash
+ lighthouse --testnet medalla beacon --staking --eth1-endpoint <ETH1-SERVER>
+```
 
 Your beacon node has started syncing when you see the following (truncated)
 log:
@@ -88,15 +97,15 @@ validator](./validator-create.md). A two-step example follows:
 Create a wallet with:
 
 ```bash
-lighthouse --testnet medalla account wallet create --name my-validators --password-file my-validators.pass
+lighthouse --testnet medalla account wallet create
 ```
 
-The output will look like this:
+You will be prompted for a wallet name and a password. The output will look like this:
 
 ```
-Your wallet's 12-word BIP-39 mnemonic is:
+Your wallet's 24-word BIP-39 mnemonic is:
 
-	thank beach essence clerk gun library key grape hotel wise dutch segment
+	glad marble art pelican nurse large guilt response brave affair kite essence welcome gauge peace once picnic debris devote ticket blood bike solar junk
 
 This mnemonic can be used to fully restore your wallet, should
 you lose the JSON file or your password.
@@ -111,12 +120,12 @@ a piece of paper and storing it in a safe place would be prudent.
 
 Your wallet's UUID is:
 
-	e762671a-2a33-4922-901b-62a43dbd5227
+	1c8c13d5-d065-4ef7-bad3-14e9d8146140
 
 You do not need to backup your UUID or keep it secret.
 ```
 
-**Don't forget to make a backup** of the 12-word BIP-39 mnemonic. It can be
+**Don't forget to make a backup** of the 24-word BIP-39 mnemonic. It can be
 used to restore your validator if there is a data loss.
 
 ### 4.2 Create a Validator from the Wallet
@@ -124,10 +133,10 @@ used to restore your validator if there is a data loss.
 Create a validator from the wallet with:
 
 ```bash
-lighthouse --testnet medalla account validator create --wallet-name my-validators --wallet-password my-validators.pass --count 1
+lighthouse --testnet medalla account validator create --count 1
 ```
 
-The output will look like this:
+Enter your wallet's name and password when prompted. The output will look like this:
 
 ```bash
 1/1	0x80f3dce8d6745a725d8442c9bc3ca0852e772394b898c95c134b94979ebb0af6f898d5c5f65b71be6889185c486918a7

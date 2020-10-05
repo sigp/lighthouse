@@ -92,10 +92,6 @@ pub fn post_individual_votes<T: BeaconChainTypes>(
             let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
             validator_statuses.process_attestations(&state, spec)?;
 
-            state.update_pubkey_cache().map_err(|e| {
-                ApiError::ServerError(format!("Unable to build pubkey cache: {:?}", e))
-            })?;
-
             body.pubkeys
                 .into_iter()
                 .map(|pubkey| {

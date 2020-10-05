@@ -1,10 +1,10 @@
 # Create a wallet
 
 A wallet allows for generating practically unlimited validators from an
-easy-to-remember 12-word string (a mnemonic). As long as that mnemonic is
+easy-to-remember 24-word string (a mnemonic). As long as that mnemonic is
 backed up, all validator keys can be trivially re-generated.
 
-The 12-word string is randomly generated during wallet creation and printed out
+The 24-word string is randomly generated during wallet creation and printed out
 to the terminal. It's important to **make one or more backups of the mnemonic**
 to ensure your ETH is not lost in the case of data loss. It very important to
 **keep your mnemonic private** as it represents the ultimate control of your

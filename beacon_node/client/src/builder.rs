@@ -412,6 +412,12 @@ where
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
     pub fn build_beacon_chain(mut self) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "beacon_chain requires a runtime context")?
+            .clone();
+
         let chain = self
             .beacon_chain_builder
             .ok_or_else(|| "beacon_chain requires a beacon_chain_builder")?
@@ -424,6 +430,7 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
+            .shutdown_sender(context.executor.shutdown_sender())
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
@@ -598,17 +605,6 @@ where
             .clone()
             .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
 
-        // Check if the eth1 endpoint we connect to is on the correct network id.
-        let network_id =
-            eth1::http::get_network_id(&config.endpoint, Duration::from_millis(15_000)).await?;
-
-        if network_id != config.network_id {
-            return Err(format!(
-                "Invalid eth1 network id. Expected {:?}, got {:?}",
-                config.network_id, network_id
-            ));
-        }
-
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;
 
@@ -713,11 +709,8 @@ where
             .ok_or_else(|| "system_time_slot_clock requires a beacon_chain_builder")?;
 
         let genesis_time = beacon_chain_builder
-            .finalized_snapshot
-            .as_ref()
-            .ok_or_else(|| "system_time_slot_clock requires an initialized beacon state")?
-            .beacon_state
-            .genesis_time;
+            .genesis_time
+            .ok_or_else(|| "system_time_slot_clock requires an initialized beacon state")?;
 
         let spec = self
             .chain_spec

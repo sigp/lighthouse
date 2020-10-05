@@ -76,6 +76,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("disable-upnp")
+                .long("disable-upnp")
+                .help("Disables UPnP support. Setting this will prevent Lighthouse from attempting to automatically establish external port mappings.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("enr-udp-port")
                 .long("enr-udp-port")
                 .value_name("PORT")
@@ -131,7 +137,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
                 .takes_value(false),
         )
-
+        .arg(
+            Arg::with_name("trusted-peers")
+                .long("trusted-peers")
+                .value_name("TRUSTED_PEERS")
+                .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
+                .takes_value(true),
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
@@ -185,6 +197,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the listen TCP port for the websocket server.")
                 .default_value("5053")
                 .takes_value(true),
+        )
+
+        /*
+         * Standard staking flags
+         */
+
+        .arg(
+            Arg::with_name("staking")
+                .long("staking")
+                .help("Standard option for a staking beacon node. Equivalent to \
+                `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
+                and try connecting to an eth1 node on localhost:8545")
+                .takes_value(false)
         )
 
         /*
@@ -261,5 +286,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
                 .default_value("700")
+        )
+        .arg(
+            Arg::with_name("wss-checkpoint")
+                .long("wss-checkpoint")
+                .help(
+                    "Used to input a Weak Subjectivity State Checkpoint in `block_root:epoch_number` format,\
+                     where block_root is an '0x' prefixed 32-byte hex string and epoch_number is an integer."
+                )
+                .value_name("WSS_CHECKPOINT")
+                .takes_value(true)
         )
 }

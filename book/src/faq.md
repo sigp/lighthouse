@@ -79,3 +79,48 @@ repeats until the queue is cleared.
 
 Once a validator has been activated, there's no more waiting! It's time to
 produce blocks and attestations!
+
+### 3. Do I need to set up any port mappings
+
+It is not strictly required to open any ports for Lighthouse to connect and
+participate in the network. Lighthouse should work out-of-the-box. However, if
+your node is not publicly accessible (you are behind a NAT or router that has
+not been configured to allow access to Lighthouse ports) you will only be able
+to reach peers who have a set up that is publicly accessible. 
+
+There are a number of undesired consequences of not making your Lighthouse node
+publicly accessible. 
+
+Firstly, it will make it more difficult for your node to find peers, as your
+node will not be added to the global DHT and other peers will not be able
+to initiate connections with you.
+Secondly, the peers in your peer store are more likely to end connections with
+you and be less performant as these peers will likely be overloaded with
+subscribing peers. The reason being, that peers that have correct port
+forwarding (publicly accessible) are in higher demand than regular peers as other nodes behind NAT's
+will also be looking for these peers.
+Finally, not making your node publicly accessible degrades the overall network, making it more difficult for other
+peers to join and degrades the overall connectivity of the global network. 
+
+For these reasons, we recommend that you make your node publicly accessible. 
+
+Lighthouse supports UPnP. If you are behind a NAT with a router that supports
+UPnP you can simply ensure UPnP is enabled (Lighthouse will inform you in its
+initial logs if a route has been established). You can also manually set up
+port mappings in your router to your local Lighthouse instance. By default,
+Lighthouse uses port 9000 for both TCP and UDP. Opening both these ports will
+make your Lighthouse node maximally contactable. 
+
+#### 4. I have a low peer count and it is not increasing
+
+If you cannot find *ANY* peers at all. It is likely that you have incorrect
+testnet configuration settings. Ensure that the network you wish to connect to
+is correct (the beacon node outputs the network it is connecting to in the
+initial boot-up log lines). On top of this, ensure that you are not using the
+same `datadir` as a previous network. I.e if you have been running the
+`medalla` testnet and are now trying to join a new testnet but using the same
+`datadir` (the `datadir` is also printed out in the beacon node's logs on
+boot-up). 
+
+If you find yourself with a low peer count and is not reaching the target you
+expect. Try setting up the correct port forwards as described in `3.` above. 
