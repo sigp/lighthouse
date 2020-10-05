@@ -203,6 +203,7 @@ pub fn cli_run<T: EthSpec>(
                 ipc_transport,
                 confirmation_count,
                 confirmation_batch_size,
+                true,
             )
         }
         (None, Some(http_url)) => {
@@ -217,6 +218,7 @@ pub fn cli_run<T: EthSpec>(
                 http_transport,
                 confirmation_count,
                 confirmation_batch_size,
+                true,
             )
         }
     }

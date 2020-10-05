@@ -28,6 +28,7 @@ pub fn send_deposit_transactions<T1, T2: 'static>(
     transport: T2,
     confirmation_count: usize,
     confirmation_batch_size: usize,
+    save_tx_hash: bool,
 ) -> Result<(), String>
 where
     T1: EthSpec,
@@ -80,11 +81,13 @@ where
                         "tx_hash" => format!("{:?}", tx_hash),
                     );
 
-                    validator_dir
-                        .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
-                        .map_err(|e| {
-                            format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e)
-                        })?;
+                    if save_tx_hash {
+                        validator_dir
+                            .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
+                            .map_err(|e| {
+                                format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e)
+                            })?;
+                    }
 
                     Ok::<(), String>(())
                 });

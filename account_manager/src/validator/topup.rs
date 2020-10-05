@@ -262,6 +262,7 @@ pub fn cli_run<T: EthSpec>(
                 ipc_transport,
                 confirmation_count,
                 confirmation_batch_size,
+                false,
             )
         }
         (None, Some(http_url)) => {
@@ -276,6 +277,7 @@ pub fn cli_run<T: EthSpec>(
                 http_transport,
                 confirmation_count,
                 confirmation_batch_size,
+                false,
             )
         }
     }
@@ -389,16 +391,22 @@ fn load_voting_keypair(
         Ok(keypair) => Ok(keypair),
         Err(validator_dir::Error::UnableToOpenKeystore(_)) => {
             let mut voting_keystore_path: Option<PathBuf> = None;
-            read_voting_keystore(validator_dir.dir(), &mut voting_keystore_path).map_err(|e| {
-                format!(
-                    "Failed to find a valid keystore file in validator_dir {:?}: {:?}",
-                    validator_dir.dir(),
-                    e
-                )
-            })?;
+            read_voting_keystore_path(validator_dir.dir(), &mut voting_keystore_path).map_err(
+                |e| {
+                    format!(
+                        "Failed to find a valid keystore file in validator_dir {:?}: {:?}",
+                        validator_dir.dir(),
+                        e
+                    )
+                },
+            )?;
             if let Some(keystore_path) = voting_keystore_path {
                 eprintln!("");
-                eprintln!("{}", PASSWORD_PROMPT);
+                eprintln!(
+                    "{} for validator in {:?}",
+                    PASSWORD_PROMPT,
+                    validator_dir.dir()
+                );
                 let password = account_utils::read_password_from_user(stdin_inputs)?;
                 let keystore =
                     eth2_keystore::Keystore::from_json_file(&keystore_path).map_err(|e| {
@@ -429,7 +437,7 @@ fn load_voting_keypair(
 }
 
 /// Reads a `validator_dir` and returns the first valid keystore path found in the directory.
-fn read_voting_keystore(
+fn read_voting_keystore_path(
     path: &PathBuf,
     voting_keystore: &mut Option<PathBuf>,
 ) -> Result<(), std::io::Error> {
