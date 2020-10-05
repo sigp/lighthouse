@@ -25,7 +25,7 @@ pub const FROM_ADDRESS_FLAG: &str = "from-address";
 pub const CONFIRMATION_COUNT_FLAG: &str = "confirmation-count";
 pub const CONFIRMATION_BATCH_SIZE_FLAG: &str = "confirmation-batch-size";
 pub const TOPUP_AMOUNT: &str = "topup-amount";
-pub const BEACON_SERVER: &str = "beacon-server-addr";
+pub const BEACON_SERVER: &str = "beacon-node";
 
 const GWEI: u64 = 1_000_000_000;
 
@@ -107,7 +107,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(TOPUP_AMOUNT)
                 .long(TOPUP_AMOUNT)
                 .value_name("TOPUP-AMOUNT")
-                .help("Amount that you want to topup the given validator with in ETH. Minimum value 1")
+                .help(
+                    "Amount that you want to topup the given validator with in ETH.\
+                    Minimum value is `MIN_DEPOSIT_AMOUNT` in the spec",
+                )
                 .takes_value(true)
                 .required(true),
         )
@@ -319,7 +322,7 @@ async fn generate_deposit_data(
             )),
         }
     } else {
-        return Ok(None);
+        Ok(None)
     }
 }
 
@@ -335,7 +338,12 @@ pub async fn get_withdrawal_credentials(
         )
         .await
         .map_err(|e| format!("Failed to get validator details: {:?}", e))?
-        .ok_or_else(|| "Server returned 404".to_string())?
+        .ok_or_else(|| {
+            format!(
+                "Validator {} is not present in the beacon state",
+                validator_pubkey
+            )
+        })?
         .data;
 
     match response.status {
@@ -390,26 +398,22 @@ fn load_voting_keypair(
                         eprintln!("Password is correct.");
                         eprintln!("");
                         std::thread::sleep(std::time::Duration::from_secs(1)); // Provides nicer UX.
-                        return Ok(keypair);
+                        Ok(keypair)
                     }
                     Err(eth2_keystore::Error::InvalidPassword) => {
-                        return Err("Invalid password".to_string());
+                        Err("Invalid password".to_string())
                     }
-                    Err(e) => {
-                        return Err(format!("Error whilst decrypting keypair: {:?}", e));
-                    }
+                    Err(e) => Err(format!("Error while decrypting keypair: {:?}", e)),
                 }
             } else {
-                return Err("Failed to find valid keystore in validator_dir".to_string());
+                Err("Failed to find valid keystore in validator_dir".to_string())
             }
         }
-        Err(e) => {
-            return Err(format!(
-                "Failed to load voting keypair for {:?}: {:?}",
-                validator_dir.dir(),
-                e
-            ))
-        }
+        Err(e) => Err(format!(
+            "Failed to load voting keypair for {:?}: {:?}",
+            validator_dir.dir(),
+            e
+        )),
     }
 }
 

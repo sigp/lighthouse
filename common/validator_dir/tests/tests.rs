@@ -141,7 +141,7 @@ impl Harness {
 
         if let Some(amount) = config.deposit_amount {
             // Check that the deposit data can be decoded.
-            let data = validator.eth1_deposit_data(None).unwrap().unwrap();
+            let data = validator.eth1_deposit_data().unwrap().unwrap();
 
             // Ensure the amount is consistent.
             assert_eq!(data.deposit_data.amount, amount);
@@ -154,7 +154,7 @@ impl Harness {
             hex::decode(&hex[2..]).unwrap();
         } else {
             // If there was no deposit then we should return `Ok(None)`.
-            assert!(validator.eth1_deposit_data(None).unwrap().is_none());
+            assert!(validator.eth1_deposit_data().unwrap().is_none());
         }
 
         let tx_hash_path = validator.dir().join(ETH1_DEPOSIT_TX_HASH_FILE);

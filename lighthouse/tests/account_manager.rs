@@ -330,7 +330,7 @@ impl TestValidator {
                 assert!(!dir.eth1_deposit_tx_hash_exists(), "deposit tx");
 
                 // Should have created a valid deposit data file.
-                dir.eth1_deposit_data(None).unwrap().unwrap();
+                dir.eth1_deposit_data().unwrap().unwrap();
                 dir
             })
             .collect()
