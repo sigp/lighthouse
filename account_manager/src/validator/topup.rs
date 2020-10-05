@@ -1,4 +1,5 @@
 use crate::validator::eth1_utils::send_deposit_transactions;
+use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
 use bls::{Keypair, PublicKey};
 use clap::{App, Arg, ArgMatches};
@@ -26,21 +27,19 @@ pub const CONFIRMATION_COUNT_FLAG: &str = "confirmation-count";
 pub const CONFIRMATION_BATCH_SIZE_FLAG: &str = "confirmation-batch-size";
 pub const TOPUP_AMOUNT: &str = "topup-amount";
 pub const BEACON_SERVER: &str = "beacon-node";
+pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 
 const GWEI: u64 = 1_000_000_000;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("topup")
         .about(
-            "Submits a deposit to an Eth1 validator registration contract via an IPC endpoint \
-            of an Eth1 client (e.g., Geth, OpenEthereum, etc.). The validators must already \
-            have been created and exist on the file-system. The process will exit immediately \
-            with an error if any error occurs. After each deposit is submitted to the Eth1 \
-            node, a file will be saved in the validator directory with the transaction hash. \
-            If confirmations are set to non-zero then the application will wait for confirmations \
-            before saving the transaction hash and moving onto the next batch of deposits. \
-            The deposit contract address will be determined by the --testnet-dir flag on the \
-            primary Lighthouse binary.",
+            "Submits a deposit to topup an existing validator's balance to an Eth1 validator registration contract via an \
+            IPC/HTTP endpoint of an Eth1 client (e.g., Geth, OpenEthereum, etc.). The validators must already have \
+            been created, exist on the file-system and must have a valid deposit on the beacon chain. \
+            The process will exit immediately with an error if any error occurs. If confirmations are set to non-zero \
+            then the application will wait for confirmations before moving onto the next batch of deposits. The deposit \
+            contract address will be determined by the --testnet-dir flag on the primary Lighthouse binary.",
         )
         .arg(
             Arg::with_name(VALIDATOR_FLAG)
@@ -117,10 +116,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(BEACON_SERVER)
                 .long(BEACON_SERVER)
-                .value_name("BEACON_SERVER")
-                .help("URL to a beacon node http endpoint")
-                .takes_value(true)
-                .required(true),
+                .value_name("NETWORK_ADDRESS")
+                .help("Address to a beacon node HTTP API. Default value is http://localhost:5052/")
+                .default_value(&DEFAULT_BEACON_NODE)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
         .arg(
             Arg::with_name(SECRETS_DIR_FLAG)
@@ -149,6 +153,7 @@ pub fn cli_run<T: EthSpec>(
     let confirmation_count: usize = clap_utils::parse_required(matches, CONFIRMATION_COUNT_FLAG)?;
     let confirmation_batch_size: usize =
         clap_utils::parse_required(matches, CONFIRMATION_BATCH_SIZE_FLAG)?;
+    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
     let manager = ValidatorManager::open(&validator_dir)
         .map_err(|e| format!("Unable to read --{}: {:?}", VALIDATOR_DIR_FLAG, e))?;
@@ -197,13 +202,14 @@ pub fn cli_run<T: EthSpec>(
         validators
             .into_iter()
             .map(|v| {
-                let voting_keypair = load_voting_keypair(&v, &secrets_dir)?;
+                let voting_keypair = load_voting_keypair(&v, &secrets_dir, stdin_inputs)?;
                 Ok((v, voting_keypair))
             })
             .collect::<Result<Vec<_>, String>>()?,
         topup_amount_gwei,
         &client,
         &spec,
+        stdin_inputs,
     ))?;
 
     let total_gwei: u64 = eth1_deposit_datas
@@ -281,11 +287,14 @@ async fn generate_deposit_datas(
     amount: u64,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
+    stdin_inputs: bool,
 ) -> Result<Vec<(ValidatorDir, Eth1DepositData)>, String> {
     let mut res = vec![];
     for d in data {
         // Return an error if any of the deposit data generation returns an error
-        if let Some(deposit_data) = generate_deposit_data(d.0, &d.1, amount, client, spec).await? {
+        if let Some(deposit_data) =
+            generate_deposit_data(d.0, &d.1, amount, client, spec, stdin_inputs).await?
+        {
             res.push(deposit_data);
         }
     }
@@ -299,6 +308,7 @@ async fn generate_deposit_data(
     amount: u64,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
+    stdin_inputs: bool,
 ) -> Result<Option<(ValidatorDir, Eth1DepositData)>, String> {
     let withdrawal_credentials = get_withdrawal_credentials(&voting_keypair.pk, &client).await?;
     eprintln!(
@@ -306,7 +316,7 @@ async fn generate_deposit_data(
         voting_keypair.pk, withdrawal_credentials
     );
     eprintln!("Please verify the withdrawal credentials. Enter (y/Y) to continue or anything else to abort: ");
-    let confirmation = account_utils::read_input_from_user(false)?;
+    let confirmation = account_utils::read_input_from_user(stdin_inputs)?;
     if confirmation == "y" || confirmation == "Y" {
         match ValidatorDir::eth1_deposit_data_topup(
             amount,
@@ -373,6 +383,7 @@ pub async fn get_withdrawal_credentials(
 fn load_voting_keypair(
     validator_dir: &ValidatorDir,
     secrets_dir: &PathBuf,
+    stdin_inputs: bool,
 ) -> Result<Keypair, String> {
     match validator_dir.voting_keypair(&secrets_dir) {
         Ok(keypair) => Ok(keypair),
@@ -388,7 +399,7 @@ fn load_voting_keypair(
             if let Some(keystore_path) = voting_keystore_path {
                 eprintln!("");
                 eprintln!("{}", PASSWORD_PROMPT);
-                let password = account_utils::read_password_from_user(false)?;
+                let password = account_utils::read_password_from_user(stdin_inputs)?;
                 let keystore =
                     eth2_keystore::Keystore::from_json_file(&keystore_path).map_err(|e| {
                         format!("Unable to read keystore JSON {:?}: {:?}", keystore_path, e)
