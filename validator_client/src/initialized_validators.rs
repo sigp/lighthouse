@@ -443,7 +443,7 @@ impl InitializedValidators {
     /// Returns `Ok(true)` if decryption was successful, `Ok(false)` if it couldn't get decrypted
     /// and an error if a needed password couldn't get extracted.
     ///
-    fn decrypt_key_cache(
+    async fn decrypt_key_cache(
         &self,
         mut cache: KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
@@ -508,10 +508,12 @@ impl InitializedValidators {
         }
 
         //decrypt
-        Ok(match cache.decrypt(passwords, public_keys) {
+        tokio::task::spawn_blocking(move || match cache.decrypt(passwords, public_keys) {
             Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => cache,
             _ => KeyCache::new(),
         })
+        .await
+        .map_err(Error::TokioJoin)
     }
 
     /// Scans `self.definitions` and attempts to initialize and validators which are not already
@@ -535,10 +537,13 @@ impl InitializedValidators {
             .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
         create_lock_file(&cache_lockfile_path, self.delete_lockfiles, &self.log)?;
 
-        let mut key_cache = self.decrypt_key_cache(
-            KeyCache::open_or_create(&self.validators_dir).map_err(Error::UnableToOpenKeyCache)?,
-            &mut key_stores,
-        )?;
+        let mut key_cache = self
+            .decrypt_key_cache(
+                KeyCache::open_or_create(&self.validators_dir)
+                    .map_err(Error::UnableToOpenKeyCache)?,
+                &mut key_stores,
+            )
+            .await?;
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
