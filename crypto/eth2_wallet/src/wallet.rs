@@ -66,7 +66,6 @@ impl<'a> WalletBuilder<'a> {
         password: &'a [u8],
         name: String,
     ) -> Result<Self, Error> {
-        // TODO: `bip39` does not use zeroize. Perhaps we should make a PR upstream?
         let seed = Bip39Seed::new(mnemonic, "");
 
         Self::from_seed_bytes(seed.as_bytes(), password, name)
