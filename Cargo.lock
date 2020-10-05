@@ -257,6 +257,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0db678acb667b525ac40a324fc5f7d3390e29239b31c7327bb8157f5b4fff593"
 
 [[package]]
+name = "attohttpc"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baf13118df3e3dce4b5ac930641343b91b656e4e72c8f8325838b01a4b1c9d45"
+dependencies = [
+ "http 0.2.1",
+ "log 0.4.11",
+ "url 2.1.1",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2401,6 +2412,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "igd"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fd32c880165b2f776af0b38d206d1cabaebcf46c166ac6ae004a5d45f7d48ef"
+dependencies = [
+ "attohttpc",
+ "log 0.4.11",
+ "rand 0.7.3",
+ "url 2.1.1",
+ "xmltree",
+]
+
+[[package]]
 name = "impl-codec"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3316,8 +3340,10 @@ dependencies = [
  "fnv",
  "futures 0.3.5",
  "genesis",
+ "get_if_addrs",
  "hashset_delay",
  "hex 0.4.2",
+ "igd",
  "itertools 0.9.0",
  "lazy_static",
  "lighthouse_metrics",
@@ -6460,6 +6486,21 @@ dependencies = [
  "curve25519-dalek 2.1.0",
  "rand_core 0.5.1",
  "zeroize",
+]
+
+[[package]]
+name = "xml-rs"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b07db065a5cf61a7e4ba64f29e67db906fb1787316516c4e6e5ff0fea1efcd8a"
+
+[[package]]
+name = "xmltree"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f76badaccb0313f1f0cb6582c2973f2dd0620f9652eb7a5ff6ced0cc3ac922b3"
+dependencies = [
+ "xml-rs",
 ]
 
 [[package]]

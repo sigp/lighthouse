@@ -13,7 +13,7 @@ eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 eth2_ssz = { path = "../consensus/ssz" } 
 slog = "2.5.2"
 sloggers = "1.0.1"
-tokio = "0.2.21"
+tokio = "0.2.22"
 log = "0.4.8"
 slog-term = "2.6.0"
 logging = { path = "../common/logging" }

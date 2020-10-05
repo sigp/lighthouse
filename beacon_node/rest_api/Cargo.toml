@@ -24,7 +24,7 @@ state_processing = { path = "../../consensus/state_processing" }
 types = { path = "../../consensus/types" }
 http = "0.2.1"
 hyper = "0.13.5"
-tokio = { version = "0.2.21", features = ["sync"] }
+tokio = { version = "0.2.22", features = ["sync"] }
 url = "2.1.1"
 lazy_static = "1.4.0"
 eth2_config = { path = "../../common/eth2_config" }

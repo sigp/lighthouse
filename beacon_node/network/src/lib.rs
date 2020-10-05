@@ -8,6 +8,7 @@ pub mod service;
 mod attestation_service;
 mod beacon_processor;
 mod metrics;
+mod nat;
 mod persisted_dht;
 mod router;
 mod sync;
