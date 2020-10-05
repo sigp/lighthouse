@@ -46,8 +46,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(VALIDATOR_FLAG)
                 .value_name("VALIDATOR_NAME")
                 .help(
-                    "The name of the directory in --data-dir for which to deposit. \
-                    Set to 'all' to deposit all validators in the --data-dir.",
+                    "The name of the directory in --data-dir for which to topup. \
+                    Set to 'all' to topup all validators in the --data-dir.",
                 )
                 .takes_value(true)
                 .required(true),
@@ -73,7 +73,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(FROM_ADDRESS_FLAG)
                 .value_name("FROM_ETH1_ADDRESS")
                 .help(
-                    "The address that will submit the eth1 deposit. \
+                    "The address that will submit the eth1 topup deposit. \
                     Must be unlocked on the node at --eth1-ipc.",
                 )
                 .takes_value(true)
@@ -285,7 +285,7 @@ pub fn cli_run<T: EthSpec>(
 
 /// Generate deposit data for a list of validators.
 async fn generate_deposit_datas(
-    data: Vec<(ValidatorDir, bls::Keypair)>,
+    data: Vec<(ValidatorDir, Keypair)>,
     amount: u64,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
@@ -306,7 +306,7 @@ async fn generate_deposit_datas(
 /// Generate deposit data for a single validator.
 async fn generate_deposit_data(
     dir: ValidatorDir,
-    voting_keypair: &bls::Keypair,
+    voting_keypair: &Keypair,
     amount: u64,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
@@ -352,7 +352,7 @@ pub async fn get_withdrawal_credentials(
         .map_err(|e| format!("Failed to get validator details: {:?}", e))?
         .ok_or_else(|| {
             format!(
-                "Validator {} is not present in the beacon state",
+                "Validator {} is not present in the beacon state. Please ensure that your beacon node is synced",
                 validator_pubkey
             )
         })?
@@ -381,7 +381,6 @@ pub async fn get_withdrawal_credentials(
 ///
 /// First attempt to load the password for the validator from the `secrets_dir`, if not
 /// present, prompt user for the password.
-///  TODO(pawan) -> keypair should be dropped correctly in the caller.
 fn load_voting_keypair(
     validator_dir: &ValidatorDir,
     secrets_dir: &PathBuf,
@@ -443,7 +442,7 @@ fn load_voting_keypair(
 /// Reads a `validator_dir` and returns the first valid keystore path found in the directory.
 fn read_voting_keystore_path(
     path: &PathBuf,
-    voting_keystore: &mut Option<PathBuf>,
+    voting_keystore_path: &mut Option<PathBuf>,
 ) -> Result<(), std::io::Error> {
     std::fs::read_dir(path)?.try_for_each(|dir_entry| {
         let dir_entry = dir_entry?;
@@ -454,7 +453,7 @@ fn read_voting_keystore_path(
                 account_utils::validator_definitions::is_voting_keystore,
             )
         {
-            *voting_keystore = Some(dir_entry.path());
+            *voting_keystore_path = Some(dir_entry.path());
         }
         Ok(())
     })
