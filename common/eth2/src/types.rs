@@ -2,7 +2,7 @@
 //! required for the HTTP API.
 
 use eth2_libp2p::{Enr, Multiaddr};
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
@@ -203,7 +203,30 @@ pub struct ValidatorData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub balance: u64,
     pub status: ValidatorStatus,
+    #[serde(serialize_with = "serialize_validator")]
     pub validator: Validator,
+}
+
+fn serialize_validator<S>(value: &Validator, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let mut validator = serializer.serialize_struct("validator", 8)?;
+    validator.serialize_field("pubkey", &value.pubkey)?;
+    validator.serialize_field("withdrawal_credentials", &value.withdrawal_credentials)?;
+    validator.serialize_field("effective_balance", &format!("{}", value.effective_balance))?;
+    validator.serialize_field("slashed", &value.slashed)?;
+    validator.serialize_field(
+        "activation_eligibility_epoch",
+        &format!("{}", value.activation_eligibility_epoch),
+    )?;
+    validator.serialize_field("activation_epoch", &format!("{}", value.activation_epoch))?;
+    validator.serialize_field("exit_epoch", &format!("{}", &value.exit_epoch))?;
+    validator.serialize_field(
+        "withdrawable_epoch",
+        &format!("{}", value.withdrawable_epoch),
+    )?;
+    validator.end()
 }
 
 // TODO: This does not currently match the spec, but I'm going to try and change the spec using
