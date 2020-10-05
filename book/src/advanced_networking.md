@@ -33,7 +33,7 @@ Beyond a handful of peers, this is not true. On all current tested networks,
 the bottleneck for syncing is not the network bandwidth of downloading blocks,
 rather it is the CPU load of processing the blocks themselves. Most of the
 time, the network is idle, waiting for blocks to be processed. Having a very
-large peer count, will not speed up sync.
+large peer count will not speed up sync.
 
 For these reasons, we recommend user's do not modify the `--target-peer` count
 drastically and use the (recommended) default.
