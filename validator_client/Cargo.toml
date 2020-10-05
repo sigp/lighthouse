@@ -16,35 +16,35 @@ deposit_contract = { path = "../common/deposit_contract" }
 [dependencies]
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../common/eth2_config" }
-tree_hash = "0.1.0"
-clap = "2.33.0"
+tree_hash = "0.1.1"
+clap = "2.33.3"
 eth2_interop_keypairs = { path = "../common/eth2_interop_keypairs" }
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }
 types = { path = "../consensus/types" }
-serde = "1.0.110"
-serde_derive = "1.0.110"
-serde_json = "1.0.52"
+serde = "1.0.116"
+serde_derive = "1.0.116"
+serde_json = "1.0.58"
 serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
-slog-term = "2.5.0"
+slog-term = "2.6.0"
 tokio = { version = "0.2.22", features = ["time"] }
 futures = { version = "0.3.5", features = ["compat"] }
-dirs = "2.0.2"
+dirs = "3.0.1"
 directory = {path = "../common/directory"}
 logging = { path = "../common/logging" }
 environment = { path = "../lighthouse/environment" }
 parking_lot = "0.11.0"
 exit-future = "0.2.0"
-libc = "0.2.69"
+libc = "0.2.79"
 eth2_ssz_derive = "0.1.0"
 hex = "0.4.2"
 deposit_contract = { path = "../common/deposit_contract" }
 bls = { path = "../crypto/bls" }
 eth2 = { path = "../common/eth2" }
 tempdir = "0.3.7"
-rayon = "1.3.0"
+rayon = "1.4.1"
 validator_dir = { path = "../common/validator_dir" }
 clap_utils = { path = "../common/clap_utils" }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
@@ -52,7 +52,7 @@ account_utils = { path = "../common/account_utils" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
 warp = "0.2.5"
-hyper = "0.13.5"
+hyper = "0.13.8"
 serde_utils = { path = "../consensus/serde_utils" }
 libsecp256k1 = "0.3.5"
 ring = "0.16.12"

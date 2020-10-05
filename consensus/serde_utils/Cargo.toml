@@ -5,9 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com", "Michael Sproul <michael@sigmapri
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0.110", features = ["derive"] }
-serde_derive = "1.0.110"
+serde = { version = "1.0.116", features = ["derive"] }
+serde_derive = "1.0.116"
 hex = "0.4.2"
 
 [dev-dependencies]
-serde_json = "1.0.52"
+serde_json = "1.0.58"

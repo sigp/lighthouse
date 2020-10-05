@@ -7,9 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-prometheus = "0.9.0"
+prometheus = "0.10.0"
 warp = "0.2.5"
-serde = { version = "1.0.110", features = ["derive"] }
+serde = { version = "1.0.116", features = ["derive"] }
 slog = "2.5.2"
 beacon_chain = { path = "../beacon_chain" }
 store = { path = "../store" }
@@ -22,7 +22,7 @@ lighthouse_version = { path = "../../common/lighthouse_version" }
 warp_utils = { path = "../../common/warp_utils" }
 
 [dev-dependencies]
-tokio = { version = "0.2.21", features = ["sync"] }
+tokio = { version = "0.2.22", features = ["sync"] }
 reqwest = { version = "0.10.8", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 types = { path = "../../consensus/types" }
