@@ -279,6 +279,21 @@ fn aggregated_gossip_verification() {
     );
 
     /*
+     * This is not in the specification for aggregate attestations (only unaggregates), but we
+     * check it anyway to avoid weird edge cases.
+     */
+    let unknown_root = Hash256::from_low_u64_le(424242);
+    assert_invalid!(
+        "attestation with invalid target root",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.target.root = unknown_root;
+            a
+        },
+        AttnError::InvalidTargetRoot { .. }
+    );
+
+    /*
      * The following test ensures:
      *
      * Spec v0.12.1

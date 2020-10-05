@@ -56,6 +56,8 @@ pub enum Error {
     TokioJoin(tokio::task::JoinError),
     /// There was a filesystem error when deleting a lockfile.
     UnableToDeleteLockfile(io::Error),
+    /// Cannot initialize the same validator twice.
+    DuplicatePublicKey,
 }
 
 /// A method used by a validator to sign messages.
@@ -320,6 +322,42 @@ impl InitializedValidators {
         self.validators
             .get(voting_public_key)
             .map(|v| v.voting_keypair())
+    }
+
+    /// Add a validator definition to `self`, overwriting the on-disk representation of `self`.
+    pub async fn add_definition(&mut self, def: ValidatorDefinition) -> Result<(), Error> {
+        if self
+            .definitions
+            .as_slice()
+            .iter()
+            .any(|existing| existing.voting_public_key == def.voting_public_key)
+        {
+            return Err(Error::DuplicatePublicKey);
+        }
+
+        self.definitions.push(def);
+
+        self.update_validators().await?;
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Returns a slice of all defined validators (regardless of their enabled state).
+    pub fn validator_definitions(&self) -> &[ValidatorDefinition] {
+        self.definitions.as_slice()
+    }
+
+    /// Indicates if the `voting_public_key` exists in self and if it is enabled.
+    pub fn is_enabled(&self, voting_public_key: &PublicKey) -> Option<bool> {
+        self.definitions
+            .as_slice()
+            .iter()
+            .find(|def| def.voting_public_key == *voting_public_key)
+            .map(|def| def.enabled)
     }
 
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.

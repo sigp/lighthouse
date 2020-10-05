@@ -2,31 +2,32 @@ use environment::RuntimeContext;
 use eth2::{types::StateId, BeaconNodeHttpClient};
 use futures::StreamExt;
 use parking_lot::RwLock;
+use slog::Logger;
 use slog::{debug, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
-use types::{ChainSpec, EthSpec, Fork};
+use types::{EthSpec, Fork};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
 
 /// Builds a `ForkService`.
-pub struct ForkServiceBuilder<T, E: EthSpec> {
+pub struct ForkServiceBuilder<T> {
     fork: Option<Fork>,
     slot_clock: Option<T>,
     beacon_node: Option<BeaconNodeHttpClient>,
-    context: Option<RuntimeContext<E>>,
+    log: Option<Logger>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
+impl<T: SlotClock + 'static> ForkServiceBuilder<T> {
     pub fn new() -> Self {
         Self {
             fork: None,
             slot_clock: None,
             beacon_node: None,
-            context: None,
+            log: None,
         }
     }
 
@@ -40,12 +41,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
         self
     }
 
-    pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
-        self.context = Some(context);
+    pub fn log(mut self, log: Logger) -> Self {
+        self.log = Some(log);
         self
     }
 
-    pub fn build(self) -> Result<ForkService<T, E>, String> {
+    pub fn build(self) -> Result<ForkService<T>, String> {
         Ok(ForkService {
             inner: Arc::new(Inner {
                 fork: RwLock::new(self.fork),
@@ -55,28 +56,48 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
                 beacon_node: self
                     .beacon_node
                     .ok_or_else(|| "Cannot build ForkService without beacon_node")?,
-                context: self
-                    .context
-                    .ok_or_else(|| "Cannot build ForkService without runtime_context")?,
+                log: self
+                    .log
+                    .ok_or_else(|| "Cannot build ForkService without logger")?
+                    .clone(),
             }),
         })
     }
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
+impl ForkServiceBuilder<slot_clock::TestingSlotClock> {
+    pub fn testing_only(log: Logger) -> Self {
+        Self {
+            fork: Some(types::Fork::default()),
+            slot_clock: Some(slot_clock::TestingSlotClock::new(
+                types::Slot::new(0),
+                std::time::Duration::from_secs(42),
+                std::time::Duration::from_secs(42),
+            )),
+            beacon_node: Some(eth2::BeaconNodeHttpClient::new(
+                eth2::Url::parse("http://127.0.0.1").unwrap(),
+            )),
+            log: Some(log),
+        }
+    }
+}
+
 /// Helper to minimise `Arc` usage.
-pub struct Inner<T, E: EthSpec> {
+pub struct Inner<T> {
     fork: RwLock<Option<Fork>>,
     beacon_node: BeaconNodeHttpClient,
-    context: RuntimeContext<E>,
+    log: Logger,
     slot_clock: T,
 }
 
 /// Attempts to download the `Fork` struct from the beacon node at the start of each epoch.
-pub struct ForkService<T, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct ForkService<T> {
+    inner: Arc<Inner<T>>,
 }
 
-impl<T, E: EthSpec> Clone for ForkService<T, E> {
+impl<T> Clone for ForkService<T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -84,22 +105,27 @@ impl<T, E: EthSpec> Clone for ForkService<T, E> {
     }
 }
 
-impl<T, E: EthSpec> Deref for ForkService<T, E> {
-    type Target = Inner<T, E>;
+impl<T> Deref for ForkService<T> {
+    type Target = Inner<T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
+impl<T: SlotClock + 'static> ForkService<T> {
     /// Returns the last fork downloaded from the beacon node, if any.
     pub fn fork(&self) -> Option<Fork> {
         *self.fork.read()
     }
 
     /// Starts the service that periodically polls for the `Fork`.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service<E: EthSpec>(
+        self,
+        context: &RuntimeContext<E>,
+    ) -> Result<(), String> {
+        let spec = &context.eth2_config.spec;
+
         let duration_to_next_epoch = self
             .slot_clock
             .duration_to_next_epoch(E::slots_per_epoch())
@@ -115,13 +141,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         };
 
         // Run an immediate update before starting the updater service.
-        self.inner
-            .context
+        context
             .executor
             .runtime_handle()
             .spawn(self.clone().do_update());
 
-        let executor = self.inner.context.executor.clone();
+        let executor = context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
@@ -136,8 +161,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
     /// Attempts to download the `Fork` from the server.
     async fn do_update(self) -> Result<(), ()> {
-        let log = self.context.log();
-
         let fork = self
             .inner
             .beacon_node
@@ -145,14 +168,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             .await
             .map_err(|e| {
                 trace!(
-                    log,
+                    self.log,
                     "Fork update failed";
                     "error" => format!("Error retrieving fork: {:?}", e)
                 )
             })?
             .ok_or_else(|| {
                 trace!(
-                    log,
+                    self.log,
                     "Fork update failed";
                     "error" => "The beacon head fork is unknown"
                 )
@@ -163,7 +186,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             *(self.fork.write()) = Some(fork);
         }
 
-        debug!(log, "Fork update success");
+        debug!(self.log, "Fork update success");
 
         // Returning an error will stop the interval. This is not desired, a single failure
         // should not stop all future attempts.

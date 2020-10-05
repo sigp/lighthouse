@@ -23,6 +23,7 @@ dependencies = [
  "libc",
  "rand 0.7.3",
  "rayon",
+ "slashing_protection",
  "slog",
  "slog-async",
  "slog-term",
@@ -297,6 +298,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0db678acb667b525ac40a324fc5f7d3390e29239b31c7327bb8157f5b4fff593"
 
 [[package]]
+name = "attohttpc"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baf13118df3e3dce4b5ac930641343b91b656e4e72c8f8325838b01a4b1c9d45"
+dependencies = [
+ "http 0.2.1",
+ "log 0.4.11",
+ "url 2.1.1",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -370,6 +382,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
+ "exit-future",
  "fork_choice",
  "futures 0.3.5",
  "genesis",
@@ -388,6 +401,7 @@ dependencies = [
  "rand 0.7.3",
  "rand_core 0.5.1",
  "rayon",
+ "regex",
  "safe_arith",
  "serde",
  "serde_derive",
@@ -427,6 +441,7 @@ dependencies = [
  "exit-future",
  "futures 0.3.5",
  "genesis",
+ "hex 0.4.2",
  "hyper 0.13.8",
  "lighthouse_version",
  "logging",
@@ -1524,16 +1539,22 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
+ "account_utils",
+ "bytes 0.5.6",
+ "eth2_keystore",
  "eth2_libp2p",
  "hex 0.4.2",
+ "libsecp256k1",
  "procinfo",
  "proto_array",
  "psutil",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "serde_utils",
  "types",
+ "zeroize",
 ]
 
 [[package]]
@@ -1636,6 +1657,7 @@ dependencies = [
  "sha2 0.9.1",
  "slog",
  "slog-async",
+ "slog-stdlog",
  "slog-term",
  "smallvec 1.4.2",
  "snap",
@@ -1870,6 +1892,7 @@ dependencies = [
  "beacon_chain",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "hex 0.4.2",
  "proto_array",
  "slot_clock",
  "state_processing",
@@ -2564,6 +2587,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "igd"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fd32c880165b2f776af0b38d206d1cabaebcf46c166ac6ae004a5d45f7d48ef"
+dependencies = [
+ "attohttpc",
+ "log 0.4.11",
+ "rand 0.7.3",
+ "url 2.1.1",
+ "xmltree",
+]
+
+[[package]]
 name = "impl-codec"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2791,9 +2827,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.77"
+version = "0.2.78"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f96b10ec2560088a8e76961b00d47107b3a625fecb76dedb29ee7ccbf98235"
+checksum = "aa7087f49d294270db4e1928fc110c976cd4b9e5a16348e0a1df09afa99e6c98"
 
 [[package]]
 name = "libflate"
@@ -3112,6 +3148,7 @@ dependencies = [
  "futures 0.3.5",
  "lighthouse_version",
  "logging",
+ "slashing_protection",
  "slog",
  "slog-async",
  "slog-term",
@@ -3507,8 +3544,10 @@ dependencies = [
  "fnv",
  "futures 0.3.5",
  "genesis",
+ "get_if_addrs",
  "hashset_delay",
  "hex 0.4.2",
+ "igd",
  "itertools 0.9.0",
  "lazy_static",
  "lighthouse_metrics",
@@ -3897,18 +3936,18 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "0.4.24"
+version = "0.4.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f48fad7cfbff853437be7cf54d7b993af21f53be7f0988cbfe4a51535aa77205"
+checksum = "13fbdfd6bdee3dc9be46452f86af4a4072975899cf8592466668620bebfbcc17"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "0.4.24"
+version = "0.4.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24c6d293bdd3ca5a1697997854c6cf7855e43fb6a0ba1c47af57a5bcafd158ae"
+checksum = "c82fb1329f632c3552cf352d14427d57a511b1cf41db93b3a7d77906a82dcc8e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3917,9 +3956,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-lite"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fe74897791e156a0cd8cce0db31b9b2198e67877316bf3086c3acd187f719f0"
+checksum = "e555d9e657502182ac97b539fb3dae8b79cda19e3e4f8ffb5e8de4f18df93c95"
 
 [[package]]
 name = "pin-utils"
@@ -4009,9 +4048,9 @@ checksum = "eba180dafb9038b050a4c280019bbedf9f2467b61e5d892dcad585bb57aadc5a"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.23"
+version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51ef7cd2518ead700af67bf9d1a658d90b6037d77110fd9c0445429d0ba1c6c9"
+checksum = "1e0704ee1a7e00d7bb417d0770ea303c1bccbabf0ef1667dae92b5967f5f8a71"
 dependencies = [
  "unicode-xid",
 ]
@@ -4107,9 +4146,9 @@ dependencies = [
 
 [[package]]
 name = "protobuf"
-version = "2.17.0"
+version = "2.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb14183cc7f213ee2410067e1ceeadba2a7478a59432ff0747a335202798b1e2"
+checksum = "6d147edb77bcccbfc81fabffdc7bd50c13e103b15ca1e27515fe40de69a5776b"
 
 [[package]]
 name = "psutil"
@@ -4941,9 +4980,9 @@ checksum = "29f060a7d147e33490ec10da418795238fd7545bba241504d6b31a409f2e6210"
 
 [[package]]
 name = "simple_logger"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13a53ed2efd04911c8280f2da7bf9abd350c931b86bc7f9f2386fbafbf525ff9"
+checksum = "b36ca4371e647131759047d7a0ac5e41e11fd540e0a49c9e158b1b94193081a1"
 dependencies = [
  "atty",
  "chrono",
@@ -4990,6 +5029,10 @@ dependencies = [
  "r2d2_sqlite",
  "rayon",
  "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_utils",
  "tempfile",
  "tree_hash",
  "types",
@@ -5565,8 +5608,7 @@ dependencies = [
 [[package]]
 name = "tiny-bip39"
 version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0165e045cc2ae1660270ca65e1676dbaab60feb0f91b10f7d0665e9b47e31f2"
+source = "git+https://github.com/sigp/tiny-bip39.git?rev=1137c32da91bd5e75db4305a84ddd15255423f7f#1137c32da91bd5e75db4305a84ddd15255423f7f"
 dependencies = [
  "failure",
  "hmac 0.7.1",
@@ -5576,6 +5618,7 @@ dependencies = [
  "rustc-hash",
  "sha2 0.8.2",
  "unicode-normalization",
+ "zeroize",
 ]
 
 [[package]]
@@ -6307,13 +6350,19 @@ dependencies = [
  "exit-future",
  "futures 0.3.5",
  "hex 0.4.2",
+ "hyper 0.13.8",
  "libc",
+ "libsecp256k1",
+ "lighthouse_version",
  "logging",
  "parking_lot 0.11.0",
+ "rand 0.7.3",
  "rayon",
+ "ring",
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_utils",
  "serde_yaml",
  "slashing_protection",
  "slog",
@@ -6321,10 +6370,13 @@ dependencies = [
  "slog-term",
  "slot_clock",
  "tempdir",
+ "tempfile",
  "tokio 0.2.22",
  "tree_hash",
  "types",
  "validator_dir",
+ "warp",
+ "warp_utils",
 ]
 
 [[package]]
@@ -6440,7 +6492,9 @@ dependencies = [
  "beacon_chain",
  "eth2",
  "safe_arith",
+ "serde",
  "state_processing",
+ "tokio 0.2.22",
  "types",
  "warp",
 ]
@@ -6780,6 +6834,21 @@ dependencies = [
  "curve25519-dalek 3.0.0",
  "rand_core 0.5.1",
  "zeroize",
+]
+
+[[package]]
+name = "xml-rs"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b07db065a5cf61a7e4ba64f29e67db906fb1787316516c4e6e5ff0fea1efcd8a"
+
+[[package]]
+name = "xmltree"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f76badaccb0313f1f0cb6582c2973f2dd0620f9652eb7a5ff6ced0cc3ac922b3"
+dependencies = [
+ "xml-rs",
 ]
 
 [[package]]

@@ -63,6 +63,8 @@ pub enum SigningDefinition {
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
+    #[serde(default)]
+    pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
 }
@@ -88,6 +90,7 @@ impl ValidatorDefinition {
         Ok(ValidatorDefinition {
             enabled: true,
             voting_public_key,
+            description: keystore.description().unwrap_or_else(|| "").to_string(),
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path: None,
@@ -205,6 +208,7 @@ impl ValidatorDefinitions {
                 Some(ValidatorDefinition {
                     enabled: true,
                     voting_public_key,
+                    description: keystore.description().unwrap_or_else(|| "").to_string(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,

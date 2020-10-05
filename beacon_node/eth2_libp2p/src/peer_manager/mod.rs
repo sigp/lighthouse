@@ -322,15 +322,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.connect_peer(peer_id, ConnectingType::OutgoingConnected { multiaddr })
     }
 
-    /// Updates the database informing that a peer is being disconnected.
-    pub fn _disconnecting_peer(&mut self, _peer_id: &PeerId) -> bool {
-        // TODO: implement
-        // This informs the database that we are in the process of disconnecting the
-        // peer. Currently this state only exists for a short period of time before we force the
-        // disconnection.
-        true
-    }
-
     /// Reports if a peer is banned or not.
     ///
     /// This is used to determine if we should accept incoming connections.

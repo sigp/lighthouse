@@ -3,7 +3,7 @@
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
 master key, making the validators keys _children_ of the master key. This
-scheme means that a single 12-word mnemonic can be used to backup all of your
+scheme means that a single 24-word mnemonic can be used to backup all of your
 validator keys without providing any observable link between them (i.e., it is
 privacy-retaining). Hierarchical key derivation schemes are common-place in
 cryptocurrencies, they are already used by most hardware and software wallets
@@ -13,8 +13,10 @@ to secure BTC, ETH and many other coins.
 
 We defined some terms in the context of validator key management:
 
-- **Mnemonic**: a string of 12-words that is designed to be easy to write down
-	and remember. E.g., _"enemy fog enlist laundry nurse hungry discover turkey holiday resemble glad discover"_.
+- **Mnemonic**: a string of 24 words that is designed to be easy to write down
+	and remember. E.g., _"radar fly lottery mirror fat icon bachelor sadness
+	type exhaust mule six beef arrest you spirit clog mango snap fox citizen
+	already bird erase"_.
 	- Defined in BIP-39
 - **Wallet**: a wallet is a JSON file which stores an
 	encrypted version of a mnemonic.
@@ -49,7 +51,7 @@ In step (1), we created a wallet in `~/.lighthouse/{testnet}/wallets` with the n
 
 Thanks to the hierarchical key derivation scheme, we can delete all of the
 aforementioned directories and then regenerate them as long as we remembered
-the 12-word mnemonic (we don't recommend doing this, though).
+the 24-word mnemonic (we don't recommend doing this, though).
 
 Creating another validator is easy, it's just a matter of repeating step (2).
 The wallet keeps track of how many validators it has generated and ensures that

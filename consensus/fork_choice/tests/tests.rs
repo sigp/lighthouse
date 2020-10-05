@@ -4,17 +4,19 @@ use beacon_chain::{
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
     },
-    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ForkChoiceError, StateSkipConfig,
+    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
+    StateSkipConfig,
 };
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
+use std::fmt;
 use std::sync::Mutex;
 use store::{MemoryStore, StoreConfig};
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
-    Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
+    Checkpoint, Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
 };
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
@@ -35,6 +37,13 @@ struct ForkChoiceTest {
     harness: BeaconChainHarness<NullMigratorEphemeralHarnessType<E>>,
 }
 
+/// Allows us to use `unwrap` in some cases.
+impl fmt::Debug for ForkChoiceTest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ForkChoiceTest").finish()
+    }
+}
+
 impl ForkChoiceTest {
     /// Creates a new tester.
     pub fn new() -> Self {
@@ -44,6 +53,20 @@ impl ForkChoiceTest {
             // Ensure we always have an aggregator for each slot.
             u64::max_value(),
             StoreConfig::default(),
+        );
+
+        Self { harness }
+    }
+
+    /// Creates a new tester with a custom chain config.
+    pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
+        let harness = BeaconChainHarness::new_with_chain_config(
+            MainnetEthSpec,
+            generate_deterministic_keypairs(VALIDATOR_COUNT),
+            // Ensure we always have an aggregator for each slot.
+            u64::max_value(),
+            StoreConfig::default(),
+            chain_config,
         );
 
         Self { harness }
@@ -87,6 +110,36 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Assert the given slot is greater than the head slot.
+    pub fn assert_finalized_epoch_is_less_than(self, epoch: Epoch) -> Self {
+        assert!(
+            self.harness
+                .chain
+                .head_info()
+                .unwrap()
+                .finalized_checkpoint
+                .epoch
+                < epoch
+        );
+        self
+    }
+
+    /// Assert there was a shutdown signal sent by the beacon chain.
+    pub fn assert_shutdown_signal_sent(mut self) -> Self {
+        self.harness.shutdown_receiver.close();
+        let msg = self.harness.shutdown_receiver.try_next().unwrap();
+        assert!(msg.is_some());
+        self
+    }
+
+    /// Assert no shutdown was signal sent by the beacon chain.
+    pub fn assert_shutdown_signal_not_sent(mut self) -> Self {
+        self.harness.shutdown_receiver.close();
+        let msg = self.harness.shutdown_receiver.try_next().unwrap();
+        assert!(msg.is_none());
+        self
+    }
+
     /// Inspect the queued attestations in fork choice.
     pub fn inspect_queued_attestations<F>(self, mut func: F) -> Self
     where
@@ -116,8 +169,8 @@ impl ForkChoiceTest {
         self
     }
 
-    /// Build the chain whilst `predicate` returns `true`.
-    pub fn apply_blocks_while<F>(mut self, mut predicate: F) -> Self
+    /// Build the chain whilst `predicate` returns `true` and `process_block_result` does not error.
+    pub fn apply_blocks_while<F>(mut self, mut predicate: F) -> Result<Self, Self>
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
     {
@@ -131,13 +184,16 @@ impl ForkChoiceTest {
             if !predicate(&block.message, &state) {
                 break;
             }
-            let block_hash = self.harness.process_block(slot, block.clone());
-            self.harness
-                .attest_block(&state, block_hash, &block, &validators);
-            self.harness.advance_slot();
+            if let Ok(block_hash) = self.harness.process_block_result(slot, block.clone()) {
+                self.harness
+                    .attest_block(&state, block_hash, &block, &validators);
+                self.harness.advance_slot();
+            } else {
+                return Err(self);
+            }
         }
 
-        self
+        Ok(self)
     }
 
     /// Apply `count` blocks to the chain (with attestations).
@@ -409,6 +465,7 @@ fn is_safe_to_update(slot: Slot) -> bool {
 fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .unwrap()
         .move_inside_safe_to_update()
         .assert_justified_epoch(0)
         .apply_blocks(1)
@@ -422,6 +479,7 @@ fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
 fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch <= 2)
+        .unwrap()
         .move_outside_safe_to_update()
         .assert_justified_epoch(2)
         .assert_best_justified_epoch(2)
@@ -436,6 +494,7 @@ fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
 fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .unwrap()
         .move_to_next_unsafe_period()
         .assert_justified_epoch(0)
         .assert_best_justified_epoch(0)
@@ -451,6 +510,7 @@ fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
 fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .unwrap()
         .apply_blocks(1)
         .move_inside_safe_to_update()
         .assert_justified_epoch(2)
@@ -476,6 +536,7 @@ fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_fi
 fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .unwrap()
         .apply_blocks(1)
         .move_to_next_unsafe_period()
         .assert_justified_epoch(2)
@@ -501,6 +562,7 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_f
 fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .unwrap()
         .apply_blocks(1)
         .move_to_next_unsafe_period()
         .assert_justified_epoch(2)
@@ -524,6 +586,7 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_fina
 fn justified_balances() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .unwrap()
         .apply_blocks(1)
         .assert_justified_epoch(2)
         .check_justified_balances()
@@ -590,6 +653,7 @@ fn invalid_block_future_slot() {
 fn invalid_block_finalized_slot() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
         .apply_blocks(1)
         .apply_invalid_block_directly_to_fork_choice(
             |block, _| {
@@ -619,6 +683,7 @@ fn invalid_block_finalized_descendant() {
 
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
         .apply_blocks(1)
         .assert_finalized_epoch(2)
         .apply_invalid_block_directly_to_fork_choice(
@@ -904,6 +969,232 @@ fn valid_attestation_skip_across_epoch() {
 fn can_read_finalized_block() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
         .apply_blocks(1)
         .check_finalized_block_is_accessible();
+}
+
+#[test]
+#[should_panic]
+fn weak_subjectivity_fail_on_startup() {
+    let epoch = Epoch::new(0);
+    let root = Hash256::from_low_u64_le(1);
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
+        import_max_skip_slots: None,
+    };
+
+    ForkChoiceTest::new_with_chain_config(chain_config);
+}
+
+#[test]
+fn weak_subjectivity_pass_on_startup() {
+    let epoch = Epoch::new(0);
+    let root = Hash256::zero();
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
+        import_max_skip_slots: None,
+    };
+
+    ForkChoiceTest::new_with_chain_config(chain_config)
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .assert_shutdown_signal_not_sent();
+}
+
+#[test]
+fn weak_subjectivity_check_passes() {
+    let setup_harness = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(2);
+
+    let checkpoint = setup_harness
+        .harness
+        .chain
+        .head_info()
+        .unwrap()
+        .finalized_checkpoint;
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(checkpoint),
+        import_max_skip_slots: None,
+    };
+
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(2)
+        .assert_shutdown_signal_not_sent();
+}
+
+#[test]
+fn weak_subjectivity_check_fails_early_epoch() {
+    let setup_harness = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(2);
+
+    let mut checkpoint = setup_harness
+        .harness
+        .chain
+        .head_info()
+        .unwrap()
+        .finalized_checkpoint;
+
+    checkpoint.epoch = checkpoint.epoch - 1;
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(checkpoint),
+        import_max_skip_slots: None,
+    };
+
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 3)
+        .unwrap_err()
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
+        .assert_shutdown_signal_sent();
+}
+
+#[test]
+fn weak_subjectivity_check_fails_late_epoch() {
+    let setup_harness = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(2);
+
+    let mut checkpoint = setup_harness
+        .harness
+        .chain
+        .head_info()
+        .unwrap()
+        .finalized_checkpoint;
+
+    checkpoint.epoch = checkpoint.epoch + 1;
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(checkpoint),
+        import_max_skip_slots: None,
+    };
+
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 4)
+        .unwrap_err()
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
+        .assert_shutdown_signal_sent();
+}
+
+#[test]
+fn weak_subjectivity_check_fails_incorrect_root() {
+    let setup_harness = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(2);
+
+    let mut checkpoint = setup_harness
+        .harness
+        .chain
+        .head_info()
+        .unwrap()
+        .finalized_checkpoint;
+
+    checkpoint.root = Hash256::zero();
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(checkpoint),
+        import_max_skip_slots: None,
+    };
+
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 3)
+        .unwrap_err()
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
+        .assert_shutdown_signal_sent();
+}
+
+#[test]
+fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
+    let setup_harness = ForkChoiceTest::new()
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap();
+
+    // get the head, it will become the finalized root of epoch 4
+    let checkpoint_root = setup_harness.harness.chain.head_info().unwrap().block_root;
+
+    setup_harness
+        // epoch 3 will be entirely skip slots
+        .skip_slots(E::slots_per_epoch() as usize)
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 5)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(5);
+
+    // the checkpoint at epoch 4 should become the root of last block of epoch 2
+    let checkpoint = Checkpoint {
+        epoch: Epoch::new(4),
+        root: checkpoint_root,
+    };
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(checkpoint),
+        import_max_skip_slots: None,
+    };
+
+    // recreate the chain exactly
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
+        .skip_slots(E::slots_per_epoch() as usize)
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 5)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(5)
+        .assert_shutdown_signal_not_sent();
+}
+
+#[test]
+fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
+    let setup_harness = ForkChoiceTest::new()
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap();
+
+    // get the head, it will become the finalized root of epoch 4
+    let checkpoint_root = setup_harness.harness.chain.head_info().unwrap().block_root;
+
+    setup_harness
+        // epoch 3 will be entirely skip slots
+        .skip_slots(E::slots_per_epoch() as usize)
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 5)
+        .unwrap()
+        .apply_blocks(1)
+        .assert_finalized_epoch(5);
+
+    // Invalid checkpoint (epoch too early)
+    let checkpoint = Checkpoint {
+        epoch: Epoch::new(1),
+        root: checkpoint_root,
+    };
+
+    let chain_config = ChainConfig {
+        weak_subjectivity_checkpoint: Some(checkpoint),
+        import_max_skip_slots: None,
+    };
+
+    // recreate the chain exactly
+    ForkChoiceTest::new_with_chain_config(chain_config.clone())
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .unwrap()
+        .skip_slots(E::slots_per_epoch() as usize)
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch < 6)
+        .unwrap_err()
+        .assert_finalized_epoch_is_less_than(checkpoint.epoch)
+        .assert_shutdown_signal_sent();
 }

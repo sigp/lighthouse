@@ -14,7 +14,7 @@ milagro = ["bls/milagro"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
-tokio = "0.2.21"
+tokio = "0.2.22"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.0"
 types = { "path" = "../consensus/types" }
@@ -38,3 +38,4 @@ account_utils = { path = "../common/account_utils" }
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
+slashing_protection = { path = "../validator_client/slashing_protection" }

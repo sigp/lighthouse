@@ -101,6 +101,15 @@ pub fn not_synced(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(NotSynced(msg))
 }
 
+#[derive(Debug)]
+pub struct InvalidAuthorization(pub String);
+
+impl Reject for InvalidAuthorization {}
+
+pub fn invalid_auth(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(InvalidAuthorization(msg))
+}
+
 /// This function receives a `Rejection` and tries to return a custom
 /// value, otherwise simply passes the rejection along.
 pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
@@ -150,6 +159,15 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::NotSynced>() {
         code = StatusCode::SERVICE_UNAVAILABLE;
         message = format!("SERVICE_UNAVAILABLE: beacon node is syncing: {}", e.0);
+    } else if let Some(e) = err.find::<crate::reject::InvalidAuthorization>() {
+        code = StatusCode::FORBIDDEN;
+        message = format!("FORBIDDEN: Invalid auth token: {}", e.0);
+    } else if let Some(e) = err.find::<warp::reject::MissingHeader>() {
+        code = StatusCode::BAD_REQUEST;
+        message = format!("BAD_REQUEST: missing {} header", e.name());
+    } else if let Some(e) = err.find::<warp::reject::InvalidHeader>() {
+        code = StatusCode::BAD_REQUEST;
+        message = format!("BAD_REQUEST: invalid {} header", e.name());
     } else if err.find::<warp::reject::MethodNotAllowed>().is_some() {
         code = StatusCode::METHOD_NOT_ALLOWED;
         message = "METHOD_NOT_ALLOWED".to_string();

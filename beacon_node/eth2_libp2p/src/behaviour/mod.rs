@@ -5,7 +5,7 @@ use crate::types::{GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
-use handler::{BehaviourHandler, BehaviourHandlerIn, BehaviourHandlerOut, DelegateIn, DelegateOut};
+use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
@@ -591,7 +591,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     } => {
                         if matches!(error, RPCError::HandlerRejected) {
                             // this peer's request got canceled
-                            // TODO: cancel processing for this request
                         }
                         // Inform the peer manager of the error.
                         // An inbound error here means we sent an error to the peer, or the stream
@@ -624,8 +623,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // TODO: inform the peer manager?
                     }
                     RPCRequest::Goodbye(reason) => {
-                        // let the peer manager know this peer is in the process of disconnecting
-                        self.peer_manager._disconnecting_peer(&peer_id);
                         // queue for disconnection without a goodbye message
                         debug!(
                             self.log, "Peer sent Goodbye";
@@ -975,17 +972,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             return;
         }
 
+        // Events comming from the handler, redirected to each behaviour
         match event {
-            // Events comming from the handler, redirected to each behaviour
-            BehaviourHandlerOut::Delegate(delegate) => match *delegate {
-                DelegateOut::Gossipsub(ev) => self.gossipsub.inject_event(peer_id, conn_id, ev),
-                DelegateOut::RPC(ev) => self.eth2_rpc.inject_event(peer_id, conn_id, ev),
-                DelegateOut::Identify(ev) => self.identify.inject_event(peer_id, conn_id, *ev),
-            },
-            /* Custom events sent BY the handler */
-            BehaviourHandlerOut::Custom => {
-                // TODO: implement
-            }
+            DelegateOut::Gossipsub(ev) => self.gossipsub.inject_event(peer_id, conn_id, ev),
+            DelegateOut::RPC(ev) => self.eth2_rpc.inject_event(peer_id, conn_id, ev),
+            DelegateOut::Identify(ev) => self.identify.inject_event(peer_id, conn_id, *ev),
         }
     }
 
@@ -1003,7 +994,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             self.waker = Some(cx.waker().clone());
         }
 
-        // TODO: move where it's less distracting
         macro_rules! poll_behaviour {
             /* $behaviour:  The sub-behaviour being polled.
              * $on_event_fn:  Function to call if we get an event from the sub-behaviour.

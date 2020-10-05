@@ -12,7 +12,6 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
 use crate::head_tracker::HeadTracker;
-use crate::metrics;
 use crate::migrate::Migrate;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
 use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
@@ -27,7 +26,9 @@ use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
+use crate::{metrics, BeaconChainError};
 use fork_choice::ForkChoice;
+use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
@@ -224,6 +225,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
+    /// Sender given to tasks, so that if they encounter a state in which execution cannot
+    /// continue they can request that everything shuts down.
+    pub shutdown_sender: Sender<&'static str>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -727,9 +731,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block canonical root of the current canonical chain at a given slot.
     ///
-    /// Returns None if a block doesn't exist at the slot.
+    /// Returns `None` if the given slot doesn't exist in the chain.
     pub fn root_at_slot(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
         process_results(self.rev_iter_block_roots()?, |mut iter| {
+            iter.find(|(_, slot)| *slot == target_slot)
+                .map(|(root, _)| root)
+        })
+    }
+
+    /// Returns the block canonical root of the current canonical chain at a given slot, starting from the given state.
+    ///
+    /// Returns `None` if the given slot doesn't exist in the chain.
+    pub fn root_at_slot_from_state(
+        &self,
+        target_slot: Slot,
+        beacon_block_root: Hash256,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<Option<Hash256>, Error> {
+        let iter = BlockRootsIterator::new(self.store.clone(), state);
+        let iter_with_head = std::iter::once(Ok((beacon_block_root, state.slot)))
+            .chain(iter)
+            .map(|result| result.map_err(|e| e.into()));
+
+        process_results(iter_with_head, |mut iter| {
             iter.find(|(_, slot)| *slot == target_slot)
                 .map(|(root, _)| root)
         })
@@ -1274,7 +1298,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::NotFinalizedDescendant { block_parent_root },
-                    }
+                    };
                 }
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
@@ -1282,7 +1306,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::BeaconChainError(e),
-                    }
+                    };
                 }
                 // If the block was decided to be irrelevant for any other reason, don't include
                 // this block or any of it's children in the filtered chain segment.
@@ -1316,7 +1340,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
                         error,
-                    }
+                    };
                 }
             };
 
@@ -1328,7 +1352,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         return ChainSegmentResult::Failed {
                             imported_blocks,
                             error,
-                        }
+                        };
                     }
                 }
             }
@@ -1536,6 +1560,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signed_block =
             check_block_is_finalized_descendant::<T, _>(signed_block, &fork_choice, &self.store)?;
         let block = &signed_block.message;
+
+        // compare the existing finalized checkpoint with the incoming block's finalized checkpoint
+        let old_finalized_checkpoint = fork_choice.finalized_checkpoint();
+        let new_finalized_checkpoint = state.finalized_checkpoint;
+
+        // Only perform the weak subjectivity check if it was configured.
+        if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
+            // This ensures we only perform the check once.
+            if (old_finalized_checkpoint.epoch < wss_checkpoint.epoch)
+                && (wss_checkpoint.epoch <= new_finalized_checkpoint.epoch)
+            {
+                if let Err(e) =
+                    self.verify_weak_subjectivity_checkpoint(wss_checkpoint, block_root, &state)
+                {
+                    let mut shutdown_sender = self.shutdown_sender();
+                    crit!(
+                        self.log,
+                        "Weak subjectivity checkpoint verification failed while importing block!";
+                        "block_root" => format!("{:?}", block_root),
+                        "parent_root" => format!("{:?}", block.parent_root),
+                        "old_finalized_epoch" => format!("{:?}", old_finalized_checkpoint.epoch),
+                        "new_finalized_epoch" => format!("{:?}", new_finalized_checkpoint.epoch),
+                        "weak_subjectivity_epoch" => format!("{:?}", wss_checkpoint.epoch),
+                        "error" => format!("{:?}", e),
+                    );
+                    crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                    shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                        .map_err(|err|BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?;
+                    return Err(BlockError::WeakSubjectivityConflict);
+                }
+            }
+        }
 
         // Register the new block with the fork choice service.
         {
@@ -1951,6 +2007,60 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.
+    /// If the weak subjectivity checkpoint and finalized checkpoint share the same epoch, we compare
+    /// roots. If we the weak subjectivity checkpoint is from an older epoch, we iterate back through
+    /// roots in the canonical chain until we reach the finalized checkpoint from the correct epoch, and
+    /// compare roots. This must called on startup and during verification of any block which causes a finality
+    /// change affecting the weak subjectivity checkpoint.
+    pub fn verify_weak_subjectivity_checkpoint(
+        &self,
+        wss_checkpoint: Checkpoint,
+        beacon_block_root: Hash256,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<(), BeaconChainError> {
+        let finalized_checkpoint = state.finalized_checkpoint;
+        info!(self.log, "Verifying the configured weak subjectivity checkpoint"; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
+        // If epochs match, simply compare roots.
+        if wss_checkpoint.epoch == finalized_checkpoint.epoch
+            && wss_checkpoint.root != finalized_checkpoint.root
+        {
+            crit!(
+                self.log,
+                 "Root found at the specified checkpoint differs";
+                  "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
+                  "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
+            );
+            return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
+        } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
+            let slot = wss_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
+
+            // Iterate backwards through block roots from the given state. If first slot of the epoch is a skip-slot,
+            // this will return the root of the closest prior non-skipped slot.
+            match self.root_at_slot_from_state(slot, beacon_block_root, state)? {
+                Some(root) => {
+                    if root != wss_checkpoint.root {
+                        crit!(
+                            self.log,
+                             "Root found at the specified checkpoint differs";
+                              "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
+                              "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
+                        );
+                        return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
+                    }
+                }
+                None => {
+                    crit!(self.log, "The root at the start slot of the given epoch could not be found";
+                    "wss_checkpoint_slot" => format!("{:?}", slot));
+                    return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Called by the timer on every slot.
     ///
     /// Performs slot-based pruning.
@@ -2307,6 +2417,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         writeln!(output, "}}").unwrap();
+    }
+
+    /// Get a channel to request shutting down.
+    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+        self.shutdown_sender.clone()
     }
 
     // Used for debugging

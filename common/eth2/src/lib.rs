@@ -9,6 +9,7 @@
 
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
+pub mod lighthouse_vc;
 pub mod types;
 
 use self::types::*;
@@ -30,6 +31,14 @@ pub enum Error {
     StatusCode(StatusCode),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
     InvalidUrl(Url),
+    /// The supplied validator client secret is invalid.
+    InvalidSecret(String),
+    /// The server returned a response with an invalid signature. It may be an impostor.
+    InvalidSignatureHeader,
+    /// The server returned a response without a signature header. It may be an impostor.
+    MissingSignatureHeader,
+    /// The server returned an invalid JSON response.
+    InvalidJson(serde_json::Error),
 }
 
 impl Error {
@@ -40,6 +49,10 @@ impl Error {
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
             Error::InvalidUrl(_) => None,
+            Error::InvalidSecret(_) => None,
+            Error::InvalidSignatureHeader => None,
+            Error::MissingSignatureHeader => None,
+            Error::InvalidJson(_) => None,
         }
     }
 }
@@ -531,7 +544,7 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET config/fork_schedule`
+    /// `GET config/spec`
     pub async fn get_config_spec(&self) -> Result<GenericResponse<YamlConfig>, Error> {
         let mut path = self.eth_path()?;
 
