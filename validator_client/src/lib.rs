@@ -6,6 +6,7 @@ mod duties_service;
 mod fork_service;
 mod initialized_validators;
 mod is_synced;
+mod key_cache;
 mod notifier;
 mod validator_duty;
 mod validator_store;

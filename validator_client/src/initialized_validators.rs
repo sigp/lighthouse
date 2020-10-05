@@ -11,14 +11,18 @@ use account_utils::{
     validator_definitions::{
         self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
     },
+    ZeroizeString,
 };
 use eth2_keystore::Keystore;
-use slog::{error, info, warn, Logger};
-use std::collections::HashMap;
+use slog::{debug, error, info, warn, Logger};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::PathBuf;
 use types::{Keypair, PublicKey};
+
+use crate::key_cache;
+use crate::key_cache::KeyCache;
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
@@ -37,9 +41,11 @@ pub enum Error {
     },
     /// There was a filesystem error when opening the keystore.
     UnableToOpenVotingKeystore(io::Error),
+    UnableToOpenKeyCache(key_cache::Error),
     /// The keystore path is not as expected. It should be a file, not `..` or something obscure
     /// like that.
     BadVotingKeystorePath(PathBuf),
+    BadKeyCachePath(PathBuf),
     /// The keystore could not be parsed, it is likely bad JSON.
     UnableToParseVotingKeystore(eth2_keystore::Error),
     /// The keystore could not be decrypted. The password might be wrong.
@@ -79,6 +85,59 @@ pub struct InitializedValidator {
     signing_method: SigningMethod,
 }
 
+fn open_keystore(path: &PathBuf) -> Result<Keystore, Error> {
+    let keystore_file = File::open(path).map_err(Error::UnableToOpenVotingKeystore)?;
+    Keystore::from_json_reader(keystore_file).map_err(Error::UnableToParseVotingKeystore)
+}
+
+fn get_lockfile_path(file_path: &PathBuf) -> Option<PathBuf> {
+    file_path
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .map(|filename| {
+            file_path
+                .clone()
+                .with_file_name(format!("{}.lock", filename))
+        })
+}
+
+fn create_lock_file(
+    file_path: &PathBuf,
+    delete_lockfiles: bool,
+    log: &Logger,
+) -> Result<(), Error> {
+    if file_path.exists() {
+        if delete_lockfiles {
+            warn!(
+                log,
+                "Deleting validator lockfile";
+                "file" => format!("{:?}", file_path)
+            );
+
+            fs::remove_file(file_path).map_err(Error::UnableToDeleteLockfile)?;
+        } else {
+            return Err(Error::LockfileExists(file_path.clone()));
+        }
+    }
+    // Create a new lockfile.
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(file_path)
+        .map_err(Error::UnableToCreateLockfile)?;
+    Ok(())
+}
+
+fn remove_lock(lock_path: &PathBuf) {
+    if lock_path.exists() {
+        if let Err(e) = fs::remove_file(&lock_path) {
+            eprintln!("Failed to remove {:?}: {:?}", lock_path, e)
+        }
+    } else {
+        eprintln!("Lockfile missing: {:?}", lock_path)
+    }
+}
+
 impl InitializedValidator {
     /// Instantiate `self` from a `ValidatorDefinition`.
     ///
@@ -88,10 +147,12 @@ impl InitializedValidator {
     /// ## Errors
     ///
     /// If the validator is unable to be initialized for whatever reason.
-    pub fn from_definition(
+    async fn from_definition(
         def: ValidatorDefinition,
         delete_lockfiles: bool,
         log: &Logger,
+        key_cache: &mut KeyCache,
+        key_stores: &mut HashMap<PathBuf, Keystore>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -105,30 +166,55 @@ impl InitializedValidator {
                 voting_keystore_password_path,
                 voting_keystore_password,
             } => {
-                let keystore_file =
-                    File::open(&voting_keystore_path).map_err(Error::UnableToOpenVotingKeystore)?;
-                let voting_keystore = Keystore::from_json_reader(keystore_file)
-                    .map_err(Error::UnableToParseVotingKeystore)?;
+                use std::collections::hash_map::Entry::*;
+                let voting_keystore = match key_stores.entry(voting_keystore_path.clone()) {
+                    Vacant(entry) => entry.insert(open_keystore(&voting_keystore_path)?),
+                    Occupied(entry) => entry.into_mut(),
+                };
 
-                let voting_keypair = match (voting_keystore_password_path, voting_keystore_password)
-                {
-                    // If the password is supplied, use it and ignore the path (if supplied).
-                    (_, Some(password)) => voting_keystore
-                        .decrypt_keypair(password.as_ref())
-                        .map_err(Error::UnableToDecryptKeystore)?,
-                    // If only the path is supplied, use the path.
-                    (Some(path), None) => {
-                        let password = read_password(path)
-                            .map_err(Error::UnableToReadVotingKeystorePassword)?;
-
-                        voting_keystore
-                            .decrypt_keypair(password.as_bytes())
-                            .map_err(Error::UnableToDecryptKeystore)?
-                    }
-                    // If there is no password available, maybe prompt for a password.
-                    (None, None) => {
-                        unlock_keystore_via_stdin_password(&voting_keystore, &voting_keystore_path)?
-                    }
+                let voting_keypair = if let Some(keypair) = key_cache.get(voting_keystore.uuid()) {
+                    keypair
+                } else {
+                    let keystore = voting_keystore.clone();
+                    let keystore_path = voting_keystore_path.clone();
+                    // Decoding a local keystore can take several seconds, therefore it's best
+                    // to keep if off the core executor. This also has the fortunate effect of
+                    // interrupting the potentially long-running task during shut down.
+                    let (password, keypair) = tokio::task::spawn_blocking(move || {
+                        Ok(
+                            match (voting_keystore_password_path, voting_keystore_password) {
+                                // If the password is supplied, use it and ignore the path
+                                // (if supplied).
+                                (_, Some(password)) => (
+                                    password.as_ref().to_vec().into(),
+                                    keystore
+                                        .decrypt_keypair(password.as_ref())
+                                        .map_err(Error::UnableToDecryptKeystore)?,
+                                ),
+                                // If only the path is supplied, use the path.
+                                (Some(path), None) => {
+                                    let password = read_password(path)
+                                        .map_err(Error::UnableToReadVotingKeystorePassword)?;
+                                    let keypair = keystore
+                                        .decrypt_keypair(password.as_bytes())
+                                        .map_err(Error::UnableToDecryptKeystore)?;
+                                    (password, keypair)
+                                }
+                                // If there is no password available, maybe prompt for a password.
+                                (None, None) => {
+                                    let (password, keypair) = unlock_keystore_via_stdin_password(
+                                        &keystore,
+                                        &keystore_path,
+                                    )?;
+                                    (password.as_ref().to_vec().into(), keypair)
+                                }
+                            },
+                        )
+                    })
+                    .await
+                    .map_err(Error::TokioJoin)??;
+                    key_cache.add(keypair.clone(), voting_keystore.uuid(), password);
+                    keypair
                 };
 
                 if voting_keypair.pk != def.voting_public_key {
@@ -139,47 +225,16 @@ impl InitializedValidator {
                 }
 
                 // Append a `.lock` suffix to the voting keystore.
-                let voting_keystore_lockfile_path = voting_keystore_path
-                    .file_name()
-                    .ok_or_else(|| Error::BadVotingKeystorePath(voting_keystore_path.clone()))
-                    .and_then(|os_str| {
-                        os_str.to_str().ok_or_else(|| {
-                            Error::BadVotingKeystorePath(voting_keystore_path.clone())
-                        })
-                    })
-                    .map(|filename| {
-                        voting_keystore_path
-                            .clone()
-                            .with_file_name(format!("{}.lock", filename))
-                    })?;
+                let voting_keystore_lockfile_path = get_lockfile_path(&voting_keystore_path)
+                    .ok_or_else(|| Error::BadVotingKeystorePath(voting_keystore_path.clone()))?;
 
-                if voting_keystore_lockfile_path.exists() {
-                    if delete_lockfiles {
-                        warn!(
-                            log,
-                            "Deleting validator lockfile";
-                            "file" => format!("{:?}", voting_keystore_lockfile_path)
-                        );
-
-                        fs::remove_file(&voting_keystore_lockfile_path)
-                            .map_err(Error::UnableToDeleteLockfile)?;
-                    } else {
-                        return Err(Error::LockfileExists(voting_keystore_lockfile_path));
-                    }
-                } else {
-                    // Create a new lockfile.
-                    OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&voting_keystore_lockfile_path)
-                        .map_err(Error::UnableToCreateLockfile)?;
-                }
+                create_lock_file(&voting_keystore_lockfile_path, delete_lockfiles, &log)?;
 
                 Ok(Self {
                     signing_method: SigningMethod::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_lockfile_path,
-                        voting_keystore,
+                        voting_keystore: voting_keystore.clone(),
                         voting_keypair,
                     },
                 })
@@ -210,16 +265,7 @@ impl Drop for InitializedValidator {
                 voting_keystore_lockfile_path,
                 ..
             } => {
-                if voting_keystore_lockfile_path.exists() {
-                    if let Err(e) = fs::remove_file(&voting_keystore_lockfile_path) {
-                        eprintln!(
-                            "Failed to remove {:?}: {:?}",
-                            voting_keystore_lockfile_path, e
-                        )
-                    }
-                } else {
-                    eprintln!("Lockfile missing: {:?}", voting_keystore_lockfile_path)
-                }
+                remove_lock(voting_keystore_lockfile_path);
             }
         }
     }
@@ -229,7 +275,7 @@ impl Drop for InitializedValidator {
 fn unlock_keystore_via_stdin_password(
     keystore: &Keystore,
     keystore_path: &PathBuf,
-) -> Result<Keypair, Error> {
+) -> Result<(ZeroizeString, Keypair), Error> {
     eprintln!("");
     eprintln!(
         "The {} file does not contain either of the following fields for {:?}:",
@@ -255,7 +301,7 @@ fn unlock_keystore_via_stdin_password(
         eprintln!("");
 
         match keystore.decrypt_keypair(password.as_ref()) {
-            Ok(keystore) => break Ok(keystore),
+            Ok(keystore) => break Ok((password, keystore)),
             Err(eth2_keystore::Error::InvalidPassword) => {
                 eprintln!("Invalid password, try again (or press Ctrl+c to exit):");
             }
@@ -269,9 +315,8 @@ fn unlock_keystore_via_stdin_password(
 ///
 /// Forms the fundamental list of validators that are managed by this validator client instance.
 pub struct InitializedValidators {
-    /// If `true`, no validator will be opened if a lockfile exists. If `false`, a warning will be
-    /// raised for an existing lockfile, but it will ultimately be ignored.
-    strict_lockfiles: bool,
+    /// If `true`, delete any validator keystore lockfiles that would prevent starting.
+    delete_lockfiles: bool,
     /// A list of validator definitions which can be stored on-disk.
     definitions: ValidatorDefinitions,
     /// The directory that the `self.definitions` will be saved into.
@@ -287,11 +332,11 @@ impl InitializedValidators {
     pub async fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
-        strict_lockfiles: bool,
+        delete_lockfiles: bool,
         log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
-            strict_lockfiles,
+            delete_lockfiles,
             validators_dir,
             definitions,
             validators: HashMap::default(),
@@ -393,6 +438,84 @@ impl InitializedValidators {
         Ok(())
     }
 
+    /// Tries to decrypt the key cache.
+    ///
+    /// Returns `Ok(true)` if decryption was successful, `Ok(false)` if it couldn't get decrypted
+    /// and an error if a needed password couldn't get extracted.
+    ///
+    async fn decrypt_key_cache(
+        &self,
+        mut cache: KeyCache,
+        key_stores: &mut HashMap<PathBuf, Keystore>,
+    ) -> Result<KeyCache, Error> {
+        //read relevant key_stores
+        let mut definitions_map = HashMap::new();
+        for def in self.definitions.as_slice() {
+            match &def.signing_definition {
+                SigningDefinition::LocalKeystore {
+                    voting_keystore_path,
+                    ..
+                } => {
+                    use std::collections::hash_map::Entry::*;
+                    let key_store = match key_stores.entry(voting_keystore_path.clone()) {
+                        Vacant(entry) => entry.insert(open_keystore(voting_keystore_path)?),
+                        Occupied(entry) => entry.into_mut(),
+                    };
+                    definitions_map.insert(*key_store.uuid(), def);
+                }
+            }
+        }
+
+        //check if all paths are in the definitions_map
+        for uuid in cache.uuids() {
+            if !definitions_map.contains_key(uuid) {
+                warn!(
+                    self.log,
+                    "Unknown uuid in cache";
+                    "uuid" => format!("{}", uuid)
+                );
+                return Ok(KeyCache::new());
+            }
+        }
+
+        //collect passwords
+        let mut passwords = Vec::new();
+        let mut public_keys = Vec::new();
+        for uuid in cache.uuids() {
+            let def = definitions_map.get(uuid).expect("Existence checked before");
+            let pw = match &def.signing_definition {
+                SigningDefinition::LocalKeystore {
+                    voting_keystore_password_path,
+                    voting_keystore_password,
+                    voting_keystore_path,
+                } => {
+                    if let Some(p) = voting_keystore_password {
+                        p.as_ref().to_vec().into()
+                    } else if let Some(path) = voting_keystore_password_path {
+                        read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
+                    } else {
+                        let keystore = open_keystore(voting_keystore_path)?;
+                        unlock_keystore_via_stdin_password(&keystore, &voting_keystore_path)?
+                            .0
+                            .as_ref()
+                            .to_vec()
+                            .into()
+                    }
+                }
+            };
+            passwords.push(pw);
+            public_keys.push(def.voting_public_key.clone());
+        }
+
+        //decrypt
+        tokio::task::spawn_blocking(move || match cache.decrypt(passwords, public_keys) {
+            Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => cache,
+            _ => KeyCache::new(),
+        })
+        .await
+        .map_err(Error::TokioJoin)
+    }
+
     /// Scans `self.definitions` and attempts to initialize and validators which are not already
     /// initialized.
     ///
@@ -405,31 +528,48 @@ impl InitializedValidators {
     /// I.e., if there are two different definitions with the same public key then the second will
     /// be ignored.
     async fn update_validators(&mut self) -> Result<(), Error> {
+        //use key cache if available
+        let mut key_stores = HashMap::new();
+
+        // Create a lock file for the cache
+        let key_cache_path = KeyCache::cache_file_path(&self.validators_dir);
+        let cache_lockfile_path = get_lockfile_path(&key_cache_path)
+            .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
+        create_lock_file(&cache_lockfile_path, self.delete_lockfiles, &self.log)?;
+
+        let mut key_cache = self
+            .decrypt_key_cache(
+                KeyCache::open_or_create(&self.validators_dir)
+                    .map_err(Error::UnableToOpenKeyCache)?,
+                &mut key_stores,
+            )
+            .await?;
+
+        let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
             if def.enabled {
                 match &def.signing_definition {
-                    SigningDefinition::LocalKeystore { .. } => {
+                    SigningDefinition::LocalKeystore {
+                        voting_keystore_path,
+                        ..
+                    } => {
                         if self.validators.contains_key(&def.voting_public_key) {
                             continue;
                         }
 
-                        // Decoding a local keystore can take several seconds, therefore it's best
-                        // to keep if off the core executor. This also has the fortunate effect of
-                        // interrupting the potentially long-running task during shut down.
-                        let inner_def = def.clone();
-                        let strict_lockfiles = self.strict_lockfiles;
-                        let inner_log = self.log.clone();
-                        let result = tokio::task::spawn_blocking(move || {
-                            InitializedValidator::from_definition(
-                                inner_def,
-                                strict_lockfiles,
-                                &inner_log,
-                            )
-                        })
-                        .await
-                        .map_err(Error::TokioJoin)?;
+                        if let Some(key_store) = key_stores.get(voting_keystore_path) {
+                            disabled_uuids.remove(key_store.uuid());
+                        }
 
-                        match result {
+                        match InitializedValidator::from_definition(
+                            def.clone(),
+                            self.delete_lockfiles,
+                            &self.log,
+                            &mut key_cache,
+                            &mut key_stores,
+                        )
+                        .await
+                        {
                             Ok(init) => {
                                 self.validators
                                     .insert(init.voting_public_key().clone(), init);
@@ -455,12 +595,48 @@ impl InitializedValidators {
                 }
             } else {
                 self.validators.remove(&def.voting_public_key);
+                match &def.signing_definition {
+                    SigningDefinition::LocalKeystore {
+                        voting_keystore_path,
+                        ..
+                    } => {
+                        if let Some(key_store) = key_stores.get(voting_keystore_path) {
+                            disabled_uuids.insert(*key_store.uuid());
+                        }
+                    }
+                }
+
                 info!(
                     self.log,
                     "Disabled validator";
                     "voting_pubkey" => format!("{:?}", def.voting_public_key)
                 );
             }
+        }
+        for uuid in disabled_uuids {
+            key_cache.remove(&uuid);
+        }
+
+        let validators_dir = self.validators_dir.clone();
+        let log = self.log.clone();
+        if key_cache.is_modified() {
+            tokio::task::spawn_blocking(move || {
+                match key_cache.save(validators_dir) {
+                    Err(e) => warn!(
+                        log,
+                        "Error during saving of key_cache";
+                        "err" => format!("{:?}", e)
+                    ),
+                    Ok(true) => info!(log, "Modified key_cache saved successfully"),
+                    _ => {}
+                };
+                remove_lock(&cache_lockfile_path);
+            })
+            .await
+            .map_err(Error::TokioJoin)?;
+        } else {
+            debug!(log, "Key cache not modified");
+            remove_lock(&cache_lockfile_path);
         }
         Ok(())
     }
