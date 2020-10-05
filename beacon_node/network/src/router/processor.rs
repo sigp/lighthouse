@@ -89,8 +89,6 @@ impl<T: BeaconChainTypes> Processor<T> {
                 "error" => %e,
             )
         });
-        }
-        }
     }
 
     /// Handle a peer disconnect.
