@@ -28,6 +28,7 @@
 	* [WebSocket](./websockets.md)
 * [Advanced Usage](./advanced.md)
     * [Database Configuration](./advanced_database.md)
+    * [Advanced Networking](./advanced_networking.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
 * [FAQs](./faq.md)
