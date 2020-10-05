@@ -5,6 +5,7 @@ use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_attestations::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
+use futures::channel::mpsc::TrySendError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
@@ -83,6 +84,8 @@ pub enum BeaconChainError {
     ObservedBlockProducersError(ObservedBlockProducersError),
     PruningError(PruningError),
     ArithError(ArithError),
+    WeakSubjectivtyVerificationFailure,
+    WeakSubjectivtyShutdownError(TrySendError<&'static str>),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

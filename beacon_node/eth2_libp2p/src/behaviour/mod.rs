@@ -828,9 +828,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         // If the peer manager (and therefore the behaviour's) believe this peer connected, inform
         // about the disconnection.
         if self.network_globals.peers.read().is_connected(&peer_id) {
-            return;
+            delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
         }
-        delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
     }
 
     // This gets called once there are no more active connections.

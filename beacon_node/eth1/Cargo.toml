@@ -24,7 +24,7 @@ tree_hash = "0.1.0"
 eth2_hashing = "0.1.0"
 parking_lot = "0.11.0"
 slog = "2.5.2"
-tokio = { version = "0.2.21", features = ["full"] }
+tokio = { version = "0.2.22", features = ["full"] }
 state_processing = { path = "../../consensus/state_processing" }
 libflate = "1.0.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics"}

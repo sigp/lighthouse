@@ -1,34 +1,81 @@
-use beacon_node::{get_data_dir, set_network_config};
+use beacon_node::{get_data_dir, get_eth2_testnet_config, set_network_config};
 use clap::ArgMatches;
-use discv5::{enr::CombinedKey, Enr};
+use eth2_libp2p::discv5::{enr::CombinedKey, Enr};
 use eth2_libp2p::{
     discovery::{create_enr_builder_from_config, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
+use eth2_testnet_config::Eth2TestnetConfig;
+use ssz::Encode;
 use std::convert::TryFrom;
+use std::marker::PhantomData;
 use std::net::SocketAddr;
+use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
-pub struct BootNodeConfig {
+pub struct BootNodeConfig<T: EthSpec> {
     pub listen_socket: SocketAddr,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
     pub local_key: CombinedKey,
     pub auto_update: bool,
+    phantom: PhantomData<T>,
 }
 
-impl TryFrom<&ArgMatches<'_>> for BootNodeConfig {
+impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
     type Error = String;
 
     fn try_from(matches: &ArgMatches<'_>) -> Result<Self, Self::Error> {
         let data_dir = get_data_dir(matches);
+
+        // Try and grab testnet config from input CLI params
+        let eth2_testnet_config: Option<Eth2TestnetConfig<T>> = {
+            if matches.is_present("testnet") {
+                Some(get_eth2_testnet_config(&matches)?)
+            } else {
+                None
+            }
+        };
+
+        // Try and obtain bootnodes
+
+        let boot_nodes = {
+            let mut boot_nodes = Vec::new();
+
+            if let Some(testnet_config) = eth2_testnet_config.as_ref() {
+                if let Some(enr) = &testnet_config.boot_enr {
+                    boot_nodes.extend_from_slice(enr);
+                }
+            }
+
+            if let Some(nodes) = matches.value_of("boot-nodes") {
+                boot_nodes.extend_from_slice(
+                    &nodes
+                        .split(',')
+                        .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
+                        .collect::<Result<Vec<Enr>, _>>()?,
+                );
+            }
+
+            boot_nodes
+        };
 
         let mut network_config = NetworkConfig::default();
 
         let logger = slog_scope::logger();
 
         set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
+        // default to the standard port
+        if !matches.is_present("enr-udp-port") {
+            network_config.enr_udp_port = Some(
+                matches
+                    .value_of("port")
+                    .expect("Value required")
+                    .parse()
+                    .map_err(|_| "Invalid port number")?,
+            );
+        }
 
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
@@ -39,16 +86,38 @@ impl TryFrom<&ArgMatches<'_>> for BootNodeConfig {
 
         use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
 
-        let boot_nodes = {
-            if let Some(boot_nodes) = matches.value_of("boot-nodes") {
-                boot_nodes
-                    .split(',')
-                    .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
-                    .collect::<Result<Vec<Enr>, _>>()?
+        // build the enr_fork_id and add it to the local_enr if it exists
+        if let Some(config) = eth2_testnet_config.as_ref() {
+            let spec = config
+                .yaml_config
+                .as_ref()
+                .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+                .apply_to_chain_spec::<T>(&T::default_spec())
+                .ok_or_else(|| "The loaded config is not compatible with the current spec")?;
+
+            if let Some(genesis_state) = config.genesis_state.as_ref() {
+                slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
+                let enr_fork = spec.enr_fork_id(
+                    types::Slot::from(0u64),
+                    genesis_state.genesis_validators_root,
+                );
+
+                // add to the local_enr
+                if let Err(e) = local_enr.insert("eth2", enr_fork.as_ssz_bytes(), &local_key) {
+                    slog::warn!(logger, "Could not update eth2 field"; "error" => ?e);
+                }
             } else {
-                Vec::new()
+                slog::warn!(
+                    logger,
+                    "No genesis state provided. No Eth2 field added to the ENR"
+                );
             }
-        };
+        } else {
+            slog::warn!(
+                logger,
+                "No testnet config provided. Not setting an eth2 field"
+            );
+        }
 
         let auto_update = matches.is_present("enable-enr_auto_update");
 
@@ -62,6 +131,7 @@ impl TryFrom<&ArgMatches<'_>> for BootNodeConfig {
             local_enr,
             local_key,
             auto_update,
+            phantom: PhantomData,
         })
     }
 }

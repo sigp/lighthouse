@@ -240,7 +240,7 @@ pub enum Error {
     /// The peer has sent an invalid message.
     InvalidTargetRoot {
         attestation: Hash256,
-        expected: Hash256,
+        expected: Option<Hash256>,
     },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
@@ -350,7 +350,16 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        verify_head_block_is_known(chain, &attestation, None)?;
+        let head_block = verify_head_block_is_known(chain, &attestation, None)?;
+
+        // Check the attestation target root is consistent with the head root.
+        //
+        // This check is not in the specification, however we guard against it since it opens us up
+        // to weird edge cases during verification.
+        //
+        // Whilst this attestation *technically* could be used to add value to a block, it is
+        // invalid in the spirit of the protocol. Here we choose safety over profit.
+        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
 
         // Ensure that the attestation has participants.
         if attestation.aggregation_bits.is_zero() {
@@ -471,37 +480,8 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         let head_block =
             verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
 
-        // Check the attestation target root.
-        let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
-        if head_block_epoch > attestation_epoch {
-            // The attestation points to a head block from an epoch later than the attestation.
-            //
-            // Whilst this seems clearly invalid in the "spirit of the protocol", there is nothing
-            // in the specification to prevent these messages from propagating.
-            //
-            // Reference:
-            // https://github.com/ethereum/eth2.0-specs/pull/2001#issuecomment-699246659
-        } else {
-            let target_root = if head_block_epoch == attestation_epoch {
-                // If the block is in the same epoch as the attestation, then use the target root
-                // from the block.
-                head_block.target_root
-            } else {
-                // If the head block is from a previous epoch then skip slots will cause the head block
-                // root to become the target block root.
-                //
-                // We know the head block is from a previous epoch due to a previous check.
-                head_block.root
-            };
-
-            // Reject any attestation with an invalid target root.
-            if target_root != attestation.data.target.root {
-                return Err(Error::InvalidTargetRoot {
-                    attestation: attestation.data.target.root,
-                    expected: target_root,
-                });
-            }
-        }
+        // Check the attestation target root is consistent with the head root.
+        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
 
         let (indexed_attestation, committees_per_slot) =
             obtain_indexed_attestation_and_committees_per_slot(chain, &attestation)?;
@@ -699,6 +679,57 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     } else {
         Err(Error::InvalidSignature)
     }
+}
+
+/// Verifies that the `attestation.data.target.root` is indeed the target root of the block at
+/// `attestation.data.beacon_block_root`.
+pub fn verify_attestation_target_root<T: EthSpec>(
+    head_block: &ProtoBlock,
+    attestation: &Attestation<T>,
+) -> Result<(), Error> {
+    // Check the attestation target root.
+    let head_block_epoch = head_block.slot.epoch(T::slots_per_epoch());
+    let attestation_epoch = attestation.data.slot.epoch(T::slots_per_epoch());
+    if head_block_epoch > attestation_epoch {
+        // The epoch references an invalid head block from a future epoch.
+        //
+        // This check is not in the specification, however we guard against it since it opens us up
+        // to weird edge cases during verification.
+        //
+        // Whilst this attestation *technically* could be used to add value to a block, it is
+        // invalid in the spirit of the protocol. Here we choose safety over profit.
+        //
+        // Reference:
+        // https://github.com/ethereum/eth2.0-specs/pull/2001#issuecomment-699246659
+        return Err(Error::InvalidTargetRoot {
+            attestation: attestation.data.target.root,
+            // It is not clear what root we should expect in this case, since the attestation is
+            // fundamentally invalid.
+            expected: None,
+        });
+    } else {
+        let target_root = if head_block_epoch == attestation_epoch {
+            // If the block is in the same epoch as the attestation, then use the target root
+            // from the block.
+            head_block.target_root
+        } else {
+            // If the head block is from a previous epoch then skip slots will cause the head block
+            // root to become the target block root.
+            //
+            // We know the head block is from a previous epoch due to a previous check.
+            head_block.root
+        };
+
+        // Reject any attestation with an invalid target root.
+        if target_root != attestation.data.target.root {
+            return Err(Error::InvalidTargetRoot {
+                attestation: attestation.data.target.root,
+                expected: Some(target_root),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Verifies all the signatures in a `SignedAggregateAndProof` using BLS batch verification. This
