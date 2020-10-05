@@ -16,6 +16,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_root: Hash256,
     pub state_root: Hash256,

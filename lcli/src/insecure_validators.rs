@@ -21,7 +21,8 @@ pub fn run(matches: &ArgMatches) -> Result<(), String> {
     for i in 0..validator_count {
         println!("Validator {}/{}", i + 1, validator_count);
 
-        ValidatorBuilder::new(validators_dir.clone(), secrets_dir.clone())
+        ValidatorBuilder::new(validators_dir.clone())
+            .password_dir(secrets_dir.clone())
             .store_withdrawal_keystore(false)
             .insecure_voting_keypair(i)
             .map_err(|e| format!("Unable to generate keys: {:?}", e))?

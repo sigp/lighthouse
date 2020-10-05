@@ -1,6 +1,6 @@
 [package]
 name = "account_manager"
-version = "0.2.12"
+version = "0.2.13"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Luke Anderson <luke@sigmaprime.io>"]
 edition = "2018"
 
@@ -24,10 +24,12 @@ eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 web3 = "0.11.0"
 futures = { version = "0.3.5", features = ["compat"] }
 clap_utils = { path = "../common/clap_utils" }
+directory = { path = "../common/directory" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.2"
 validator_dir = { path = "../common/validator_dir" }
-tokio = { version = "0.2.21", features = ["full"] }
+tokio = { version = "0.2.22", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
+slashing_protection = { path = "../validator_client/slashing_protection" }

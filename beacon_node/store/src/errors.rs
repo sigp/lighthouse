@@ -1,4 +1,5 @@
 use crate::chunked_vector::ChunkError;
+use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use types::{BeaconStateError, Hash256, Slot};
@@ -17,6 +18,7 @@ pub enum Error {
     BlockNotFound(Hash256),
     NoContinuationData,
     SplitPointModified(Slot, Slot),
+    ConfigError(StoreConfigError),
 }
 
 impl From<DecodeError> for Error {
@@ -46,6 +48,12 @@ impl From<BeaconStateError> for Error {
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
         Error::DBError { message: e.message }
+    }
+}
+
+impl From<StoreConfigError> for Error {
+    fn from(e: StoreConfigError) -> Error {
+        Error::ConfigError(e)
     }
 }
 

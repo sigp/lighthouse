@@ -155,7 +155,7 @@ pub struct Discovery<TSpec: EthSpec> {
 
     /// Indicates if the discovery service has been started. When the service is disabled, this is
     /// always false.
-    started: bool,
+    pub started: bool,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -358,6 +358,54 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
     }
 
+    /// Updates the local ENR TCP port.
+    /// There currently isn't a case to update the address here. We opt for discovery to
+    /// automatically update the external address.
+    ///
+    /// If the external address needs to be modified, use `update_enr_udp_socket.
+    pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
+        self.discv5
+            .enr_insert("tcp", &port.to_be_bytes())
+            .map_err(|e| format!("{:?}", e))?;
+
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        Ok(())
+    }
+
+    /// Updates the local ENR UDP socket.
+    ///
+    /// This is with caution. Discovery should automatically maintain this. This should only be
+    /// used when automatic discovery is disabled.
+    pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
+        match socket_addr {
+            SocketAddr::V4(socket) => {
+                self.discv5
+                    .enr_insert("ip", &socket.ip().octets())
+                    .map_err(|e| format!("{:?}", e))?;
+                self.discv5
+                    .enr_insert("udp", &socket.port().to_be_bytes())
+                    .map_err(|e| format!("{:?}", e))?;
+            }
+            SocketAddr::V6(socket) => {
+                self.discv5
+                    .enr_insert("ip6", &socket.ip().octets())
+                    .map_err(|e| format!("{:?}", e))?;
+                self.discv5
+                    .enr_insert("udp6", &socket.port().to_be_bytes())
+                    .map_err(|e| format!("{:?}", e))?;
+            }
+        }
+
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        Ok(())
+    }
+
     /// Adds/Removes a subnet from the ENR Bitfield
     pub fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
         let id = *subnet_id as usize;
@@ -390,9 +438,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .map_err(|_| String::from("Subnet ID out of bounds, could not set subnet ID"))?;
 
         // insert the bitfield into the ENR record
-        let _ = self
-            .discv5
-            .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
+        self.discv5
+            .enr_insert(BITFIELD_ENR_KEY, &current_bitfield.as_ssz_bytes())
+            .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
@@ -420,7 +468,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY, enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -810,7 +858,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 // Still awaiting the event stream, poll it
                 if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
                     match event_stream {
-                        Ok(stream) => self.event_stream = EventStream::Present(stream),
+                        Ok(stream) => {
+                            debug!(self.log, "Discv5 event stream ready");
+                            self.event_stream = EventStream::Present(stream);
+                        }
                         Err(e) => {
                             slog::crit!(self.log, "Discv5 event stream failed"; "error" => e.to_string());
                             self.event_stream = EventStream::InActive;

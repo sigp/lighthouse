@@ -15,9 +15,8 @@ use slog::{debug, error, o, trace, warn};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::SubnetDiscovery;
 use hashset_delay::HashSetDelay;
-use rest_types::ValidatorSubscription;
 use slot_clock::SlotClock;
-use types::{Attestation, EthSpec, Slot, SubnetId};
+use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
 
 use crate::metrics;
 

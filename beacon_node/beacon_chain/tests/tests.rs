@@ -357,11 +357,10 @@ fn roundtrip_operation_pool() {
         .persist_op_pool()
         .expect("should persist op pool");
 
-    let key = Hash256::from_slice(&OP_POOL_DB_KEY);
     let restored_op_pool = harness
         .chain
         .store
-        .get_item::<PersistedOperationPool<MinimalEthSpec>>(&key)
+        .get_item::<PersistedOperationPool<MinimalEthSpec>>(&OP_POOL_DB_KEY)
         .expect("should read db")
         .expect("should find op pool")
         .into_operation_pool();
@@ -463,7 +462,7 @@ fn attestations_with_increasing_slots() {
     for (attestation, subnet_id) in attestations.into_iter().flatten() {
         let res = harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id);
+            .verify_unaggregated_attestation_for_gossip(attestation.clone(), Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;

@@ -1,6 +1,6 @@
 [package]
 name = "beacon_node"
-version = "0.2.12"
+version = "0.2.13"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com"]
 edition = "2018"
 
@@ -26,12 +26,14 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 ctrlc = { version = "3.1.4", features = ["termination"] }
-tokio = { version = "0.2.21", features = ["time"] }
+tokio = { version = "0.2.22", features = ["time"] }
 exit-future = "0.2.0"
 dirs = "2.0.2"
 logging = { path = "../common/logging" }
+directory = {path = "../common/directory"}
 futures = "0.3.5"
 environment = { path = "../lighthouse/environment" }
+task_executor = { path = "../common/task_executor" }
 genesis = { path = "genesis" }
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 eth2_libp2p = { path = "./eth2_libp2p" }
@@ -40,3 +42,4 @@ serde = "1.0.110"
 clap_utils = { path = "../common/clap_utils" }
 hyper = "0.13.5"
 lighthouse_version = { path = "../common/lighthouse_version" }
+hex = "0.4.2"

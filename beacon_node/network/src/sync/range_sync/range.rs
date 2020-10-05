@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         {
             // check if this chunk removes the chain
             match self.chains.call_by_id(chain_id, |chain| {
-                chain.on_block_response(network, batch_id, peer_id, beacon_block)
+                chain.on_block_response(network, batch_id, &peer_id, request_id, beacon_block)
             }) {
                 Ok((removed_chain, sync_type)) => {
                     if let Some(removed_chain) = removed_chain {
@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 }
             }
         } else {
-            warn!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
+            debug!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
         }
     }
 
@@ -337,7 +337,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         if let Some((chain_id, batch_id)) = network.blocks_by_range_response(request_id, true) {
             // check that this request is pending
             match self.chains.call_by_id(chain_id, |chain| {
-                chain.inject_error(network, batch_id, peer_id)
+                chain.inject_error(network, batch_id, &peer_id, request_id)
             }) {
                 Ok((removed_chain, sync_type)) => {
                     if let Some(removed_chain) = removed_chain {

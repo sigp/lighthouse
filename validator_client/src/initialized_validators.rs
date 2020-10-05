@@ -13,7 +13,6 @@ use account_utils::{
     },
     ZeroizeString,
 };
-use environment::TaskExecutor;
 use eth2_keystore::Keystore;
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
@@ -27,8 +26,6 @@ use crate::key_cache::KeyCache;
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
-
-const SAVE_CACHE_TASK_NAME: &str = "validator_client_save_key_cache";
 
 #[derive(Debug)]
 pub enum Error {
@@ -59,10 +56,14 @@ pub enum Error {
     UnableToSaveDefinitions(validator_definitions::Error),
     /// It is not legal to try and initialize a disabled validator definition.
     UnableToInitializeDisabledValidator,
-    /// It is not legal to try and initialize a disabled validator definition.
-    PasswordUnknown(PathBuf),
     /// There was an error reading from stdin.
     UnableToReadPasswordFromUser(String),
+    /// There was an error running a tokio async task.
+    TokioJoin(tokio::task::JoinError),
+    /// There was a filesystem error when deleting a lockfile.
+    UnableToDeleteLockfile(io::Error),
+    /// Cannot initialize the same validator twice.
+    DuplicatePublicKey,
 }
 
 /// A method used by a validator to sign messages.
@@ -102,29 +103,28 @@ fn get_lockfile_path(file_path: &PathBuf) -> Option<PathBuf> {
 
 fn create_lock_file(
     file_path: &PathBuf,
-    strict_lockfiles: bool,
+    delete_lockfiles: bool,
     log: &Logger,
 ) -> Result<(), Error> {
     if file_path.exists() {
-        if strict_lockfiles {
-            return Err(Error::LockfileExists(file_path.clone()));
-        } else {
-            // If **not** respecting lockfiles, just raise a warning if the voting
-            // keypair cannot be unlocked.
+        if delete_lockfiles {
             warn!(
-                log,
-                "Ignoring validator lockfile";
-                "file" => format!("{:?}", file_path)
-            );
+                            log,
+                            "Deleting validator lockfile";
+                            "file" => format!("{:?}", file_path)
+                        );
+
+            fs::remove_file(file_path).map_err(Error::UnableToDeleteLockfile)?;
+        } else {
+            return Err(Error::LockfileExists(file_path.clone()));
         }
-    } else {
-        // Create a new lockfile.
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&file_path)
-            .map_err(Error::UnableToCreateLockfile)?;
     }
+    // Create a new lockfile.
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(file_path)
+        .map_err(Error::UnableToCreateLockfile)?;
     Ok(())
 }
 
@@ -147,9 +147,9 @@ impl InitializedValidator {
     /// ## Errors
     ///
     /// If the validator is unable to be initialized for whatever reason.
-    pub fn from_definition(
+    async fn from_definition(
         def: ValidatorDefinition,
-        strict_lockfiles: bool,
+        delete_lockfiles: bool,
         log: &Logger,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
@@ -175,12 +175,18 @@ impl InitializedValidator {
                 let voting_keypair = if let Some(keypair) = key_cache.get(voting_keystore.uuid()) {
                     keypair
                 } else {
-                    let (password, keypair) =
-                        match (voting_keystore_password_path, voting_keystore_password) {
-                            // If the password is supplied, use it and ignore the path (if supplied).
+                    let keystore = voting_keystore.clone();
+                    let keystore_path = voting_keystore_path.clone();
+                    // Decoding a local keystore can take several seconds, therefore it's best
+                    // to keep if off the core executor. This also has the fortunate effect of
+                    // interrupting the potentially long-running task during shut down.
+                    let (password, keypair) = tokio::task::spawn_blocking(move || {
+                        Ok(match (voting_keystore_password_path, voting_keystore_password) {
+                            // If the password is supplied, use it and ignore the path
+                            // (if supplied).
                             (_, Some(password)) => (
                                 password.as_ref().to_vec().into(),
-                                voting_keystore
+                                keystore
                                     .decrypt_keypair(password.as_ref())
                                     .map_err(Error::UnableToDecryptKeystore)?,
                             ),
@@ -188,7 +194,7 @@ impl InitializedValidator {
                             (Some(path), None) => {
                                 let password = read_password(path)
                                     .map_err(Error::UnableToReadVotingKeystorePassword)?;
-                                let keypair = voting_keystore
+                                let keypair = keystore
                                     .decrypt_keypair(password.as_bytes())
                                     .map_err(Error::UnableToDecryptKeystore)?;
                                 (password, keypair)
@@ -196,12 +202,15 @@ impl InitializedValidator {
                             // If there is no password available, maybe prompt for a password.
                             (None, None) => {
                                 let (password, keypair) = unlock_keystore_via_stdin_password(
-                                    voting_keystore,
-                                    &voting_keystore_path,
+                                    &keystore,
+                                    &keystore_path,
                                 )?;
                                 (password.as_ref().to_vec().into(), keypair)
                             }
-                        };
+                        })
+                    })
+                        .await
+                        .map_err(Error::TokioJoin)??;
                     key_cache.add(keypair.clone(), voting_keystore.uuid(), password);
                     keypair
                 };
@@ -217,7 +226,7 @@ impl InitializedValidator {
                 let voting_keystore_lockfile_path = get_lockfile_path(&voting_keystore_path)
                     .ok_or_else(|| Error::BadVotingKeystorePath(voting_keystore_path.clone()))?;
 
-                create_lock_file(&voting_keystore_lockfile_path, strict_lockfiles, &log)?;
+                create_lock_file(&voting_keystore_lockfile_path, delete_lockfiles, &log)?;
 
                 Ok(Self {
                     signing_method: SigningMethod::LocalKeystore {
@@ -304,9 +313,8 @@ fn unlock_keystore_via_stdin_password(
 ///
 /// Forms the fundamental list of validators that are managed by this validator client instance.
 pub struct InitializedValidators {
-    /// If `true`, no validator will be opened if a lockfile exists. If `false`, a warning will be
-    /// raised for an existing lockfile, but it will ultimately be ignored.
-    strict_lockfiles: bool,
+    /// If `true`, delete any validator keystore lockfiles that would prevent starting.
+    delete_lockfiles: bool,
     /// A list of validator definitions which can be stored on-disk.
     definitions: ValidatorDefinitions,
     /// The directory that the `self.definitions` will be saved into.
@@ -319,21 +327,20 @@ pub struct InitializedValidators {
 
 impl InitializedValidators {
     /// Instantiates `Self`, initializing all validators in `definitions`.
-    pub fn from_definitions(
+    pub async fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
-        strict_lockfiles: bool,
+        delete_lockfiles: bool,
         log: Logger,
-        executor: &TaskExecutor,
     ) -> Result<Self, Error> {
         let mut this = Self {
-            strict_lockfiles,
+            delete_lockfiles,
             validators_dir,
             definitions,
             validators: HashMap::default(),
             log,
         };
-        this.update_validators(executor)?;
+        this.update_validators().await?;
         Ok(this)
     }
 
@@ -360,6 +367,42 @@ impl InitializedValidators {
             .map(|v| v.voting_keypair())
     }
 
+    /// Add a validator definition to `self`, overwriting the on-disk representation of `self`.
+    pub async fn add_definition(&mut self, def: ValidatorDefinition) -> Result<(), Error> {
+        if self
+            .definitions
+            .as_slice()
+            .iter()
+            .any(|existing| existing.voting_public_key == def.voting_public_key)
+        {
+            return Err(Error::DuplicatePublicKey);
+        }
+
+        self.definitions.push(def);
+
+        self.update_validators().await?;
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Returns a slice of all defined validators (regardless of their enabled state).
+    pub fn validator_definitions(&self) -> &[ValidatorDefinition] {
+        self.definitions.as_slice()
+    }
+
+    /// Indicates if the `voting_public_key` exists in self and if it is enabled.
+    pub fn is_enabled(&self, voting_public_key: &PublicKey) -> Option<bool> {
+        self.definitions
+            .as_slice()
+            .iter()
+            .find(|def| def.voting_public_key == *voting_public_key)
+            .map(|def| def.enabled)
+    }
+
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
     ///
     /// ## Notes
@@ -369,11 +412,11 @@ impl InitializedValidators {
     /// validator will be removed from `self.validators`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    pub fn set_validator_status(
+    #[allow(dead_code)] // Will be used once VC API is enabled.
+    pub async fn set_validator_status(
         &mut self,
         voting_public_key: &PublicKey,
         enabled: bool,
-        executor: &TaskExecutor,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -384,7 +427,7 @@ impl InitializedValidators {
             def.enabled = enabled;
         }
 
-        self.update_validators(executor)?;
+        self.update_validators().await?;
 
         self.definitions
             .save(&self.validators_dir)
@@ -480,7 +523,7 @@ impl InitializedValidators {
     /// A validator is considered "already known" and skipped if the public key is already known.
     /// I.e., if there are two different definitions with the same public key then the second will
     /// be ignored.
-    fn update_validators(&mut self, executor: &TaskExecutor) -> Result<(), Error> {
+    async fn update_validators(&mut self) -> Result<(), Error> {
         //use key cache if available
         let mut key_stores = HashMap::new();
 
@@ -488,7 +531,7 @@ impl InitializedValidators {
         let key_cache_path = KeyCache::cache_file_path(&self.validators_dir);
         let cache_lockfile_path = get_lockfile_path(&key_cache_path)
             .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
-        create_lock_file(&cache_lockfile_path, self.strict_lockfiles, &self.log)?;
+        create_lock_file(&cache_lockfile_path, self.delete_lockfiles, &self.log)?;
 
         let mut key_cache = self.decrypt_key_cache(
             KeyCache::open_or_create(&self.validators_dir).map_err(Error::UnableToOpenKeyCache)?,
@@ -513,11 +556,11 @@ impl InitializedValidators {
 
                         match InitializedValidator::from_definition(
                             def.clone(),
-                            self.strict_lockfiles,
+                            self.delete_lockfiles,
                             &self.log,
                             &mut key_cache,
                             &mut key_stores,
-                        ) {
+                        ).await {
                             Ok(init) => {
                                 self.validators
                                     .insert(init.voting_public_key().clone(), init);
@@ -568,7 +611,7 @@ impl InitializedValidators {
         let validators_dir = self.validators_dir.clone();
         let log = self.log.clone();
         if key_cache.is_modified() {
-            executor.spawn_blocking(
+            tokio::task::spawn_blocking(
                 move || {
                     match key_cache.save(validators_dir) {
                         Err(e) => warn!(
@@ -580,9 +623,10 @@ impl InitializedValidators {
                         _ => {}
                     };
                     remove_lock(&cache_lockfile_path);
-                },
-                SAVE_CACHE_TASK_NAME,
-            );
+                }
+            )
+                .await
+                .map_err(Error::TokioJoin)?;
         } else {
             debug!(log, "Key cache not modified");
             remove_lock(&cache_lockfile_path);

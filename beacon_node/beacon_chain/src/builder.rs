@@ -18,6 +18,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
+use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{info, Logger};
@@ -107,6 +108,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
+    shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
     data_dir: Option<PathBuf>,
     pubkey_cache_path: Option<PathBuf>,
@@ -154,6 +156,7 @@ where
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
+            shutdown_sender: None,
             head_tracker: None,
             pubkey_cache_path: None,
             data_dir: None,
@@ -229,7 +232,7 @@ where
             .ok_or_else(|| "get_persisted_eth1_backend requires a store.".to_string())?;
 
         store
-            .get_item::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY))
+            .get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)
             .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
     }
 
@@ -241,7 +244,7 @@ where
             .ok_or_else(|| "store_contains_beacon_chain requires a store.".to_string())?;
 
         Ok(store
-            .get_item::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
+            .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .is_some())
     }
@@ -272,7 +275,7 @@ where
             .ok_or_else(|| "resume_from_db requires a store.".to_string())?;
 
         let chain = store
-            .get_item::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
+            .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .ok_or_else(|| {
                 "No persisted beacon chain found in store. Try purging the beacon chain database."
@@ -280,7 +283,7 @@ where
             })?;
 
         let persisted_fork_choice = store
-            .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
+            .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
             .ok_or_else(|| "No persisted fork choice present in database.".to_string())?;
 
@@ -307,7 +310,7 @@ where
 
         self.op_pool = Some(
             store
-                .get_item::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(&OP_POOL_DB_KEY))
+                .get_item::<PersistedOperationPool<TEthSpec>>(&OP_POOL_DB_KEY)
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
                 .map(PersistedOperationPool::into_operation_pool)
                 .unwrap_or_else(OperationPool::new),
@@ -374,8 +377,13 @@ where
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
 
-        let fork_choice = ForkChoice::from_genesis(fc_store, &genesis.beacon_block.message)
-            .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
+        let fork_choice = ForkChoice::from_genesis(
+            fc_store,
+            genesis.beacon_block_root,
+            &genesis.beacon_block.message,
+            &genesis.beacon_state,
+        )
+        .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
         self.genesis_time = Some(genesis.beacon_state.genesis_time);
@@ -402,6 +410,12 @@ where
     /// For example, provide `SystemTimeSlotClock` as a `clock`.
     pub fn slot_clock(mut self, clock: TSlotClock) -> Self {
         self.slot_clock = Some(clock);
+        self
+    }
+
+    /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
+    pub fn shutdown_sender(mut self, sender: Sender<&'static str>) -> Self {
+        self.shutdown_sender = Some(sender);
         self
     }
 
@@ -561,6 +575,7 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
+            genesis_state_root: canonical_head.beacon_state_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
             fork_choice: RwLock::new(fork_choice),
@@ -575,6 +590,9 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             disabled_forks: self.disabled_forks,
+            shutdown_sender: self
+                .shutdown_sender
+                .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
             log: log.clone(),
             graffiti: self.graffiti,
         };
@@ -582,6 +600,27 @@ where
         let head = beacon_chain
             .head()
             .map_err(|e| format!("Failed to get head: {:?}", e))?;
+
+        // Only perform the check if it was configured.
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
+            if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
+                wss_checkpoint,
+                head.beacon_block_root,
+                &head.beacon_state,
+            ) {
+                crit!(
+                    log,
+                    "Weak subjectivity checkpoint verification failed on startup!";
+                    "head_block_root" => format!("{}", head.beacon_block_root),
+                    "head_slot" => format!("{}", head.beacon_block.slot()),
+                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint.epoch),
+                    "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
+                    "error" => format!("{:?}", e),
+                );
+                crit!(log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                return Err(format!("Weak subjectivity verification failed: {:?}", e));
+            }
+        }
 
         info!(
             log,
@@ -761,6 +800,8 @@ mod test {
         )
         .expect("should create interop genesis state");
 
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
@@ -773,6 +814,7 @@ mod test {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
             .build()
             .expect("should build");
 

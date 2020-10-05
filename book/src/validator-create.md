@@ -41,7 +41,7 @@ OPTIONS:
             The GWEI value of the deposit amount. Defaults to the minimum amount required for an active validator
             (MAX_EFFECTIVE_BALANCE)
         --secrets-dir <SECRETS_DIR>
-            The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/secrets
+            The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/{testnet}/secrets
 
     -s, --spec <TITLE>
             Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, interop]
@@ -53,7 +53,7 @@ OPTIONS:
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
         --validator-dir <VALIDATOR_DIRECTORY>
-            The path where the validator directories will be created. Defaults to ~/.lighthouse/validators
+            The path where the validator directories will be created. Defaults to ~/.lighthouse/{testnet}/validators
 
         --wallet-name <WALLET_NAME>                   Use the wallet identified by this name
         --wallet-password <WALLET_PASSWORD_PATH>
@@ -73,10 +73,12 @@ This command will:
 
 - Derive a single new BLS keypair from `wally`, updating it so that it generates a
     new key next time.
-- Create a new directory in `~/.lighthouse/validators` containing:
+- Create a new directory in `~/.lighthouse/{testnet}/validators` containing:
     - An encrypted keystore containing the validators voting keypair.
 	- An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`
 		for most testnets and mainnet) which can be submitted to the deposit
 		contract for the medalla testnet. Other testnets can be set via the
 		`--testnet` CLI param.
-- Store a password to the validators voting keypair in `~/.lighthouse/secrets`.
+- Store a password to the validators voting keypair in `~/.lighthouse/{testnet}/secrets`.
+
+where `testnet` is the name of the testnet passed in the `--testnet` parameter (default is `medalla`).

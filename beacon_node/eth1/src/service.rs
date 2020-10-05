@@ -345,7 +345,7 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn auto_update(self, handle: environment::TaskExecutor) {
+    pub fn auto_update(self, handle: task_executor::TaskExecutor) {
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
         let mut interval = interval_at(Instant::now(), update_interval);

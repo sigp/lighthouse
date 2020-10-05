@@ -20,6 +20,18 @@ pub enum InvalidAttestation {
     PrevSurroundsNew { prev: SignedAttestation },
     /// The attestation is invalid because its source epoch is greater than its target epoch.
     SourceExceedsTarget,
+    /// The attestation is invalid because its source epoch is less than the lower bound on source
+    /// epochs for this validator.
+    SourceLessThanLowerBound {
+        source_epoch: Epoch,
+        bound_epoch: Epoch,
+    },
+    /// The attestation is invalid because its target epoch is less than or equal to the lower
+    /// bound on target epochs for this validator.
+    TargetLessThanOrEqLowerBound {
+        target_epoch: Epoch,
+        bound_epoch: Epoch,
+    },
 }
 
 impl SignedAttestation {
