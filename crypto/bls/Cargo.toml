@@ -6,17 +6,17 @@ edition = "2018"
 
 [dependencies]
 eth2_ssz = "0.1.2"
-tree_hash = "0.1.0"
+tree_hash = "0.1.1"
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", branch = "paulh" }
-rand = "0.7.2"
-serde = "1.0.102"
-serde_derive = "1.0.102"
+rand = "0.7.3"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 serde_utils = { path = "../../consensus/serde_utils" }
-hex = "0.3"
+hex = "0.4.2"
 eth2_hashing = "0.1.0"
-ethereum-types = "0.9.1"
-arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
-zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
+ethereum-types = "0.9.2"
+arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
+zeroize = { version = "1.1.1", features = ["zeroize_derive"] }
 blst = { git = "https://github.com/sigp/blst.git", rev = "284f7059642851c760a09fb1708bcb59c7ca323c" }
 
 [features]

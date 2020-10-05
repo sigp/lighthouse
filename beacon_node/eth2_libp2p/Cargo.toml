@@ -9,26 +9,26 @@ discv5 = { version = "0.1.0-alpha.13", features = ["libp2p"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
 eth2_ssz_types = { path =  "../../consensus/ssz_types" }
-serde = { version = "1.0.110", features = ["derive"] }
-serde_derive = "1.0.110"
+serde = { version = "1.0.116", features = ["derive"] }
+serde_derive = "1.0.116"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 tokio = { version = "0.2.22", features = ["time", "macros"] }
 futures = "0.3.5"
-error-chain = "0.12.2"
-dirs = "2.0.2"
+error-chain = "0.12.4"
+dirs = "3.0.1"
 fnv = "1.0.7"
 unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-smallvec = "1.4.1"
-lru = "0.5.1"
+smallvec = "1.4.2"
+lru = "0.6.0"
 parking_lot = "0.11.0"
 sha2 = "0.9.1"
-base64 = "0.12.1"
-snap = "1.0.0"
+base64 = "0.13.0"
+snap = "1.0.1"
 void = "1.0.2"
 hex = "0.4.2"
 tokio-io-timeout = "0.4.0"
@@ -48,7 +48,7 @@ features = ["websocket", "identify", "mplex", "noise", "gossipsub", "dns", "tcp-
 
 [dev-dependencies]
 tokio = { version = "0.2.22", features = ["full"] }
-slog-term = "2.5.0"
+slog-term = "2.6.0"
 slog-async = "2.5.0"
 tempdir = "0.3.7"
 exit-future = "0.2.0"
