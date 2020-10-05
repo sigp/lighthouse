@@ -10,6 +10,7 @@ use eth2_libp2p::{
 };
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
+use slot_clock::SlotClock;
 use std::cmp;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -217,7 +218,13 @@ impl<T: BeaconChainTypes> Processor<T> {
 
             self.network
                 .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.head_slot > self.chain.slot()? + FUTURE_SLOT_TOLERANCE {
+        } else if remote.head_slot
+            > self
+                .chain
+                .slot()
+                .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
+                + FUTURE_SLOT_TOLERANCE
+        {
             // Note: If the slot_clock cannot be read, this will not error. Other system
             // components will deal with an invalid slot clock error.
 
@@ -445,10 +452,10 @@ impl<T: BeaconChainTypes> Processor<T> {
             }
         }
 
-        let current_slot = self.chain.slot().unwrap_or_else(|e| {
-            error!(self.log, "Could not obtain current chain slot. Defaulting to 0"; "error" => format!("{:?}", e));
-            Slot::from(0_u64)
-        }).as_u64();
+        let current_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
         if blocks_sent < (req.count as usize) {
             debug!(

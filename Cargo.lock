@@ -1562,6 +1562,7 @@ dependencies = [
  "slog-async",
  "slog-stdlog",
  "slog-term",
+ "slot_clock",
  "smallvec 1.4.2",
  "snap",
  "tempdir",
