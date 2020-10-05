@@ -366,7 +366,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // check if the parent of this block isn't in our failed cache. If it is, this
                 // chain should be dropped and the peer downscored.
                 if self.failed_chains.contains(&block.message.parent_root) {
-                    debug!(self.log, "Parent chain ignored due to past failure"; "block" => format!("{:?}", block.message.parent_root), "slot" => block.message.slot);
+                    debug!(self.log, "Parent chain ignored due to past failure"; "block" => ?block.message.parent_root, "slot" => block.message.slot);
                     if !parent_request.downloaded_blocks.is_empty() {
                         // Add the root block to failed chains
                         self.failed_chains
@@ -392,7 +392,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // This can be allowed as some clients may implement pruning. We mildly
                     // tolerate this behaviour.
                     if !single_block_request.block_returned {
-                        warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => format!("{}", single_block_request.hash), "peer_id" =>  format!("{}", peer_id));
+                        warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => %single_block_request.hash, "peer_id" =>  %peer_id);
                         self.network
                             .report_peer(peer_id, PeerAction::MidToleranceError);
                     }
@@ -433,7 +433,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 error!(
                     self.log,
                     "Failed to send sync block to processor";
-                    "error" => format!("{:?}", e)
+                    "error" => ?e
                 );
                 return None;
             }
@@ -465,7 +465,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if expected_block_hash != block.canonical_root() {
             // The peer that sent this, sent us the wrong block.
             // We do not tolerate this behaviour. The peer is instantly disconnected and banned.
-            warn!(self.log, "Peer sent incorrect block for single block lookup"; "peer_id" => format!("{}", peer_id));
+            warn!(self.log, "Peer sent incorrect block for single block lookup"; "peer_id" => %peer_id);
             self.network.goodbye_peer(peer_id, GoodbyeReason::Fault);
             return;
         }
@@ -478,7 +478,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // we have the correct block, try and process it
         match block_result {
             Ok(block_root) => {
-                info!(self.log, "Processed block"; "block" => format!("{}", block_root));
+                info!(self.log, "Processed block"; "block" => %block_root);
 
                 match self.chain.fork_choice() {
                     Ok(()) => trace!(
@@ -489,7 +489,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     Err(e) => error!(
                         self.log,
                         "Fork choice failed";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                         "location" => "single block"
                     ),
                 }
@@ -502,10 +502,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 trace!(self.log, "Single block lookup already known");
             }
             Err(BlockError::BeaconChainError(e)) => {
-                warn!(self.log, "Unexpected block processing error"; "error" => format!("{:?}", e));
+                warn!(self.log, "Unexpected block processing error"; "error" => ?e);
             }
             outcome => {
-                warn!(self.log, "Single block lookup failed"; "outcome" => format!("{:?}", outcome));
+                warn!(self.log, "Single block lookup failed"; "outcome" => ?outcome);
                 // This could be a range of errors. But we couldn't process the block.
                 // For now we consider this a mid tolerance error.
                 self.network
@@ -542,7 +542,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if self.failed_chains.contains(&block.message.parent_root)
             || self.failed_chains.contains(&block_root)
         {
-            debug!(self.log, "Block is from a past failed chain. Dropping"; "block_root" => format!("{:?}", block_root), "block_slot" => block.message.slot);
+            debug!(self.log, "Block is from a past failed chain. Dropping"; "block_root" => ?block_root, "block_slot" => block.message.slot);
             return;
         }
 
@@ -559,7 +559,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
 
-        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => format!("{}", block.canonical_root()));
+        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => %block.canonical_root());
 
         let parent_request = ParentRequests {
             downloaded_blocks: vec![block],
@@ -636,10 +636,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let head_slot = sync_info.head_slot;
             let finalized_epoch = sync_info.finalized_epoch;
             if peer_info.sync_status.update_synced(sync_info.into()) {
-                debug!(self.log, "Peer transitioned sync state"; "new_state" => "synced", "peer_id" => format!("{}", peer_id), "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
+                debug!(self.log, "Peer transitioned sync state"; "new_state" => "synced", "peer_id" => %peer_id, "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
             }
         } else {
-            crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
+            crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
         }
         self.update_sync_state();
     }
@@ -650,10 +650,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let head_slot = sync_info.head_slot;
             let finalized_epoch = sync_info.finalized_epoch;
             if peer_info.sync_status.update_advanced(sync_info.into()) {
-                debug!(self.log, "Peer transitioned sync state"; "new_state" => "advanced", "peer_id" => format!("{}", peer_id), "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
+                debug!(self.log, "Peer transitioned sync state"; "new_state" => "advanced", "peer_id" => %peer_id, "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
             }
         } else {
-            crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
+            crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
         }
         self.update_sync_state();
     }
@@ -664,10 +664,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let head_slot = sync_info.head_slot;
             let finalized_epoch = sync_info.finalized_epoch;
             if peer_info.sync_status.update_behind(sync_info.into()) {
-                debug!(self.log, "Peer transitioned sync state"; "new_state" => "behind", "peer_id" => format!("{}", peer_id), "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
+                debug!(self.log, "Peer transitioned sync state"; "new_state" => "behind", "peer_id" => %peer_id, "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
             }
         } else {
-            crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
+            crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
         }
         self.update_sync_state();
     }
@@ -675,7 +675,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// Updates the global sync state and logs any changes.
     fn update_sync_state(&mut self) {
         if let Some((old_state, new_state)) = self.network_globals.update_sync_state() {
-            info!(self.log, "Sync state updated"; "old_state" => format!("{}", old_state), "new_state" => format!("{}",new_state));
+            info!(self.log, "Sync state updated"; "old_state" => %old_state, "new_state" => %new_state);
             // If we have become synced - Subscribe to all the core subnet topics
             if new_state == eth2_libp2p::types::SyncState::Synced {
                 self.network.subscribe_core_topics();
@@ -715,9 +715,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let peer = parent_request.last_submitted_peer.clone();
 
             warn!(self.log, "Peer sent invalid parent.";
-                "peer_id" => format!("{:?}",peer),
-                "received_block" => format!("{}", block_hash),
-                "expected_parent" => format!("{}", expected_hash),
+                "peer_id" => %peer,
+                "received_block" => %block_hash,
+                "expected_parent" => %expected_hash,
             );
 
             // We try again, but downvote the peer.
@@ -772,7 +772,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             error!(
                                 self.log,
                                 "Failed to send chain segment to processor";
-                                "error" => format!("{:?}", e)
+                                "error" => ?e
                             );
                         }
                     }
@@ -782,9 +782,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // us the last block
                     warn!(
                         self.log, "Invalid parent chain";
-                        "score_adjustment" => PeerAction::MidToleranceError.to_string(),
-                        "outcome" => format!("{:?}", outcome),
-                        "last_peer" => parent_request.last_submitted_peer.to_string(),
+                        "score_adjustment" => %PeerAction::MidToleranceError,
+                        "outcome" => ?outcome,
+                        "last_peer" => %parent_request.last_submitted_peer,
                     );
 
                     // Add this chain to cache of failed chains
@@ -827,7 +827,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             };
 
             debug!(self.log, "Parent import failed";
-            "block" => format!("{:?}",parent_request.downloaded_blocks[0].canonical_root()),
+            "block" => ?parent_request.downloaded_blocks[0].canonical_root(),
             "ancestors_found" => parent_request.downloaded_blocks.len(),
             "reason" => error
             );

@@ -26,7 +26,6 @@ Once you've completed **either one** of these steps, you can move onto the next 
 
 > Take note when running Lighthouse. Use the --testnet parameter to specify the testnet you whish to participate in. Medalla is currently the default, so make sure to use --testnet altona to join the Altona testnet.
 
-
 ## 2. Submit your deposit to Goerli
 
 <div class="form-signin" id="uploadDiv">
