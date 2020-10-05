@@ -20,15 +20,15 @@ beacon_chain = { path = "beacon_chain" }
 types = { path = "../consensus/types" }
 store = { path = "./store" }
 client = { path = "client" }
-clap = "2.33.0"
+clap = "2.33.3"
 rand = "0.7.3"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
-slog-term = "2.5.0"
+slog-term = "2.6.0"
 slog-async = "2.5.0"
-ctrlc = { version = "3.1.4", features = ["termination"] }
+ctrlc = { version = "3.1.6", features = ["termination"] }
 tokio = { version = "0.2.22", features = ["time"] }
 exit-future = "0.2.0"
-dirs = "2.0.2"
+dirs = "3.0.1"
 logging = { path = "../common/logging" }
 directory = {path = "../common/directory"}
 futures = "0.3.5"
@@ -38,8 +38,8 @@ genesis = { path = "genesis" }
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 eth2_libp2p = { path = "./eth2_libp2p" }
 eth2_ssz = "0.1.2"
-serde = "1.0.110"
+serde = "1.0.116"
 clap_utils = { path = "../common/clap_utils" }
-hyper = "0.13.5"
+hyper = "0.13.8"
 lighthouse_version = { path = "../common/lighthouse_version" }
 hex = "0.4.2"

@@ -220,7 +220,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     if let Some(removed_chain) = removed_chain {
                         debug!(self.log, "Chain removed after block response"; "sync_type" => ?sync_type, "chain_id" => chain_id);
                         removed_chain.status_peers(network);
-                        // TODO: update & update_sync_state?
+                        // update the state of the collection
+                        self.chains.update(network);
+                        // update the global state and inform the user
+                        self.chains.update_sync_state(network);
                     }
                 }
                 Err(_) => {
@@ -319,7 +322,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .call_all(|chain| chain.remove_peer(peer_id, network))
         {
             debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
-            // TODO: anything else to do?
+            // update the state of the collection
+            self.chains.update(network);
+            // update the global state and inform the user
+            self.chains.update_sync_state(network);
         }
     }
 
@@ -343,7 +349,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     if let Some(removed_chain) = removed_chain {
                         debug!(self.log, "Chain removed on rpc error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
                         removed_chain.status_peers(network);
-                        // TODO: update & update_sync_state?
+                        // update the state of the collection
+                        self.chains.update(network);
+                        // update the global state and inform the user
+                        self.chains.update_sync_state(network);
                     }
                 }
                 Err(_) => {

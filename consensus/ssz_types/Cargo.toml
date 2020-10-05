@@ -8,13 +8,13 @@ edition = "2018"
 name = "ssz_types"
 
 [dependencies]
-tree_hash = "0.1.0"
-serde = "1.0.110"
-serde_derive = "1.0.110"
+tree_hash = "0.1.1"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 serde_utils = { path = "../serde_utils" }
 eth2_ssz = "0.1.2"
 typenum = "1.12.0"
-arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
+arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
 
 [dev-dependencies]
 tree_hash_derive = "0.2.0"
