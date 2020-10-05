@@ -107,6 +107,7 @@ impl KeyCache {
     }
 
     fn encrypt(&mut self) -> Result<(), Error> {
+        self.crypto = Self::init_crypto();
         let secret_map: SerializedKeyMap = self
             .pairs
             .iter()
