@@ -55,6 +55,12 @@ Start your beacon node with:
 > Current values are either `altona` or `medalla`. This is true for all the
 > following commands in this document.
 
+> Note: Lighthouse, by default, opens port 9000 over TCP and UDP. Although not
+> strictly required, we recommend setting up port forwards to expose these
+> ports publicly. For more information see the FAQ or the [Advanced Networking](advanced_networking.html)
+> section
+
+
 You can also pass an external http endpoint (e.g. Infura) for the Eth1 node using the `--eth1-endpoint` flag:
 
 ```bash
