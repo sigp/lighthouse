@@ -123,6 +123,7 @@ impl Default for Config {
             .request_retries(1)
             .enr_peer_update_min(10)
             .query_parallelism(5)
+            .disable_report_discovered_peers()
             .query_timeout(Duration::from_secs(30))
             .query_peer_timeout(Duration::from_secs(2))
             .ip_limit() // limits /24 IP's in buckets.

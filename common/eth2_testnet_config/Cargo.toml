@@ -17,6 +17,6 @@ tempdir = "0.3.7"
 serde = "1.0.110"
 serde_yaml = "0.8.11"
 types = { path = "../../consensus/types"}
-enr = { version = "0.1.0", features = ["libsecp256k1", "ed25519"] }
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2_config"}
+enr = "0.3.0"

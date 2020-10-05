@@ -33,6 +33,7 @@ logging = { path = "../common/logging" }
 directory = {path = "../common/directory"}
 futures = "0.3.5"
 environment = { path = "../lighthouse/environment" }
+task_executor = { path = "../common/task_executor" }
 genesis = { path = "genesis" }
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 eth2_libp2p = { path = "./eth2_libp2p" }
