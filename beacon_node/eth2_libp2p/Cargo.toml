@@ -10,7 +10,6 @@ types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
 eth2_ssz_types = { path =  "../../consensus/ssz_types" }
 serde = { version = "1.0.110", features = ["derive"] }
-slot_clock = { path = "../../common/slot_clock" }
 serde_derive = "1.0.110"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
