@@ -83,6 +83,11 @@ This is one of the earlier logs outputted, so you may have to scroll up or perfo
 > the genesis of the network is known (approx 2 days before the network
 > launches).
 
+> Note: Docker exposes ports TCP 9000 and UDP 9000 by default. Although not
+> strictly required, we recommend setting up port forwards to expose these
+> ports publicly. For more information see the FAQ or the [Advanced Networking](advanced_networking.html)
+> section
+
 To find an estimate for how long your beacon node will take to finish syncing, look for logs that look like this:
 
 ```bash
