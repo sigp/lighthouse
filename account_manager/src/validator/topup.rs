@@ -387,45 +387,49 @@ fn load_voting_keypair(
     secrets_dir: &PathBuf,
     stdin_inputs: bool,
 ) -> Result<Keypair, String> {
-    match validator_dir.voting_keypair(&secrets_dir) {
+    let mut voting_keystore_path: Option<PathBuf> = None;
+    read_voting_keystore_path(validator_dir.dir(), &mut voting_keystore_path).map_err(|e| {
+        format!(
+            "Failed to find a valid keystore file in validator_dir {:?}: {:?}",
+            validator_dir.dir(),
+            e
+        )
+    })?;
+
+    let voting_keystore_path = voting_keystore_path.ok_or_else(|| {
+        format!(
+            "Failed to find a valid keystore file in validator_dir {:?}",
+            validator_dir.dir(),
+        )
+    })?;
+    match validator_dir::unlock_keypair(&voting_keystore_path, &secrets_dir) {
         Ok(keypair) => Ok(keypair),
-        Err(validator_dir::Error::UnableToOpenKeystore(_)) => {
-            let mut voting_keystore_path: Option<PathBuf> = None;
-            read_voting_keystore_path(validator_dir.dir(), &mut voting_keystore_path).map_err(
-                |e| {
+        Err(validator_dir::Error::UnableToReadPassword(_)) => {
+            let keystore =
+                eth2_keystore::Keystore::from_json_file(&voting_keystore_path).map_err(|e| {
                     format!(
-                        "Failed to find a valid keystore file in validator_dir {:?}: {:?}",
-                        validator_dir.dir(),
-                        e
+                        "Unable to read keystore JSON {:?}: {:?}",
+                        voting_keystore_path, e
                     )
-                },
-            )?;
-            if let Some(keystore_path) = voting_keystore_path {
-                eprintln!("");
-                eprintln!(
-                    "{} for validator in {:?}",
-                    PASSWORD_PROMPT,
-                    validator_dir.dir()
-                );
-                let password = account_utils::read_password_from_user(stdin_inputs)?;
-                let keystore =
-                    eth2_keystore::Keystore::from_json_file(&keystore_path).map_err(|e| {
-                        format!("Unable to read keystore JSON {:?}: {:?}", keystore_path, e)
-                    })?;
-                match keystore.decrypt_keypair(password.as_ref()) {
-                    Ok(keypair) => {
-                        eprintln!("Password is correct.");
-                        eprintln!("");
-                        std::thread::sleep(std::time::Duration::from_secs(1)); // Provides nicer UX.
-                        Ok(keypair)
-                    }
-                    Err(eth2_keystore::Error::InvalidPassword) => {
-                        Err("Invalid password".to_string())
-                    }
-                    Err(e) => Err(format!("Error while decrypting keypair: {:?}", e)),
+                })?;
+
+            // There is no password file for the given validator, prompt password from user.
+            eprintln!("");
+            eprintln!(
+                "{} for validator in {:?}",
+                PASSWORD_PROMPT,
+                validator_dir.dir()
+            );
+            let password = account_utils::read_password_from_user(stdin_inputs)?;
+            match keystore.decrypt_keypair(password.as_ref()) {
+                Ok(keypair) => {
+                    eprintln!("Password is correct.");
+                    eprintln!("");
+                    std::thread::sleep(std::time::Duration::from_secs(1)); // Provides nicer UX.
+                    Ok(keypair)
                 }
-            } else {
-                Err("Failed to find valid keystore in validator_dir".to_string())
+                Err(eth2_keystore::Error::InvalidPassword) => Err("Invalid password".to_string()),
+                Err(e) => Err(format!("Error while decrypting keypair: {:?}", e)),
             }
         }
         Err(e) => Err(format!(
