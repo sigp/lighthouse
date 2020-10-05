@@ -102,7 +102,7 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// The Eth2 RPC specified in the wire-0 protocol.
     eth2_rpc: RPC<TSpec>,
     /// Keep regular connection to peers and disconnect if absent.
-    // TODO: Using id for initial interop. This will be removed by mainnet.
+    // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
     identify: Identify,
     /// The peer manager that keeps track of peer's reputation and status.
@@ -203,9 +203,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             self.enr_fork_id.fork_digest,
         );
 
-        // TODO: Implement scoring
-        // let topic: Topic = gossip_topic.into();
-        // self.gossipsub.set_topic_params(t.hash(), TopicScoreParams::default());
         self.subscribe(gossip_topic)
     }
 
@@ -227,12 +224,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
-        // TODO: Implement scoring
-        /*
-        let t: Topic = topic.clone().into();
-        self.gossipsub
-            .set_topic_params(t.hash(), TopicScoreParams::default());
-        */
         self.subscribe(topic)
     }
 
@@ -620,7 +611,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     RPCRequest::MetaData(_) => {
                         // send the requested meta-data
                         self.send_meta_data_response((handler_id, id), peer_id);
-                        // TODO: inform the peer manager?
                     }
                     RPCRequest::Goodbye(reason) => {
                         // queue for disconnection without a goodbye message

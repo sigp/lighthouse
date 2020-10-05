@@ -119,7 +119,6 @@ pub enum SyncMessage<T: EthSpec> {
 }
 
 /// The result of processing a multiple blocks (a chain segment).
-// TODO: When correct batch error handling occurs, we will include an error type.
 #[derive(Debug)]
 pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
@@ -629,7 +628,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.update_sync_state();
     }
 
-    // TODO: Group these functions into one.
+    // TODO: Group these functions into one for cleaner code.
     /// Updates the syncing state of a peer to be synced.
     fn synced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
@@ -792,7 +791,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                     // This currently can be a host of errors. We permit this due to the partial
                     // ambiguity.
-                    // TODO: Refine the error types and score the peer appropriately.
                     self.network.report_peer(
                         parent_request.last_submitted_peer,
                         PeerAction::MidToleranceError,
