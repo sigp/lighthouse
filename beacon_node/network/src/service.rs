@@ -51,7 +51,7 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Respond to a peer's request with an error.
     SendError {
-        // TODO: note that this is never used, we just say goodbye without nicely closing the
+        // NOTE: Currently this is never used, we just say goodbye without nicely closing the
         // stream assigned to the request
         peer_id: PeerId,
         error: RPCResponseErrorCode,
@@ -163,7 +163,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Loading peers into the routing table"; "peers" => enrs_to_load.len()
         );
         for enr in enrs_to_load {
-            libp2p.swarm.add_enr(enr.clone()); //TODO change?
+            libp2p.swarm.add_enr(enr.clone());
         }
 
         // launch derived network services
@@ -349,7 +349,6 @@ fn spawn_service<T: BeaconChainTypes>(
                 // process any attestation service events
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
-                        // TODO: Implement
                         AttServiceMessage::Subscribe(subnet_id) => {
                             service.libp2p.swarm.subscribe_to_subnet(subnet_id);
                         }
