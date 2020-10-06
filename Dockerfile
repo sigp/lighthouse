@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM rust:1.45.1 AS builder
+FROM --platform=$TARGETPLATFORM rust:1.45.1 AS builder
 RUN apt-get update && apt-get install -y cmake
 COPY . lighthouse
 
@@ -6,15 +6,13 @@ ARG PORTABLE
 ENV PORTABLE $PORTABLE
 ARG TARGETPLATFORM
 ENV TARGETPLATFORM $TARGETPLATFORM
-ARG BUILDPLATFORM
-ENV BUILDPLATFORM $BUILDPLATFORM
 ENV CROSS_DOCKER_IN_DOCKER=true
 
 RUN cargo install cross
 RUN cd lighthouse && make
 RUN cd lighthouse && make install-lcli
 
-FROM --platform=$BUILDPLATFORM debian:buster-slim
+FROM --platform=$TARGETPLATFORM debian:buster-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
   libssl-dev \
   ca-certificates \
