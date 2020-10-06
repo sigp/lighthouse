@@ -98,7 +98,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        println!("Decoding a rpc request: {}", self.protocol.message_name);
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
             // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
@@ -203,22 +202,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     },
                 }
             }
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::UnexpectedEof => {
-                        let n = reader.get_ref().get_ref().position();
-                        // If snappy has read max_compressed_len and still can't fill buffer,
-                        // we have an invalid/malicious message.
-                        if n >= max_compressed_len {
-                            Err(RPCError::InvalidData)
-                        } else {
-                            // Haven't received enough bytes to decode yet, wait for more
-                            Ok(None)
-                        }
-                    }
-                    _ => Err(e).map_err(RPCError::from),
-                }
-            }
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
     }
 }
@@ -295,7 +279,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        println!("Decoding a rpc response: {}", self.protocol.message_name);
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
             // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
@@ -392,22 +375,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     },
                 }
             }
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::UnexpectedEof => {
-                        let n = reader.get_ref().get_ref().position();
-                        // If snappy has read max_compressed_len and still can't fill buffer,
-                        // we have an invalid/malicious message.
-                        if n >= max_compressed_len {
-                            Err(RPCError::InvalidData)
-                        } else {
-                            // Haven't received enough bytes to decode yet, wait for more
-                            Ok(None)
-                        }
-                    }
-                    _ => Err(e).map_err(RPCError::from),
-                }
-            }
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
     }
 }
@@ -419,8 +387,6 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
         &mut self,
         src: &mut BytesMut,
     ) -> Result<Option<Self::CodecErrorType>, RPCError> {
-        println!("Decoding a rpc error: {}", self.protocol.message_name);
-
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
             match self.inner.decode(src).map_err(RPCError::from)? {
@@ -455,22 +421,30 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
                     &decoded_buffer,
                 )?)))
             }
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::UnexpectedEof => {
-                        let n = reader.get_ref().get_ref().position();
-                        // If snappy has read max_compressed_len and still can't fill buffer,
-                        // we have an invalid/malicious message.
-                        if n >= max_compressed_len {
-                            Err(RPCError::InvalidData)
-                        } else {
-                            // Haven't received enough bytes to decode yet, wait for more
-                            Ok(None)
-                        }
-                    }
-                    _ => Err(e).map_err(RPCError::from),
-                }
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
+        }
+    }
+}
+
+/// Handle errors that we get from decoding an RPC message from the stream.
+/// `num_bytes_read` is the number of bytes the snappy decoder has read from the underlying stream.
+/// `max_compressed_len` is the maximum compressed size for a given uncompressed size.
+fn handle_error<T>(
+    err: std::io::Error,
+    num_bytes: u64,
+    max_compressed_len: u64,
+) -> Result<Option<T>, RPCError> {
+    match err.kind() {
+        ErrorKind::UnexpectedEof => {
+            // If snappy has read `max_compressed_len` from underlying stream and still can't fill buffer, we have a malicious message.
+            // Report as `InvalidData` so that malicious peer gets banned.
+            if num_bytes >= max_compressed_len {
+                Err(RPCError::InvalidData)
+            } else {
+                // Haven't received enough bytes to decode yet, wait for more
+                Ok(None)
             }
         }
+        _ => Err(err).map_err(RPCError::from),
     }
 }

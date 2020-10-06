@@ -224,7 +224,6 @@ mod tests {
         // byte 0(0xFE) is padding chunk type identifier for snappy messages
         // byte 1,2,3 are chunk length (little endian)
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
-        dbg!(malicious_padding);
 
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],

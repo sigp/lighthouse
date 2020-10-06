@@ -257,7 +257,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RPCResponseErrorCode {
     RateLimited,
     InvalidRequest,
