@@ -445,7 +445,7 @@ where
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
     // NOTE: in the future a ssz::DecodeError should map to an InvalidData error

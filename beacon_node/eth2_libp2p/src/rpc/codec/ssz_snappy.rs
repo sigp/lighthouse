@@ -203,11 +203,22 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     },
                 }
             }
-            Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet, wait for more
-                ErrorKind::UnexpectedEof => Ok(None),
-                _ => Err(e).map_err(RPCError::from),
-            },
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => {
+                        let n = reader.get_ref().get_ref().position();
+                        // If snappy has read max_compressed_len and still can't fill buffer,
+                        // we have an invalid/malicious message.
+                        if n >= max_compressed_len {
+                            Err(RPCError::InvalidData)
+                        } else {
+                            // Haven't received enough bytes to decode yet, wait for more
+                            Ok(None)
+                        }
+                    }
+                    _ => Err(e).map_err(RPCError::from),
+                }
+            }
         }
     }
 }
@@ -382,11 +393,18 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 }
             }
             Err(e) => {
-                dbg!(&e);
-
                 match e.kind() {
-                    // Haven't received enough bytes to decode yet, wait for more
-                    ErrorKind::UnexpectedEof => Ok(None),
+                    ErrorKind::UnexpectedEof => {
+                        let n = reader.get_ref().get_ref().position();
+                        // If snappy has read max_compressed_len and still can't fill buffer,
+                        // we have an invalid/malicious message.
+                        if n >= max_compressed_len {
+                            Err(RPCError::InvalidData)
+                        } else {
+                            // Haven't received enough bytes to decode yet, wait for more
+                            Ok(None)
+                        }
+                    }
                     _ => Err(e).map_err(RPCError::from),
                 }
             }
@@ -437,11 +455,22 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
                     &decoded_buffer,
                 )?)))
             }
-            Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet, wait for more
-                ErrorKind::UnexpectedEof => Ok(None),
-                _ => Err(e).map_err(RPCError::from),
-            },
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => {
+                        let n = reader.get_ref().get_ref().position();
+                        // If snappy has read max_compressed_len and still can't fill buffer,
+                        // we have an invalid/malicious message.
+                        if n >= max_compressed_len {
+                            Err(RPCError::InvalidData)
+                        } else {
+                            // Haven't received enough bytes to decode yet, wait for more
+                            Ok(None)
+                        }
+                    }
+                    _ => Err(e).map_err(RPCError::from),
+                }
+            }
         }
     }
 }

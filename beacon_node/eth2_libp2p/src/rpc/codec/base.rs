@@ -207,4 +207,63 @@ mod tests {
         let _ = dbg!(snappy_decoded_message);
         let _ = dbg!(snappy_decoded_chunk);
     }
+
+    #[test]
+    fn test_decode_malicious_message() {
+        use crate::rpc::methods::StatusMessage;
+        use snap::write::FrameEncoder;
+        use ssz::Encode;
+        use std::io::Write;
+        use types::{Epoch, Hash256, Slot};
+        use unsigned_varint::codec::Uvi;
+
+        type Spec = types::MainnetEthSpec;
+
+        let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
+
+        // byte 0(0xFE) is padding chunk type identifier for snappy messages
+        // byte 1,2,3 are chunk length (little endian)
+        let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
+        dbg!(malicious_padding);
+
+        let status_message_bytes = StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        }
+        .as_ssz_bytes();
+
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Insert length-prefix
+        uvi_codec
+            .encode(status_message_bytes.len(), &mut dst)
+            .unwrap();
+
+        // Insert snappy stream identifier
+        dst.extend_from_slice(stream_identifier);
+
+        // Insert malicious padding
+        for _ in 0..50 {
+            dst.extend_from_slice(malicious_padding);
+        }
+
+        // Insert actual payload
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&status_message_bytes).unwrap();
+        writer.flush().unwrap();
+        dst.extend_from_slice(writer.get_ref());
+
+        let snappy_protocol_id =
+            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+
+        let mut snappy_outbound_codec =
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
+
+        let snappy_decoded_message = snappy_outbound_codec.decode(&mut dst.clone()).unwrap_err();
+        assert_eq!(snappy_decoded_message, RPCError::InvalidData);
+    }
 }
