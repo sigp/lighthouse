@@ -7,7 +7,9 @@
 //!
 //! https://github.com/sigp/lighthouse/pull/605
 //!
-use eth2_config::{include_altona_file, include_medalla_file, include_spadina_file, include_zinken_file, unique_id};
+use eth2_config::{
+    include_altona_file, include_medalla_file, include_spadina_file, include_zinken_file, unique_id,
+};
 
 use enr::{CombinedKey, Enr};
 use ssz::{Decode, Encode};
