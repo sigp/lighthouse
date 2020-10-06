@@ -5,7 +5,7 @@ use crate::rpc::{
         ssz_snappy::{SSZSnappyInboundCodec, SSZSnappyOutboundCodec},
         InboundCodec, OutboundCodec,
     },
-    methods::ResponseTermination,
+    methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
     MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
@@ -51,6 +51,19 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
+    pub static ref ERROR_TYPE_MIN: usize =
+        VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
+    .as_ssz_bytes()
+    .len();
+    pub static ref ERROR_TYPE_MAX: usize =
+        VariableList::<u8, MaxErrorLen>::from(vec![
+            0u8;
+            MAX_ERROR_LEN
+                as usize
+        ])
+    .as_ssz_bytes()
+    .len();
+
 }
 
 /// The maximum bytes that can be sent across the RPC.

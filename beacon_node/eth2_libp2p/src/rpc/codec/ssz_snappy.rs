@@ -3,7 +3,8 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{
         Encoding, Protocol, ProtocolId, RPCError, Version, BLOCKS_BY_ROOT_REQUEST_MAX,
-        BLOCKS_BY_ROOT_REQUEST_MIN, SIGNED_BEACON_BLOCK_MAX, SIGNED_BEACON_BLOCK_MIN,
+        BLOCKS_BY_ROOT_REQUEST_MIN, ERROR_TYPE_MAX, ERROR_TYPE_MIN, SIGNED_BEACON_BLOCK_MAX,
+        SIGNED_BEACON_BLOCK_MIN,
     },
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
@@ -414,23 +415,22 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
 
         let length = self.len.expect("length should be Some");
 
-        // // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
-        // // packet size for ssz container corresponding to `self.protocol`.
-        // let ssz_limits = self.protocol.rpc_response_limits::<TSpec>();
-        // if length > self.max_packet_size || length > ssz_limits.1 || length < ssz_limits.0 {
-        //     return Err(RPCError::InvalidData);
-        // }
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `ErrorType`.
+        if length > self.max_packet_size || length > *ERROR_TYPE_MAX || length < *ERROR_TYPE_MIN {
+            return Err(RPCError::InvalidData);
+        }
 
-        // // Calculate worst case compression length for given uncompressed length
-        // let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
         // // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
-        let limit_reader = Cursor::new(src.as_ref());
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
         let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
         match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().position();
+                let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
                 Ok(Some(ErrorType(VariableList::from_ssz_bytes(
