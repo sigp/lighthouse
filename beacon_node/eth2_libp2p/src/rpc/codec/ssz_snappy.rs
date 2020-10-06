@@ -97,6 +97,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        println!("Decoding a rpc request: {}", self.protocol.message_name);
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
             // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
@@ -110,17 +111,24 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
         let length = self.len.expect("length should be Some");
 
-        // Should not attempt to decode rpc chunks with length > max_packet_size
-        if length > self.max_packet_size {
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `self.protocol`.
+        let ssz_limits = self.protocol.rpc_request_limits();
+        if length > self.max_packet_size || length > ssz_limits.1 || length < ssz_limits.0 {
             return Err(RPCError::InvalidData);
         }
-        let mut reader = FrameDecoder::new(Cursor::new(&src));
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+
+        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
+        let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
 
-        match read_exact(&mut reader, &mut decoded_buffer, length) {
+        match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().position();
+                let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
                 match self.protocol.message_name {
@@ -275,6 +283,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        println!("Decoding a rpc response: {}", self.protocol.message_name);
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
             // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
@@ -288,16 +297,23 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
         let length = self.len.expect("length should be Some");
 
-        // Should not attempt to decode rpc chunks with length > max_packet_size
-        if length > self.max_packet_size {
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `self.protocol`.
+        let ssz_limits = self.protocol.rpc_response_limits::<TSpec>();
+        if length > self.max_packet_size || length > ssz_limits.1 || length < ssz_limits.0 {
             return Err(RPCError::InvalidData);
         }
-        let mut reader = FrameDecoder::new(Cursor::new(&src));
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
+        let mut reader = FrameDecoder::new(limit_reader);
+
         let mut decoded_buffer = vec![0; length];
-        match read_exact(&mut reader, &mut decoded_buffer, length) {
+        match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().position();
+                let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_byts = src.split_to(n as usize);
                 match self.protocol.message_name {
@@ -364,11 +380,15 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     },
                 }
             }
-            Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet, wait for more
-                ErrorKind::UnexpectedEof => Ok(None),
-                _ => Err(e).map_err(RPCError::from),
-            },
+            Err(e) => {
+                dbg!(&e);
+
+                match e.kind() {
+                    // Haven't received enough bytes to decode yet, wait for more
+                    ErrorKind::UnexpectedEof => Ok(None),
+                    _ => Err(e).map_err(RPCError::from),
+                }
+            }
         }
     }
 }
@@ -380,6 +400,8 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
         &mut self,
         src: &mut BytesMut,
     ) -> Result<Option<Self::CodecErrorType>, RPCError> {
+        println!("Decoding a rpc error: {}", self.protocol.message_name);
+
         if self.len.is_none() {
             // Decode the length of the uncompressed bytes from an unsigned varint
             match self.inner.decode(src).map_err(RPCError::from)? {
@@ -392,13 +414,20 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
 
         let length = self.len.expect("length should be Some");
 
-        // Should not attempt to decode rpc chunks with length > max_packet_size
-        if length > self.max_packet_size {
-            return Err(RPCError::InvalidData);
-        }
-        let mut reader = FrameDecoder::new(Cursor::new(&src));
+        // // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // // packet size for ssz container corresponding to `self.protocol`.
+        // let ssz_limits = self.protocol.rpc_response_limits::<TSpec>();
+        // if length > self.max_packet_size || length > ssz_limits.1 || length < ssz_limits.0 {
+        //     return Err(RPCError::InvalidData);
+        // }
+
+        // // Calculate worst case compression length for given uncompressed length
+        // let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+        // // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref());
+        let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
-        match read_exact(&mut reader, &mut decoded_buffer, length) {
+        match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
@@ -414,62 +443,5 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
                 _ => Err(e).map_err(RPCError::from),
             },
         }
-    }
-}
-
-/// Wrapper over `read` implementation of `FrameDecoder`.
-///
-/// Works like the standard `read_exact` implementation, except that it returns an error if length of
-// compressed bytes read from the underlying reader is greater than worst case compression length for snappy.
-fn read_exact<T: std::convert::AsRef<[u8]>>(
-    reader: &mut FrameDecoder<Cursor<T>>,
-    mut buf: &mut [u8],
-    uncompressed_length: usize,
-) -> Result<(), std::io::Error> {
-    // Calculate worst case compression length for given uncompressed length
-    let max_compressed_len = snap::raw::max_compress_len(uncompressed_length) as u64;
-
-    // Initialize the position of the reader
-    let mut pos = reader.get_ref().position();
-    let mut count = 0;
-    while !buf.is_empty() {
-        match reader.read(buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                let tmp = buf;
-                buf = &mut tmp[n..];
-            }
-            Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
-        }
-        // Get current position of reader
-        let curr_pos = reader.get_ref().position();
-        // Note: reader should always advance forward. However, this behaviour
-        // depends on the implementation of `snap::FrameDecoder`, so it is better
-        // to check to avoid underflow panic.
-        if curr_pos > pos {
-            count += reader.get_ref().position() - pos;
-            pos = curr_pos;
-        } else {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "snappy: reader is not advanced forward while reading",
-            ));
-        }
-
-        if count > max_compressed_len {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "snappy: compressed data is > max_compressed_len",
-            ));
-        }
-    }
-    if !buf.is_empty() {
-        Err(std::io::Error::new(
-            ErrorKind::UnexpectedEof,
-            "failed to fill whole buffer",
-        ))
-    } else {
-        Ok(())
     }
 }
