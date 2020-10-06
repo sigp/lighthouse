@@ -31,6 +31,13 @@ jobs:
       run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
+    - name: Cache Cargo build
+      uses: actions/cache@v2
+      with:
+          path: target/release
+          key: ${{ runner.os }}-stable-release-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+              ${{ runner.os }}-stable-release-target-
     - name: Run tests in release
       run: make test-release
   debug-tests-ubuntu:
@@ -43,6 +50,13 @@ jobs:
       run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
+    - name: Cache Cargo build
+      uses: actions/cache@v2
+      with:
+          path: target/debug
+          key: ${{ runner.os }}-stable-debug-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+              ${{ runner.os }}-stable-debug-target-
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
