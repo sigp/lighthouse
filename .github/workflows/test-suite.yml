@@ -31,7 +31,7 @@ jobs:
       run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
-    - name: Cache Cargo build
+    - name: Cache Cargo release build
       uses: actions/cache@v2
       with:
           path: target/release
@@ -50,7 +50,7 @@ jobs:
       run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
-    - name: Cache Cargo build
+    - name: Cache Cargo debug build
       uses: actions/cache@v2
       with:
           path: target/debug
