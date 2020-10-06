@@ -177,15 +177,21 @@ where
 mod tests {
     use super::super::ssz_snappy::*;
     use super::*;
+    use crate::rpc::methods::StatusMessage;
     use crate::rpc::protocol::*;
+    use snap::write::FrameEncoder;
+    use ssz::Encode;
+    use std::io::Write;
+    use types::{Epoch, Hash256, Slot};
+    use unsigned_varint::codec::Uvi;
+
+    type Spec = types::MainnetEthSpec;
 
     #[test]
     fn test_decode_status_message() {
         let message = hex::decode("ff060000734e615070590032000006e71e7b54989925efd6c9cbcb8ceb9b5f71216f5137282bf6a1e3b50f64e42d6c7fb347abe07eb0db8200000005029e2800").unwrap();
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&message);
-
-        type Spec = types::MainnetEthSpec;
 
         let snappy_protocol_id =
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
@@ -209,22 +215,15 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_malicious_message() {
-        use crate::rpc::methods::StatusMessage;
-        use snap::write::FrameEncoder;
-        use ssz::Encode;
-        use std::io::Write;
-        use types::{Epoch, Hash256, Slot};
-        use unsigned_varint::codec::Uvi;
-
-        type Spec = types::MainnetEthSpec;
-
+    fn test_decode_malicious_status_message() {
+        // Snappy stream identifier
         let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
 
         // byte 0(0xFE) is padding chunk type identifier for snappy messages
         // byte 1,2,3 are chunk length (little endian)
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
+        // Status message is 84 bytes uncompressed. `max_compressed_len` is 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
@@ -245,16 +244,18 @@ mod tests {
         // Insert snappy stream identifier
         dst.extend_from_slice(stream_identifier);
 
-        // Insert malicious padding
-        for _ in 0..50 {
+        // Insert malicious padding of 80 bytes.
+        for _ in 0..20 {
             dst.extend_from_slice(malicious_padding);
         }
 
-        // Insert actual payload
+        // Insert payload (42 bytes compressed)
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&status_message_bytes).unwrap();
         writer.flush().unwrap();
         dst.extend_from_slice(writer.get_ref());
+
+        // 42 + 80 = 132 > max_compressed_len. Hence, decoding should fail with `InvalidData`.
 
         let snappy_protocol_id =
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
