@@ -14,8 +14,8 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 #
 # Binaries will most likely be found in `./target/release`
 install:
-ifeq ($(PORTABLE), true)
-	cargo install --path lighthouse --force --locked --features portable
+ifeq ($(TARGETPLATFORM), linux/arm64)
+	make build-aarch64-portable
 else
 	cargo install --path lighthouse --force --locked
 endif
