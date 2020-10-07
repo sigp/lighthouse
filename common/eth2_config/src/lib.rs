@@ -111,6 +111,8 @@ define_net!(medalla, include_medalla_file, "medalla", true);
 
 define_net!(spadina, include_spadina_file, "spadina", true);
 
+define_net!(zinken, include_zinken_file, "zinken", false);
+
 #[cfg(test)]
 mod tests {
     use super::*;
