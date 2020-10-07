@@ -197,7 +197,7 @@ impl ProtocolId {
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
-            Protocol::MetaData => (0, 0),
+            Protocol::MetaData => (0, 0), // Metadata requests are empty
         }
     }
 
@@ -208,7 +208,7 @@ impl ProtocolId {
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
-            Protocol::Goodbye => (0, 0),
+            Protocol::Goodbye => (0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => (*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
             Protocol::BlocksByRoot => (*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
             Protocol::Ping => (

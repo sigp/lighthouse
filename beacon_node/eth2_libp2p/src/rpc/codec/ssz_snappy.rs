@@ -191,6 +191,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             }
                         }
                     },
+                    // This case should be unreachable as `MetaData` requests are handled separately in the `InboundUpgrade`
                     Protocol::MetaData => match self.protocol.version {
                         Version::V1 => {
                             if !decoded_buffer.is_empty() {
@@ -323,6 +324,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                             }
                         }
                     },
+                    // This case should be unreachable as `Goodbye` has no response.
                     Protocol::Goodbye => Err(RPCError::InvalidData),
                     Protocol::BlocksByRange => match self.protocol.version {
                         Version::V1 => {
