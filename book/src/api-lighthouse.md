@@ -177,3 +177,13 @@ See [Validator Inclusion APIs](./validator-inclusion.md).
 ### `/lighthouse/validator_inclusion/{epoch}/global`
 
 See [Validator Inclusion APIs](./validator-inclusion.md).
+
+### `/lighthouse/beacon/states/{state_id}/ssz`
+
+Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
+```
+
+*Example omitted for brevity, the body contains simply SSZ bytes.*
