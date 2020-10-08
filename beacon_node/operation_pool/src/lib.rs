@@ -23,7 +23,7 @@ use std::ptr;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
     EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit,
-    Validator, IndexedAttestation,
+    Validator,
 };
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
@@ -222,7 +222,7 @@ impl<T: EthSpec> OperationPool<T> {
             .collect::<HashSet<_>>();
 
         let epoch = state.current_epoch();
-        let valid_indexed_attestations: Vec<IndexedAttestation<T>> = self
+        let attester_slashings_coverage: Vec<AttesterSlashing<T>> = self
             .attester_slashings
             .read()
             .iter()
@@ -246,24 +246,15 @@ impl<T: EthSpec> OperationPool<T> {
                     false
                 }
             })
-            .map(|(slashing, _)| vec![slashing.attestation_1.clone(), slashing.attestation_2.clone()])
-            .flat_map(|slashings| slashings.into_iter())
+            .map(|(slashing, _)| slashing.clone())
             .collect();
 
-        let best_indexed_attestations = maximum_cover(
-            valid_indexed_attestations
+        let attester_slashings = maximum_cover(
+            attester_slashings_coverage
             .iter()
-            .flat_map(|ia| AttesterSlashingMaxCover::new(&ia, state, spec)),
-            T::MaxAttesterSlashings::to_usize() * 2);
+            .flat_map(|slashing| AttesterSlashingMaxCover::new(&slashing, state, spec)),
+            T::MaxAttesterSlashings::to_usize());
 
-        
-        let attester_slashings = best_indexed_attestations
-            .chunks(T::MaxAttesterSlashings::to_usize())
-            .map(|x| AttesterSlashing {
-                attestation_1: x[0].clone(),
-                attestation_2: x[1].clone(),
-            })
-            .collect();
         
         (proposer_slashings, attester_slashings)
     }
