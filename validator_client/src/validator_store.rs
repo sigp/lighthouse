@@ -63,20 +63,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         log: Logger,
     ) -> Result<Self, String> {
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection = if config.strict_slashing_protection {
-            // Don't create a new slashing database if `strict_slashing_protection` is turned on.
-            SlashingDatabase::open(&slashing_db_path).map_err(|e| {
-                format!(
-                    "Failed to open slashing protection database: {:?}.
-                    Ensure that `slashing_protection.sqlite` is in {:?} folder",
-                    e, config.validator_dir
-                )
-            })?
-        } else {
+        let slashing_protection = if config.init_slashing_protection {
             SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
                 format!(
                     "Failed to open or create slashing protection database: {:?}",
                     e
+                )
+            })?
+        } else {
+            // Don't create a new slashing database if `init_slashing_protection` is turned off.
+            SlashingDatabase::open(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open slashing protection database: {:?}.\n\
+                     Ensure that `slashing_protection.sqlite` is in {:?} folder",
+                    e, config.validator_dir
                 )
             })?
         };
@@ -235,7 +235,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 warn!(
                     self.log,
                     "Not signing block for unregistered validator";
-                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None
@@ -314,7 +314,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 warn!(
                     self.log,
                     "Not signing attestation for unregistered validator";
-                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None

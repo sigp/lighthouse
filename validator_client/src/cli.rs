@@ -52,14 +52,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("datadir")
                 .requires("validators-dir"),
         )
-        .arg(Arg::with_name("auto-register").long("auto-register").help(
-            "If present, the validator client will register any new signing keys with \
-                       the slashing protection database so that they may be used. WARNING: \
-                       enabling the same signing key on multiple validator clients WILL lead to \
-                       that validator getting slashed. Only use this flag the first time you run \
-                       the validator client, or if you're certain there are no other \
-                       nodes using the same key. Automatically enabled unless `--strict` is specified",
-        ))
         .arg(
             Arg::with_name("delete-lockfiles")
             .long("delete-lockfiles")
@@ -73,14 +65,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             )
         )
         .arg(
-            Arg::with_name("strict-slashing-protection")
-            .long("strict-slashing-protection")
-            .help(
-                "If present, do not create a new slashing database. This is to ensure that users \
-                do not accidentally get slashed in case their slashing protection db ends up in the \
-                wrong directory during directory restructure and vc creates a new empty db and \
-                re-registers all validators."
-            )
+            Arg::with_name("init-slashing-protection")
+                .long("init-slashing-protection")
+                .help(
+                    "If present, do not require the slashing protection database to exist before \
+                     running. You SHOULD NOT use this flag unless you're certain that a new \
+                     slashing protection database is required. Usually, your database \
+                     will have been initialized when you imported your validator keys. If you \
+                     misplace your database and then run with this flag you risk being slashed."
+                )
         )
         .arg(
             Arg::with_name("disable-auto-discover")
