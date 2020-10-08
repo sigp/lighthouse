@@ -4,7 +4,10 @@ use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_TESTNET, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
 use discv5::{Discv5Config, Discv5ConfigBuilder};
-use libp2p::gossipsub::{GenericGossipsubConfig, GenericGossipsubConfigBuilder, GenericGossipsubMessage, MessageId, ValidationMode, RawGossipsubMessage};
+use libp2p::gossipsub::{
+    GenericGossipsubConfig, GenericGossipsubConfigBuilder, GenericGossipsubMessage, MessageId,
+    RawGossipsubMessage, ValidationMode,
+};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -14,7 +17,6 @@ use std::time::Duration;
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
-
 
 type GossipsubConfig = GenericGossipsubConfig<MessageData>;
 type GossipsubConfigBuilder = GenericGossipsubConfigBuilder<MessageData>;
@@ -100,16 +102,26 @@ impl Default for Config {
             |message: &RawGossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..]);
 
         fn prefix(prefix: [u8; 4], data: &Vec<u8>) -> Vec<u8> {
-            prefix.to_vec().into_iter().chain(data.iter().cloned()).collect()
+            prefix
+                .to_vec()
+                .into_iter()
+                .chain(data.iter().cloned())
+                .collect()
         }
 
-        let gossip_message_id = |message: &GossipsubMessage|
-            MessageId::from(&Sha256::digest({
-                match &message.data.decompressed {
-                    Ok(decompressed) => prefix(MESSAGE_DOMAIN_VALID_SNAPPY, decompressed),
-                    _ => prefix(MESSAGE_DOMAIN_INVALID_SNAPPY, &message.data.raw)
-                }
-            }.as_slice())[..20]);
+        let gossip_message_id = |message: &GossipsubMessage| {
+            MessageId::from(
+                &Sha256::digest(
+                    {
+                        match &message.data.decompressed {
+                            Ok(decompressed) => prefix(MESSAGE_DOMAIN_VALID_SNAPPY, decompressed),
+                            _ => prefix(MESSAGE_DOMAIN_INVALID_SNAPPY, &message.data.raw),
+                        }
+                    }
+                    .as_slice(),
+                )[..20],
+            )
+        };
 
         // gossipsub configuration
         // Note: The topics by default are sent as plain strings. Hashes are an optional

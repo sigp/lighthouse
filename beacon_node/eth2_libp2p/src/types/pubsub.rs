@@ -15,7 +15,7 @@ use types::{
 #[derive(Clone)]
 pub struct MessageData {
     pub raw: Vec<u8>,
-    pub decompressed: Result<Vec<u8>, String>
+    pub decompressed: Result<Vec<u8>, String>,
 }
 
 impl AsRef<[u8]> for MessageData {
@@ -114,7 +114,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                 }
                 Ok(gossip_topic) => {
                     let decompressed_data = match gossip_topic.encoding() {
-                        GossipEncoding::SSZSnappy => data.decompressed.as_ref()?.as_slice()
+                        GossipEncoding::SSZSnappy => data.decompressed.as_ref()?.as_slice(),
                     };
                     // the ssz decoders
                     match gossip_topic.kind() {

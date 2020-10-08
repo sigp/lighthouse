@@ -1,3 +1,4 @@
+use crate::behaviour::Gossipsub;
 use crate::rpc::*;
 use delegate::DelegatingHandler;
 pub(super) use delegate::{
@@ -13,7 +14,6 @@ use libp2p::{
 };
 use std::task::{Context, Poll};
 use types::EthSpec;
-use crate::behaviour::Gossipsub;
 
 mod delegate;
 

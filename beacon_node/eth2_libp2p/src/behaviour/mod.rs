@@ -1,7 +1,7 @@
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
-use crate::types::{GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery, MessageData};
+use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetDiscovery};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;

@@ -59,7 +59,7 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
 }
 
 pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage, SubnetDiscovery};
-pub use behaviour::{Gossipsub, BehaviourEvent, PeerRequestId, Request, Response};
+pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;

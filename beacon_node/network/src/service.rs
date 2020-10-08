@@ -6,7 +6,10 @@ use crate::{
 };
 use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId}, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response, Gossipsub};
+use eth2_libp2p::{
+    rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
+    Gossipsub, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
+};
 use eth2_libp2p::{
     types::GossipKind, BehaviourEvent, GossipTopic, MessageId, NetworkGlobals, PeerId, TopicHash,
 };
