@@ -111,7 +111,8 @@ pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
-        ensure_dir_exists(validators_dir.as_ref()).map_err(Error::UnableToCreateValidatorDir)?;
+        ensure_dir_exists(validators_dir.as_ref())
+            .map_err(|_| Error::UnableToCreateValidatorDir)?;
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
             let this = Self::default();
