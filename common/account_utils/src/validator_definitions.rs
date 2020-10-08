@@ -4,6 +4,7 @@
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
 use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
+use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
@@ -108,10 +109,7 @@ pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
-        if !validator_dir.exists() {
-            fs::create_dir_all(&validator_dir)
-                .map_err(|e| format!("Unable to create {}: {:?}", validator_dir.display(), e))?;
-        }
+        ensure_dir_exists(validators_dir.as_ref());
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
             let this = Self::default();
