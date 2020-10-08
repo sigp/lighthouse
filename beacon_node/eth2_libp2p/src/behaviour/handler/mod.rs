@@ -5,7 +5,6 @@ pub(super) use delegate::{
 };
 use libp2p::{
     core::upgrade::{InboundUpgrade, OutboundUpgrade},
-    gossipsub::Gossipsub,
     identify::Identify,
     swarm::protocols_handler::{
         KeepAlive, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
@@ -14,6 +13,7 @@ use libp2p::{
 };
 use std::task::{Context, Poll};
 use types::EthSpec;
+use crate::behaviour::Gossipsub;
 
 mod delegate;
 

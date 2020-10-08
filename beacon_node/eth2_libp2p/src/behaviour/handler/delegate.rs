@@ -2,7 +2,6 @@ use crate::rpc::*;
 use libp2p::{
     core::either::{EitherError, EitherOutput},
     core::upgrade::{EitherUpgrade, InboundUpgrade, OutboundUpgrade, SelectUpgrade, UpgradeError},
-    gossipsub::Gossipsub,
     identify::Identify,
     swarm::{
         protocols_handler::{
@@ -13,6 +12,7 @@ use libp2p::{
 };
 use std::task::{Context, Poll};
 use types::EthSpec;
+use crate::behaviour::Gossipsub;
 
 /* Auxiliary types for simplicity */
 type GossipHandler = <Gossipsub as NetworkBehaviour>::ProtocolsHandler;
