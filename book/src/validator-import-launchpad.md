@@ -85,3 +85,22 @@ INFO Enabled validator       voting_pubkey: 0xa5e8702533f6d66422e042a0bf3471ab9b
 Once this log appears (and there are no errors) the `lighthouse vc` application
 will ensure that the validator starts performing its duties and being rewarded
 by the protocol. There is no more input required from the user.
+
+## Docker Users
+
+The `import` command is a little more complex for Docker users, but the example
+in this document can be substituted with:
+
+```bash
+docker run -it \
+	-v $HOME/.lighthouse:/root/.lighthouse \
+	-v $(pwd)/validator_keys:/root/validator_keys \
+	sigp/lighthouse \
+	lighthouse --testnet medalla account validator import --directory /root/validator_keys
+```
+
+Here we use two `-v` volumes to attach:
+
+- `~/.lighthouse` on the host to `/root/.lighthouse` in the Docker container.
+- The `validator_keys` directory in the present working directory of the host
+	to the `/root/validator_keys` directory of the Docker container.

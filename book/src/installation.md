@@ -5,8 +5,8 @@ Lighthouse runs on Linux, macOS, and Windows (via [WSL][] only).
 There are three core methods to obtain the Lighthouse application:
 
 - [Pre-built binaries](./installation-binaries.md).
-- [Building from source](./installation-source.md).
 - [Docker images](./docker.md).
+- [Building from source](./installation-source.md).
 
 Additionally, there are two extra guides for specific uses:
 

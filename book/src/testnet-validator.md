@@ -75,29 +75,22 @@ Once you have geth installed, use this command to start your Eth1 node:
 
 *Note: Lighthouse only supports Windows via WSL.*
 
-See [./installation.md]
+Follow the [Lighthouse Installation Instructions](./installation.md) to install
+Lighthouse from one of the available options.
 
-There are three options for installing Lighthouse:
+Proceed to the next step once you've successfully installed Lighthouse and view
+its `--version` info.
 
-- Using the [pre-built binaries](./installation-binaries.md).
-- [Building from source](./installation-source.md).
-- [Using Docker images](./docker.md).
-
+> Note: Some of the instructions vary when using Docker, ensure you follow the
+> appropriate sections later in this guide.
 
 ### Step 4. Import validator keys to Lighthouse
 
-Follow the [Importing from the Ethereum 2.0 Launch
-pad](./validator-import-launchpad.md) instructions.
+When Lighthouse is installed, follow the [Importing from the Ethereum 2.0 Launch
+pad](./validator-import-launchpad.md) instructions so the validator client can
+perform your validator duties.
 
-#### Docker Users
-
-Those using either pre-built or custom-built binaries can the above
-instructions directly. Those using Docker image will need to modify the import
-command to something like this:
-
-```bash
-docker -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --testnet MY_TESTNET account validator import --directory validator_keys
-```
+Proceed to the next step once you've successfully imported all validators.
 
 ### Step 5. Start Lighthouse
 
@@ -115,7 +108,7 @@ Starting these processes is different for binary and docker users:
 Those using the pre- or custom-built binaries can start the two processes with:
 
 ```bash
-lighthouse --testnet MY_TESTNET bn --http --eth1
+lighthouse --testnet MY_TESTNET bn --staking
 ```
 
 ```bash
@@ -127,11 +120,18 @@ lighthouse --testnet MY_TESTNET vc
 Those using Docker images can start the processes with:
 
 ```bash
-$ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --testnet MY_TESTNET beacon --http --http-address 0.0.0.0
+$ docker run \
+	-p 9000:9000 \
+	-p 127.0.0.1:5052:5052 \
+	-v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
+	lighthouse --testnet MY_TESTNET beacon --staking --http-address 0.0.0.0
 ```
 
 ```bash
-$ docker run -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --testnet MY_TESTNET vc
+$ docker run \
+	-v $HOME/.lighthouse:/root/.lighthouse \
+	sigp/lighthouse \
+	lighthouse --testnet MY_TESTNET vc
 ```
 
 ### Step 6. Leave Lighthouse running

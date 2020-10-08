@@ -32,6 +32,6 @@ Each binary is contained in a `.tar.gz` archive. For this example, lets use the
 1. Extract the archive:
     1. `cd Downloads`
     1. `tar -xvf lighthouse-v0.2.13-x86_64-unknown-linux-gnu.tar.gz`
-1. Test the binary with `./lighthouse --help` (it should print CLI usage instructions).
+1. Test the binary with `./lighthouse --version` (it should print the version).
 1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere.
     - E.g., `cp lighthouse /usr/bin`
