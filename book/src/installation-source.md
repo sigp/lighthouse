@@ -18,6 +18,8 @@ Instructions](#detailed-instructions) below. If you have further issues, see
 
 1. Install Rust and Cargo with [rustup](https://rustup.rs/).
     - Use the `stable` toolchain (it's the default).
+	- Check the [Troubleshooting](#troubleshooting) section for additional
+		dependencies (e.g., `cmake`).
 1. Clone the Lighthouse repository.
     - Run `$ git clone https://github.com/sigp/lighthouse.git`
     - Change into the newly created directory with `$ cd lighthouse`
