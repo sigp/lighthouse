@@ -1,11 +1,7 @@
 # Docker Guide
 
 This repository has a `Dockerfile` in the root which builds an image with the
-`lighthouse` binary installed.
-
-A pre-built image is available on Docker Hub and the
-[sigp/lighthouse](https://github.com/sigp/lighthouse-docker) repository
-contains a full-featured `docker-compose` environment.
+`lighthouse` binary installed. A pre-built image is available on Docker Hub.
 
 ## Obtaining the Docker image
 

@@ -1,4 +1,4 @@
-# Importing from the Ethereum 2.0 Launchpad
+# Importing from the Ethereum 2.0 Launch pad
 
 The [Eth2 Lauchpad](https://github.com/ethereum/eth2.0-deposit) is a website
 from the Ethereum Foundation which guides users how to use the
@@ -20,7 +20,7 @@ Whilst following the steps on the website, users are instructed to download the
 repository. This `eth2-deposit-cli` script will generate the validator BLS keys
 into a `validator_keys` directory. We assume that the user's
 present-working-directory is the `eth2-deposit-cli` repository (this is where
-you will be if you just ran the `./deposit.sh` script from the Eth2 Launchpad
+you will be if you just ran the `./deposit.sh` script from the Eth2 Launch pad
 website). If this is not the case, simply change the `--directory` to point to
 the `validator_keys` directory.
 
