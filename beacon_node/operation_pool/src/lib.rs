@@ -1,14 +1,14 @@
 mod attestation;
 mod attestation_id;
+mod attester_slashing;
 mod max_cover;
 mod persistence;
-mod attester_slashing;
 
 pub use persistence::PersistedOperationPool;
 
-use attester_slashing::AttesterSlashingMaxCover;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
+use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;
@@ -251,11 +251,11 @@ impl<T: EthSpec> OperationPool<T> {
 
         let attester_slashings = maximum_cover(
             attester_slashings_coverage
-            .iter()
-            .flat_map(|slashing| AttesterSlashingMaxCover::new(&slashing, state, spec)),
-            T::MaxAttesterSlashings::to_usize());
+                .iter()
+                .flat_map(|slashing| AttesterSlashingMaxCover::new(&slashing, state, spec)),
+            T::MaxAttesterSlashings::to_usize(),
+        );
 
-        
         (proposer_slashings, attester_slashings)
     }
 
@@ -987,7 +987,7 @@ mod release_tests {
         op_pool.insert_proposer_slashing(slashing2.clone().validate(state, spec).unwrap());
 
         // Should only get the second slashing back.
-        assert_eq!(op_pool.get_slashings(state).0, vec![slashing2]);
+        assert_eq!(op_pool.get_slashings(state, spec).0, vec![slashing2]);
     }
 
     // Sanity check on the pruning of proposer slashings
@@ -998,7 +998,7 @@ mod release_tests {
         let slashing = ctxt.proposer_slashing(0);
         op_pool.insert_proposer_slashing(slashing.clone().validate(state, spec).unwrap());
         op_pool.prune_proposer_slashings(state);
-        assert_eq!(op_pool.get_slashings(state).0, vec![slashing]);
+        assert_eq!(op_pool.get_slashings(state, spec).0, vec![slashing]);
     }
 
     // Sanity check on the pruning of attester slashings
@@ -1010,6 +1010,6 @@ mod release_tests {
         op_pool
             .insert_attester_slashing(slashing.clone().validate(state, spec).unwrap(), state.fork);
         op_pool.prune_attester_slashings(state, state.fork);
-        assert_eq!(op_pool.get_slashings(state).1, vec![slashing]);
+        assert_eq!(op_pool.get_slashings(state, spec).1, vec![slashing]);
     }
 }
