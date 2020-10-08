@@ -36,6 +36,8 @@ pub enum Error {
     InvalidKeystorePubkey,
     /// The keystore was unable to be opened.
     UnableToOpenKeystore(eth2_keystore::Error),
+    /// The validator directory could not be created.
+    UnableToCreateValidatorDir,
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.
@@ -109,7 +111,7 @@ pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
-        ensure_dir_exists(validators_dir.as_ref());
+        ensure_dir_exists(validators_dir.as_ref()).map_err(Error::UnableToCreateValidatorDir)?;
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
             let this = Self::default();
