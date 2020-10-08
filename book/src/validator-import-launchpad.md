@@ -30,6 +30,9 @@ using the standard `validators` directory (specify a different one using
 
 ### 1. Run the `lighthouse account validator import` command.
 
+Docker users should use the command from the [Docker](#docker-users)
+section, all other users can use:
+
 
 ```bash
 lighthouse account validator import --directory validator_keys
@@ -86,7 +89,7 @@ Once this log appears (and there are no errors) the `lighthouse vc` application
 will ensure that the validator starts performing its duties and being rewarded
 by the protocol. There is no more input required from the user.
 
-## Docker Users
+## Docker
 
 The `import` command is a little more complex for Docker users, but the example
 in this document can be substituted with:

@@ -121,14 +121,14 @@ Those using Docker images can start the processes with:
 
 ```bash
 $ docker run \
-	-p 9000:9000 \
-	-p 127.0.0.1:5052:5052 \
+	--network host \
 	-v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
 	lighthouse --testnet MY_TESTNET beacon --staking --http-address 0.0.0.0
 ```
 
 ```bash
 $ docker run \
+	--network host \
 	-v $HOME/.lighthouse:/root/.lighthouse \
 	sigp/lighthouse \
 	lighthouse --testnet MY_TESTNET vc
