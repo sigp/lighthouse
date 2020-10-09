@@ -160,6 +160,27 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct RpcLimits {
+    min: usize,
+    max: usize,
+}
+
+impl RpcLimits {
+    pub fn new(min: usize, max: usize) -> Self {
+        Self { min, max }
+    }
+
+    /// Returns true if the given length is within the limits, false otherwise.
+    pub fn is_within_bounds(&self, length: usize) -> bool {
+        if length > self.max || length < self.min {
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// Tracks the types in a protocol id.
 #[derive(Clone, Debug)]
 pub struct ProtocolId {
@@ -178,44 +199,50 @@ pub struct ProtocolId {
 
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self) -> (usize, usize) {
+    pub fn rpc_request_limits(&self) -> RpcLimits {
         match self.message_name {
-            Protocol::Status => (
+            Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
-            Protocol::Goodbye => (
+            Protocol::Goodbye => RpcLimits::new(
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlocksByRange => (
+            Protocol::BlocksByRange => RpcLimits::new(
                 <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlocksByRoot => (*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX),
-            Protocol::Ping => (
+            Protocol::BlocksByRoot => {
+                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+            }
+            Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
-            Protocol::MetaData => (0, 0), // Metadata requests are empty
+            Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
 
     /// Returns min and max size for messages of given protocol id responses.
-    pub fn rpc_response_limits<T: EthSpec>(&self) -> (usize, usize) {
+    pub fn rpc_response_limits<T: EthSpec>(&self) -> RpcLimits {
         match self.message_name {
-            Protocol::Status => (
+            Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
-            Protocol::Goodbye => (0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => (*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
-            Protocol::BlocksByRoot => (*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
-            Protocol::Ping => (
+            Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
+            Protocol::BlocksByRange => {
+                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
+            }
+            Protocol::BlocksByRoot => {
+                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
+            }
+            Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
-            Protocol::MetaData => (
+            Protocol::MetaData => RpcLimits::new(
                 <MetaData<T> as Encode>::ssz_fixed_len(),
                 <MetaData<T> as Encode>::ssz_fixed_len(),
             ),
