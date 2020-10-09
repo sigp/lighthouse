@@ -48,7 +48,6 @@ features = ["websocket", "identify", "mplex", "noise", "gossipsub", "dns", "tcp-
 
 [dev-dependencies]
 tokio = { version = "0.2.22", features = ["full"] }
-slog-stdlog = "4.0.0"
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 tempdir = "0.3.7"

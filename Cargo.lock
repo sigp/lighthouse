@@ -1689,7 +1689,6 @@ dependencies = [
  "sha2 0.9.1",
  "slog",
  "slog-async",
- "slog-stdlog",
  "slog-term",
  "smallvec 1.4.2",
  "snap",
@@ -3597,7 +3596,6 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
- "environment",
  "error-chain",
  "eth2_libp2p",
  "eth2_ssz",
