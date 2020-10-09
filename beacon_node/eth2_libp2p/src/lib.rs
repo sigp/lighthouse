@@ -61,6 +61,7 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
 pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage, SubnetDiscovery};
 pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
+pub use config::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage};
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;
 pub use libp2p::gossipsub::{MessageAcceptance, MessageId, Topic, TopicHash};
@@ -71,4 +72,3 @@ pub use peer_manager::{
     client::Client, score::PeerAction, PeerDB, PeerInfo, PeerSyncStatus, SyncInfo,
 };
 pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
-pub use config::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage};

@@ -98,8 +98,8 @@ impl Default for Config {
 
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing
-        let fast_gossip_message_id = |message: &RawGossipsubMessage|
-            FastMessageId::from(&Sha256::digest(&message.data)[..]);
+        let fast_gossip_message_id =
+            |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..]);
 
         fn prefix(prefix: [u8; 4], data: &Vec<u8>) -> Vec<u8> {
             prefix
