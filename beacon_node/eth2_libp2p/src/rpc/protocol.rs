@@ -160,6 +160,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     }
 }
 
+/// Represents the ssz length bounds for RPC messages.
 #[derive(Debug, PartialEq)]
 pub struct RpcLimits {
     min: usize,
@@ -171,13 +172,9 @@ impl RpcLimits {
         Self { min, max }
     }
 
-    /// Returns true if the given length is within the limits, false otherwise.
-    pub fn is_within_bounds(&self, length: usize) -> bool {
-        if length > self.max || length < self.min {
-            true
-        } else {
-            false
-        }
+    /// Returns true if the given length is out of bounds, false otherwise.
+    pub fn is_out_of_bounds(&self, length: usize) -> bool {
+        length > self.max || length < self.min
     }
 }
 
@@ -320,7 +317,7 @@ where
                     {
                         Err(e) => Err(RPCError::from(e)),
                         Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
-                        Ok((Some(Err(e)), _)) => Err(RPCError::from(e)),
+                        Ok((Some(Err(e)), _)) => Err(e),
                         Ok((None, _)) => Err(RPCError::IncompleteStream),
                     }
                 }
