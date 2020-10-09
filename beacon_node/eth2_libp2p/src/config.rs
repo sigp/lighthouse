@@ -101,7 +101,7 @@ impl Default for Config {
         let fast_gossip_message_id =
             |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..]);
 
-        fn prefix(prefix: [u8; 4], data: &Vec<u8>) -> Vec<u8> {
+        fn prefix(prefix: [u8; 4], data: &[u8]) -> Vec<u8> {
             prefix
                 .to_vec()
                 .into_iter()
