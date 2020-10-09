@@ -13,11 +13,6 @@ pub use uuid::Uuid;
 pub struct JsonWallet {
     pub crypto: Crypto,
     pub name: String,
-    // TODO: confirm if this field is optional or not.
-    //
-    // Reference:
-    //
-    // https://github.com/sigp/lighthouse/pull/1117#discussion_r422892396
     pub nextaccount: u32,
     pub uuid: Uuid,
     pub version: Version,

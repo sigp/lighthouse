@@ -54,8 +54,6 @@ impl<TSpec: EthSpec> DelegatingHandler<TSpec> {
     }
 }
 
-// TODO: this can all be created with macros
-
 /// Wrapper around the `ProtocolsHandler::InEvent` types of the handlers.
 /// Simply delegated to the corresponding behaviour's handler.
 #[derive(Debug, Clone)]
@@ -115,7 +113,6 @@ pub type DelegateOutProto<TSpec> = EitherUpgrade<
     >,
 >;
 
-// TODO: prob make this an enum
 pub type DelegateOutInfo<TSpec> = EitherOutput<
     <GossipHandler as ProtocolsHandler>::OutboundOpenInfo,
     EitherOutput<
@@ -216,7 +213,6 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Error,
         >,
     ) {
-        // TODO: find how to clean up
         match info {
             // Gossipsub
             EitherOutput::First(info) => match error {

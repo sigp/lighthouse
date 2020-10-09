@@ -10,5 +10,5 @@ license = "Apache-2.0"
 proc-macro = true
 
 [dependencies]
-syn = "1.0.18"
-quote = "1.0.4"
+syn = "1.0.42"
+quote = "1.0.7"

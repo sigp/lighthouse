@@ -1,4 +1,5 @@
 use crate::local_network::LocalNetwork;
+use node_test_rig::eth2::types::StateId;
 use std::time::Duration;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 
@@ -65,11 +66,9 @@ pub async fn verify_all_finalized_at<E: EthSpec>(
         for remote_node in network.remote_nodes()? {
             epochs.push(
                 remote_node
-                    .http
-                    .beacon()
-                    .get_head()
+                    .get_beacon_states_finality_checkpoints(StateId::Head)
                     .await
-                    .map(|head| head.finalized_slot.epoch(E::slots_per_epoch()))
+                    .map(|body| body.unwrap().data.finalized.epoch)
                     .map_err(|e| format!("Get head via http failed: {:?}", e))?,
             );
         }
@@ -95,17 +94,10 @@ async fn verify_validator_count<E: EthSpec>(
     let validator_counts = {
         let mut validator_counts = Vec::new();
         for remote_node in network.remote_nodes()? {
-            let beacon = remote_node.http.beacon();
-
-            let head = beacon
-                .get_head()
+            let vc = remote_node
+                .get_debug_beacon_states::<E>(StateId::Head)
                 .await
-                .map_err(|e| format!("Get head via http failed: {:?}", e))?;
-
-            let vc = beacon
-                .get_state_by_root(head.state_root)
-                .await
-                .map(|(state, _root)| state)
+                .map(|body| body.unwrap().data)
                 .map_err(|e| format!("Get state root via http failed: {:?}", e))?
                 .validators
                 .len();

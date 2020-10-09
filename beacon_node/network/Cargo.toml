@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "1.0.0"
+sloggers = "1.0.1"
 genesis = { path = "../genesis" }
 lazy_static = "1.4.0"
 matches = "0.1.8"
@@ -17,7 +17,6 @@ beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
 eth2_libp2p =  { path = "../eth2_libp2p" }
 hashset_delay = { path = "../../common/hashset_delay" }
-rest_types = { path = "../../common/rest_types" }
 types = { path = "../../consensus/types" }
 state_processing = { path = "../../consensus/state_processing" }
 slot_clock = { path = "../../common/slot_clock" }
@@ -25,18 +24,18 @@ slog = { version = "2.5.2", features = ["max_level_trace"] }
 hex = "0.4.2"
 eth2_ssz = "0.1.2"
 eth2_ssz_types = { path =  "../../consensus/ssz_types" }
-tree_hash = "0.1.0"
+tree_hash = "0.1.1"
 futures = "0.3.5"
-error-chain = "0.12.2"
+error-chain = "0.12.4"
 tokio = { version = "0.2.22", features = ["full"] }
 parking_lot = "0.11.0"
-smallvec = "1.4.1"
+smallvec = "1.4.2"
 rand = "0.7.3"
-fnv = "1.0.6"
-rlp = "0.4.5"
+fnv = "1.0.7"
+rlp = "0.4.6"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-environment = { path = "../../lighthouse/environment" }
+task_executor = { path = "../../common/task_executor" }
 igd = "0.11.1"
 itertools = "0.9.0"
 num_cpus = "1.13.0"

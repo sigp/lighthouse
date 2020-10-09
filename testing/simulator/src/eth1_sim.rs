@@ -4,8 +4,8 @@ use eth1::http::Eth1NetworkId;
 use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
-    ValidatorFiles,
+    environment::EnvironmentBuilder, testing_client_config, testing_validator_config,
+    ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
@@ -128,14 +128,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         for (i, files) in validator_files.into_iter().enumerate() {
             network
-                .add_validator_client(
-                    ValidatorConfig {
-                        disable_auto_discover: false,
-                        ..ValidatorConfig::default()
-                    },
-                    i,
-                    files,
-                )
+                .add_validator_client(testing_validator_config(), i, files)
                 .await?;
         }
 

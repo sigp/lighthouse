@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "1.0.0"
+sloggers = "1.0.1"
 toml = "0.5.6"
 
 [dependencies]
@@ -14,30 +14,33 @@ store = { path = "../store" }
 network = { path = "../network" }
 timer = { path = "../timer" }
 eth2_libp2p = { path = "../eth2_libp2p" }
-rest_api = { path = "../rest_api" }
 parking_lot = "0.11.0"
 websocket_server = { path = "../websocket_server" }
-prometheus = "0.9.0"
+prometheus = "0.10.0"
 types = { path = "../../consensus/types" }
-tree_hash = "0.1.0"
+tree_hash = "0.1.1"
 eth2_config = { path = "../../common/eth2_config" }
 slot_clock = { path = "../../common/slot_clock" }
-serde = "1.0.110"
-serde_derive = "1.0.110"
-error-chain = "0.12.2"
-serde_yaml = "0.8.11"
+serde = "1.0.116"
+serde_derive = "1.0.116"
+error-chain = "0.12.4"
+serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 slog-async = "2.5.0"
 tokio = "0.2.22"
-dirs = "2.0.2"
+dirs = "3.0.1"
 futures = "0.3.5"
-reqwest = { version = "0.10.4", features = ["native-tls-vendored"] }
+reqwest = { version = "0.10.8", features = ["native-tls-vendored"] }
 url = "2.1.1"
 eth1 = { path = "../eth1" }
 genesis = { path = "../genesis" }
+task_executor = { path = "../../common/task_executor" }
 environment = { path = "../../lighthouse/environment" }
 eth2_ssz = "0.1.2"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-time = "0.2.16"
+time = "0.2.22"
 bus = "2.2.3"
+directory = {path = "../../common/directory"}
+http_api = { path = "../http_api" }
+http_metrics = { path = "../http_metrics" }

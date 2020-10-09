@@ -31,7 +31,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .and_then(|dir| dir.parse::<PathBuf>().map_err(|_| ()))
         .unwrap_or_else(|_| {
             dirs::home_dir()
-                .map(|home| home.join(".lighthouse").join("testnet"))
+                .map(|home| home.join(directory::DEFAULT_ROOT_DIR).join("testnet"))
                 .expect("should locate home directory")
         });
 

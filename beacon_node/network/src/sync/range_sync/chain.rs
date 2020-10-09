@@ -613,9 +613,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
                     unreachable!("batch indicates inconsistent chain state while advancing chain")
                 }
-                BatchState::AwaitingProcessing(..) => {
-                    // TODO: can we be sure the old attempts are wrong?
-                }
+                BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     assert_eq!(
                         id,
@@ -651,9 +649,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// These events occur when a peer has successfully responded with blocks, but the blocks we
     /// have received are incorrect or invalid. This indicates the peer has not performed as
     /// intended and can result in downvoting a peer.
-    // TODO: Batches could have been partially downloaded due to RPC size-limit restrictions. We
-    // need to add logic for partial batch downloads. Potentially, if another peer returns the same
-    // batch, we try a partial download.
     fn handle_invalid_batch(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,

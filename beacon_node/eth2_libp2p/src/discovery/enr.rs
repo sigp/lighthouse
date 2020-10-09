@@ -129,7 +129,6 @@ pub fn create_enr_builder_from_config<T: EnrKey>(config: &NetworkConfig) -> EnrB
         builder.udp(udp_port);
     }
     // we always give it our listening tcp port
-    // TODO: Add uPnP support to map udp and tcp ports
     let tcp_port = config.enr_tcp_port.unwrap_or_else(|| config.libp2p_port);
     builder.tcp(tcp_port).tcp(config.libp2p_port);
     builder
@@ -144,12 +143,12 @@ pub fn build_enr<T: EthSpec>(
     let mut builder = create_enr_builder_from_config(config);
 
     // set the `eth2` field on our ENR
-    builder.add_value(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes());
+    builder.add_value(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes());
 
     // set the "attnets" field on our ENR
     let bitfield = BitVector::<T::SubnetBitfieldLength>::new();
 
-    builder.add_value(BITFIELD_ENR_KEY.into(), bitfield.as_ssz_bytes());
+    builder.add_value(BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
     builder
         .build(enr_key)
