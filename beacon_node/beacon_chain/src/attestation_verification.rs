@@ -28,8 +28,7 @@
 
 use crate::{
     beacon_chain::{
-        ATTESTATION_CACHE_LOCK_TIMEOUT, HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-        VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+        HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
     metrics,
     observed_attestations::ObserveOutcome,
@@ -38,12 +37,10 @@ use crate::{
 };
 use bls::verify_signature_sets;
 use proto_array::Block as ProtoBlock;
-use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::errors::AttestationValidationError,
-    per_slot_processing,
     signature_sets::{
         indexed_attestation_signature_set_from_pubkeys,
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
@@ -53,7 +50,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
-    RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
+    SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 
 /// Returned when an attestation was not successfully verified. It might not have been verified for
@@ -267,6 +264,7 @@ pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
 pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
+    subnet_id: SubnetId,
 }
 
 /// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
@@ -276,6 +274,7 @@ impl<T: BeaconChainTypes> Clone for VerifiedUnaggregatedAttestation<T> {
         Self {
             attestation: self.attestation.clone(),
             indexed_attestation: self.indexed_attestation.clone(),
+            subnet_id: self.subnet_id,
         }
     }
 }
@@ -437,6 +436,11 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
     }
+
+    /// Returns the underlying `signed_aggregate`.
+    pub fn aggregate(&self) -> &SignedAggregateAndProof<T::EthSpec> {
+        &self.signed_aggregate
+    }
 }
 
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
@@ -447,7 +451,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     /// verify that it was received on the correct subnet.
     pub fn verify(
         attestation: Attestation<T::EthSpec>,
-        subnet_id: SubnetId,
+        subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
@@ -493,13 +497,15 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         )
         .map_err(BeaconChainError::from)?;
 
-        // Ensure the attestation is from the correct subnet.
-        if subnet_id != expected_subnet_id {
-            return Err(Error::InvalidSubnetId {
-                received: subnet_id,
-                expected: expected_subnet_id,
-            });
-        }
+        // If a subnet was specified, ensure that subnet is correct.
+        if let Some(subnet_id) = subnet_id {
+            if subnet_id != expected_subnet_id {
+                return Err(Error::InvalidSubnetId {
+                    received: subnet_id,
+                    expected: expected_subnet_id,
+                });
+            }
+        };
 
         let validator_index = *indexed_attestation
             .attesting_indices
@@ -544,12 +550,18 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         Ok(Self {
             attestation,
             indexed_attestation,
+            subnet_id: expected_subnet_id,
         })
     }
 
     /// A helper function to add this attestation to `beacon_chain.naive_aggregation_pool`.
     pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
         chain.add_to_naive_aggregation_pool(self)
+    }
+
+    /// Returns the correct subnet for the attestation.
+    pub fn subnet_id(&self) -> SubnetId {
+        self.subnet_id
     }
 
     /// Returns the wrapped `attestation`.
@@ -567,6 +579,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 }
 
 /// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
+/// You can use this `shuffling_id` to read from the shuffling cache.
 ///
 /// The block root may not be known for two reasons:
 ///
@@ -595,6 +608,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
                 });
             }
         }
+
         Ok(block)
     } else {
         Err(Error::UnknownHeadBlock {
@@ -801,7 +815,7 @@ type CommitteesPerSlot = u64;
 
 /// Returns the `indexed_attestation` and committee count per slot for the `attestation` using the
 /// public keys cached in the `chain`.
-pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
+fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
@@ -821,8 +835,8 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 ///
 /// If the committee for `attestation` isn't found in the `shuffling_cache`, we will read a state
 /// from disk and then update the `shuffling_cache`.
-pub fn map_attestation_committee<'a, T, F, R>(
-    chain: &'a BeaconChain<T>,
+fn map_attestation_committee<T, F, R>(
+    chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
     map_fn: F,
 ) -> Result<R, Error>
@@ -840,104 +854,23 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    let target_block = chain
-        .fork_choice
-        .read()
-        .get_block(&target.root)
-        .ok_or_else(|| Error::UnknownTargetRoot(target.root))?;
-
-    // Obtain the shuffling cache, timing how long we wait.
-    let cache_wait_timer =
-        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
-
-    let mut shuffling_cache = chain
-        .shuffling_cache
-        .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::AttestationCacheLockTimeout)?;
-
-    metrics::stop_timer(cache_wait_timer);
-
-    if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
-        let committees_per_slot = committee_cache.committees_per_slot();
-        committee_cache
-            .get_beacon_committee(attestation.data.slot, attestation.data.index)
-            .map(|committee| map_fn((committee, committees_per_slot)))
-            .unwrap_or_else(|| {
-                Err(Error::NoCommitteeForSlotAndIndex {
-                    slot: attestation.data.slot,
-                    index: attestation.data.index,
-                })
-            })
-    } else {
-        // Drop the shuffling cache to avoid holding the lock for any longer than
-        // required.
-        drop(shuffling_cache);
-
-        debug!(
-            chain.log,
-            "Attestation processing cache miss";
-            "attn_epoch" => attestation_epoch.as_u64(),
-            "target_block_epoch" => target_block.slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
-        );
-
-        let state_read_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
-
-        let mut state = chain
-            .store
-            .get_inconsistent_state_for_attestation_verification_only(
-                &target_block.state_root,
-                Some(target_block.slot),
-            )
-            .map_err(BeaconChainError::from)?
-            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block.state_root))?;
-
-        metrics::stop_timer(state_read_timer);
-        let state_skip_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
-
-        while state.current_epoch() + 1 < attestation_epoch {
-            // Here we tell `per_slot_processing` to skip hashing the state and just
-            // use the zero hash instead.
-            //
-            // The state roots are not useful for the shuffling, so there's no need to
-            // compute them.
-            per_slot_processing(&mut state, Some(Hash256::zero()), &chain.spec)
-                .map_err(BeaconChainError::from)?;
-        }
-
-        metrics::stop_timer(state_skip_timer);
-        let committee_building_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
-
-        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), attestation_epoch)
-            .map_err(BeaconChainError::IncorrectStateForAttestation)?;
-
-        state
-            .build_committee_cache(relative_epoch, &chain.spec)
-            .map_err(BeaconChainError::from)?;
-
-        let committee_cache = state
-            .committee_cache(relative_epoch)
-            .map_err(BeaconChainError::from)?;
-
-        chain
-            .shuffling_cache
-            .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| BeaconChainError::AttestationCacheLockTimeout)?
-            .insert(attestation_epoch, target.root, committee_cache);
-
-        metrics::stop_timer(committee_building_timer);
-
-        let committees_per_slot = committee_cache.committees_per_slot();
-        committee_cache
-            .get_beacon_committee(attestation.data.slot, attestation.data.index)
-            .map(|committee| map_fn((committee, committees_per_slot)))
-            .unwrap_or_else(|| {
-                Err(Error::NoCommitteeForSlotAndIndex {
-                    slot: attestation.data.slot,
-                    index: attestation.data.index,
-                })
-            })
+    if !chain.fork_choice.read().contains_block(&target.root) {
+        return Err(Error::UnknownTargetRoot(target.root));
     }
+
+    chain
+        .with_committee_cache(target.root, attestation_epoch, |committee_cache| {
+            let committees_per_slot = committee_cache.committees_per_slot();
+
+            Ok(committee_cache
+                .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                .map(|committee| map_fn((committee, committees_per_slot)))
+                .unwrap_or_else(|| {
+                    Err(Error::NoCommitteeForSlotAndIndex {
+                        slot: attestation.data.slot,
+                        index: attestation.data.index,
+                    })
+                }))
+        })
+        .map_err(BeaconChainError::from)?
 }

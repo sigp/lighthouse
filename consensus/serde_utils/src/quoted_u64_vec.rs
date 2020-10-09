@@ -1,3 +1,9 @@
+//! Formats `Vec<u64>` using quotes.
+//!
+//! E.g., `vec![0, 1, 2]` serializes as `["0", "1", "2"]`.
+//!
+//! Quotes can be optional during decoding.
+
 use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serializer};
 use serde_derive::{Deserialize, Serialize};
@@ -6,7 +12,7 @@ use serde_derive::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct QuotedIntWrapper {
     #[serde(with = "crate::quoted_u64")]
-    int: u64,
+    pub int: u64,
 }
 
 pub struct QuotedIntVecVisitor;

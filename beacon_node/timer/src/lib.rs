@@ -12,7 +12,7 @@ use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
 pub fn spawn_timer<T: BeaconChainTypes>(
-    executor: environment::TaskExecutor,
+    executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,
 ) -> Result<(), &'static str> {

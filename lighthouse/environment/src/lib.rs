@@ -15,7 +15,6 @@ use futures::channel::{
 };
 use futures::{future, StreamExt};
 
-pub use executor::TaskExecutor;
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
@@ -23,10 +22,9 @@ use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use task_executor::TaskExecutor;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
-mod executor;
-mod metrics;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -311,12 +309,7 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// The generated service will have the `service_name` in all it's logs.
     pub fn service_context(&self, service_name: String) -> Self {
         Self {
-            executor: TaskExecutor {
-                handle: self.executor.handle.clone(),
-                signal_tx: self.executor.signal_tx.clone(),
-                exit: self.executor.exit.clone(),
-                log: self.executor.log.new(o!("service" => service_name)),
-            },
+            executor: self.executor.clone_with_name(service_name),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
@@ -361,12 +354,12 @@ impl<E: EthSpec> Environment<E> {
     /// Returns a `Context` where no "service" has been added to the logger output.
     pub fn core_context(&mut self) -> RuntimeContext<E> {
         RuntimeContext {
-            executor: TaskExecutor {
-                exit: self.exit.clone(),
-                signal_tx: self.signal_tx.clone(),
-                handle: self.runtime().handle().clone(),
-                log: self.log.clone(),
-            },
+            executor: TaskExecutor::new(
+                self.runtime().handle().clone(),
+                self.exit.clone(),
+                self.log.clone(),
+                self.signal_tx.clone(),
+            ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
@@ -375,12 +368,12 @@ impl<E: EthSpec> Environment<E> {
     /// Returns a `Context` where the `service_name` is added to the logger output.
     pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
-            executor: TaskExecutor {
-                exit: self.exit.clone(),
-                signal_tx: self.signal_tx.clone(),
-                handle: self.runtime().handle().clone(),
-                log: self.log.new(o!("service" => service_name)),
-            },
+            executor: TaskExecutor::new(
+                self.runtime().handle().clone(),
+                self.exit.clone(),
+                self.log.new(o!("service" => service_name)),
+                self.signal_tx.clone(),
+            ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }

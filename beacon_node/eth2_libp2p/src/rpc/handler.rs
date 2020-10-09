@@ -25,8 +25,6 @@ use std::{
 use tokio::time::{delay_queue, delay_until, Delay, DelayQueue, Instant as TInstant};
 use types::EthSpec;
 
-//TODO: Implement check_timeout() on the substream types
-
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
 
@@ -163,8 +161,6 @@ struct OutboundInfo<TSpec: EthSpec> {
     /// Info over the protocol this substream is handling.
     proto: Protocol,
     /// Number of chunks to be seen from the peer's response.
-    // TODO: removing the option could allow clossing the streams after the number of
-    // expected responses is met for all protocols.
     remaining_chunks: Option<u64>,
     /// `RequestId` as given by the application that sent the request.
     req_id: RequestId,

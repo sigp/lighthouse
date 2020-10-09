@@ -326,7 +326,7 @@ fn epoch_boundary_state_attestation_processing() {
 
         let res = harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id);
+            .verify_unaggregated_attestation_for_gossip(attestation.clone(), Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;

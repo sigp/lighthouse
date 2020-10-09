@@ -15,9 +15,8 @@ use slog::{debug, error, o, trace, warn};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::SubnetDiscovery;
 use hashset_delay::HashSetDelay;
-use rest_types::ValidatorSubscription;
 use slot_clock::SlotClock;
-use types::{Attestation, EthSpec, Slot, SubnetId};
+use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
 
 use crate::metrics;
 
@@ -196,14 +195,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 slot: subscription.slot,
             };
 
-            // determine if the validator is an aggregator. If so, we subscribe to the subnet and
+            // Determine if the validator is an aggregator. If so, we subscribe to the subnet and
             // if successful add the validator to a mapping of known aggregators for that exact
             // subnet.
-            // NOTE: There is a chance that a fork occurs between now and when the validator needs
-            // to aggregate attestations. If this happens, the signature will no longer be valid
-            // and it could be likely the validator no longer needs to aggregate. More
-            // sophisticated logic should be added using known future forks.
-            // TODO: Implement
 
             if subscription.is_aggregator {
                 metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
@@ -287,8 +281,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                         min_ttl,
                     })
                 } else {
-                    // TODO: Send the time frame needed to have a peer connected, so that we can
-                    // maintain peers for a least this duration.
                     // We may want to check the global PeerInfo to see estimated timeouts for each
                     // peer before they can be removed.
                     warn!(self.log,

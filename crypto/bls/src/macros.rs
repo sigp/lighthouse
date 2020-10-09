@@ -76,6 +76,35 @@ macro_rules! impl_ssz_decode {
     };
 }
 
+/// Contains the functions required for a `fmt::Display` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
+macro_rules! impl_display {
+    () => {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", hex_encode(self.serialize().to_vec()))
+        }
+    };
+}
+
+/// Contains the functions required for a `fmt::Display` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
+macro_rules! impl_from_str {
+    () => {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            if s.starts_with("0x") {
+                let bytes = hex::decode(&s[2..]).map_err(|e| e.to_string())?;
+                Self::deserialize(&bytes[..]).map_err(|e| format!("{:?}", e))
+            } else {
+                Err("must start with 0x".to_string())
+            }
+        }
+    };
+}
+
 /// Contains the functions required for a `serde::Serialize` implementation.
 ///
 /// Does not include the `Impl` section since it gets very complicated when it comes to generics.
@@ -85,7 +114,7 @@ macro_rules! impl_serde_serialize {
         where
             S: Serializer,
         {
-            serializer.serialize_str(&hex_encode(self.serialize().to_vec()))
+            serializer.serialize_str(&self.to_string())
         }
     };
 }
@@ -99,9 +128,25 @@ macro_rules! impl_serde_deserialize {
         where
             D: Deserializer<'de>,
         {
-            let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-            Self::deserialize(&bytes[..])
-                .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))
+            pub struct StringVisitor;
+
+            impl<'de> serde::de::Visitor<'de> for StringVisitor {
+                type Value = String;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                    formatter.write_str("a hex string with 0x prefix")
+                }
+
+                fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    Ok(value.to_string())
+                }
+            }
+
+            let string = deserializer.deserialize_str(StringVisitor)?;
+            <Self as std::str::FromStr>::from_str(&string).map_err(serde::de::Error::custom)
         }
     };
 }

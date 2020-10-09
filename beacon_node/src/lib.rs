@@ -7,7 +7,7 @@ mod config;
 pub use beacon_chain;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_data_dir, get_eth2_testnet_config, set_network_config};
+pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_config};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;
@@ -17,7 +17,6 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
-use config::get_config;
 use environment::RuntimeContext;
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
@@ -54,7 +53,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: &ArgMatches<'_>,
+        matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(
             &matches,
@@ -72,7 +71,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
     ) -> Result<Self, String> {
-        let http_eth2_config = context.eth2_config().clone();
         let spec = context.eth2_config().spec.clone();
         let client_config_1 = client_config.clone();
         let client_genesis = client_config.genesis.clone();
@@ -119,26 +117,23 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder.no_eth1_backend()?
         };
 
-        let (builder, events) = builder
+        let (builder, _events) = builder
             .system_time_slot_clock()?
             .tee_event_handler(client_config.websocket_server.clone())?;
 
         // Inject the executor into the discv5 network config.
-        client_config.network.discv5_config.executor = Some(Box::new(executor));
+        let discv5_executor = Discv5Executor(executor);
+        client_config.network.discv5_config.executor = Some(Box::new(discv5_executor));
 
-        let builder = builder
+        builder
             .build_beacon_chain()?
             .network(&client_config.network)
             .await?
-            .notifier()?;
-
-        let builder = if client_config.rest_api.enabled {
-            builder.http_server(&client_config, &http_eth2_config, events)?
-        } else {
-            builder
-        };
-
-        Ok(Self(builder.build()))
+            .notifier()?
+            .http_api_config(client_config.http_api.clone())
+            .http_metrics_config(client_config.http_metrics.clone())
+            .build()
+            .map(Self)
     }
 
     pub fn into_inner(self) -> ProductionClient<E> {
@@ -157,5 +152,15 @@ impl<E: EthSpec> Deref for ProductionBeaconNode<E> {
 impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+// Implements the Discv5 Executor trait over our global executor
+#[derive(Clone)]
+struct Discv5Executor(task_executor::TaskExecutor);
+
+impl eth2_libp2p::discv5::Executor for Discv5Executor {
+    fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
+        self.0.spawn(future, "discv5")
     }
 }

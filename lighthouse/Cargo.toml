@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "0.2.13"
+version = "0.3.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
@@ -16,13 +16,13 @@ milagro = ["bls/milagro"]
 beacon_node = { "path" = "../beacon_node" }
 tokio = "0.2.22"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "1.0.0"
+sloggers = "1.0.1"
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
-clap = "2.33.0"
+clap = "2.33.3"
 env_logger = "0.7.1"
 logging = { path = "../common/logging" }
-slog-term = "2.5.0"
+slog-term = "2.6.0"
 slog-async = "2.5.0"
 environment = { path = "./environment" }
 boot_node = { path = "../boot_node" }
@@ -31,9 +31,11 @@ validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }
 clap_utils = { path = "../common/clap_utils" }
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
+directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
+account_utils = { path = "../common/account_utils" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
-account_utils = { path = "../common/account_utils" }
+slashing_protection = { path = "../validator_client/slashing_protection" }

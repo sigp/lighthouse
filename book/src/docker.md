@@ -1,11 +1,7 @@
 # Docker Guide
 
 This repository has a `Dockerfile` in the root which builds an image with the
-`lighthouse` binary installed.
-
-A pre-built image is available on Docker Hub and the
-[sigp/lighthouse](https://github.com/sigp/lighthouse-docker) repository
-contains a full-featured `docker-compose` environment.
+`lighthouse` binary installed. A pre-built image is available on Docker Hub.
 
 ## Obtaining the Docker image
 
@@ -20,10 +16,28 @@ Lighthouse maintains the
 Docker Hub repository which provides an easy way to run Lighthouse without
 building the image yourself.
 
+Obtain the latest image with:
+
+```bash
+$ docker pull sigp/lighthouse
+```
+
 Download and test the image with:
 
 ```bash
-$ docker run sigp/lighthouse lighthouse --help
+$ docker run sigp/lighthouse lighthouse --version
+```
+
+If you can see the latest [Lighthouse
+release](https://github.com/sigp/lighthouse/releases) version (see example
+below), then you've
+successfully installed Lighthouse via Docker.
+
+#### Example Version Output
+
+```
+Lighthouse vx.x.xx-xxxxxxxxx
+BLS Library: xxxx-xxxxxxx
 ```
 
 > Note: when you're running the Docker Hub image you're relying upon a

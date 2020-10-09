@@ -45,7 +45,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let attestation = match self
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
+            .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
         {
             Ok(attestation) => attestation,
             Err(e) => {

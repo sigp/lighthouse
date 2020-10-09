@@ -19,7 +19,7 @@ sha2 = "0.9.1"
 rustc-hex = "2.1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.12"
+wasm-bindgen-test = "0.3.18"
 
 [features]
 default = ["zero_hash_cache"]

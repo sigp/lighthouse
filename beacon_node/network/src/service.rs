@@ -15,13 +15,12 @@ use eth2_libp2p::{
 };
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
 use futures::prelude::*;
-use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace, warn};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
-use types::EthSpec;
+use types::{EthSpec, ValidatorSubscription};
 
 mod tests;
 
@@ -52,7 +51,7 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Respond to a peer's request with an error.
     SendError {
-        // TODO: note that this is never used, we just say goodbye without nicely closing the
+        // NOTE: Currently this is never used, we just say goodbye without nicely closing the
         // stream assigned to the request
         peer_id: PeerId,
         error: RPCResponseErrorCode,
@@ -122,7 +121,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        executor: environment::TaskExecutor,
+        executor: task_executor::TaskExecutor,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -164,7 +163,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Loading peers into the routing table"; "peers" => enrs_to_load.len()
         );
         for enr in enrs_to_load {
-            libp2p.swarm.add_enr(enr.clone()); //TODO change?
+            libp2p.swarm.add_enr(enr.clone());
         }
 
         // launch derived network services
@@ -208,7 +207,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 }
 
 fn spawn_service<T: BeaconChainTypes>(
-    executor: environment::TaskExecutor,
+    executor: task_executor::TaskExecutor,
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
     let mut exit_rx = executor.exit();
@@ -350,7 +349,6 @@ fn spawn_service<T: BeaconChainTypes>(
                 // process any attestation service events
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
-                        // TODO: Implement
                         AttServiceMessage::Subscribe(subnet_id) => {
                             service.libp2p.swarm.subscribe_to_subnet(subnet_id);
                         }

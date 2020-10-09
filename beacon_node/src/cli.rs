@@ -148,7 +148,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http")
                 .long("http")
-                .help("Enable RESTful HTTP API server. Disabled by default.")
+                .help("Enable the RESTful HTTP API server. Disabled by default.")
                 .takes_value(false),
         )
         .arg(
@@ -172,6 +172,38 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("http-allow-origin")
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
+                .default_value("")
+                .takes_value(true),
+        )
+        /* Prometheus metrics HTTP server related arguments */
+        .arg(
+            Arg::with_name("metrics")
+                .long("metrics")
+                .help("Enable the Prometheus metrics HTTP server. Disabled by default.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("metrics-address")
+                .long("metrics-address")
+                .value_name("ADDRESS")
+                .help("Set the listen address for the Prometheus metrics HTTP server.")
+                .default_value("127.0.0.1")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("metrics-port")
+                .long("metrics-port")
+                .value_name("PORT")
+                .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
+                .default_value("5054")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("metrics-allow-origin")
+                .long("metrics-allow-origin")
+                .value_name("ORIGIN")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header for the Prometheus metrics HTTP server. \
+                    Use * to allow any origin (not recommended in production)")
                 .default_value("")
                 .takes_value(true),
         )
@@ -241,7 +273,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
-                       DO NOT DECREASE AFTER INITIALIZATION. [default: 2048 (mainnet) or 64 (minimal)]")
+                       Cannot be changed after initialization. \
+                       [default: 2048 (mainnet) or 64 (minimal)]")
                 .takes_value(true)
         )
         .arg(
