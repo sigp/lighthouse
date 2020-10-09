@@ -320,7 +320,8 @@ where
                     {
                         Err(e) => Err(RPCError::from(e)),
                         Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
-                        Ok((Some(Err(_)), _)) | Ok((None, _)) => Err(RPCError::IncompleteStream),
+                        Ok((Some(Err(e)), _)) => Err(RPCError::from(e)),
+                        Ok((None, _)) => Err(RPCError::IncompleteStream),
                     }
                 }
             }
