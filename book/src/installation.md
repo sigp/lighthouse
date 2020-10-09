@@ -12,3 +12,5 @@ Additionally, there are two extra guides for specific uses:
 
 - [Rapsberry Pi 4 guide](./pi.md).
 - [Cross-compiling guide for developers](./cross-compiling.md).
+
+[WSL]: https://docs.microsoft.com/en-us/windows/wsl/about

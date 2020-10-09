@@ -73,11 +73,6 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
     let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
 
-    if !validator_dir.exists() {
-        fs::create_dir_all(&validator_dir)
-            .map_err(|e| format!("Unable to create {}: {:?}", validator_dir.display(), e))?;
-    }
-
     let mut defs = ValidatorDefinitions::open_or_create(&validator_dir)
         .map_err(|e| format!("Unable to open {}: {:?}", CONFIG_FILENAME, e))?;
 

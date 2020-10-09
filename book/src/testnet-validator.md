@@ -10,7 +10,7 @@ Lighthouse supports four testnets:
 - [Medalla](https://github.com/goerli/medalla/tree/master/medalla) (default)
 - [Zinken](https://github.com/goerli/medalla/tree/master/zinken)
 - [Spadina](https://github.com/goerli/medalla/tree/master/spadina) (deprecated)
-- [Altona](https://github.com/goerli/medalla/tree/master/spadina) (deprecated)
+- [Altona](https://github.com/goerli/medalla/tree/master/altona) (deprecated)
 
 When using Lighthouse, the `--testnet` flag selects a testnet. E.g.,
 
@@ -123,7 +123,7 @@ Those using Docker images can start the processes with:
 $ docker run \
 	--network host \
 	-v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
-	lighthouse --testnet MY_TESTNET beacon --staking --http-address 0.0.0.0
+	lighthouse --testnet MY_TESTNET bn --staking --http-address 0.0.0.0
 ```
 
 ```bash
@@ -142,13 +142,13 @@ blocks and attestations.
 
 It will take 4-8+ hours for the beacon chain to process and activate your
 validator, however you'll know you're active when the validator client starts
-successfully publishing attestations each slot:
+successfully publishing attestations each epoch:
 
 ```
 Dec 03 08:49:40.053 INFO Successfully published attestation      slot: 98, committee_index: 0, head_block: 0xa208…7fd5,
 ```
 
-Although you'll produce an attestation each slot, it's less common to produce a
+Although you'll produce an attestation each epoch, it's less common to produce a
 block. Watch for the block production logs too:
 
 ```

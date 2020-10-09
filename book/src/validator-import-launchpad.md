@@ -30,7 +30,7 @@ using the standard `validators` directory (specify a different one using
 
 ### 1. Run the `lighthouse account validator import` command.
 
-Docker users should use the command from the [Docker](#docker-users)
+Docker users should use the command from the [Docker](#docker)
 section, all other users can use:
 
 

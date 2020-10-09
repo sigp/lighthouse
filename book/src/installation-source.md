@@ -57,7 +57,7 @@ sudo apt install -y git gcc g++ make cmake pkg-config libssl-dev
 
 You will need `cmake`. You can install via homebrew:
 
-    brew install cmake
+    brew install openssl cmake
 
 ### Command is not found
 
