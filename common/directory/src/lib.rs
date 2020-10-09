@@ -14,13 +14,13 @@ pub const DEFAULT_WALLET_DIR: &str = "wallets";
 /// Base directory name for unnamed testnets passed through the --testnet-dir flag
 pub const CUSTOM_TESTNET_DIR: &str = "custom";
 
-/// Gets the testnet directory name
+/// Gets the network directory name
 ///
-/// Tries to get the name first from the "testnet" flag,
+/// Tries to get the name first from the "network" flag,
 /// if not present, then checks the "testnet-dir" flag and returns a custom name
 /// If neither flags are present, returns the default hardcoded network name.
 pub fn get_testnet_name(matches: &ArgMatches) -> String {
-    if let Some(testnet_name) = matches.value_of("testnet") {
+    if let Some(testnet_name) = matches.value_of("network") {
         testnet_name.to_string()
     } else if matches.value_of("testnet-dir").is_some() {
         CUSTOM_TESTNET_DIR.to_string()

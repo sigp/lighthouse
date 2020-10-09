@@ -12,18 +12,18 @@ Lighthouse supports four testnets:
 - [Spadina](https://github.com/goerli/medalla/tree/master/spadina) (deprecated)
 - [Altona](https://github.com/goerli/medalla/tree/master/altona) (deprecated)
 
-When using Lighthouse, the `--testnet` flag selects a testnet. E.g.,
+When using Lighthouse, the `--network` flag selects a testnet. E.g.,
 
 - `lighthouse` (no flag): Medalla.
-- `lighthouse --testnet medalla`: Medalla.
-- `lighthouse --testnet zinken`: Zinken.
+- `lighthouse --network medalla`: Medalla.
+- `lighthouse --network zinken`: Zinken.
 
-Using the correct `--testnet` flag is very important; using the wrong flag can
+Using the correct `--network` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, always
-provide a `--testnet` flag instead of relying on the default.
+provide a `--network` flag instead of relying on the default.
 
-> Note: In these documents we use `--testnet MY_TESTNET` for demonstration. You
-> must replace `MY_TESTNET` with a valid testnet name.
+> Note: In these documents we use `--network MY_NETWORK` for demonstration. You
+> must replace `MY_NETWORK` with a valid testnet name.
 
 ## Joining a Testnet
 
@@ -108,11 +108,11 @@ Starting these processes is different for binary and docker users:
 Those using the pre- or custom-built binaries can start the two processes with:
 
 ```bash
-lighthouse --testnet MY_TESTNET bn --staking
+lighthouse --network MY_NETWORK bn --staking
 ```
 
 ```bash
-lighthouse --testnet MY_TESTNET vc
+lighthouse --network MY_NETWORK vc
 ```
 
 #### Docker users
@@ -123,7 +123,7 @@ Those using Docker images can start the processes with:
 $ docker run \
 	--network host \
 	-v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
-	lighthouse --testnet MY_TESTNET bn --staking --http-address 0.0.0.0
+	lighthouse --network MY_NETWORK bn --staking --http-address 0.0.0.0
 ```
 
 ```bash
@@ -131,7 +131,7 @@ $ docker run \
 	--network host \
 	-v $HOME/.lighthouse:/root/.lighthouse \
 	sigp/lighthouse \
-	lighthouse --testnet MY_TESTNET vc
+	lighthouse --network MY_NETWORK vc
 ```
 
 ### Step 6. Leave Lighthouse running

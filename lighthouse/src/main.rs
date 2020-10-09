@@ -92,7 +92,7 @@ fn main() {
                 .global(true)
                 .help(
                     "Root data directory for lighthouse keys and databases. \
-                    Defaults to $HOME/.lighthouse/{default-testnet}, \
+                    Defaults to $HOME/.lighthouse/{default-network}, \
                     currently, $HOME/.lighthouse/medalla")
                 .takes_value(true),
         )
@@ -110,9 +110,9 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("testnet")
-                .long("testnet")
-                .value_name("testnet")
+            Arg::with_name("network")
+                .long("network")
+                .value_name("network")
                 .help("Name of network lighthouse will connect to")
                 .possible_values(&["medalla", "altona", "spadina", "zinken"])
                 .conflicts_with("testnet-dir")
@@ -178,7 +178,7 @@ fn run<E: EthSpec>(
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
-            "{}bit architecture is not supported (64bit only).",
+            "{}-bit architecture is not supported (64-bit only).",
             std::mem::size_of::<usize>() * 8
         ));
     }
@@ -192,8 +192,8 @@ fn run<E: EthSpec>(
     // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
     // else, use the default
     let mut optional_testnet_config = None;
-    if matches.is_present("testnet") {
-        optional_testnet_config = clap_utils::parse_hardcoded_network(matches, "testnet")?;
+    if matches.is_present("network") {
+        optional_testnet_config = clap_utils::parse_hardcoded_network(matches, "network")?;
     };
     if matches.is_present("testnet-dir") {
         optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
@@ -227,18 +227,18 @@ fn run<E: EthSpec>(
     // Creating a command which can run both might be useful future works.
 
     // Print an indication of which network is currently in use.
-    let optional_testnet = clap_utils::parse_optional::<String>(matches, "testnet")?;
+    let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
     let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
 
     let testnet_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
         (None, None) => DEFAULT_HARDCODED_TESTNET.to_string(),
-        (Some(_), Some(_)) => panic!("CLI prevents both --testnet and --testnet-dir"),
+        (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
-        eprintln!("Running account manager for {} testnet", testnet_name);
+        eprintln!("Running account manager for {} network", testnet_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 

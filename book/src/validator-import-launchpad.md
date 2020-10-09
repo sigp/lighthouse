@@ -30,12 +30,13 @@ using the standard `validators` directory (specify a different one using
 
 ### 1. Run the `lighthouse account validator import` command.
 
-Docker users should use the command from the [Docker](#docker)
-section, all other users can use:
+Docker users should use the command from the [Docker](#docker) section, all
+other users can use the command below whilst substituting `MY_NETWORK` for a
+network name (e.g., `medalla`):
 
 
 ```bash
-lighthouse account validator import --directory validator_keys
+lighthouse --network MY_NETWORK account validator import --directory validator_keys
 ```
 
 
@@ -99,7 +100,7 @@ docker run -it \
 	-v $HOME/.lighthouse:/root/.lighthouse \
 	-v $(pwd)/validator_keys:/root/validator_keys \
 	sigp/lighthouse \
-	lighthouse --testnet medalla account validator import --directory /root/validator_keys
+	lighthouse --network MY_NETWORK account validator import --directory /root/validator_keys
 ```
 
 Here we use two `-v` volumes to attach:
