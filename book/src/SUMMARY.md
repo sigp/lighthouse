@@ -1,11 +1,11 @@
 # Summary
 
 * [Introduction](./intro.md)
-* [Become a Validator](./become-a-validator.md)
-    * [Using Docker](./become-a-validator-docker.md)
-    * [Building from Source](./become-a-validator-source.md)
+* [Become a Testnet Validator](./testnet-validator.md)
 * [Installation](./installation.md)
+    * [Pre-Built Binaries](./installation-binaries.md)
     * [Docker](./docker.md)
+    * [Build from Source](./installation-source.md)
     * [Raspberry Pi 4](./pi.md)
     * [Cross-Compiling](./cross-compiling.md)
 * [Key Management](./key-management.md)
