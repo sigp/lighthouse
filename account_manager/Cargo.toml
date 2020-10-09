@@ -1,33 +1,35 @@
 [package]
 name = "account_manager"
-version = "0.2.13"
+version = "0.3.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Luke Anderson <luke@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
 bls = { path = "../crypto/bls" }
-clap = "2.33.0"
+clap = "2.33.3"
 slog = "2.5.2"
-slog-term = "2.5.0"
+slog-term = "2.6.0"
 slog-async = "2.5.0"
 types = { path = "../consensus/types" }
 state_processing = { path = "../consensus/state_processing" }
-dirs = "2.0.2"
+dirs = "3.0.1"
 environment = { path = "../lighthouse/environment" }
 deposit_contract = { path = "../common/deposit_contract" }
-libc = "0.2.65"
+libc = "0.2.79"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 hex = "0.4.2"
-rayon = "1.3.0"
+rayon = "1.4.1"
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 web3 = "0.11.0"
 futures = { version = "0.3.5", features = ["compat"] }
 clap_utils = { path = "../common/clap_utils" }
+directory = { path = "../common/directory" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
-rand = "0.7.2"
+rand = "0.7.3"
 validator_dir = { path = "../common/validator_dir" }
 tokio = { version = "0.2.22", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
+slashing_protection = { path = "../validator_client/slashing_protection" }

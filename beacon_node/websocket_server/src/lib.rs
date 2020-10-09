@@ -34,7 +34,7 @@ impl<T: EthSpec> WebSocketSender<T> {
 }
 
 pub fn start_server<T: EthSpec>(
-    executor: environment::TaskExecutor,
+    executor: task_executor::TaskExecutor,
     config: &Config,
 ) -> Result<(WebSocketSender<T>, SocketAddr), String> {
     let log = executor.log();

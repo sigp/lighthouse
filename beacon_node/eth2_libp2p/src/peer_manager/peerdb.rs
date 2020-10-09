@@ -130,7 +130,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns a mutable reference to a peer's info if known.
-    /// TODO: make pub(super) to ensure that peer management is unified
     pub fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<TSpec>> {
         self.peers.get_mut(peer_id)
     }

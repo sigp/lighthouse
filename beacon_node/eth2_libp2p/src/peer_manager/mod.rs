@@ -147,8 +147,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        // TODO: Remove duplicate code  - This is duplicated in the update_peer_scores()
-        // function.
+        // NOTE: This is duplicated in the update_peer_scores() and could be improved.
 
         // Variables to update the PeerDb if required.
         let mut ban_peer = None;
@@ -179,7 +178,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                 GoodbyeReason::BadScore,
                             ));
                         }
-                        // TODO: Update the peer manager to inform that the peer is disconnecting.
                     }
                     ScoreState::Healthy => {
                         debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
@@ -322,15 +320,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.connect_peer(peer_id, ConnectingType::OutgoingConnected { multiaddr })
     }
 
-    /// Updates the database informing that a peer is being disconnected.
-    pub fn _disconnecting_peer(&mut self, _peer_id: &PeerId) -> bool {
-        // TODO: implement
-        // This informs the database that we are in the process of disconnecting the
-        // peer. Currently this state only exists for a short period of time before we force the
-        // disconnection.
-        true
-    }
-
     /// Reports if a peer is banned or not.
     ///
     /// This is used to determine if we should accept incoming connections.
@@ -408,10 +397,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // Not supporting a protocol shouldn't be considered a malicious action, but
                 // it is an action that in some cases will make the peer unfit to continue
                 // communicating.
-                // TODO: To avoid punishing a peer repeatedly for not supporting a protocol, this
-                // information could be stored and used to prevent sending requests for the given
-                // protocol to this peer. Similarly, to avoid blacklisting a peer for a protocol
-                // forever, if stored this information should expire.
+
                 match protocol {
                     Protocol::Ping => PeerAction::Fatal,
                     Protocol::BlocksByRange => return,
@@ -445,7 +431,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A ping request has been received.
     // NOTE: The behaviour responds with a PONG automatically
-    // TODO: Update last seen
     pub fn ping_request(&mut self, peer_id: &PeerId, seq: u64) {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
@@ -475,7 +460,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// A PONG has been returned from a peer.
-    // TODO: Update last seen
     pub fn pong_response(&mut self, peer_id: &PeerId, seq: u64) {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a pong
@@ -501,7 +485,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Received a metadata response from a peer.
-    // TODO: Update last seen
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data {
@@ -597,7 +580,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
         for (peer_id, min_ttl) in results {
             // we attempt a connection if this peer is a subnet peer or if the max peer count
-            // is not yet filled (including dialling peers)
+            // is not yet filled (including dialing peers)
             if (min_ttl.is_some() || connected_or_dialing + to_dial_peers.len() < self.max_peers)
                 && !self
                     .network_globals
@@ -610,7 +593,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .read()
                     .is_banned_or_disconnected(&peer_id)
             {
-                // TODO: Update output
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
                 if let Some(min_ttl) = min_ttl {
@@ -699,58 +681,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // Update scores
             info.score_update();
 
-            /* TODO: Implement logic about connection lifetimes
-            match info.connection_status {
-                Connected { .. } => {
-                    // Connected peers gain reputation by sending useful messages
-                }
-                Disconnected { since } | Banned { since } => {
-                    // For disconnected peers, lower their reputation by 1 for every hour they
-                    // stay disconnected. This helps us slowly forget disconnected peers.
-                    // In the same way, slowly allow banned peers back again.
-                    let dc_hours = now
-                        .checked_duration_since(since)
-                        .unwrap_or_else(|| Duration::from_secs(0))
-                        .as_secs()
-                        / 3600;
-                    let last_dc_hours = self
-                        ._last_updated
-                        .checked_duration_since(since)
-                        .unwrap_or_else(|| Duration::from_secs(0))
-                        .as_secs()
-                        / 3600;
-                    if dc_hours > last_dc_hours {
-                        // this should be 1 most of the time
-                        let rep_dif = (dc_hours - last_dc_hours)
-                            .try_into()
-                            .unwrap_or(Rep::max_value());
-
-                        info.reputation = if info.connection_status.is_banned() {
-                            info.reputation.saturating_add(rep_dif)
-                        } else {
-                            info.reputation.saturating_sub(rep_dif)
-                        };
-                    }
-                }
-                Dialing { since } => {
-                    // A peer shouldn't be dialing for more than 2 minutes
-                    if since.elapsed().as_secs() > 120 {
-                        warn!(self.log,"Peer has been dialing for too long"; "peer_id" => id.to_string());
-                        // TODO: decide how to handle this
-                    }
-                }
-                Unknown => {} //TODO: Handle this case
-            }
-            // Check if the peer gets banned or unbanned and if it should be disconnected
-            if info.reputation < _MIN_REP_BEFORE_BAN && !info.connection_status.is_banned() {
-                // This peer gets banned. Check if we should request disconnection
-                ban_queue.push(id.clone());
-            } else if info.reputation >= _MIN_REP_BEFORE_BAN && info.connection_status.is_banned() {
-                // This peer gets unbanned
-                unban_queue.push(id.clone());
-            }
-            */
-
             // handle score transitions
             if previous_state != info.score_state() {
                 match info.score_state() {
@@ -774,7 +704,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                 GoodbyeReason::BadScore,
                             ));
                         }
-                        // TODO: Update peer manager to report that it's disconnecting.
                     }
                     ScoreState::Healthy => {
                         debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
@@ -838,9 +767,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
-        // TODO: Provide a back-off time for discovery queries. I.e Queue many initially, then only
-        // perform discoveries over a larger fixed interval. Perhaps one every 6 heartbeats. This
-        // is achievable with a leaky bucket
         let peer_count = self.network_globals.connected_or_dialing_peers();
         if peer_count < self.target_peers {
             // If we need more peers, queue a discovery lookup.

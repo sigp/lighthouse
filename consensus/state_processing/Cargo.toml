@@ -9,29 +9,29 @@ name = "benches"
 harness = false
 
 [dev-dependencies]
-criterion = "0.3.2"
+criterion = "0.3.3"
 env_logger = "0.7.1"
-serde = "1.0.110"
-serde_derive = "1.0.110"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 lazy_static = "1.4.0"
-serde_yaml = "0.8.11"
+serde_yaml = "0.8.13"
 
 [dependencies]
 bls = { path = "../../crypto/bls" }
-integer-sqrt = "0.1.3"
+integer-sqrt = "0.1.5"
 itertools = "0.9.0"
 eth2_ssz = "0.1.2"
 eth2_ssz_types = { path = "../ssz_types" }
 merkle_proof = { path = "../merkle_proof" }
-log = "0.4.8"
+log = "0.4.11"
 safe_arith = { path = "../safe_arith" }
-tree_hash = "0.1.0"
+tree_hash = "0.1.1"
 tree_hash_derive = "0.2.0"
 types = { path = "../types", default-features = false }
-rayon = "1.3.0"
+rayon = "1.4.1"
 eth2_hashing = "0.1.0"
 int_to_bytes = { path = "../int_to_bytes" }
-arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
+arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
 
 [features]
 default = ["legacy-arith"]

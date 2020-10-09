@@ -1,0 +1,13 @@
+[package]
+name = "task_executor"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+tokio = "0.2.22"
+slog = "2.5.2"
+futures = "0.3.5"
+exit-future = "0.2.0"
+lazy_static = "1.4.0"
+lighthouse_metrics = { path = "../lighthouse_metrics" }

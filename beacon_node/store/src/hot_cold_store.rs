@@ -7,6 +7,9 @@ use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
+use crate::metadata::{
+    SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, SPLIT_KEY,
+};
 use crate::metrics;
 use crate::{
     get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
@@ -27,9 +30,6 @@ use std::path::Path;
 use std::sync::Arc;
 use types::*;
 
-/// 32-byte key for accessing the `split` of the freezer DB.
-pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
-
 /// Defines how blocks should be replayed on states.
 #[derive(PartialEq)]
 pub enum BlockReplay {
@@ -46,6 +46,8 @@ pub enum BlockReplay {
 /// intermittent "restore point" states pre-finalization.
 #[derive(Debug)]
 pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    /// The schema version. Loaded from disk on initialization.
+    schema_version: SchemaVersion,
     /// The slot and state root at the point where the database is split between hot and cold.
     ///
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
@@ -70,6 +72,10 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
 
 #[derive(Debug, PartialEq)]
 pub enum HotColdDBError {
+    UnsupportedSchemaVersion {
+        software_version: SchemaVersion,
+        disk_version: SchemaVersion,
+    },
     /// Recoverable error indicating that the database freeze point couldn't be updated
     /// due to the finalized block not lying on an epoch boundary (should be infrequent).
     FreezeSlotUnaligned(Slot),
@@ -106,6 +112,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
+            schema_version: CURRENT_SCHEMA_VERSION,
             split: RwLock::new(Split::default()),
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
@@ -134,6 +141,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
+            schema_version: CURRENT_SCHEMA_VERSION,
             split: RwLock::new(Split::default()),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
@@ -144,12 +152,33 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             _phantom: PhantomData,
         };
 
+        // Ensure that the schema version of the on-disk database matches the software.
+        // In the future, this would be the spot to hook in auto-migration, etc.
+        if let Some(schema_version) = db.load_schema_version()? {
+            if schema_version != CURRENT_SCHEMA_VERSION {
+                return Err(HotColdDBError::UnsupportedSchemaVersion {
+                    software_version: CURRENT_SCHEMA_VERSION,
+                    disk_version: schema_version,
+                }
+                .into());
+            }
+        } else {
+            db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
+        }
+
+        // Ensure that any on-disk config is compatible with the supplied config.
+        if let Some(disk_config) = db.load_config()? {
+            db.config.check_compatibility(&disk_config)?;
+        }
+        db.store_config()?;
+
         // Load the previous split slot from the database (if any). This ensures we can
         // stop and restart correctly.
         if let Some(split) = db.load_split()? {
             info!(
                 db.log,
                 "Hot-Cold DB initialized";
+                "version" => db.schema_version.0,
                 "split_slot" => split.slot,
                 "split_state" => format!("{:?}", split.state_root)
             );
@@ -744,11 +773,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             * self.config.slots_per_restore_point
     }
 
+    /// Load the database schema version from disk.
+    fn load_schema_version(&self) -> Result<Option<SchemaVersion>, Error> {
+        self.hot_db.get(&SCHEMA_VERSION_KEY)
+    }
+
+    /// Store the database schema version.
+    fn store_schema_version(&self, schema_version: SchemaVersion) -> Result<(), Error> {
+        self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
+    }
+
+    /// Load previously-stored config from disk.
+    fn load_config(&self) -> Result<Option<StoreConfig>, Error> {
+        self.hot_db.get(&CONFIG_KEY)
+    }
+
+    /// Write the config to disk.
+    fn store_config(&self) -> Result<(), Error> {
+        self.hot_db.put(&CONFIG_KEY, &self.config)
+    }
+
     /// Load the split point from disk.
     fn load_split(&self) -> Result<Option<Split>, Error> {
-        let key = Hash256::from_slice(SPLIT_DB_KEY.as_bytes());
-        let split: Option<Split> = self.hot_db.get(&key)?;
-        Ok(split)
+        self.hot_db.get(&SPLIT_KEY)
     }
 
     /// Load the state root of a restore point.
@@ -927,9 +974,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             slot: frozen_head.slot,
             state_root: frozen_head_root,
         };
-        store
-            .hot_db
-            .put_sync(&Hash256::from_slice(SPLIT_DB_KEY.as_bytes()), &split)?;
+        store.hot_db.put_sync(&SPLIT_KEY, &split)?;
 
         // Split point is now persisted in the hot database on disk.  The in-memory split point
         // hasn't been modified elsewhere since we keep a write lock on it.  It's safe to update

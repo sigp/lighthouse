@@ -10,7 +10,6 @@ use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn bls_library_name() -> &'static str {
@@ -91,7 +90,10 @@ fn main() {
                 .short("d")
                 .value_name("DIR")
                 .global(true)
-                .help("Data directory for lighthouse keys and databases.")
+                .help(
+                    "Root data directory for lighthouse keys and databases. \
+                    Defaults to $HOME/.lighthouse/{default-testnet}, \
+                    currently, $HOME/.lighthouse/medalla")
                 .takes_value(true),
         )
         .arg(
@@ -112,7 +114,7 @@ fn main() {
                 .long("testnet")
                 .value_name("testnet")
                 .help("Name of network lighthouse will connect to")
-                .possible_values(&["medalla", "altona", "spadina"])
+                .possible_values(&["medalla", "altona", "spadina", "zinken"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -255,61 +257,63 @@ fn run<E: EthSpec>(
         "name" => testnet_name
     );
 
-    let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
-        let runtime_context = environment.core_context();
+    match matches.subcommand() {
+        ("beacon_node", Some(matches)) => {
+            let context = environment.core_context();
+            let log = context.log().clone();
+            let executor = context.executor.clone();
+            let config = beacon_node::get_config::<E>(
+                matches,
+                &context.eth2_config.spec_constants,
+                &context.eth2_config().spec,
+                context.log().clone(),
+            )?;
+            environment.runtime().spawn(async move {
+                if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                    crit!(log, "Failed to start beacon node"; "reason" => e);
+                    // Ignore the error since it always occurs during normal operation when
+                    // shutting down.
+                    let _ = executor
+                        .shutdown_sender()
+                        .try_send("Failed to start beacon node");
+                }
+            })
+        }
+        ("validator_client", Some(matches)) => {
+            let context = environment.core_context();
+            let log = context.log().clone();
+            let executor = context.executor.clone();
+            let config = validator_client::Config::from_cli(&matches, context.log())
+                .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
+            environment.runtime().spawn(async move {
+                let run = async {
+                    ProductionValidatorClient::new(context, config)
+                        .await?
+                        .start_service()?;
 
-        let beacon = environment
-            .runtime()
-            .block_on(ProductionBeaconNode::new_from_cli(
-                runtime_context,
-                sub_matches,
-            ))
-            .map_err(|e| format!("Failed to start beacon node: {}", e))?;
-
-        Some(beacon)
-    } else {
-        None
+                    Ok::<(), String>(())
+                };
+                if let Err(e) = run.await {
+                    crit!(log, "Failed to start validator client"; "reason" => e);
+                    // Ignore the error since it always occurs during normal operation when
+                    // shutting down.
+                    let _ = executor
+                        .shutdown_sender()
+                        .try_send("Failed to start validator client");
+                }
+            })
+        }
+        _ => {
+            crit!(log, "No subcommand supplied. See --help .");
+            return Err("No subcommand supplied.".into());
+        }
     };
-
-    let validator_client = if let Some(sub_matches) = matches.subcommand_matches("validator_client")
-    {
-        let runtime_context = environment.core_context();
-
-        let mut validator = environment
-            .runtime()
-            .block_on(ProductionValidatorClient::new_from_cli(
-                runtime_context,
-                sub_matches,
-            ))
-            .map_err(|e| format!("Failed to init validator client: {}", e))?;
-
-        environment
-            .core_context()
-            .executor
-            .runtime_handle()
-            .enter(|| {
-                validator
-                    .start_service()
-                    .map_err(|e| format!("Failed to start validator client service: {}", e))
-            })?;
-
-        Some(validator)
-    } else {
-        None
-    };
-
-    if beacon_node.is_none() && validator_client.is_none() {
-        crit!(log, "No subcommand supplied. See --help .");
-        return Err("No subcommand supplied.".into());
-    }
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
     environment.block_until_shutdown_requested()?;
     info!(log, "Shutting down..");
 
     environment.fire_signal();
-    drop(beacon_node);
-    drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
     environment.shutdown_on_idle();

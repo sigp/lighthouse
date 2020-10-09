@@ -99,7 +99,7 @@ pub async fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> L
 
     let (signal, exit) = exit_future::signal();
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor = environment::TaskExecutor::new(
+    let executor = task_executor::TaskExecutor::new(
         tokio::runtime::Handle::current(),
         exit,
         log.clone(),

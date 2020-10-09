@@ -41,7 +41,7 @@ mod tests {
 
         let (signal, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = environment::TaskExecutor::new(
+        let executor = task_executor::TaskExecutor::new(
             runtime.handle().clone(),
             exit,
             log.clone(),

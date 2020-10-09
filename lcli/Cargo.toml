@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "0.2.13"
+version = "0.3.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
@@ -10,28 +10,29 @@ portable = ["bls/supranational-portable"]
 
 [dependencies]
 bls = { path = "../crypto/bls" }
-clap = "2.33.0"
+clap = "2.33.3"
 hex = "0.4.2"
-log = "0.4.8"
-serde = "1.0.110"
-serde_yaml = "0.8.11"
-simple_logger = "1.6.0"
+log = "0.4.11"
+serde = "1.0.116"
+serde_yaml = "0.8.13"
+simple_logger = "1.10.0"
 types = { path = "../consensus/types" }
 state_processing = { path = "../consensus/state_processing" }
 eth2_ssz = "0.1.2"
-regex = "1.3.7"
+regex = "1.3.9"
 futures = { version = "0.3.5", features = ["compat"] }
 environment = { path = "../lighthouse/environment" }
 web3 = "0.11.0"
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
-dirs = "2.0.2"
+dirs = "3.0.1"
 genesis = { path = "../beacon_node/genesis" }
 deposit_contract = { path = "../common/deposit_contract" }
-tree_hash = "0.1.0"
+tree_hash = "0.1.1"
 tokio = { version = "0.2.22", features = ["full"] }
 clap_utils = { path = "../common/clap_utils" }
 eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
 validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
-rand = "0.7.2"
+rand = "0.7.3"
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 lighthouse_version = { path = "../common/lighthouse_version" }
+directory = { path = "../common/directory" }

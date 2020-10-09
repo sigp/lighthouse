@@ -24,6 +24,16 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns the slot at this present time.
     fn now(&self) -> Option<Slot>;
 
+    /// Returns the slot at this present time if genesis has happened. Otherwise, returns the
+    /// genesis slot. Returns `None` if there is an error reading the clock.
+    fn now_or_genesis(&self) -> Option<Slot> {
+        if self.is_prior_to_genesis()? {
+            Some(self.genesis_slot())
+        } else {
+            self.now()
+        }
+    }
+
     /// Indicates if the current time is prior to genesis time.
     ///
     /// Returns `None` if the system clock cannot be read.

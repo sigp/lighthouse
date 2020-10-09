@@ -1,18 +1,24 @@
 mod attestation_tests;
 mod block_tests;
+pub mod interchange;
+pub mod interchange_test;
 mod parallel_tests;
+mod registration_tests;
 mod signed_attestation;
 mod signed_block;
 mod slashing_database;
-mod test_utils;
+pub mod test_utils;
 
 pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
 pub use crate::signed_block::{InvalidBlock, SignedBlock};
-pub use crate::slashing_database::SlashingDatabase;
+pub use crate::slashing_database::{SlashingDatabase, SUPPORTED_INTERCHANGE_FORMAT_VERSION};
 use rusqlite::Error as SQLError;
 use std::io::{Error as IOError, ErrorKind};
 use std::string::ToString;
 use types::{Hash256, PublicKey};
+
+/// The filename within the `validators` directory that contains the slashing protection DB.
+pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
 /// The attestation or block is not safe to sign.
 ///

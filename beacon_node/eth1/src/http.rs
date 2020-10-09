@@ -39,19 +39,34 @@ pub enum Eth1NetworkId {
     Custom(u64),
 }
 
+impl Into<u64> for Eth1NetworkId {
+    fn into(self) -> u64 {
+        match self {
+            Eth1NetworkId::Mainnet => 1,
+            Eth1NetworkId::Goerli => 5,
+            Eth1NetworkId::Custom(id) => id,
+        }
+    }
+}
+
+impl From<u64> for Eth1NetworkId {
+    fn from(id: u64) -> Self {
+        let into = |x: Eth1NetworkId| -> u64 { x.into() };
+        match id {
+            id if id == into(Eth1NetworkId::Mainnet) => Eth1NetworkId::Mainnet,
+            id if id == into(Eth1NetworkId::Goerli) => Eth1NetworkId::Goerli,
+            id => Eth1NetworkId::Custom(id),
+        }
+    }
+}
+
 impl FromStr for Eth1NetworkId {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "1" => Ok(Eth1NetworkId::Mainnet),
-            "5" => Ok(Eth1NetworkId::Goerli),
-            custom => {
-                let network_id = u64::from_str_radix(custom, 10)
-                    .map_err(|e| format!("Failed to parse eth1 network id {}", e))?;
-                Ok(Eth1NetworkId::Custom(network_id))
-            }
-        }
+        u64::from_str_radix(s, 10)
+            .map(Into::into)
+            .map_err(|e| format!("Failed to parse eth1 network id {}", e))
     }
 }
 
