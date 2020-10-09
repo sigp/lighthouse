@@ -71,3 +71,4 @@ pub use peer_manager::{
     client::Client, score::PeerAction, PeerDB, PeerInfo, PeerSyncStatus, SyncInfo,
 };
 pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
+pub use config::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage};

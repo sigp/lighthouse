@@ -5,8 +5,8 @@ use directory::{
 };
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
-    GenericGossipsubConfig, GenericGossipsubConfigBuilder, GenericGossipsubMessage, MessageId,
-    RawGossipsubMessage, ValidationMode,
+    FastMessageId, GenericGossipsubConfig, GenericGossipsubConfigBuilder, GenericGossipsubMessage,
+    MessageId, RawGossipsubMessage, ValidationMode,
 };
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
@@ -18,9 +18,9 @@ pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
 
-type GossipsubConfig = GenericGossipsubConfig<MessageData>;
-type GossipsubConfigBuilder = GenericGossipsubConfigBuilder<MessageData>;
-type GossipsubMessage = GenericGossipsubMessage<MessageData>;
+pub type GossipsubConfig = GenericGossipsubConfig<MessageData>;
+pub type GossipsubConfigBuilder = GenericGossipsubConfigBuilder<MessageData>;
+pub type GossipsubMessage = GenericGossipsubMessage<MessageData>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -98,8 +98,8 @@ impl Default for Config {
 
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing
-        let fast_gossip_message_id =
-            |message: &RawGossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..]);
+        let fast_gossip_message_id = |message: &RawGossipsubMessage|
+            FastMessageId::from(&Sha256::digest(&message.data)[..]);
 
         fn prefix(prefix: [u8; 4], data: &Vec<u8>) -> Vec<u8> {
             prefix
