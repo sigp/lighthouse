@@ -1,4 +1,4 @@
-# Importing from the Ethereum 2.0 Launchpad
+# Importing from the Ethereum 2.0 Launch pad
 
 The [Eth2 Lauchpad](https://github.com/ethereum/eth2.0-deposit) is a website
 from the Ethereum Foundation which guides users how to use the
@@ -20,7 +20,7 @@ Whilst following the steps on the website, users are instructed to download the
 repository. This `eth2-deposit-cli` script will generate the validator BLS keys
 into a `validator_keys` directory. We assume that the user's
 present-working-directory is the `eth2-deposit-cli` repository (this is where
-you will be if you just ran the `./deposit.sh` script from the Eth2 Launchpad
+you will be if you just ran the `./deposit.sh` script from the Eth2 Launch pad
 website). If this is not the case, simply change the `--directory` to point to
 the `validator_keys` directory.
 
@@ -29,6 +29,9 @@ using the standard `validators` directory (specify a different one using
 `--validator-dir` flag), they can follow these steps:
 
 ### 1. Run the `lighthouse account validator import` command.
+
+Docker users should use the command from the [Docker](#docker)
+section, all other users can use:
 
 
 ```bash
@@ -85,3 +88,22 @@ INFO Enabled validator       voting_pubkey: 0xa5e8702533f6d66422e042a0bf3471ab9b
 Once this log appears (and there are no errors) the `lighthouse vc` application
 will ensure that the validator starts performing its duties and being rewarded
 by the protocol. There is no more input required from the user.
+
+## Docker
+
+The `import` command is a little more complex for Docker users, but the example
+in this document can be substituted with:
+
+```bash
+docker run -it \
+	-v $HOME/.lighthouse:/root/.lighthouse \
+	-v $(pwd)/validator_keys:/root/validator_keys \
+	sigp/lighthouse \
+	lighthouse --testnet medalla account validator import --directory /root/validator_keys
+```
+
+Here we use two `-v` volumes to attach:
+
+- `~/.lighthouse` on the host to `/root/.lighthouse` in the Docker container.
+- The `validator_keys` directory in the present working directory of the host
+	to the `/root/validator_keys` directory of the Docker container.

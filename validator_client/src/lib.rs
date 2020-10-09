@@ -28,6 +28,7 @@ use futures::channel::mpsc;
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
@@ -106,6 +107,44 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
+        // Initialize slashing protection.
+        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection = if config.init_slashing_protection {
+            SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open or create slashing protection database: {:?}",
+                    e
+                )
+            })
+        } else {
+            SlashingDatabase::open(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open slashing protection database: {:?}.\n\
+                     Ensure that `slashing_protection.sqlite` is in {:?} folder",
+                    e, config.validator_dir
+                )
+            })
+        }?;
+
+        // Check validator registration with slashing protection, or auto-register all validators.
+        if config.init_slashing_protection {
+            slashing_protection
+                .register_validators(validators.iter_voting_pubkeys())
+                .map_err(|e| format!("Error while registering slashing protection: {:?}", e))?;
+        } else {
+            slashing_protection
+                .check_validator_registrations(validators.iter_voting_pubkeys())
+                .map_err(|e| {
+                    format!(
+                        "One or more validators not found in slashing protection database.\n\
+                         Ensure you haven't misplaced your slashing protection database, or \
+                         carefully consider running with --init-slashing-protection (see --help). \
+                         Error: {:?}",
+                        e
+                    )
+                })?;
+        }
+
         info!(
             log,
             "Initialized validators";
@@ -157,20 +196,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
             validators,
-            &config,
+            slashing_protection,
             genesis_validators_root,
             context.eth2_config.spec.clone(),
             fork_service.clone(),
             log.clone(),
-        )?;
+        );
 
         info!(
             log,
             "Loaded validator keypair store";
             "voting_validators" => validator_store.num_voting_validators()
         );
-
-        validator_store.register_all_validators_for_slashing_protection()?;
 
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())

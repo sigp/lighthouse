@@ -1,9 +1,7 @@
-use crate::{
-    config::Config, fork_service::ForkService, initialized_validators::InitializedValidators,
-};
+use crate::{fork_service::ForkService, initialized_validators::InitializedValidators};
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::RwLock;
-use slashing_protection::{NotSafe, Safe, SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -56,32 +54,13 @@ pub struct ValidatorStore<T, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn new(
         validators: InitializedValidators,
-        config: &Config,
+        slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
         fork_service: ForkService<T>,
         log: Logger,
-    ) -> Result<Self, String> {
-        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection = if config.strict_slashing_protection {
-            // Don't create a new slashing database if `strict_slashing_protection` is turned on.
-            SlashingDatabase::open(&slashing_db_path).map_err(|e| {
-                format!(
-                    "Failed to open slashing protection database: {:?}.
-                    Ensure that `slashing_protection.sqlite` is in {:?} folder",
-                    e, config.validator_dir
-                )
-            })?
-        } else {
-            SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
-                format!(
-                    "Failed to open or create slashing protection database: {:?}",
-                    e
-                )
-            })?
-        };
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             validators: Arc::new(RwLock::new(validators)),
             slashing_protection,
             genesis_validators_root,
@@ -90,7 +69,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             temp_dir: None,
             fork_service,
             _phantom: PhantomData,
-        })
+        }
     }
 
     pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
@@ -128,16 +107,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map_err(|e| format!("Unable to add definition: {:?}", e))?;
 
         Ok(validator_def)
-    }
-
-    /// Register all known validators with the slashing protection database.
-    ///
-    /// Registration is required to protect against a lost or missing slashing database,
-    /// such as when relocating validator keys to a new machine.
-    pub fn register_all_validators_for_slashing_protection(&self) -> Result<(), String> {
-        self.slashing_protection
-            .register_validators(self.validators.read().iter_voting_pubkeys())
-            .map_err(|e| format!("Error while registering validators: {:?}", e))
     }
 
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
@@ -235,7 +204,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 warn!(
                     self.log,
                     "Not signing block for unregistered validator";
-                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None
@@ -314,7 +283,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 warn!(
                     self.log,
                     "Not signing attestation for unregistered validator";
-                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None
