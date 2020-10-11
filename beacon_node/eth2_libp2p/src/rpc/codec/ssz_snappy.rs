@@ -1,10 +1,7 @@
 use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
-    protocol::{
-        Encoding, Protocol, ProtocolId, RPCError, Version, BLOCKS_BY_ROOT_REQUEST_MAX,
-        BLOCKS_BY_ROOT_REQUEST_MIN, SIGNED_BEACON_BLOCK_MAX, SIGNED_BEACON_BLOCK_MIN,
-    },
+    protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::BytesMut;
@@ -110,79 +107,56 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
         let length = self.len.expect("length should be Some");
 
-        // Should not attempt to decode rpc chunks with length > max_packet_size
-        if length > self.max_packet_size {
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `self.protocol`.
+        let ssz_limits = self.protocol.rpc_request_limits();
+        if length > self.max_packet_size || ssz_limits.is_out_of_bounds(length) {
             return Err(RPCError::InvalidData);
         }
-        let mut reader = FrameDecoder::new(Cursor::new(&src));
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+
+        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
+        let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
 
-        match read_exact(&mut reader, &mut decoded_buffer, length) {
+        match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().position();
+                let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
+
+                // We need not check that decoded_buffer.len() is within bounds here
+                // since we have already checked `length` above.
                 match self.protocol.message_name {
                     Protocol::Status => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() == <StatusMessage as Encode>::ssz_fixed_len() {
-                                Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
-                                    &decoded_buffer,
-                                )?)))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
+                            &decoded_buffer,
+                        )?))),
                     },
                     Protocol::Goodbye => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() == <GoodbyeReason as Encode>::ssz_fixed_len() {
-                                Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
-                                    &decoded_buffer,
-                                )?)))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCRequest::Goodbye(
+                            GoodbyeReason::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
                     },
                     Protocol::BlocksByRange => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len()
-                                == <BlocksByRangeRequest as Encode>::ssz_fixed_len()
-                            {
-                                Ok(Some(RPCRequest::BlocksByRange(
-                                    BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
-                                )))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCRequest::BlocksByRange(
+                            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
                     },
                     Protocol::BlocksByRoot => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() >= *BLOCKS_BY_ROOT_REQUEST_MIN
-                                && decoded_buffer.len() <= *BLOCKS_BY_ROOT_REQUEST_MAX
-                            {
-                                Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                                    block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                                })))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+                        }))),
                     },
                     Protocol::Ping => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() == <Ping as Encode>::ssz_fixed_len() {
-                                Ok(Some(RPCRequest::Ping(Ping {
-                                    data: u64::from_ssz_bytes(&decoded_buffer)?,
-                                })))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCRequest::Ping(Ping {
+                            data: u64::from_ssz_bytes(&decoded_buffer)?,
+                        }))),
                     },
+                    // This case should be unreachable as `MetaData` requests are handled separately in the `InboundUpgrade`
                     Protocol::MetaData => match self.protocol.version {
                         Version::V1 => {
                             if !decoded_buffer.is_empty() {
@@ -194,11 +168,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     },
                 }
             }
-            Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet, wait for more
-                ErrorKind::UnexpectedEof => Ok(None),
-                _ => Err(e).map_err(RPCError::from),
-            },
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
     }
 }
@@ -288,87 +258,60 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
         let length = self.len.expect("length should be Some");
 
-        // Should not attempt to decode rpc chunks with length > max_packet_size
-        if length > self.max_packet_size {
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `self.protocol`.
+        let ssz_limits = self.protocol.rpc_response_limits::<TSpec>();
+        if length > self.max_packet_size || ssz_limits.is_out_of_bounds(length) {
             return Err(RPCError::InvalidData);
         }
-        let mut reader = FrameDecoder::new(Cursor::new(&src));
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
+        let mut reader = FrameDecoder::new(limit_reader);
+
         let mut decoded_buffer = vec![0; length];
-        match read_exact(&mut reader, &mut decoded_buffer, length) {
+
+        match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().position();
+                let n = reader.get_ref().get_ref().position();
                 self.len = None;
-                let _read_byts = src.split_to(n as usize);
+                let _read_bytes = src.split_to(n as usize);
+
+                // We need not check that decoded_buffer.len() is within bounds here
+                // since we have already checked `length` above.
                 match self.protocol.message_name {
                     Protocol::Status => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() == <StatusMessage as Encode>::ssz_fixed_len() {
-                                Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
-                                    &decoded_buffer,
-                                )?)))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCResponse::Status(
+                            StatusMessage::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
                     },
+                    // This case should be unreachable as `Goodbye` has no response.
                     Protocol::Goodbye => Err(RPCError::InvalidData),
                     Protocol::BlocksByRange => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() >= *SIGNED_BEACON_BLOCK_MIN
-                                && decoded_buffer.len() <= *SIGNED_BEACON_BLOCK_MAX
-                            {
-                                Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                    SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
-                                ))))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                        )))),
                     },
                     Protocol::BlocksByRoot => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() >= *SIGNED_BEACON_BLOCK_MIN
-                                && decoded_buffer.len() <= *SIGNED_BEACON_BLOCK_MAX
-                            {
-                                Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                    SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
-                                ))))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                        )))),
                     },
                     Protocol::Ping => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() == <Ping as Encode>::ssz_fixed_len() {
-                                Ok(Some(RPCResponse::Pong(Ping {
-                                    data: u64::from_ssz_bytes(&decoded_buffer)?,
-                                })))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCResponse::Pong(Ping {
+                            data: u64::from_ssz_bytes(&decoded_buffer)?,
+                        }))),
                     },
                     Protocol::MetaData => match self.protocol.version {
-                        Version::V1 => {
-                            if decoded_buffer.len() == <MetaData<TSpec> as Encode>::ssz_fixed_len()
-                            {
-                                Ok(Some(RPCResponse::MetaData(MetaData::from_ssz_bytes(
-                                    &decoded_buffer,
-                                )?)))
-                            } else {
-                                Err(RPCError::InvalidData)
-                            }
-                        }
+                        Version::V1 => Ok(Some(RPCResponse::MetaData(MetaData::from_ssz_bytes(
+                            &decoded_buffer,
+                        )?))),
                     },
                 }
             }
-            Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet, wait for more
-                ErrorKind::UnexpectedEof => Ok(None),
-                _ => Err(e).map_err(RPCError::from),
-            },
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
     }
 }
@@ -392,84 +335,52 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
 
         let length = self.len.expect("length should be Some");
 
-        // Should not attempt to decode rpc chunks with length > max_packet_size
-        if length > self.max_packet_size {
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `ErrorType`.
+        if length > self.max_packet_size || length > *ERROR_TYPE_MAX || length < *ERROR_TYPE_MIN {
             return Err(RPCError::InvalidData);
         }
-        let mut reader = FrameDecoder::new(Cursor::new(&src));
+
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+        // // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
+        let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
-        match read_exact(&mut reader, &mut decoded_buffer, length) {
+        match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().position();
+                let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
                 Ok(Some(ErrorType(VariableList::from_ssz_bytes(
                     &decoded_buffer,
                 )?)))
             }
-            Err(e) => match e.kind() {
-                // Haven't received enough bytes to decode yet, wait for more
-                ErrorKind::UnexpectedEof => Ok(None),
-                _ => Err(e).map_err(RPCError::from),
-            },
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
     }
 }
 
-/// Wrapper over `read` implementation of `FrameDecoder`.
-///
-/// Works like the standard `read_exact` implementation, except that it returns an error if length of
-// compressed bytes read from the underlying reader is greater than worst case compression length for snappy.
-fn read_exact<T: std::convert::AsRef<[u8]>>(
-    reader: &mut FrameDecoder<Cursor<T>>,
-    mut buf: &mut [u8],
-    uncompressed_length: usize,
-) -> Result<(), std::io::Error> {
-    // Calculate worst case compression length for given uncompressed length
-    let max_compressed_len = snap::raw::max_compress_len(uncompressed_length) as u64;
-
-    // Initialize the position of the reader
-    let mut pos = reader.get_ref().position();
-    let mut count = 0;
-    while !buf.is_empty() {
-        match reader.read(buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                let tmp = buf;
-                buf = &mut tmp[n..];
+/// Handle errors that we get from decoding an RPC message from the stream.
+/// `num_bytes_read` is the number of bytes the snappy decoder has read from the underlying stream.
+/// `max_compressed_len` is the maximum compressed size for a given uncompressed size.
+fn handle_error<T>(
+    err: std::io::Error,
+    num_bytes: u64,
+    max_compressed_len: u64,
+) -> Result<Option<T>, RPCError> {
+    match err.kind() {
+        ErrorKind::UnexpectedEof => {
+            // If snappy has read `max_compressed_len` from underlying stream and still can't fill buffer, we have a malicious message.
+            // Report as `InvalidData` so that malicious peer gets banned.
+            if num_bytes >= max_compressed_len {
+                Err(RPCError::InvalidData)
+            } else {
+                // Haven't received enough bytes to decode yet, wait for more
+                Ok(None)
             }
-            Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
         }
-        // Get current position of reader
-        let curr_pos = reader.get_ref().position();
-        // Note: reader should always advance forward. However, this behaviour
-        // depends on the implementation of `snap::FrameDecoder`, so it is better
-        // to check to avoid underflow panic.
-        if curr_pos > pos {
-            count += reader.get_ref().position() - pos;
-            pos = curr_pos;
-        } else {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "snappy: reader is not advanced forward while reading",
-            ));
-        }
-
-        if count > max_compressed_len {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "snappy: compressed data is > max_compressed_len",
-            ));
-        }
-    }
-    if !buf.is_empty() {
-        Err(std::io::Error::new(
-            ErrorKind::UnexpectedEof,
-            "failed to fill whole buffer",
-        ))
-    } else {
-        Ok(())
+        _ => Err(err).map_err(RPCError::from),
     }
 }
