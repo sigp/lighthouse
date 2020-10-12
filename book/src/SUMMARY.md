@@ -14,6 +14,7 @@
     * [Key recovery](./key-recovery.md)
 * [Validator Management](./validator-management.md)
 	* [Importing from the Eth2 Launchpad](./validator-import-launchpad.md)
+    * [Slashing Protection](./slashing-protection.md)
 * [APIs](./api.md)
 	* [Beacon Node API](./api-bn.md)
 		* [/lighthouse](./api-lighthouse.md)
