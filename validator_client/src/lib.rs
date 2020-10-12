@@ -115,11 +115,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         );
 
         if validators.num_enabled() == 0 {
-            return Err(format!(
-                "Cannot run with 0 enabled validators. \
-                 Please create or import validators before starting the validator client, \
-                 or check your datadir configuration"
-            ));
+            return Err("Cannot run with 0 enabled validators. \
+                        Please create or import validators before starting the validator client, \
+                        or check your datadir configuration"
+                .to_string());
         }
 
         // Initialize slashing protection.
