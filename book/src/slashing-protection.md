@@ -99,8 +99,9 @@ Ensure that `slashing_protection.sqlite` is in "/home/karlm/.lighthouse/medalla/
 ```
 
 Usually this indicates that during some manual intervention the slashing database has been
-misplaced. If you have correctly imported your keys, you should never see this error
-(see [Initialization](#initialization)).
+misplaced. This error can also occur if you have upgraded from Lighthouse v0.2.x to v0.3.x without
+moving the slashing protection database. If you have imported your keys into a new node, you should
+never see this error (see [Initialization](#initialization)).
 
 The safest way to remedy this error is to find your old slashing protection database and move
 it to the correct location. In our example that would be
@@ -110,9 +111,13 @@ not sure.
 
 If you are absolutely 100% sure that you need to recreate the missing database, you can start
 the Lighthouse validator client with the `--init-slashing-protection` flag. This flag is incredibly
-dangerous and should not be used lightly, and we **strongly recommend** you consider finding
-your old slashing protection database before using it. You will get slashed if you use it
-incorrectly.
+dangerous and should not be used lightly, and we **strongly recommend** you try finding
+your old slashing protection database before using it. If you do decide to use it, you should
+wait at least 1 epoch (~7 minutes) from when your validator client was last actively signing
+messages. If you suspect your node experienced a clock drift issue you should wait
+longer. Remember that the inactivity penalty for being offline for even a day or so
+is approximately equal to the rewards earned in a day. You will get slashed if you use
+`--init-slashing-protection` incorrectly.
 
 ### Slashable Attestations and Re-orgs
 
