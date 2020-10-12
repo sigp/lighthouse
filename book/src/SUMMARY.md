@@ -25,10 +25,7 @@
 	* [Prometheus Metrics](./advanced_metrics.md)
 * [Advanced Usage](./advanced.md)
     * [Database Configuration](./advanced_database.md)
-<<<<<<< HEAD
-=======
 	* [Local Testnets](./local-testnets.md)
->>>>>>> v0.3.0-staging
     * [Advanced Networking](./advanced_networking.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
