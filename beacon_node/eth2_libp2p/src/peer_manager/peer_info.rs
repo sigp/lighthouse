@@ -136,6 +136,13 @@ impl Default for PeerStatus {
     }
 }
 
+/// Connection Direction of connection.
+#[derive(Debug, Clone)]
+pub enum ConnectionDirection {
+    Incoming,
+    Outgoing,
+}
+
 /// Connection Status of the peer.
 #[derive(Debug, Clone)]
 pub enum PeerConnectionStatus {
@@ -145,6 +152,8 @@ pub enum PeerConnectionStatus {
         n_in: u8,
         /// number of outgoing connections.
         n_out: u8,
+        /// direction of the first connection of this peer
+        direction: ConnectionDirection,
     },
     /// The peer has disconnected.
     Disconnected {
@@ -172,7 +181,7 @@ impl Serialize for PeerConnectionStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("connection_status", 5)?;
         match self {
-            Connected { n_in, n_out } => {
+            Connected { n_in, n_out, .. } => {
                 s.serialize_field("status", "connected")?;
                 s.serialize_field("connections_in", n_in)?;
                 s.serialize_field("connections_out", n_out)?;
@@ -269,7 +278,11 @@ impl PeerConnectionStatus {
         match self {
             Connected { n_in, .. } => *n_in += 1,
             Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected { n_in: 1, n_out: 0 }
+                *self = Connected {
+                    n_in: 1,
+                    n_out: 0,
+                    direction: ConnectionDirection::Incoming,
+                }
             }
         }
     }
@@ -280,7 +293,11 @@ impl PeerConnectionStatus {
         match self {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected { n_in: 0, n_out: 1 }
+                *self = Connected {
+                    n_in: 0,
+                    n_out: 1,
+                    direction: ConnectionDirection::Outgoing,
+                }
             }
         }
     }
@@ -309,8 +326,19 @@ impl PeerConnectionStatus {
 
     pub fn connections(&self) -> (u8, u8) {
         match self {
-            Connected { n_in, n_out } => (*n_in, *n_out),
+            Connected { n_in, n_out, .. } => (*n_in, *n_out),
             _ => (0, 0),
+        }
+    }
+
+    /// Returns true iff the peer is connected and its first connection was outgoing.
+    pub fn is_outgoing(&self) -> bool {
+        match self {
+            Connected {
+                direction: ConnectionDirection::Outgoing,
+                ..
+            } => true,
+            _ => false,
         }
     }
 }
