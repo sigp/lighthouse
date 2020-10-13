@@ -25,7 +25,8 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, o, trace, warn};
+use rand::Rng;
+use slog::{crit, debug, error, info, o, trace, warn};
 use ssz::Encode;
 use std::fs::File;
 use std::io::Write;
@@ -36,7 +37,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
+use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, Slot, SubnetId};
 
 mod gossipsub_scoring_parameters;
 mod handler;
@@ -156,7 +157,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
                 .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
+        //we don't know the number of active validators and the current slot yet
         let active_validators = TSpec::minimum_validator_count();
+        let current_slot = Slot::new(0);
 
         let thresholds = PeerScoreThresholds {
             gossip_threshold: -4000.0,
@@ -169,8 +172,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let score_settings = PeerScoreSettings::new(chain_spec, &net_conf.gs_config);
 
         //Prepare scoring parameters
-        let params =
-            score_settings.get_peer_score_params(active_validators, &thresholds, &enr_fork_id)?;
+        let params = score_settings.get_peer_score_params(
+            active_validators,
+            &thresholds,
+            &enr_fork_id,
+            current_slot,
+        )?;
 
         debug!(behaviour_log, "Using peer score params"; "params" => format!("{:?}", params));
 
@@ -195,21 +202,29 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         })
     }
 
-    pub fn update_gossipsub_parameters(&mut self, active_validators: usize) -> error::Result<()> {
-        let (beacon_aggregate_proof_params, beacon_attestation_subnet_params) = self
-            .score_settings
-            .get_beacon_aggregate_proof_and_attestation_subnet_params(active_validators)?;
+    pub fn update_gossipsub_parameters(
+        &mut self,
+        active_validators: usize,
+        current_slot: Slot,
+    ) -> error::Result<()> {
+        let (beacon_block_params, beacon_aggregate_proof_params, beacon_attestation_subnet_params) =
+            self.score_settings
+                .get_dynamic_topic_params(active_validators, current_slot)?;
 
         let fork_digest = self.enr_fork_id.fork_digest;
         let get_topic = |kind: GossipKind| -> Topic {
             GossipTopic::new(kind, GossipEncoding::default(), fork_digest).into()
         };
 
-        debug!(self.log, "Updating gossipsub scores";
+        info!(self.log, "Updating gossipsub scores";
             "active_validators" => active_validators,
+            "beacon_block_params" => format!("{:?}", beacon_block_params),
             "beacon_aggregate_proof_params" => format!("{:?}", beacon_aggregate_proof_params),
             "beacon_attestation_subnet_params" => format!("{:?}", beacon_attestation_subnet_params),
         );
+
+        self.gossipsub
+            .set_topic_params(get_topic(GossipKind::BeaconBlock), beacon_block_params)?;
 
         self.gossipsub.set_topic_params(
             get_topic(GossipKind::BeaconAggregateAndProof),

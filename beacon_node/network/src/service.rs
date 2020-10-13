@@ -250,13 +250,15 @@ fn spawn_service<T: BeaconChainTypes>(
                             .filter(|validator| validator.is_active_at(current_epoch))
                             .count())
                         }) {
-                            if (*service.libp2p.swarm)
-                            .update_gossipsub_parameters(active_validators).is_err() {
-                                error!(
-                                    service.log,
-                                    "Failed to update gossipsub parameters";
-                                    "active_validators" => active_validators
-                                );
+                            if let Ok(slot) = service.beacon_chain.slot() {
+                                if (*service.libp2p.swarm)
+                                .update_gossipsub_parameters(active_validators, slot).is_err() {
+                                    error!(
+                                        service.log,
+                                        "Failed to update gossipsub parameters";
+                                        "active_validators" => active_validators
+                                    );
+                                }
                             }
                         }
                     }

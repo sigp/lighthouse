@@ -7,7 +7,7 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
-use types::{ChainSpec, EnrForkId, EthSpec, SubnetId};
+use types::{ChainSpec, EnrForkId, EthSpec, Slot, SubnetId};
 
 const MAX_IN_MESH_SCORE: f64 = 10.0;
 const MAX_FIRST_MESSAGE_DELIVERIES_SCORE: f64 = 40.0;
@@ -68,6 +68,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         active_validators: usize,
         thresholds: &PeerScoreThresholds,
         enr_fork_id: &EnrForkId,
+        current_slot: Slot,
     ) -> error::Result<PeerScoreParams> {
         let mut params = PeerScoreParams::default();
 
@@ -97,17 +98,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             topic.hash()
         };
 
-        //first all fixed topics not depending on active_validators
-        params.topics.insert(
-            get_hash(GossipKind::BeaconBlock),
-            Self::get_topic_params(
-                self,
-                BEACON_BLOCK_WEIGHT,
-                1.0,
-                self.epoch * 20,
-                Some((self.epoch * 5, 3.0, self.epoch)),
-            ),
-        );
+        //first all fixed topics
         params.topics.insert(
             get_hash(GossipKind::VoluntaryExit),
             Self::get_topic_params(
@@ -139,9 +130,13 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             ),
         );
 
-        //dynamic topics depending on active_validators
-        let (beacon_aggregate_proof_params, beacon_attestation_subnet_params) =
-            self.get_beacon_aggregate_proof_and_attestation_subnet_params(active_validators)?;
+        //dynamic topics
+        let (beacon_block_params, beacon_aggregate_proof_params, beacon_attestation_subnet_params) =
+            self.get_dynamic_topic_params(active_validators, current_slot)?;
+
+        params
+            .topics
+            .insert(get_hash(GossipKind::BeaconBlock), beacon_block_params);
 
         params.topics.insert(
             get_hash(GossipKind::BeaconAggregateAndProof),
@@ -158,20 +153,30 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         Ok(params)
     }
 
-    pub fn get_beacon_aggregate_proof_and_attestation_subnet_params(
+    pub fn get_dynamic_topic_params(
         &self,
         active_validators: usize,
-    ) -> error::Result<(TopicScoreParams, TopicScoreParams)> {
+        current_slot: Slot,
+    ) -> error::Result<(TopicScoreParams, TopicScoreParams, TopicScoreParams)> {
         let (aggregators_per_slot, committees_per_slot) =
             self.expected_aggregator_count_per_slot(active_validators)?;
         let multiple_bursts_per_subnet_per_epoch = committees_per_slot as u64
             >= 2 * self.attestation_subnet_count / TSpec::slots_per_epoch();
+
+        let beacon_block_params = Self::get_topic_params(
+            self,
+            BEACON_BLOCK_WEIGHT,
+            1.0,
+            self.epoch * 20,
+            Some((TSpec::slots_per_epoch() * 5, 3.0, self.epoch, current_slot)),
+        );
+
         let beacon_aggregate_proof_params = Self::get_topic_params(
             self,
             BEACON_AGGREGATE_PROOF_WEIGHT,
             aggregators_per_slot,
             self.epoch,
-            Some((self.epoch * 2, 4.0, self.epoch)),
+            Some((TSpec::slots_per_epoch() * 2, 4.0, self.epoch, current_slot)),
         );
         let beacon_attestation_subnet_params = Self::get_topic_params(
             self,
@@ -186,7 +191,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                     4
                 }),
             Some((
-                self.epoch
+                TSpec::slots_per_epoch()
                     * (if multiple_bursts_per_subnet_per_epoch {
                         4
                     } else {
@@ -198,10 +203,12 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                 } else {
                     self.epoch * 3
                 },
+                current_slot,
             )),
         );
 
         Ok((
+            beacon_block_params,
             beacon_aggregate_proof_params,
             beacon_attestation_subnet_params,
         ))
@@ -272,8 +279,8 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         topic_weight: f64,
         expected_message_rate: f64,
         first_message_decay_time: Duration,
-        // decay time, cap factor, activation window
-        mesh_message_info: Option<(Duration, f64, Duration)>,
+        // decay slots (decay time in slots), cap factor, activation window, current slot
+        mesh_message_info: Option<(u64, f64, Duration, Slot)>,
     ) -> TopicScoreParams {
         let mut t_params = TopicScoreParams::default();
 
@@ -291,20 +298,30 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         );
         t_params.first_message_deliveries_weight = 40.0 / t_params.first_message_deliveries_cap;
 
-        if let Some((decay_time, cap_factor, activation_window)) = mesh_message_info {
+        if let Some((decay_slots, cap_factor, activation_window, current_slot)) = mesh_message_info
+        {
+            let decay_time = self.slot * decay_slots as u32;
             t_params.mesh_message_deliveries_decay = self.score_parameter_decay(decay_time);
             t_params.mesh_message_deliveries_threshold = Self::threshold(
                 t_params.mesh_message_deliveries_decay,
                 expected_message_rate / 50.0,
             );
             t_params.mesh_message_deliveries_cap =
-                cap_factor * t_params.mesh_message_deliveries_threshold;
+                if cap_factor * t_params.mesh_message_deliveries_threshold < 2.0 {
+                    2.0
+                } else {
+                    cap_factor * t_params.mesh_message_deliveries_threshold
+                };
             t_params.mesh_message_deliveries_activation = activation_window;
             t_params.mesh_message_deliveries_window = Duration::from_secs(2);
             t_params.mesh_failure_penalty_decay = t_params.mesh_message_deliveries_decay;
             t_params.mesh_message_deliveries_weight = -self.max_positive_score
                 / (t_params.topic_weight * t_params.mesh_message_deliveries_threshold.powi(2));
             t_params.mesh_failure_penalty_weight = t_params.mesh_message_deliveries_weight;
+            if decay_slots >= current_slot.as_u64() {
+                t_params.mesh_message_deliveries_threshold = 0.0;
+                t_params.mesh_message_deliveries_weight = 0.0;
+            }
         } else {
             t_params.mesh_message_deliveries_weight = 0.0;
             t_params.mesh_message_deliveries_threshold = 0.0;
