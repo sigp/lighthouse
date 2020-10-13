@@ -107,6 +107,20 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
+        info!(
+            log,
+            "Initialized validators";
+            "disabled" => validators.num_total().saturating_sub(validators.num_enabled()),
+            "enabled" => validators.num_enabled(),
+        );
+
+        if validators.num_enabled() == 0 {
+            return Err("Cannot run with 0 enabled validators. \
+                        Please create or import validators before starting the validator client, \
+                        or check your datadir configuration"
+                .to_string());
+        }
+
         // Initialize slashing protection.
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = if config.init_slashing_protection {
@@ -144,13 +158,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     )
                 })?;
         }
-
-        info!(
-            log,
-            "Initialized validators";
-            "disabled" => validators.num_total().saturating_sub(validators.num_enabled()),
-            "enabled" => validators.num_enabled(),
-        );
 
         let beacon_node_url: Url = config
             .beacon_node
