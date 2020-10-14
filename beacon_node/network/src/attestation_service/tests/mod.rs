@@ -20,7 +20,7 @@ mod tests {
     use tempfile::tempdir;
     use types::{CommitteeIndex, EthSpec, MinimalEthSpec};
 
-    const SLOT_DURATION_MILLIS: u64 = 200;
+    const SLOT_DURATION_MILLIS: u64 = 400;
 
     type TestBeaconChainType = Witness<
         NullMigrator,
