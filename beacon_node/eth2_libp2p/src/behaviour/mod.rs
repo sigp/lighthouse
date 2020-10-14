@@ -1,7 +1,7 @@
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
-use crate::types::{GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery};
+use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetDiscovery};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -13,8 +13,8 @@ use libp2p::{
         Multiaddr,
     },
     gossipsub::{
-        Gossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity,
-        MessageId,
+        GenericGossipsub, GenericGossipsubEvent, IdentTopic as Topic, MessageAcceptance,
+        MessageAuthenticity, MessageId,
     },
     identify::{Identify, IdentifyEvent},
     swarm::{
@@ -42,6 +42,9 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
+
+pub type Gossipsub = GenericGossipsub<MessageData>;
+pub type GossipsubEvent = GenericGossipsubEvent<MessageData>;
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
@@ -518,7 +521,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
+                match PubsubMessage::decode(&gs_msg.topics, gs_msg.data()) {
                     Err(e) => {
                         debug!(self.log, "Could not decode gossipsub message"; "error" => e);
                         //reject the message

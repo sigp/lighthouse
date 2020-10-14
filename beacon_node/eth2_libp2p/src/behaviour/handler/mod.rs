@@ -1,3 +1,4 @@
+use crate::behaviour::Gossipsub;
 use crate::rpc::*;
 use delegate::DelegatingHandler;
 pub(super) use delegate::{
@@ -5,7 +6,6 @@ pub(super) use delegate::{
 };
 use libp2p::{
     core::upgrade::{InboundUpgrade, OutboundUpgrade},
-    gossipsub::Gossipsub,
     identify::Identify,
     swarm::protocols_handler::{
         KeepAlive, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
