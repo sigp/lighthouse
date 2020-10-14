@@ -81,16 +81,16 @@ impl<'a> Builder<'a> {
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
     ///
     /// The builder will not necessarily check that `password` can unlock `keystore`.
-    pub fn voting_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
-        self.voting_keystore = Some((keystore, password.to_vec().into()));
+    pub fn voting_keystore(mut self, keystore: Keystore, password: PlainText) -> Self {
+        self.voting_keystore = Some((keystore, password));
         self
     }
 
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
     ///
     /// The builder will not necessarily check that `password` can unlock `keystore`.
-    pub fn withdrawal_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
-        self.withdrawal_keystore = Some((keystore, password.to_vec().into()));
+    pub fn withdrawal_keystore(mut self, keystore: Keystore, password: PlainText) -> Self {
+        self.withdrawal_keystore = Some((keystore, password));
         self
     }
 
@@ -307,7 +307,6 @@ fn random_keystore() -> Result<(Keystore, PlainText), Error> {
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
         .collect::<String>()
-        .into_bytes()
         .into();
 
     let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), "".into())?.build()?;

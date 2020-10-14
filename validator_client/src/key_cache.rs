@@ -115,11 +115,14 @@ impl KeyCache {
             .collect();
 
         let raw = PlainText::from(
-            bincode::serialize(&secret_map).map_err(Error::UnableToSerializeKeyMap)?,
+            std::str::from_utf8(
+                &bincode::serialize(&secret_map).map_err(Error::UnableToSerializeKeyMap)?,
+            )
+            .map_err(|_| Error::InvalidPasswordUtf8)?,
         );
         let (cipher_text, checksum) = encrypt(
-            raw.as_ref(),
-            Self::password(&self.passwords).as_ref(),
+            raw.as_bytes(),
+            Self::password(&self.passwords).as_bytes(),
             &self.crypto.kdf.params,
             &self.crypto.cipher.params,
         )
@@ -164,10 +167,8 @@ impl KeyCache {
     }
 
     fn password(passwords: &[PlainText]) -> PlainText {
-        PlainText::from(passwords.iter().fold(Vec::new(), |mut v, p| {
-            v.extend(p.as_ref());
-            v
-        }))
+        let strs: Vec<&str> = passwords.iter().map(|p| p.as_str()).collect();
+        strs.join("").into()
     }
 
     pub fn decrypt(
@@ -179,7 +180,7 @@ impl KeyCache {
             State::NotDecrypted => {
                 let password = Self::password(&passwords);
                 let text =
-                    decrypt(password.as_ref(), &self.crypto).map_err(Error::UnableToDecrypt)?;
+                    decrypt(password.as_bytes(), &self.crypto).map_err(Error::UnableToDecrypt)?;
                 let key_map: SerializedKeyMap =
                     bincode::deserialize(text.as_bytes()).map_err(Error::UnableToParseKeyMap)?;
                 self.passwords = passwords;
@@ -256,6 +257,7 @@ pub enum Error {
     MissingUuidKey,
     /// Cache file is already decrypted
     AlreadyDecrypted,
+    InvalidPasswordUtf8,
 }
 
 #[cfg(test)]
@@ -276,7 +278,7 @@ mod tests {
         let mut key_cache = KeyCache::new();
         let key_pair = Keypair::random();
         let uuid = Uuid::from_u128(1);
-        let password = PlainText::from(vec![1, 2, 3, 4, 5, 6]);
+        let password = PlainText::from("123456");
         key_cache.add(key_pair, &uuid, password);
 
         key_cache.crypto.cipher.message = HexBytes::from(vec![7, 8, 9]);
@@ -294,10 +296,7 @@ mod tests {
         let mut key_cache = KeyCache::new();
         let keypairs = vec![Keypair::random(), Keypair::random()];
         let uuids = vec![Uuid::from_u128(1), Uuid::from_u128(2)];
-        let passwords = vec![
-            PlainText::from(vec![1, 2, 3, 4, 5, 6]),
-            PlainText::from(vec![7, 8, 9, 10, 11, 12]),
-        ];
+        let passwords = vec![PlainText::from("123456"), PlainText::from("789101112")];
 
         for ((keypair, uuid), password) in keypairs.iter().zip(uuids.iter()).zip(passwords.iter()) {
             key_cache.add(keypair.clone(), uuid, password.clone());

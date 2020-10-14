@@ -51,7 +51,11 @@ pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText)
         .build()
         .map_err(|e| format!("Unable to build keystore: {:?}", e))?;
 
-    Ok((keystore, INSECURE_PASSWORD.to_vec().into()))
+    let password = std::str::from_utf8(INSECURE_PASSWORD)
+        .map_err(|_| "The insecure password is not valid UTF-8")?
+        .into();
+
+    Ok((keystore, password))
 }
 
 /// A testing harness for generating validator directories.
@@ -88,14 +92,14 @@ impl Harness {
             builder.random_voting_keystore().unwrap()
         } else {
             let (keystore, password) = generate_deterministic_keystore(0).unwrap();
-            builder.voting_keystore(keystore, password.as_bytes())
+            builder.voting_keystore(keystore, password)
         };
 
         let builder = if config.random_withdrawal_keystore {
             builder.random_withdrawal_keystore().unwrap()
         } else {
             let (keystore, password) = generate_deterministic_keystore(1).unwrap();
-            builder.withdrawal_keystore(keystore, password.as_bytes())
+            builder.withdrawal_keystore(keystore, password)
         };
 
         let builder = if let Some(amount) = config.deposit_amount {

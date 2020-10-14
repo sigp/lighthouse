@@ -41,7 +41,7 @@ pub fn default_wallet_password<P: AsRef<Path>>(
     secrets_dir: P,
 ) -> Result<PlainText, io::Error> {
     let path = default_wallet_password_path(wallet.name(), secrets_dir);
-    fs::read_to_string(path).map(|password| PlainText::from(strip_off_newlines(password.as_str())))
+    fs::read_to_string(path).map(|password| PlainText::from(password).without_newlines())
 }
 
 /// Returns the "default" path where a keystore should store its password file.
@@ -56,9 +56,7 @@ pub fn default_keystore_password_path<P: AsRef<Path>>(
 
 /// Reads a password file into a Zeroize-ing `PlainText` struct, with new-lines removed.
 pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
-    fs::read_to_string(path)
-        .map(|password| strip_off_newlines(password.as_str()))
-        .map(Into::into)
+    fs::read_to_string(path).map(|password| PlainText::from(password).without_newlines())
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.
@@ -84,16 +82,7 @@ pub fn random_password() -> PlainText {
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
         .collect::<String>()
-        .into_bytes()
         .into()
-}
-
-/// Remove any number of newline or carriage returns from the end of a vector of bytes.
-pub fn strip_off_newlines(value: &str) -> Vec<u8> {
-    value
-        .trim_end_matches(|c| c == '\r' || c == '\n')
-        .as_bytes()
-        .to_vec()
 }
 
 /// Reads a password from TTY or stdin if `use_stdin == true`.
@@ -189,20 +178,6 @@ impl AsRef<[u8]> for ZeroizeString {
 #[cfg(test)]
 mod test {
     use super::is_password_sufficiently_complex;
-    use super::strip_off_newlines;
-
-    #[test]
-    fn test_strip_off() {
-        let expected = "hello world".as_bytes().to_vec();
-
-        assert_eq!(strip_off_newlines("hello world\n"), expected);
-        assert_eq!(strip_off_newlines("hello world\n\n\n\n"), expected);
-        assert_eq!(strip_off_newlines("hello world\r"), expected);
-        assert_eq!(strip_off_newlines("hello world\r\r\r\r\r"), expected);
-        assert_eq!(strip_off_newlines("hello world\r\n"), expected);
-        assert_eq!(strip_off_newlines("hello world\r\n\r\n"), expected);
-        assert_eq!(strip_off_newlines("hello world"), expected);
-    }
 
     #[test]
     fn test_password_over_min_length() {

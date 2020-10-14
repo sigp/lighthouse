@@ -1,9 +1,8 @@
+use account_utils::read_input_from_user;
 use account_utils::PlainText;
-use account_utils::{read_input_from_user, strip_off_newlines};
 use eth2_wallet::bip39::{Language, Mnemonic};
 use std::fs;
 use std::path::PathBuf;
-use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -18,9 +17,8 @@ pub fn read_mnemonic_from_cli(
         Some(path) => fs::read_to_string(&path)
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
             .and_then(|password| {
-                let bytes_no_newlines: PlainText = strip_off_newlines(password.as_str()).into();
-                let phrase = from_utf8(&bytes_no_newlines.as_ref())
-                    .map_err(|e| format!("Unable to derive mnemonic: {:?}", e))?;
+                let bytes_no_newlines: PlainText = password.into();
+                let phrase = bytes_no_newlines.as_str();
                 Mnemonic::from_phrase(phrase, Language::English).map_err(|e| {
                     format!(
                         "Unable to derive mnemonic from string {:?}: {:?}",

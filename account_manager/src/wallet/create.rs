@@ -1,8 +1,6 @@
 use crate::common::read_wallet_name_from_cli;
 use crate::WALLETS_DIR_FLAG;
-use account_utils::{
-    is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
-};
+use account_utils::{is_password_sufficiently_complex, random_password, read_password_from_user};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
@@ -208,7 +206,7 @@ pub fn read_new_wallet_password_from_cli(
         Some(path) => {
             let password: PlainText = fs::read_to_string(&path)
                 .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-                .map(|password| strip_off_newlines(password.as_str()).into())?;
+                .map(|password| PlainText::from(password).without_newlines())?;
 
             // Ensure the password meets the minimum requirements.
             is_password_sufficiently_complex(password.as_bytes())?;
@@ -217,15 +215,14 @@ pub fn read_new_wallet_password_from_cli(
         None => loop {
             eprintln!("");
             eprintln!("{}", NEW_WALLET_PASSWORD_PROMPT);
-            let password =
-                PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+            let password = PlainText::from(read_password_from_user(stdin_inputs)?.as_str());
 
             // Ensure the password meets the minimum requirements.
             match is_password_sufficiently_complex(password.as_bytes()) {
                 Ok(_) => {
                     eprintln!("{}", RETYPE_PASSWORD_PROMPT);
                     let retyped_password =
-                        PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+                        PlainText::from(read_password_from_user(stdin_inputs)?.as_str());
                     if retyped_password == password {
                         break Ok(password);
                     } else {

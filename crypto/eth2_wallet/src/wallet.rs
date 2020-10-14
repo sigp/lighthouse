@@ -24,6 +24,7 @@ pub enum Error {
     PathExhausted,
     EmptyPassword,
     EmptySeed,
+    InvalidPasswordUtf8,
 }
 
 impl From<KeystoreError> for Error {
@@ -86,7 +87,9 @@ impl<'a> WalletBuilder<'a> {
             let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
 
             Ok(Self {
-                seed: seed.to_vec().into(),
+                seed: std::str::from_utf8(seed)
+                    .map_err(|_| Error::InvalidPasswordUtf8)?
+                    .into(),
                 password,
                 kdf: default_kdf(salt.to_vec()),
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
@@ -298,8 +301,11 @@ pub fn recover_validator_secret(
     let master = DerivedKey::from_seed(secret.as_bytes()).map_err(|()| Error::EmptyPassword)?;
 
     let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
+    let password = std::str::from_utf8(destination.secret())
+        .map_err(|_| Error::InvalidPasswordUtf8)?
+        .into();
 
-    Ok((destination.secret().to_vec().into(), path))
+    Ok((password, path))
 }
 
 /// Returns `(secret, path)` for the `key_type` for the validator at `index`.
@@ -314,6 +320,9 @@ pub fn recover_validator_secret_from_mnemonic(
     let master = DerivedKey::from_seed(secret).map_err(|()| Error::EmptyPassword)?;
 
     let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
+    let password = std::str::from_utf8(destination.secret())
+        .map_err(|_| Error::InvalidPasswordUtf8)?
+        .into();
 
-    Ok((destination.secret().to_vec().into(), path))
+    Ok((password, path))
 }

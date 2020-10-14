@@ -11,7 +11,7 @@ use account_utils::{
     validator_definitions::{
         self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
     },
-    ZeroizeString,
+    PlainText,
 };
 use eth2_keystore::Keystore;
 use slog::{debug, error, info, warn, Logger};
@@ -186,7 +186,7 @@ impl InitializedValidator {
                                 // If the password is supplied, use it and ignore the path
                                 // (if supplied).
                                 (_, Some(password)) => (
-                                    password.as_ref().to_vec().into(),
+                                    password.as_str().into(),
                                     keystore
                                         .decrypt_keypair(password.as_ref())
                                         .map_err(Error::UnableToDecryptKeystore)?,
@@ -206,7 +206,7 @@ impl InitializedValidator {
                                         &keystore,
                                         &keystore_path,
                                     )?;
-                                    (password.as_ref().to_vec().into(), keypair)
+                                    (password, keypair)
                                 }
                             },
                         )
@@ -275,7 +275,7 @@ impl Drop for InitializedValidator {
 fn unlock_keystore_via_stdin_password(
     keystore: &Keystore,
     keystore_path: &PathBuf,
-) -> Result<(ZeroizeString, Keypair), Error> {
+) -> Result<(PlainText, Keypair), Error> {
     eprintln!("");
     eprintln!(
         "The {} file does not contain either of the following fields for {:?}:",
@@ -301,7 +301,7 @@ fn unlock_keystore_via_stdin_password(
         eprintln!("");
 
         match keystore.decrypt_keypair(password.as_ref()) {
-            Ok(keystore) => break Ok((password, keystore)),
+            Ok(keystore) => break Ok((password.as_str().into(), keystore)),
             Err(eth2_keystore::Error::InvalidPassword) => {
                 eprintln!("Invalid password, try again (or press Ctrl+c to exit):");
             }
@@ -490,16 +490,12 @@ impl InitializedValidators {
                     voting_keystore_path,
                 } => {
                     if let Some(p) = voting_keystore_password {
-                        p.as_ref().to_vec().into()
+                        p.as_str().into()
                     } else if let Some(path) = voting_keystore_password_path {
                         read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
                     } else {
                         let keystore = open_keystore(voting_keystore_path)?;
-                        unlock_keystore_via_stdin_password(&keystore, &voting_keystore_path)?
-                            .0
-                            .as_ref()
-                            .to_vec()
-                            .into()
+                        unlock_keystore_via_stdin_password(&keystore, &voting_keystore_path)?.0
                     }
                 }
             };
