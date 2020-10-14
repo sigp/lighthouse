@@ -26,7 +26,7 @@ lazy_static! {
 fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
 
-    let mut harness = BeaconChainHarness::new_with_store_config(
+    let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
         KEYPAIRS[..].to_vec(),
         StoreConfig::default(),
@@ -55,7 +55,7 @@ fn produces_attestations() {
     // Test all valid committee indices for all slots in the chain.
     for slot in 0..=current_slot.as_u64() + MainnetEthSpec::slots_per_epoch() * 3 {
         let slot = Slot::from(slot);
-        let state = chain
+        let mut state = chain
             .state_at_slot(slot, StateSkipConfig::WithStateRoots)
             .expect("should get state");
 
@@ -81,6 +81,9 @@ fn produces_attestations() {
                 .expect("should get target block root")
         };
 
+        state
+            .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
+            .unwrap();
         let committee_cache = state
             .committee_cache(RelativeEpoch::Current)
             .expect("should get committee_cache");
