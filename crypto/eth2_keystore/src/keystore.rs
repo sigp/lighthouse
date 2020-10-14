@@ -59,7 +59,7 @@ pub const HASH_SIZE: usize = 32;
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
-    InvalidPasswordUtf8,
+    InvalidPasswordUtf8(std::str::Utf8Error),
     InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
     EmptyPassword,
@@ -368,7 +368,7 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     }
 
     let mut plain_text = PlainText::from(
-        std::str::from_utf8(cipher_message.as_bytes()).map_err(|_| Error::InvalidPasswordUtf8)?,
+        std::str::from_utf8(cipher_message.as_bytes()).map_err(Error::InvalidPasswordUtf8)?,
     );
     match &crypto.cipher.params {
         Cipher::Aes128Ctr(params) => {

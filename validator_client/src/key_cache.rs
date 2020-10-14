@@ -118,7 +118,7 @@ impl KeyCache {
             std::str::from_utf8(
                 &bincode::serialize(&secret_map).map_err(Error::UnableToSerializeKeyMap)?,
             )
-            .map_err(|_| Error::InvalidPasswordUtf8)?,
+            .map_err(Error::InvalidPasswordUtf8)?,
         );
         let (cipher_text, checksum) = encrypt(
             raw.as_bytes(),
@@ -257,7 +257,7 @@ pub enum Error {
     MissingUuidKey,
     /// Cache file is already decrypted
     AlreadyDecrypted,
-    InvalidPasswordUtf8,
+    InvalidPasswordUtf8(std::str::Utf8Error),
 }
 
 #[cfg(test)]

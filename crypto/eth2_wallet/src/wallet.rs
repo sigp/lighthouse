@@ -24,7 +24,7 @@ pub enum Error {
     PathExhausted,
     EmptyPassword,
     EmptySeed,
-    InvalidPasswordUtf8,
+    InvalidPasswordUtf8(std::str::Utf8Error),
 }
 
 impl From<KeystoreError> for Error {
@@ -88,7 +88,7 @@ impl<'a> WalletBuilder<'a> {
 
             Ok(Self {
                 seed: std::str::from_utf8(seed)
-                    .map_err(|_| Error::InvalidPasswordUtf8)?
+                    .map_err(Error::InvalidPasswordUtf8)?
                     .into(),
                 password,
                 kdf: default_kdf(salt.to_vec()),
@@ -302,7 +302,7 @@ pub fn recover_validator_secret(
 
     let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
     let password = std::str::from_utf8(destination.secret())
-        .map_err(|_| Error::InvalidPasswordUtf8)?
+        .map_err(Error::InvalidPasswordUtf8)?
         .into();
 
     Ok((password, path))
@@ -321,7 +321,7 @@ pub fn recover_validator_secret_from_mnemonic(
 
     let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
     let password = std::str::from_utf8(destination.secret())
-        .map_err(|_| Error::InvalidPasswordUtf8)?
+        .map_err(Error::InvalidPasswordUtf8)?
         .into();
 
     Ok((password, path))

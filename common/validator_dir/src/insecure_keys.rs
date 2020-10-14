@@ -45,7 +45,7 @@ pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText)
         .map_err(|e| format!("Unable to build keystore: {:?}", e))?;
 
     let password = std::str::from_utf8(INSECURE_PASSWORD)
-        .map_err(|_| format!("The insecure password is not valid UTF-8"))?
+        .map_err(|e| format!("The insecure password is not valid: {:?}", e))?
         .into();
 
     Ok((keystore, password))
