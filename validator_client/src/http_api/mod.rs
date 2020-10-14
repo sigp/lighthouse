@@ -114,7 +114,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 builder.allow_origins(allow_origin.split(","))
             }
         } else {
-            builder.allow_origin(format!("http://{}:{}", config.listen_addr, listen_port))
+            builder.allow_origin(
+                format!("http://{}:{}", config.listen_addr, config.listen_port).as_str(),
+            )
         }
     };
 
