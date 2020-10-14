@@ -332,6 +332,51 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn num_voluntary_exits(&self) -> usize {
         self.voluntary_exits.read().len()
     }
+
+    /// Returns all known `Attestation` objects.
+    ///
+    /// This method may return objects that are invalid for block inclusion.
+    pub fn get_all_attestations(&self) -> Vec<Attestation<T>> {
+        self.attestations
+            .read()
+            .iter()
+            .map(|(_, attns)| attns.iter().cloned())
+            .flatten()
+            .collect()
+    }
+
+    /// Returns all known `AttesterSlashing` objects.
+    ///
+    /// This method may return objects that are invalid for block inclusion.
+    pub fn get_all_attester_slashings(&self) -> Vec<AttesterSlashing<T>> {
+        self.attester_slashings
+            .read()
+            .iter()
+            .map(|(slashing, _)| slashing.clone())
+            .collect()
+    }
+
+    /// Returns all known `ProposerSlashing` objects.
+    ///
+    /// This method may return objects that are invalid for block inclusion.
+    pub fn get_all_proposer_slashings(&self) -> Vec<ProposerSlashing> {
+        self.proposer_slashings
+            .read()
+            .iter()
+            .map(|(_, slashing)| slashing.clone())
+            .collect()
+    }
+
+    /// Returns all known `SignedVoluntaryExit` objects.
+    ///
+    /// This method may return objects that are invalid for block inclusion.
+    pub fn get_all_voluntary_exits(&self) -> Vec<SignedVoluntaryExit> {
+        self.voluntary_exits
+            .read()
+            .iter()
+            .map(|(_, exit)| exit.clone())
+            .collect()
+    }
 }
 
 /// Filter up to a maximum number of operations out of an iterator.

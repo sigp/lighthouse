@@ -3,7 +3,7 @@
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
 master key, making the validators keys _children_ of the master key. This
-scheme means that a single 12-word mnemonic can be used to backup all of your
+scheme means that a single 24-word mnemonic can be used to backup all of your
 validator keys without providing any observable link between them (i.e., it is
 privacy-retaining). Hierarchical key derivation schemes are common-place in
 cryptocurrencies, they are already used by most hardware and software wallets
@@ -13,8 +13,10 @@ to secure BTC, ETH and many other coins.
 
 We defined some terms in the context of validator key management:
 
-- **Mnemonic**: a string of 12-words that is designed to be easy to write down
-	and remember. E.g., _"enemy fog enlist laundry nurse hungry discover turkey holiday resemble glad discover"_.
+- **Mnemonic**: a string of 24 words that is designed to be easy to write down
+	and remember. E.g., _"radar fly lottery mirror fat icon bachelor sadness
+	type exhaust mule six beef arrest you spirit clog mango snap fox citizen
+	already bird erase"_.
 	- Defined in BIP-39
 - **Wallet**: a wallet is a JSON file which stores an
 	encrypted version of a mnemonic.
@@ -40,16 +42,16 @@ keypairs. Creating a single validator looks like this:
 	- `lighthouse account validator create --wallet-name wally --wallet-password wally.pass --count 1`
 
 
-In step (1), we created a wallet in `~/.lighthouse/wallets` with the name
+In step (1), we created a wallet in `~/.lighthouse/{testnet}/wallets` with the name
 `wally`. We encrypted this using a pre-defined password in the
 `wally.pass` file. Then, in step (2), we created one new validator in the
-`~/.lighthouse/validators` directory using `wally` (unlocking it with
+`~/.lighthouse/{testnet}/validators` directory using `wally` (unlocking it with
 `wally.pass`) and storing the passwords to the validators voting key in
-`~/.lighthouse/secrets`.
+`~/.lighthouse/{testnet}/secrets`.
 
 Thanks to the hierarchical key derivation scheme, we can delete all of the
 aforementioned directories and then regenerate them as long as we remembered
-the 12-word mnemonic (we don't recommend doing this, though).
+the 24-word mnemonic (we don't recommend doing this, though).
 
 Creating another validator is easy, it's just a matter of repeating step (2).
 The wallet keeps track of how many validators it has generated and ensures that
@@ -63,14 +65,16 @@ There are three important directories in Lighthouse validator key management:
 
 - `wallets/`: contains encrypted wallets which are used for hierarchical
 	key derivation.
-	- Defaults to `~/.lighthouse/wallets`
+	- Defaults to `~/.lighthouse/{testnet}/wallets`
 - `validators/`: contains a directory for each validator containing
 	encrypted keystores and other validator-specific data.
-	- Defaults to `~/.lighthouse/validators`
+	- Defaults to `~/.lighthouse/{testnet}/validators`
 - `secrets/`: since the validator signing keys are "hot", the validator process
 	needs access to the passwords to decrypt the keystores in the validators
 	dir. These passwords are stored here.
-	- Defaults to `~/.lighthouse/secrets`
+	- Defaults to `~/.lighthouse/{testnet}/secrets`
+
+where `testnet` is the name of the testnet passed in the `--testnet` parameter (default is `medalla`).
 
 When the validator client boots, it searches the `validators/` for directories
 containing voting keystores. When it discovers a keystore, it searches the

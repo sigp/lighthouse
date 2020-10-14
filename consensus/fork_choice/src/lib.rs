@@ -6,3 +6,4 @@ pub use crate::fork_choice::{
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
 pub use fork_choice_store::ForkChoiceStore;
+pub use proto_array::Block as ProtoBlock;

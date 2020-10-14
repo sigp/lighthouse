@@ -103,7 +103,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                 );
 
                 // add to the local_enr
-                if let Err(e) = local_enr.insert("eth2", enr_fork.as_ssz_bytes(), &local_key) {
+                if let Err(e) = local_enr.insert("eth2", &enr_fork.as_ssz_bytes(), &local_key) {
                     slog::warn!(logger, "Could not update eth2 field"; "error" => ?e);
                 }
             } else {

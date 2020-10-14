@@ -279,6 +279,21 @@ fn aggregated_gossip_verification() {
     );
 
     /*
+     * This is not in the specification for aggregate attestations (only unaggregates), but we
+     * check it anyway to avoid weird edge cases.
+     */
+    let unknown_root = Hash256::from_low_u64_le(424242);
+    assert_invalid!(
+        "attestation with invalid target root",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.target.root = unknown_root;
+            a
+        },
+        AttnError::InvalidTargetRoot { .. }
+    );
+
+    /*
      * The following test ensures:
      *
      * Spec v0.12.1
@@ -570,7 +585,7 @@ fn unaggregated_gossip_verification() {
                 matches!(
                     harness
                         .chain
-                        .verify_unaggregated_attestation_for_gossip($attn_getter, $subnet_getter)
+                        .verify_unaggregated_attestation_for_gossip($attn_getter, Some($subnet_getter))
                         .err()
                         .expect(&format!(
                             "{} should error during verify_unaggregated_attestation_for_gossip",
@@ -837,7 +852,7 @@ fn unaggregated_gossip_verification() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), Some(subnet_id))
         .expect("valid attestation should be verified");
 
     /*
@@ -926,6 +941,6 @@ fn attestation_that_skips_epochs() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
+        .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
         .expect("should gossip verify attestation that skips slots");
 }

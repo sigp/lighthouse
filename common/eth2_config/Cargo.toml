@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-serde = "1.0.110"
-serde_derive = "1.0.110"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 toml = "0.5.6"
 types = { path = "../../consensus/types" }

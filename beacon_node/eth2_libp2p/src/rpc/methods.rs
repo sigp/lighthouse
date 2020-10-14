@@ -16,7 +16,8 @@ pub type MaxRequestBlocks = U1024;
 pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
-type MaxErrorLen = U256;
+pub type MaxErrorLen = U256;
+pub const MAX_ERROR_LEN: u64 = 256;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -256,7 +257,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RPCResponseErrorCode {
     RateLimited,
     InvalidRequest,

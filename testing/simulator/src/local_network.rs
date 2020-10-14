@@ -1,6 +1,7 @@
 use node_test_rig::{
-    environment::RuntimeContext, ClientConfig, LocalBeaconNode, LocalValidatorClient,
-    RemoteBeaconNode, ValidatorConfig, ValidatorFiles,
+    environment::RuntimeContext,
+    eth2::{types::StateId, BeaconNodeHttpClient},
+    ClientConfig, LocalBeaconNode, LocalValidatorClient, ValidatorConfig, ValidatorFiles,
 };
 use parking_lot::RwLock;
 use std::ops::Deref;
@@ -123,11 +124,11 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .ok_or_else(|| format!("No beacon node for index {}", beacon_node))?;
             beacon_node
                 .client
-                .http_listen_addr()
+                .http_api_listen_addr()
                 .expect("Must have http started")
         };
 
-        validator_config.http_server =
+        validator_config.beacon_node =
             format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,
@@ -140,7 +141,7 @@ impl<E: EthSpec> LocalNetwork<E> {
     }
 
     /// For all beacon nodes in `Self`, return a HTTP client to access each nodes HTTP API.
-    pub fn remote_nodes(&self) -> Result<Vec<RemoteBeaconNode<E>>, String> {
+    pub fn remote_nodes(&self) -> Result<Vec<BeaconNodeHttpClient>, String> {
         let beacon_nodes = self.beacon_nodes.read();
 
         beacon_nodes
@@ -154,11 +155,9 @@ impl<E: EthSpec> LocalNetwork<E> {
         let nodes = self.remote_nodes().expect("Failed to get remote nodes");
         let bootnode = nodes.first().expect("Should contain bootnode");
         bootnode
-            .http
-            .beacon()
-            .get_head()
+            .get_beacon_states_finality_checkpoints(StateId::Head)
             .await
             .map_err(|e| format!("Cannot get head: {:?}", e))
-            .map(|head| head.finalized_slot.epoch(E::slots_per_epoch()))
+            .map(|body| body.unwrap().data.finalized.epoch)
     }
 }

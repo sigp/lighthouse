@@ -1,3 +1,4 @@
+use crate::behaviour::Gossipsub;
 use crate::rpc::*;
 use delegate::DelegatingHandler;
 pub(super) use delegate::{
@@ -5,7 +6,6 @@ pub(super) use delegate::{
 };
 use libp2p::{
     core::upgrade::{InboundUpgrade, OutboundUpgrade},
-    gossipsub::Gossipsub,
     identify::Identify,
     swarm::protocols_handler::{
         KeepAlive, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
@@ -41,15 +41,9 @@ pub enum BehaviourHandlerIn<TSpec: EthSpec> {
     Shutdown(Option<(RequestId, RPCRequest<TSpec>)>),
 }
 
-pub enum BehaviourHandlerOut<TSpec: EthSpec> {
-    Delegate(Box<DelegateOut<TSpec>>),
-    // TODO: replace custom with events to send
-    Custom,
-}
-
 impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     type InEvent = BehaviourHandlerIn<TSpec>;
-    type OutEvent = BehaviourHandlerOut<TSpec>;
+    type OutEvent = DelegateOut<TSpec>;
     type Error = DelegateError<TSpec>;
     type InboundProtocol = DelegateInProto<TSpec>;
     type OutboundProtocol = DelegateOutProto<TSpec>;
@@ -122,9 +116,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
 
         match self.delegate.poll(cx) {
             Poll::Ready(ProtocolsHandlerEvent::Custom(event)) => {
-                return Poll::Ready(ProtocolsHandlerEvent::Custom(
-                    BehaviourHandlerOut::Delegate(Box::new(event)),
-                ))
+                return Poll::Ready(ProtocolsHandlerEvent::Custom(event))
             }
             Poll::Ready(ProtocolsHandlerEvent::Close(err)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(err))

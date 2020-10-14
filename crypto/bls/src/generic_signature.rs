@@ -4,7 +4,7 @@ use crate::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::fmt;
 use std::marker::PhantomData;
@@ -147,6 +147,14 @@ impl<PublicKey, T: TSignature<PublicKey>> Decode for GenericSignature<PublicKey,
 
 impl<PublicKey, T: TSignature<PublicKey>> TreeHash for GenericSignature<PublicKey, T> {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> fmt::Display for GenericSignature<PublicKey, T> {
+    impl_display!();
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> std::str::FromStr for GenericSignature<PublicKey, T> {
+    impl_from_str!();
 }
 
 impl<PublicKey, T: TSignature<PublicKey>> Serialize for GenericSignature<PublicKey, T> {

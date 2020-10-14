@@ -1,0 +1,32 @@
+[package]
+name = "http_api"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+warp = "0.2.5"
+serde = { version = "1.0.116", features = ["derive"] }
+tokio = { version = "0.2.22", features = ["macros"] }
+parking_lot = "0.11.0"
+types = { path = "../../consensus/types" }
+hex = "0.4.2"
+beacon_chain = { path = "../beacon_chain" }
+eth2 = { path = "../../common/eth2", features = ["lighthouse"] }
+slog = "2.5.2"
+network = { path = "../network" }
+eth2_libp2p = { path = "../eth2_libp2p" }
+eth1 = { path = "../eth1" }
+fork_choice = { path = "../../consensus/fork_choice" }
+state_processing = { path = "../../consensus/state_processing" }
+lighthouse_version = { path = "../../common/lighthouse_version" }
+lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
+lazy_static = "1.4.0"
+warp_utils = { path = "../../common/warp_utils" }
+slot_clock = { path = "../../common/slot_clock" }
+
+[dev-dependencies]
+store = { path = "../store" }
+environment = { path = "../../lighthouse/environment" }
+tree_hash = "0.1.1"
+discv5 = { version = "0.1.0-alpha.13", features = ["libp2p"] }

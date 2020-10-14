@@ -11,13 +11,14 @@ use account_manager::{
         list::CMD as LIST_CMD,
         CMD as WALLET_CMD,
     },
-    BASE_DIR_FLAG, CMD as ACCOUNT_CMD, *,
+    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG, *,
 };
 use account_utils::{
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
     ZeroizeString,
 };
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
@@ -25,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
-use types::Keypair;
+use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
 
 // TODO: create tests for the `lighthouse account validator deposit` command. This involves getting
@@ -69,11 +70,28 @@ fn dir_child_count<P: AsRef<Path>>(dir: P) -> usize {
     fs::read_dir(dir).expect("should read dir").count()
 }
 
+/// Returns the number of 0x-prefixed children in a directory
+/// i.e. validators in the validators dir.
+fn dir_validator_count<P: AsRef<Path>>(dir: P) -> usize {
+    fs::read_dir(dir)
+        .unwrap()
+        .filter(|c| {
+            c.as_ref()
+                .unwrap()
+                .path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("0x")
+        })
+        .count()
+}
+
 /// Uses `lighthouse account wallet list` to list all wallets.
 fn list_wallets<P: AsRef<Path>>(base_dir: P) -> Vec<String> {
     let output = output_result(
         wallet_cmd()
-            .arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(base_dir.as_ref().as_os_str())
             .arg(LIST_CMD),
     )
@@ -97,7 +115,7 @@ fn create_wallet<P: AsRef<Path>>(
 ) -> Result<Output, String> {
     output_result(
         wallet_cmd()
-            .arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(base_dir.as_ref().as_os_str())
             .arg(CREATE_CMD)
             .arg(format!("--{}", NAME_FLAG))
@@ -233,15 +251,15 @@ impl TestValidator {
         store_withdrawal_key: bool,
     ) -> Result<Vec<String>, String> {
         let mut cmd = validator_cmd();
-        cmd.arg(format!("--{}", BASE_DIR_FLAG))
-            .arg(self.wallet.base_dir().into_os_string())
+        cmd.arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(self.validator_dir.clone().into_os_string())
             .arg(CREATE_CMD)
+            .arg(format!("--{}", WALLETS_DIR_FLAG))
+            .arg(self.wallet.base_dir().into_os_string())
             .arg(format!("--{}", WALLET_NAME_FLAG))
             .arg(&self.wallet.name)
             .arg(format!("--{}", WALLET_PASSWORD_FLAG))
             .arg(self.wallet.password_path().into_os_string())
-            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-            .arg(self.validator_dir.clone().into_os_string())
             .arg(format!("--{}", SECRETS_DIR_FLAG))
             .arg(self.secrets_dir.clone().into_os_string())
             .arg(format!("--{}", DEPOSIT_GWEI_FLAG))
@@ -328,19 +346,30 @@ fn validator_create() {
     let wallet = TestWallet::new(base_dir.path(), "wally");
     wallet.create_expect_success();
 
-    assert_eq!(dir_child_count(validator_dir.path()), 0);
+    assert_eq!(dir_validator_count(validator_dir.path()), 0);
 
     let validator = TestValidator::new(validator_dir.path(), secrets_dir.path(), wallet);
 
     // Create a validator _without_ storing the withdraw key.
-    validator.create_expect_success(COUNT_FLAG, 1, false);
+    let created_validators = validator.create_expect_success(COUNT_FLAG, 1, false);
 
-    assert_eq!(dir_child_count(validator_dir.path()), 1);
+    // Validator should be registered with slashing protection.
+    check_slashing_protection(
+        &validator_dir,
+        created_validators
+            .iter()
+            .map(|v| v.voting_keypair(&secrets_dir).unwrap().pk),
+    );
+    drop(created_validators);
+
+    // Number of dir entries should be #validators + 1 for the slashing protection DB
+    assert_eq!(dir_validator_count(validator_dir.path()), 1);
+    assert_eq!(dir_child_count(validator_dir.path()), 2);
 
     // Create a validator storing the withdraw key.
     validator.create_expect_success(COUNT_FLAG, 1, true);
 
-    assert_eq!(dir_child_count(validator_dir.path()), 2);
+    assert_eq!(dir_validator_count(validator_dir.path()), 2);
 
     // Use the at-most flag with less validators then are in the directory.
     assert_eq!(
@@ -348,7 +377,7 @@ fn validator_create() {
         0
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 2);
+    assert_eq!(dir_validator_count(validator_dir.path()), 2);
 
     // Use the at-most flag with the same number of validators that are in the directory.
     assert_eq!(
@@ -356,7 +385,7 @@ fn validator_create() {
         0
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 2);
+    assert_eq!(dir_validator_count(validator_dir.path()), 2);
 
     // Use the at-most flag with two more number of validators than are in the directory.
     assert_eq!(
@@ -364,7 +393,7 @@ fn validator_create() {
         2
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 4);
+    assert_eq!(dir_validator_count(validator_dir.path()), 4);
 
     // Create multiple validators with the count flag.
     assert_eq!(
@@ -372,14 +401,7 @@ fn validator_create() {
         2
     );
 
-    assert_eq!(dir_child_count(validator_dir.path()), 6);
-}
-
-/// Returns the `lighthouse account validator import` command.
-fn validator_import_cmd() -> Command {
-    let mut cmd = validator_cmd();
-    cmd.arg(IMPORT_CMD);
-    cmd
+    assert_eq!(dir_validator_count(validator_dir.path()), 6);
 }
 
 #[test]
@@ -407,12 +429,13 @@ fn validator_import_launchpad() {
     // Create a not-keystore file in the src dir.
     File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
 
-    let mut child = validator_import_cmd()
+    let mut child = validator_cmd()
+        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        .arg(dst_dir.path().as_os_str())
+        .arg(IMPORT_CMD)
         .arg(format!("--{}", STDIN_INPUTS_FLAG)) // Using tty does not work well with tests.
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
-        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-        .arg(dst_dir.path().as_os_str())
         .stderr(Stdio::piped())
         .stdin(Stdio::piped())
         .spawn()
@@ -451,10 +474,14 @@ fn validator_import_launchpad() {
         "not-keystore should not be present in dst dir"
     );
 
+    // Validator should be registered with slashing protection.
+    check_slashing_protection(&dst_dir, std::iter::once(keystore.public_key().unwrap()));
+
     let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
 
     let expected_def = ValidatorDefinition {
         enabled: true,
+        description: "".into(),
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
@@ -467,4 +494,13 @@ fn validator_import_launchpad() {
         defs.as_slice() == &[expected_def],
         "validator defs file should be accurate"
     );
+}
+
+/// Check that all of the given pubkeys have been registered with slashing protection.
+fn check_slashing_protection(validator_dir: &TempDir, pubkeys: impl Iterator<Item = PublicKey>) {
+    let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
+    let slashing_db = SlashingDatabase::open(&slashing_db_path).unwrap();
+    for validator_pk in pubkeys {
+        slashing_db.get_validator_id(&validator_pk).unwrap();
+    }
 }

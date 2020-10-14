@@ -12,4 +12,7 @@ pub struct AttestationDuty {
     pub committee_position: usize,
     /// The total number of attesters in the committee.
     pub committee_len: usize,
+    /// The committee count at `attestation_slot`.
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub committees_at_slot: u64,
 }

@@ -4,20 +4,8 @@ use crate::*;
 use bls::get_withdrawal_credentials;
 use log::debug;
 use rayon::prelude::*;
-use std::path::PathBuf;
 
 pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
-
-/// Returns the directory where the generated keypairs should be stored.
-///
-/// It is either `$HOME/.lighthouse/keypairs.raw_keypairs` or, if `$HOME` is not available,
-/// `./keypairs.raw_keypairs`.
-pub fn keypairs_path() -> PathBuf {
-    let dir = dirs::home_dir()
-        .map(|home| (home.join(".lighthouse")))
-        .unwrap_or_else(|| PathBuf::from(""));
-    dir.join(KEYPAIRS_FILE)
-}
 
 /// Builds a beacon state to be used for testing purposes.
 ///

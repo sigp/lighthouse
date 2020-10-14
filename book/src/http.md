@@ -1,5 +1,9 @@
 # HTTP API
 
+[OpenAPI Specification](https://ethereum.github.io/eth2.0-APIs/#/)
+
+## Beacon Node
+
 A Lighthouse beacon node can be configured to expose a HTTP server by supplying the `--http` flag. The default listen address is `localhost:5052`.
 
 The following CLI flags control the HTTP server:
@@ -9,24 +13,10 @@ The following CLI flags control the HTTP server:
 - `--http-port`: specify the listen port of the server.
 - `--http-address`: specify the listen address of the server.
 
-The API is logically divided into several core endpoints, each documented in
-detail:
-
-Endpoint | Description |
-| --- | -- |
-[`/node`](./http/node.md) | General information about the beacon node.
-[`/beacon`](./http/beacon.md) | General information about the beacon chain.
-[`/validator`](./http/validator.md) | Provides functionality to validator clients.
-[`/consensus`](./http/consensus.md) | Proof-of-stake voting statistics.
-[`/network`](./http/network.md) | Information about the p2p network.
-[`/spec`](./http/spec.md) | Information about the specs that the client is running.
-[`/advanced`](./http/advanced.md) | Provides endpoints for advanced inspection of Lighthouse specific objects.
-[`/lighthouse`](./http/lighthouse.md) | Provides lighthouse specific endpoints.
-
-_Please note: The OpenAPI format at
-[SwaggerHub: Lighthouse REST
-API](https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0) has
-been **deprecated**. This documentation is now the source of truth for the REST API._
+The schema of the API aligns with the standard Eth2 Beacon Node API as defined
+at [github.com/ethereum/eth2.0-APIs](https://github.com/ethereum/eth2.0-APIs).
+It is an easy-to-use RESTful HTTP/JSON API.  An interactive specification is
+available [here](https://ethereum.github.io/eth2.0-APIs/#/).
 
 ## Troubleshooting
 

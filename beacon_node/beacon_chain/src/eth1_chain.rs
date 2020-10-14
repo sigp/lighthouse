@@ -1,5 +1,4 @@
 use crate::metrics;
-use environment::TaskExecutor;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use slog::{debug, error, trace, Logger};
@@ -11,6 +10,7 @@ use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem};
+use task_executor::TaskExecutor;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
     DEPOSIT_TREE_DEPTH,

@@ -6,7 +6,8 @@ use std::ops::{Deref, DerefMut};
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SubnetId(u64);
+#[serde(transparent)]
+pub struct SubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 impl SubnetId {
     pub fn new(id: u64) -> Self {

@@ -1,8 +1,12 @@
-use crate::types::GossipKind;
+use crate::types::{GossipKind, MessageData};
 use crate::{Enr, PeerIdSerialized};
+use directory::{
+    DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_TESTNET, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
+};
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
-    GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
+    FastMessageId, GenericGossipsubConfig, GenericGossipsubConfigBuilder, GenericGossipsubMessage,
+    MessageId, RawGossipsubMessage, ValidationMode,
 };
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
@@ -11,6 +15,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
+const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
+const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
+
+pub type GossipsubConfig = GenericGossipsubConfig<MessageData>;
+pub type GossipsubConfigBuilder = GenericGossipsubConfigBuilder<MessageData>;
+pub type GossipsubMessage = GenericGossipsubMessage<MessageData>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -67,6 +77,9 @@ pub struct Config {
     /// Disables the discovery protocol from starting.
     pub disable_discovery: bool,
 
+    /// Attempt to construct external port mappings with UPnP.
+    pub upnp_enabled: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -74,14 +87,41 @@ pub struct Config {
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
-        let mut network_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        network_dir.push(".lighthouse");
-        network_dir.push("network");
+        // WARNING: this directory default should be always overrided with parameters
+        // from cli for specific networks.
+        let network_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(DEFAULT_ROOT_DIR)
+            .join(DEFAULT_HARDCODED_TESTNET)
+            .join(DEFAULT_BEACON_NODE_DIR)
+            .join(DEFAULT_NETWORK_DIR);
 
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing
-        let gossip_message_id =
-            |message: &GossipsubMessage| MessageId::from(&Sha256::digest(&message.data)[..8]);
+        let fast_gossip_message_id =
+            |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..]);
+
+        fn prefix(prefix: [u8; 4], data: &[u8]) -> Vec<u8> {
+            prefix
+                .to_vec()
+                .into_iter()
+                .chain(data.iter().cloned())
+                .collect()
+        }
+
+        let gossip_message_id = |message: &GossipsubMessage| {
+            MessageId::from(
+                &Sha256::digest(
+                    {
+                        match &message.data.decompressed {
+                            Ok(decompressed) => prefix(MESSAGE_DOMAIN_VALID_SNAPPY, decompressed),
+                            _ => prefix(MESSAGE_DOMAIN_INVALID_SNAPPY, &message.data.raw),
+                        }
+                    }
+                    .as_slice(),
+                )[..20],
+            )
+        };
 
         // gossipsub configuration
         // Note: The topics by default are sent as plain strings. Hashes are an optional
@@ -101,6 +141,7 @@ impl Default for Config {
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
             .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
+            .fast_message_id_fn(fast_gossip_message_id)
             .build()
             .expect("valid gossipsub configuration");
 
@@ -112,6 +153,7 @@ impl Default for Config {
             .request_retries(1)
             .enr_peer_update_min(10)
             .query_parallelism(5)
+            .disable_report_discovered_peers()
             .query_timeout(Duration::from_secs(30))
             .query_peer_timeout(Duration::from_secs(2))
             .ip_limit() // limits /24 IP's in buckets.
@@ -136,6 +178,7 @@ impl Default for Config {
             trusted_peers: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
+            upnp_enabled: true,
             topics: Vec::new(),
         }
     }

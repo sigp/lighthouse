@@ -232,7 +232,7 @@ where
             .ok_or_else(|| "get_persisted_eth1_backend requires a store.".to_string())?;
 
         store
-            .get_item::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY))
+            .get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)
             .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
     }
 
@@ -244,7 +244,7 @@ where
             .ok_or_else(|| "store_contains_beacon_chain requires a store.".to_string())?;
 
         Ok(store
-            .get_item::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
+            .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .is_some())
     }
@@ -275,7 +275,7 @@ where
             .ok_or_else(|| "resume_from_db requires a store.".to_string())?;
 
         let chain = store
-            .get_item::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
+            .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .ok_or_else(|| {
                 "No persisted beacon chain found in store. Try purging the beacon chain database."
@@ -283,7 +283,7 @@ where
             })?;
 
         let persisted_fork_choice = store
-            .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
+            .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
             .ok_or_else(|| "No persisted fork choice present in database.".to_string())?;
 
@@ -310,7 +310,7 @@ where
 
         self.op_pool = Some(
             store
-                .get_item::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(&OP_POOL_DB_KEY))
+                .get_item::<PersistedOperationPool<TEthSpec>>(&OP_POOL_DB_KEY)
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
                 .map(PersistedOperationPool::into_operation_pool)
                 .unwrap_or_else(OperationPool::new),
@@ -377,8 +377,13 @@ where
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
 
-        let fork_choice = ForkChoice::from_genesis(fc_store, &genesis.beacon_block.message)
-            .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
+        let fork_choice = ForkChoice::from_genesis(
+            fc_store,
+            genesis.beacon_block_root,
+            &genesis.beacon_block.message,
+            &genesis.beacon_state,
+        )
+        .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
         self.genesis_time = Some(genesis.beacon_state.genesis_time);
@@ -570,6 +575,7 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
+            genesis_state_root: canonical_head.beacon_state_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
             fork_choice: RwLock::new(fork_choice),

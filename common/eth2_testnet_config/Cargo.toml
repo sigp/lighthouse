@@ -7,16 +7,16 @@ edition = "2018"
 build = "build.rs"
 
 [build-dependencies]
-zip = "0.5"
+zip = "0.5.8"
 eth2_config = { path = "../eth2_config"}
 
 [dev-dependencies]
 tempdir = "0.3.7"
 
 [dependencies]
-serde = "1.0.110"
-serde_yaml = "0.8.11"
+serde = "1.0.116"
+serde_yaml = "0.8.13"
 types = { path = "../../consensus/types"}
-enr = { version = "0.1.0", features = ["libsecp256k1", "ed25519"] }
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2_config"}
+enr = "0.3.0"

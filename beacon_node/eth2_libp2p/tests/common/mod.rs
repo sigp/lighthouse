@@ -3,14 +3,13 @@ use eth2_libp2p::Enr;
 use eth2_libp2p::EnrExt;
 use eth2_libp2p::Multiaddr;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{Libp2pEvent, NetworkConfig};
+use eth2_libp2p::{GossipsubConfigBuilder, Libp2pEvent, NetworkConfig};
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
 use std::time::Duration;
 use types::{ChainSpec, EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
-use libp2p::gossipsub::GossipsubConfigBuilder;
 use tempdir::TempDir;
 
 pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);
@@ -99,7 +98,7 @@ pub async fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> L
 
     let (signal, exit) = exit_future::signal();
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor = environment::TaskExecutor::new(
+    let executor = task_executor::TaskExecutor::new(
         tokio::runtime::Handle::current(),
         exit,
         log.clone(),
