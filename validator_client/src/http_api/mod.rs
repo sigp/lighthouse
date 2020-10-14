@@ -100,7 +100,23 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
     let log = ctx.log.clone();
-    let allow_origin = config.allow_origin.clone();
+
+    // Configure CORS.
+    let cors_builder = {
+        let builder = warp::cors()
+            .allow_methods(vec!["GET", "POST", "UPDATE"])
+            .allow_headers(vec!["Content-Type", "Authorization"]);
+
+        if let Some(allow_origin) = &config.allow_origin {
+            if allow_origin == "*" {
+                builder.allow_any_origin()
+            } else {
+                builder.allow_origins(allow_origin.split(","))
+            }
+        } else {
+            builder.allow_origin(format!("http://{}:{}", config.listen_addr, listen_port))
+        }
+    };
 
     // Sanity check.
     if !config.enabled {
@@ -428,8 +444,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        // Maybe add some CORS headers.
-        .map(move |reply| warp_utils::reply::maybe_cors(reply, allow_origin.as_ref()));
+        .with(cors_builder.build());
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
         SocketAddrV4::new(config.listen_addr, config.listen_port),
