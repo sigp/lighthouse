@@ -222,6 +222,100 @@ mod tests {
         assert_eq!(attestation_service.subscription_count(), 1);
     }
 
+    /// Test to verify that we are not unsubscribing to a subnet before a required subscription.
+    #[tokio::test]
+    async fn test_same_subnet_unsubscription() {
+        // subscription config
+        let validator_index = 1;
+        let committee_count = 1;
+
+        // Makes 2 validator subscriptions to the same subnet but at different slots.
+        // There should be just 1 unsubscription event for the later slot subscription (subscription_slot2).
+        let subscription_slot1 = 0;
+        let subscription_slot2 = 1;
+        let com1 = 1;
+        let com2 = 0;
+
+        // create the attestation service and subscriptions
+        let mut attestation_service = get_attestation_service();
+        let current_slot = attestation_service
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Could not get current slot");
+
+        let sub1 = get_subscription(
+            validator_index,
+            com1,
+            current_slot + Slot::new(subscription_slot1),
+            committee_count,
+        );
+
+        let sub2 = get_subscription(
+            validator_index,
+            com2,
+            current_slot + Slot::new(subscription_slot2),
+            committee_count,
+        );
+
+        let subnet_id1 = SubnetId::compute_subnet::<MinimalEthSpec>(
+            current_slot + Slot::new(subscription_slot1),
+            com1,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
+
+        let subnet_id2 = SubnetId::compute_subnet::<MinimalEthSpec>(
+            current_slot + Slot::new(subscription_slot2),
+            com2,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
+
+        // Assert that subscriptions are different but their subnet is the same
+        assert_ne!(sub1, sub2);
+        assert_eq!(subnet_id1, subnet_id2);
+
+        // submit the subscriptions
+        attestation_service
+            .validator_subscriptions(vec![sub1, sub2])
+            .unwrap();
+
+        // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
+        // Get all events for 1 slot duration (unsubscription event should happen after 2 slot durations).
+        let events = get_events(&mut attestation_service, None, 1).await;
+        assert_matches!(
+            events[..3],
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
+        );
+
+        let expected = AttServiceMessage::Subscribe(subnet_id1);
+
+        // Should be still subscribed to 1 long lived and 1 short lived subnet if both are different.
+        if !attestation_service.random_subnets.contains(&subnet_id1) {
+            assert_eq!(expected, events[3]);
+            assert_eq!(attestation_service.subscription_count(), 2);
+        } else {
+            assert_eq!(attestation_service.subscription_count(), 1);
+        }
+
+        // Get event for 1 more slot duration, we should get the unsubscribe event now.
+        let unsubscribe_event = get_events(&mut attestation_service, None, 1).await;
+
+        // If the long lived and short lived subnets are different, we should get an unsubscription event.
+        if !attestation_service.random_subnets.contains(&subnet_id1) {
+            assert_eq!(
+                [AttServiceMessage::Unsubscribe(subnet_id1)],
+                unsubscribe_event[..]
+            );
+        }
+
+        // Should be subscribed to only 1 long lived subnet after unsubscription.
+        assert_eq!(attestation_service.subscription_count(), 1);
+    }
+
     #[tokio::test]
     async fn subscribe_all_random_subnets() {
         let attestation_subnet_count = MinimalEthSpec::default_spec().attestation_subnet_count;
