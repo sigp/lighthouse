@@ -260,9 +260,9 @@ pub fn read_wallet_password_from_cli(
     stdin_inputs: bool,
 ) -> Result<PlainText, String> {
     match password_file_path {
-        Some(path) => fs::read(&path)
+        Some(path) => fs::read_to_string(&path)
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-            .map(|bytes| strip_off_newlines(bytes).into()),
+            .map(|password| strip_off_newlines(password.as_str()).into()),
         None => {
             eprintln!("");
             eprintln!("{}", WALLET_PASSWORD_PROMPT);

@@ -41,7 +41,7 @@ pub fn default_wallet_password<P: AsRef<Path>>(
     secrets_dir: P,
 ) -> Result<PlainText, io::Error> {
     let path = default_wallet_password_path(wallet.name(), secrets_dir);
-    fs::read(path).map(|bytes| PlainText::from(strip_off_newlines(bytes)))
+    fs::read_to_string(path).map(|password| PlainText::from(strip_off_newlines(password.as_str())))
 }
 
 /// Returns the "default" path where a keystore should store its password file.
@@ -56,7 +56,9 @@ pub fn default_keystore_password_path<P: AsRef<Path>>(
 
 /// Reads a password file into a Zeroize-ing `PlainText` struct, with new-lines removed.
 pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
-    fs::read(path).map(strip_off_newlines).map(Into::into)
+    fs::read_to_string(path)
+        .map(|password| strip_off_newlines(password.as_str()))
+        .map(Into::into)
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.
@@ -87,17 +89,11 @@ pub fn random_password() -> PlainText {
 }
 
 /// Remove any number of newline or carriage returns from the end of a vector of bytes.
-pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
-    let mut strip_off = 0;
-    for (i, byte) in bytes.iter().rev().enumerate() {
-        if *byte == b'\n' || *byte == b'\r' {
-            strip_off = i + 1;
-        } else {
-            break;
-        }
-    }
-    bytes.truncate(bytes.len() - strip_off);
-    bytes
+pub fn strip_off_newlines(value: &str) -> Vec<u8> {
+    value
+        .trim_end_matches(|c| c == '\r' || c == '\n')
+        .as_bytes()
+        .to_vec()
 }
 
 /// Reads a password from TTY or stdin if `use_stdin == true`.
@@ -199,34 +195,13 @@ mod test {
     fn test_strip_off() {
         let expected = "hello world".as_bytes().to_vec();
 
-        assert_eq!(
-            strip_off_newlines("hello world\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\n\n\n\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\r\r\r\r".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world".as_bytes().to_vec()),
-            expected
-        );
+        assert_eq!(strip_off_newlines("hello world\n"), expected);
+        assert_eq!(strip_off_newlines("hello world\n\n\n\n"), expected);
+        assert_eq!(strip_off_newlines("hello world\r"), expected);
+        assert_eq!(strip_off_newlines("hello world\r\r\r\r\r"), expected);
+        assert_eq!(strip_off_newlines("hello world\r\n"), expected);
+        assert_eq!(strip_off_newlines("hello world\r\n\r\n"), expected);
+        assert_eq!(strip_off_newlines("hello world"), expected);
     }
 
     #[test]

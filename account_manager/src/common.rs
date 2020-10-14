@@ -15,10 +15,10 @@ pub fn read_mnemonic_from_cli(
     stdin_inputs: bool,
 ) -> Result<Mnemonic, String> {
     let mnemonic = match mnemonic_path {
-        Some(path) => fs::read(&path)
+        Some(path) => fs::read_to_string(&path)
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-            .and_then(|bytes| {
-                let bytes_no_newlines: PlainText = strip_off_newlines(bytes).into();
+            .and_then(|password| {
+                let bytes_no_newlines: PlainText = strip_off_newlines(password.as_str()).into();
                 let phrase = from_utf8(&bytes_no_newlines.as_ref())
                     .map_err(|e| format!("Unable to derive mnemonic: {:?}", e))?;
                 Mnemonic::from_phrase(phrase, Language::English).map_err(|e| {

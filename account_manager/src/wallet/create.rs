@@ -206,9 +206,9 @@ pub fn read_new_wallet_password_from_cli(
 ) -> Result<PlainText, String> {
     match password_file_path {
         Some(path) => {
-            let password: PlainText = fs::read(&path)
+            let password: PlainText = fs::read_to_string(&path)
                 .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-                .map(|bytes| strip_off_newlines(bytes).into())?;
+                .map(|password| strip_off_newlines(password.as_str()).into())?;
 
             // Ensure the password meets the minimum requirements.
             is_password_sufficiently_complex(password.as_bytes())?;
