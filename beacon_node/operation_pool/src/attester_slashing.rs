@@ -1,5 +1,6 @@
 use crate::max_cover::MaxCover;
-use std::collections::HashMap;
+use state_processing::per_block_processing::get_slashable_indices_modular;
+use std::collections::{HashMap, HashSet};
 use types::{AttesterSlashing, BeaconState, ChainSpec, EthSpec};
 
 pub struct AttesterSlashingMaxCover<'a, T: EthSpec> {
@@ -10,27 +11,31 @@ pub struct AttesterSlashingMaxCover<'a, T: EthSpec> {
 impl<'a, T: EthSpec> AttesterSlashingMaxCover<'a, T> {
     pub fn new(
         slashing: &'a AttesterSlashing<T>,
+        proposer_slashing_indices: &HashSet<u64>,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        let length = slashing.attestation_1.attesting_indices.len()
-            + slashing.attestation_2.attesting_indices.len();
-        let mut effective_balances: HashMap<u64, u64> = HashMap::with_capacity(length);
+        let mut effective_balances: HashMap<u64, u64> = HashMap::new();
+        let epoch = state.current_epoch();
 
-        for vd in &slashing.attestation_1.attesting_indices {
-            let eff_balance = state.get_effective_balance(*vd as usize, spec).ok()?;
-            effective_balances.insert(*vd, eff_balance);
+        let slashable_validators =
+            get_slashable_indices_modular(state, slashing, |index, validator| {
+                validator.is_slashable_at(epoch) && !proposer_slashing_indices.contains(&index)
+            });
+
+        if let Ok(validators) = slashable_validators {
+            for vd in &validators {
+                let eff_balance = state.get_effective_balance(*vd as usize, spec).ok()?;
+                effective_balances.insert(*vd, eff_balance);
+            }
+
+            Some(Self {
+                slashing,
+                effective_balances,
+            })
+        } else {
+            None
         }
-
-        for vd in &slashing.attestation_2.attesting_indices {
-            let eff_balance = state.get_effective_balance(*vd as usize, spec).ok()?;
-            effective_balances.insert(*vd, eff_balance);
-        }
-
-        Some(Self {
-            slashing,
-            effective_balances,
-        })
     }
 }
 
@@ -52,7 +57,7 @@ impl<'a, T: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, T> {
     /// Update the set of items covered, for the inclusion of some object in the solution.
     fn update_covering_set(
         &mut self,
-        best_slashing: &AttesterSlashing<T>,
+        _best_slashing: &AttesterSlashing<T>,
         covered_validator_indices: &HashMap<u64, u64>,
     ) {
         self.effective_balances

@@ -13,8 +13,7 @@ use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices, get_slashable_indices_modular, verify_attestation_for_block_inclusion,
-    verify_exit, VerifySignatures,
+    get_slashable_indices, verify_attestation_for_block_inclusion, verify_exit, VerifySignatures,
 };
 use state_processing::SigVerifiedOp;
 use std::collections::{hash_map, HashMap, HashSet};
@@ -216,43 +215,22 @@ impl<T: EthSpec> OperationPool<T> {
 
         // Set of validators to be slashed, so we don't attempt to construct invalid attester
         // slashings.
-        let mut to_be_slashed = proposer_slashings
+        let to_be_slashed = proposer_slashings
             .iter()
             .map(|s| s.signed_header_1.message.proposer_index)
             .collect::<HashSet<_>>();
 
-        let epoch = state.current_epoch();
-        let attester_slashings_coverage: Vec<AttesterSlashing<T>> = self
+        let coverage: Vec<AttesterSlashing<T>> = self
             .attester_slashings
             .read()
             .iter()
-            .filter(|(slashing, fork)| {
-                if *fork != state.fork.previous_version && *fork != state.fork.current_version {
-                    return false;
-                }
-
-                // Take all slashings that will slash 1 or more validators.
-                let slashed_validators =
-                    get_slashable_indices_modular(state, slashing, |index, validator| {
-                        validator.is_slashable_at(epoch) && !to_be_slashed.contains(&index)
-                    });
-
-                // Extend the `to_be_slashed` set so subsequent iterations don't try to include
-                // useless slashings.
-                if let Ok(validators) = slashed_validators {
-                    to_be_slashed.extend(validators);
-                    true
-                } else {
-                    false
-                }
-            })
             .map(|(slashing, _)| slashing.clone())
             .collect();
 
         let attester_slashings = maximum_cover(
-            attester_slashings_coverage
-                .iter()
-                .flat_map(|slashing| AttesterSlashingMaxCover::new(&slashing, state, spec)),
+            coverage.iter().flat_map(|slashing| {
+                AttesterSlashingMaxCover::new(&slashing, &to_be_slashed, state, spec)
+            }),
             T::MaxAttesterSlashings::to_usize(),
         );
 
