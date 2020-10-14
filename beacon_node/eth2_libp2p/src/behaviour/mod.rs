@@ -7,10 +7,10 @@ use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
-use libp2p::gossipsub::PeerScoreThresholds;
 use libp2p::gossipsub::subscription_filter::{
     MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
 };
+use libp2p::gossipsub::PeerScoreThresholds;
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
