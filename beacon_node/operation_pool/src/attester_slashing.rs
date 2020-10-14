@@ -55,10 +55,6 @@ impl<'a, T: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, T> {
         best_slashing: &AttesterSlashing<T>,
         covered_validator_indices: &HashMap<u64, u64>,
     ) {
-        if best_slashing == self.slashing {
-            return;
-        }
-
         self.effective_balances
             .retain(|k, _| !covered_validator_indices.contains_key(k));
     }
@@ -66,6 +62,5 @@ impl<'a, T: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, T> {
     /// The quality of this item's covering set, usually its cardinality.
     fn score(&self) -> usize {
         self.effective_balances.values().sum::<u64>() as usize
-            + self.effective_balances.keys().len()
     }
 }
