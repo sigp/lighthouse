@@ -354,11 +354,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // unsubscriptions immediately after the subscription. We also want to minimize
         // subscription churn and maintain a consecutive subnet subscriptions.
         self.unsubscriptions.retain(|subnet| {
-            if subnet.subnet_id == exact_subnet.subnet_id && subnet.slot <= exact_subnet.slot {
-                false
-            } else {
-                true
-            }
+            !(subnet.subnet_id == exact_subnet.subnet_id && subnet.slot <= exact_subnet.slot)
         });
         // add an unsubscription event to remove ourselves from the subnet once completed
         self.unsubscriptions
