@@ -1,19 +1,15 @@
 use serde::{Deserialize, Serialize};
-use types::{Hash256, Slot};
+use types::Slot;
 
 /// The current state of the node.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SyncState {
     /// The node is performing a long-range (batch) sync over a finalized chain.
     /// In this state, parent lookups are disabled.
-    SyncingFinalized {
-        start_slot: Slot,
-        head_slot: Slot,
-        head_root: Hash256,
-    },
+    SyncingFinalized { start_slot: Slot, target_slot: Slot },
     /// The node is performing a long-range (batch) sync over one or many head chains.
     /// In this state parent lookups are disabled.
-    SyncingHead { start_slot: Slot, head_slot: Slot },
+    SyncingHead { start_slot: Slot, target_slot: Slot },
     /// The node is up to date with all known peers and is connected to at least one
     /// fully synced peer. In this state, parent lookups are enabled.
     Synced,

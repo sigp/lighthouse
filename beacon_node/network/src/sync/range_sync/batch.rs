@@ -98,6 +98,14 @@ impl<T: EthSpec> BatchInfo<T> {
         peers
     }
 
+    /// Verifies if an incomming block belongs to this batch.
+    pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &RequestId) -> bool {
+        if let BatchState::Downloading(expected_peer, _, expected_id) = &self.state {
+            return peer_id == expected_peer && expected_id == request_id;
+        }
+        false
+    }
+
     pub fn current_peer(&self) -> Option<&PeerId> {
         match &self.state {
             BatchState::AwaitingDownload | BatchState::Failed => None,

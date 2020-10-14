@@ -35,13 +35,13 @@
 
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
-use super::range_sync::{ChainId, RangeSync, EPOCHS_PER_BATCH};
+use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
-use eth2_libp2p::types::NetworkGlobals;
+use eth2_libp2p::types::{NetworkGlobals, SyncState};
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
 use lru_cache::LRUCache;
@@ -176,11 +176,11 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// The flag allows us to determine if the peer returned data or sent us nothing.
     single_block_lookups: FnvHashMap<RequestId, SingleBlockRequest>,
 
-    /// The logger for the import manager.
-    log: Logger,
-
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+
+    /// The logger for the import manager.
+    log: Logger,
 }
 
 /// Object representing a single block lookup request.
@@ -222,7 +222,6 @@ pub fn spawn<T: BeaconChainTypes>(
     let mut sync_manager = SyncManager {
         range_sync: RangeSync::new(
             beacon_chain.clone(),
-            network_globals.clone(),
             beacon_processor_send.clone(),
             log.clone(),
         ),
@@ -233,8 +232,8 @@ pub fn spawn<T: BeaconChainTypes>(
         parent_queue: SmallVec::new(),
         failed_chains: LRUCache::new(500),
         single_block_lookups: FnvHashMap::default(),
-        log: log.clone(),
         beacon_processor_send,
+        log: log.clone(),
     };
 
     // spawn the sync manager thread
@@ -276,8 +275,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     "local_head_slot" => local_peer_info.head_slot,
                 );
                 self.synced_peer(&peer_id, remote);
-                // notify the range sync that a peer has been added
-                self.range_sync.fully_synced_peer_found(&mut self.network);
             }
             PeerSyncType::Advanced => {
                 trace!(self.log, "Useful peer for sync found";
@@ -302,8 +299,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // the second case
                 {
                     self.synced_peer(&peer_id, remote);
-                    // notify the range sync that a peer has been added
-                    self.range_sync.fully_synced_peer_found(&mut self.network);
                 } else {
                     // Add the peer to our RangeSync
                     self.range_sync
@@ -673,10 +668,41 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     /// Updates the global sync state and logs any changes.
     fn update_sync_state(&mut self) {
-        if let Some((old_state, new_state)) = self.network_globals.update_sync_state() {
+        let new_state: SyncState = match self.range_sync.state() {
+            Err(e) => {
+                debug!(self.log, "Error getting range sync state"; "error" => %e);
+                return;
+            }
+            Ok(state) => match state {
+                None => {
+                    // no range sync, decide if we are stalled or synced
+                    self.network_globals
+                        .peers
+                        .read()
+                        .synced_peers()
+                        .next()
+                        .map(|_| SyncState::Synced)
+                        .unwrap_or_else(|| SyncState::Stalled)
+                }
+                Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
+                    SyncState::SyncingFinalized {
+                        start_slot,
+                        target_slot,
+                    }
+                }
+                Some((RangeSyncType::Head, start_slot, target_slot)) => SyncState::SyncingHead {
+                    start_slot,
+                    target_slot,
+                },
+            },
+        };
+
+        let old_state = self.network_globals.set_sync_state(new_state);
+        let new_state = self.network_globals.sync_state.read();
+        if !new_state.eq(&old_state) {
             info!(self.log, "Sync state updated"; "old_state" => %old_state, "new_state" => %new_state);
             // If we have become synced - Subscribe to all the core subnet topics
-            if new_state == eth2_libp2p::types::SyncState::Synced {
+            if new_state.is_synced() {
                 self.network.subscribe_core_topics();
             }
         }
