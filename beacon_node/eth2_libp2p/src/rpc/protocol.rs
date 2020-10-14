@@ -5,7 +5,7 @@ use crate::rpc::{
         ssz_snappy::{SSZSnappyInboundCodec, SSZSnappyOutboundCodec},
         InboundCodec, OutboundCodec,
     },
-    methods::ResponseTermination,
+    methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
     MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
@@ -51,6 +51,19 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
+    pub static ref ERROR_TYPE_MIN: usize =
+        VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
+    .as_ssz_bytes()
+    .len();
+    pub static ref ERROR_TYPE_MAX: usize =
+        VariableList::<u8, MaxErrorLen>::from(vec![
+            0u8;
+            MAX_ERROR_LEN
+                as usize
+        ])
+    .as_ssz_bytes()
+    .len();
+
 }
 
 /// The maximum bytes that can be sent across the RPC.
@@ -147,6 +160,24 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     }
 }
 
+/// Represents the ssz length bounds for RPC messages.
+#[derive(Debug, PartialEq)]
+pub struct RpcLimits {
+    min: usize,
+    max: usize,
+}
+
+impl RpcLimits {
+    pub fn new(min: usize, max: usize) -> Self {
+        Self { min, max }
+    }
+
+    /// Returns true if the given length is out of bounds, false otherwise.
+    pub fn is_out_of_bounds(&self, length: usize) -> bool {
+        length > self.max || length < self.min
+    }
+}
+
 /// Tracks the types in a protocol id.
 #[derive(Clone, Debug)]
 pub struct ProtocolId {
@@ -161,6 +192,59 @@ pub struct ProtocolId {
 
     /// The protocol id that is formed from the above fields.
     protocol_id: String,
+}
+
+impl ProtocolId {
+    /// Returns min and max size for messages of given protocol id requests.
+    pub fn rpc_request_limits(&self) -> RpcLimits {
+        match self.message_name {
+            Protocol::Status => RpcLimits::new(
+                <StatusMessage as Encode>::ssz_fixed_len(),
+                <StatusMessage as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::Goodbye => RpcLimits::new(
+                <GoodbyeReason as Encode>::ssz_fixed_len(),
+                <GoodbyeReason as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::BlocksByRange => RpcLimits::new(
+                <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
+                <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::BlocksByRoot => {
+                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+            }
+            Protocol::Ping => RpcLimits::new(
+                <Ping as Encode>::ssz_fixed_len(),
+                <Ping as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
+        }
+    }
+
+    /// Returns min and max size for messages of given protocol id responses.
+    pub fn rpc_response_limits<T: EthSpec>(&self) -> RpcLimits {
+        match self.message_name {
+            Protocol::Status => RpcLimits::new(
+                <StatusMessage as Encode>::ssz_fixed_len(),
+                <StatusMessage as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
+            Protocol::BlocksByRange => {
+                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
+            }
+            Protocol::BlocksByRoot => {
+                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
+            }
+            Protocol::Ping => RpcLimits::new(
+                <Ping as Encode>::ssz_fixed_len(),
+                <Ping as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::MetaData => RpcLimits::new(
+                <MetaData<T> as Encode>::ssz_fixed_len(),
+                <MetaData<T> as Encode>::ssz_fixed_len(),
+            ),
+        }
+    }
 }
 
 /// An RPC protocol ID.
@@ -233,7 +317,8 @@ where
                     {
                         Err(e) => Err(RPCError::from(e)),
                         Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
-                        Ok((Some(Err(_)), _)) | Ok((None, _)) => Err(RPCError::IncompleteStream),
+                        Ok((Some(Err(e)), _)) => Err(e),
+                        Ok((None, _)) => Err(RPCError::IncompleteStream),
                     }
                 }
             }
@@ -385,7 +470,7 @@ where
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
     // NOTE: in the future a ssz::DecodeError should map to an InvalidData error

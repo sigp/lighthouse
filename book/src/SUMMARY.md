@@ -14,6 +14,7 @@
     * [Key recovery](./key-recovery.md)
 * [Validator Management](./validator-management.md)
 	* [Importing from the Eth2 Launchpad](./validator-import-launchpad.md)
+    * [Slashing Protection](./slashing-protection.md)
 * [APIs](./api.md)
 	* [Beacon Node API](./api-bn.md)
 		* [/lighthouse](./api-lighthouse.md)
@@ -25,10 +26,7 @@
 	* [Prometheus Metrics](./advanced_metrics.md)
 * [Advanced Usage](./advanced.md)
     * [Database Configuration](./advanced_database.md)
-<<<<<<< HEAD
-=======
 	* [Local Testnets](./local-testnets.md)
->>>>>>> v0.3.0-staging
     * [Advanced Networking](./advanced_networking.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
