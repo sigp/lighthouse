@@ -43,6 +43,9 @@ pub struct PeerInfo<T: EthSpec> {
     pub min_ttl: Option<Instant>,
     /// Is the peer a trusted peer.
     pub is_trusted: bool,
+    /// Direction of the first connection of the last (or current) connected session with this peer.
+    /// None if this peer was never connected.
+    pub connection_direction: Option<ConnectionDirection>,
 }
 
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
@@ -58,6 +61,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             meta_data: None,
             min_ttl: None,
             is_trusted: false,
+            connection_direction: None
         }
     }
 }
@@ -112,6 +116,36 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
+    /// Modifies the status to Connected and increases the number of ingoing
+    /// connections by one
+    pub(crate) fn connect_ingoing(&mut self) {
+        match &mut self.connection_status {
+            Connected { n_in, .. } => *n_in += 1,
+            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
+                self.connection_status = Connected {
+                    n_in: 1,
+                    n_out: 0,
+                };
+                self.connection_direction = Some(ConnectionDirection::Incoming);
+            }
+        }
+    }
+
+    /// Modifies the status to Connected and increases the number of outgoing
+    /// connections by one
+    pub(crate) fn connect_outgoing(&mut self) {
+        match &mut self.connection_status {
+            Connected { n_out, .. } => *n_out += 1,
+            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
+                self.connection_status = Connected {
+                    n_in: 0,
+                    n_out: 1,
+                };
+                self.connection_direction = Some(ConnectionDirection::Outgoing);
+            }
+        }
+    }
+
     #[cfg(test)]
     /// Add an f64 to a non-trusted peer's score abiding by the limits.
     pub fn add_to_score(&mut self, score: f64) {
@@ -137,7 +171,7 @@ impl Default for PeerStatus {
 }
 
 /// Connection Direction of connection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ConnectionDirection {
     Incoming,
     Outgoing,
@@ -152,8 +186,6 @@ pub enum PeerConnectionStatus {
         n_in: u8,
         /// number of outgoing connections.
         n_out: u8,
-        /// direction of the first connection of this peer
-        direction: ConnectionDirection,
     },
     /// The peer has disconnected.
     Disconnected {
@@ -281,7 +313,6 @@ impl PeerConnectionStatus {
                 *self = Connected {
                     n_in: 1,
                     n_out: 0,
-                    direction: ConnectionDirection::Incoming,
                 }
             }
         }
@@ -296,7 +327,6 @@ impl PeerConnectionStatus {
                 *self = Connected {
                     n_in: 0,
                     n_out: 1,
-                    direction: ConnectionDirection::Outgoing,
                 }
             }
         }
@@ -328,17 +358,6 @@ impl PeerConnectionStatus {
         match self {
             Connected { n_in, n_out, .. } => (*n_in, *n_out),
             _ => (0, 0),
-        }
-    }
-
-    /// Returns true iff the peer is connected and its first connection was outgoing.
-    pub fn is_outgoing(&self) -> bool {
-        match self {
-            Connected {
-                direction: ConnectionDirection::Outgoing,
-                ..
-            } => true,
-            _ => false,
         }
     }
 }
