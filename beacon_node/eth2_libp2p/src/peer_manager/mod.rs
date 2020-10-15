@@ -519,10 +519,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut out_list = enr.multiaddr();
             out_list.retain(|addr| {
                 addr.iter()
-                    .find(|v| match v {
-                        MProtocol::Udp(_) => true,
-                        _ => false,
-                    })
+                    .find(|v| matches!(v, MProtocol::Udp(_)))
                     .is_none()
             });
 
