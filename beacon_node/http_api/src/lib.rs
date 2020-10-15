@@ -1115,7 +1115,12 @@ pub fn serve<T: BeaconChainTypes>(
                     metadata: api_types::MetaData {
                         seq_number: network_globals.local_metadata.read().seq_number,
                         attnets: hex::encode(
-                            network_globals.local_metadata.read().attnets.clone().into_bytes(),
+                            network_globals
+                                .local_metadata
+                                .read()
+                                .attnets
+                                .clone()
+                                .into_bytes(),
                         ),
                     },
                 }))

@@ -608,7 +608,10 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/peers/{peer_id}`
-    pub async fn get_node_peers_by_id(&self, peer_id: PeerId) -> Result<GenericResponse<PeerData>, Error> {
+    pub async fn get_node_peers_by_id(
+        &self,
+        peer_id: PeerId,
+    ) -> Result<GenericResponse<PeerData>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
