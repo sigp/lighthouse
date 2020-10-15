@@ -1191,10 +1191,10 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // GET node/peer/{peer_id}
-    let get_node_peer = eth1_v1
+    // GET node/peers/{peer_id}
+    let get_node_peers_by_id = eth1_v1
         .and(warp::path("node"))
-        .and(warp::path("peer"))
+        .and(warp::path("peers"))
         .and(warp::path::param::<String>())
         .and(warp::path::end())
         .and(network_globals.clone())
@@ -1778,7 +1778,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_node_version.boxed())
                 .or(get_node_syncing.boxed())
                 .or(get_node_health.boxed())
-                .or(get_node_peer.boxed())
+                .or(get_node_peers_by_id.boxed())
                 .or(get_node_peers.boxed())
                 .or(get_validator_duties_attester.boxed())
                 .or(get_validator_duties_proposer.boxed())

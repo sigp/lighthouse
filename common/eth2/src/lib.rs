@@ -607,14 +607,14 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET node/peer/{peer_id}`
-    pub async fn get_node_peer(&self, peer_id: PeerId) -> Result<GenericResponse<PeerData>, Error> {
+    /// `GET node/peers/{peer_id}`
+    pub async fn get_node_peers_by_id(&self, peer_id: PeerId) -> Result<GenericResponse<PeerData>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
-            .push("peer")
+            .push("peers")
             .push(&peer_id.to_string());
 
         self.get(path).await

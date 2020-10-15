@@ -1027,10 +1027,10 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_node_peer(self) -> Self {
+    pub async fn test_get_node_peers_by_id(self) -> Self {
         let result = self
             .client
-            .get_node_peer(self.peer_id.clone())
+            .get_node_peers_by_id(self.peer_id.clone())
             .await
             .unwrap()
             .data;
@@ -1723,7 +1723,7 @@ async fn node_get() {
         .await
         .test_get_node_health()
         .await
-        .test_get_node_peer()
+        .test_get_node_peers_by_id()
         .await
         .test_get_node_peers()
         .await;
