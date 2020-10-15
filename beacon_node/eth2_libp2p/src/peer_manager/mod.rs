@@ -29,7 +29,7 @@ mod peer_sync_status;
 mod peerdb;
 pub(crate) mod score;
 
-pub use peer_info::{PeerConnectionStatus::*,PeerConnectionStatus, PeerInfo};
+pub use peer_info::{PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ScoreState};
 use std::collections::HashMap;

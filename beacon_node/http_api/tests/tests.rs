@@ -8,7 +8,11 @@ use beacon_chain::{
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::{types::*, BeaconNodeHttpClient, Url};
-use eth2_libp2p::{rpc::methods::MetaData, Multiaddr, types::{EnrBitfield, SyncState}, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    rpc::methods::MetaData,
+    types::{EnrBitfield, SyncState},
+    Multiaddr, NetworkGlobals, PeerId,
+};
 use http_api::{Config, Context};
 use network::NetworkMessage;
 use state_processing::per_slot_processing;
@@ -147,9 +151,13 @@ impl ApiTester {
         let network_globals = NetworkGlobals::new(enr, 42, 42, meta_data, vec![], &log);
 
         let peer_id = PeerId::random();
-        network_globals.peers.write().connect_ingoing(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+        network_globals.peers.write().connect_ingoing(
+            &peer_id,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
         //TODO: have to update this once #1764 is resolved
-        if let Some( peer_info) = network_globals.peers.write().peer_info_mut(&peer_id){
+        if let Some(peer_info) = network_globals.peers.write().peer_info_mut(&peer_id) {
             peer_info.listening_addresses = vec!["/ip4/0.0.0.0".parse().unwrap()];
         }
 
@@ -183,7 +191,7 @@ impl ApiTester {
                 listening_socket.ip(),
                 listening_socket.port()
             ))
-                .unwrap(),
+            .unwrap(),
         );
 
         Self {
@@ -1020,7 +1028,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_node_peer(self) -> Self {
-        let result = self.client.get_node_peer(self.peer_id.clone()).await.unwrap().data;
+        let result = self
+            .client
+            .get_node_peer(self.peer_id.clone())
+            .await
+            .unwrap()
+            .data;
 
         let expected = PeerData {
             peer_id: self.peer_id.to_string(),

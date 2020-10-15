@@ -3,6 +3,7 @@ use super::peer_sync_status::PeerSyncStatus;
 use super::score::{Score, ScoreState};
 use crate::multiaddr::{Multiaddr, Protocol};
 use crate::rpc::methods::MetaData;
+use crate::Enr;
 use crate::PeerId;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, trace, warn};
@@ -10,7 +11,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
-use crate::Enr;
 
 /// Max number of disconnected nodes to remember.
 const MAX_DC_PEERS: usize = 500;

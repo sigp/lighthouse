@@ -441,7 +441,9 @@ impl PeerState {
         match status {
             PeerConnectionStatus::Connected { .. } => PeerState::Connected,
             PeerConnectionStatus::Dialing { .. } => PeerState::Connecting,
-            PeerConnectionStatus::Disconnected { .. } | PeerConnectionStatus::Banned { .. } | PeerConnectionStatus::Unknown => PeerState::Disconnected,
+            PeerConnectionStatus::Disconnected { .. }
+            | PeerConnectionStatus::Banned { .. }
+            | PeerConnectionStatus::Unknown => PeerState::Disconnected,
             //TODO: do we want to track PeerState::Disconnecting?
         }
     }
@@ -456,7 +458,7 @@ impl FromStr for PeerState {
             "connecting" => Ok(PeerState::Connecting),
             "disconnected" => Ok(PeerState::Disconnected),
             "disconnecting" => Ok(PeerState::Disconnecting),
-            _ => Err("peer state cannot be parsed.".to_string())
+            _ => Err("peer state cannot be parsed.".to_string()),
         }
     }
 }
@@ -474,7 +476,9 @@ impl PeerDirection {
         match status {
             PeerConnectionStatus::Connected { .. } => PeerDirection::Inbound,
             PeerConnectionStatus::Dialing { .. } => PeerDirection::Inbound,
-            PeerConnectionStatus::Disconnected { .. } | PeerConnectionStatus::Banned { .. } | PeerConnectionStatus::Unknown => PeerDirection::Inbound,
+            PeerConnectionStatus::Disconnected { .. }
+            | PeerConnectionStatus::Banned { .. }
+            | PeerConnectionStatus::Unknown => PeerDirection::Inbound,
         }
     }
 }
@@ -486,7 +490,7 @@ impl FromStr for PeerDirection {
         match s {
             "inbound" => Ok(PeerDirection::Inbound),
             "outbound" => Ok(PeerDirection::Outbound),
-            _ => Err("peer direction cannot be parsed.".to_string())
+            _ => Err("peer direction cannot be parsed.".to_string()),
         }
     }
 }

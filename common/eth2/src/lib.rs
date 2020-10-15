@@ -18,9 +18,9 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 
+use eth2_libp2p::PeerId;
 pub use reqwest;
 pub use reqwest::{StatusCode, Url};
-use eth2_libp2p::PeerId;
 
 #[derive(Debug)]
 pub enum Error {
@@ -608,9 +608,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/peer/{peer_id}`
-    pub async fn get_node_peer(&self
-    ,                           peer_id: PeerId,
-    ) -> Result<GenericResponse<PeerData>, Error> {
+    pub async fn get_node_peer(&self, peer_id: PeerId) -> Result<GenericResponse<PeerData>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
