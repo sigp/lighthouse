@@ -44,6 +44,9 @@ pub struct PeerInfo<T: EthSpec> {
     pub min_ttl: Option<Instant>,
     /// Is the peer a trusted peer.
     pub is_trusted: bool,
+    /// Direction of the first connection of the last (or current) connected session with this peer.
+    /// None if this peer was never connected.
+    pub connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
     #[serde(skip)]
     pub enr: Option<Enr>,
@@ -62,6 +65,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             meta_data: None,
             min_ttl: None,
             is_trusted: false,
+            connection_direction: None,
             enr: None,
         }
     }
@@ -117,6 +121,30 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
+    /// Modifies the status to Connected and increases the number of ingoing
+    /// connections by one
+    pub(crate) fn connect_ingoing(&mut self) {
+        match &mut self.connection_status {
+            Connected { n_in, .. } => *n_in += 1,
+            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
+                self.connection_status = Connected { n_in: 1, n_out: 0 };
+                self.connection_direction = Some(ConnectionDirection::Incoming);
+            }
+        }
+    }
+
+    /// Modifies the status to Connected and increases the number of outgoing
+    /// connections by one
+    pub(crate) fn connect_outgoing(&mut self) {
+        match &mut self.connection_status {
+            Connected { n_out, .. } => *n_out += 1,
+            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
+                self.connection_status = Connected { n_in: 0, n_out: 1 };
+                self.connection_direction = Some(ConnectionDirection::Outgoing);
+            }
+        }
+    }
+
     #[cfg(test)]
     /// Add an f64 to a non-trusted peer's score abiding by the limits.
     pub fn add_to_score(&mut self, score: f64) {
@@ -139,6 +167,13 @@ impl Default for PeerStatus {
     fn default() -> Self {
         PeerStatus::Healthy
     }
+}
+
+/// Connection Direction of connection.
+#[derive(Debug, Clone, Serialize)]
+pub enum ConnectionDirection {
+    Incoming,
+    Outgoing,
 }
 
 /// Connection Status of the peer.
@@ -177,7 +212,7 @@ impl Serialize for PeerConnectionStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("connection_status", 5)?;
         match self {
-            Connected { n_in, n_out } => {
+            Connected { n_in, n_out, .. } => {
                 s.serialize_field("status", "connected")?;
                 s.serialize_field("connections_in", n_in)?;
                 s.serialize_field("connections_out", n_out)?;
@@ -268,28 +303,6 @@ impl PeerConnectionStatus {
         }
     }
 
-    /// Modifies the status to Connected and increases the number of ingoing
-    /// connections by one
-    pub fn connect_ingoing(&mut self) {
-        match self {
-            Connected { n_in, .. } => *n_in += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected { n_in: 1, n_out: 0 }
-            }
-        }
-    }
-
-    /// Modifies the status to Connected and increases the number of outgoing
-    /// connections by one
-    pub fn connect_outgoing(&mut self) {
-        match self {
-            Connected { n_out, .. } => *n_out += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected { n_in: 0, n_out: 1 }
-            }
-        }
-    }
-
     /// Modifies the status to Disconnected and sets the last seen instant to now
     pub fn disconnect(&mut self) {
         *self = Disconnected {
@@ -314,7 +327,7 @@ impl PeerConnectionStatus {
 
     pub fn connections(&self) -> (u8, u8) {
         match self {
-            Connected { n_in, n_out } => (*n_in, *n_out),
+            Connected { n_in, n_out, .. } => (*n_in, *n_out),
             _ => (0, 0),
         }
     }
