@@ -20,8 +20,7 @@ You may read this book from start to finish, or jump to some of these topics:
 - Follow the [Installation Guide](./installation.md) to install Lighthouse.
 - Get hacking with the [Development Environment Guide](./setup.md).
 - Utilize the whole stack by starting a [local testnet](./local-testnets.md).
-- Query the [RESTful HTTP API](./http.md) using `curl`.
-- Listen to events with the [JSON WebSocket API](./websockets.md).
+- Query the [RESTful HTTP API](./api.md) using `curl`.
 
 
 Prospective contributors can read the [Contributing](./contributing.md) section
