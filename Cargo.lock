@@ -2456,6 +2456,7 @@ name = "http_api"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "bs58",
  "discv5",
  "environment",
  "eth1",

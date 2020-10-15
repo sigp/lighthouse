@@ -24,6 +24,7 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 warp_utils = { path = "../../common/warp_utils" }
 slot_clock = { path = "../../common/slot_clock" }
+bs58 = "0.3.1"
 
 [dev-dependencies]
 store = { path = "../store" }

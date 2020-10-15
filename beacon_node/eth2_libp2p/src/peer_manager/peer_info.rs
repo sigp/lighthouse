@@ -12,6 +12,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
+use discv5::Enr;
 
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
@@ -43,6 +44,9 @@ pub struct PeerInfo<T: EthSpec> {
     pub min_ttl: Option<Instant>,
     /// Is the peer a trusted peer.
     pub is_trusted: bool,
+    /// The enr of the peer, if known.
+    #[serde(skip)]
+    pub enr: Option<Enr>,
 }
 
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
@@ -58,6 +62,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             meta_data: None,
             min_ttl: None,
             is_trusted: false,
+            enr: None,
         }
     }
 }

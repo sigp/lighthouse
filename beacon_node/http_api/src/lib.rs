@@ -21,7 +21,7 @@ use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
 };
-use eth2_libp2p::{types::SyncState, NetworkGlobals, PubsubMessage};
+use eth2_libp2p::{types::SyncState, NetworkGlobals, PubsubMessage, PeerId};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
@@ -43,6 +43,9 @@ use types::{
 };
 use warp::Filter;
 use warp_utils::task::{blocking_json_task, blocking_task};
+use warp::reply::WithStatus;
+use warp::Reply;
+use eth2::types::{PeerData, PeerState, PeerDirection};
 
 const API_PREFIX: &str = "eth";
 const API_VERSION: &str = "v1";
@@ -203,8 +206,8 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 /// configuration.
 pub fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
-    shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
+    shutdown: impl Future<Output=()> + Send + Sync + 'static,
+) -> Result<(SocketAddr, impl Future<Output=()>), Error> {
     let config = ctx.config.clone();
     let log = ctx.log.clone();
     let allow_origin = config.allow_origin.clone();
@@ -1157,6 +1160,87 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET node/health
+    let get_node_health = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(
+            |network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                blocking_task(move || {
+                    match  *network_globals.sync_state.read() {
+                        SyncState::SyncingFinalized {..} | SyncState::SyncingHead {..} => Ok(warp::reply::with_status(warp::reply(), warp::http::StatusCode::PARTIAL_CONTENT)),
+                        SyncState::Synced => Ok(warp::reply::with_status(warp::reply(), warp::http::StatusCode::OK)),
+                        SyncState::Stalled => Err(warp_utils::reject::not_synced("sync stalled, beacon chain may not yet be initialized.".to_string())),
+                    }
+                })
+            },
+        );
+
+    // GET node/peer/{peer_id}
+    let get_node_peer = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peer"))
+        .and(warp::path::param::<String>())
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(
+            |requested_peer_id: String, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                blocking_json_task(move || {
+                    let peer_id = PeerId::from_bytes(bs58::decode(requested_peer_id.as_str()).into_vec()
+                        .map_err(|e| warp_utils::reject::custom_bad_request(format!("invalid peer id: {}", e)))?)
+                        .map_err(|_| warp_utils::reject::custom_bad_request(format!("invalid peer id.")))?;
+
+                    match network_globals.peers.read().peer_info(&peer_id) {
+                        Some(peer_info) => {
+                            //TODO: update this to seen_addresses once #1764 is resolved
+                            let address = match peer_info.listening_addresses.get(0) {
+                                Some(addr) => addr.to_string(),
+                                None => "".to_string(),
+                            };
+                             Ok(api_types::GenericResponse::from(PeerData {
+                                peer_id: requested_peer_id.clone(),
+                                 enr: peer_info.enr.as_ref().map(|enr|enr.to_base64()),
+                                address,
+                                direction: PeerDirection::from_peer_connection_status(&peer_info.connection_status),
+                                state: PeerState::from_peer_connection_status(&peer_info.connection_status),
+                            }))
+                        }
+                        None => Err(warp_utils::reject::custom_not_found("peer not found.".to_string())),
+                    }
+                })
+            },
+        );
+
+    // GET node/peers
+    let get_node_peers = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peers"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(
+            |network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                blocking_json_task(move || {
+                     let peers = network_globals.peers.read().peers().map(|(peer_id, peer_info)| {
+                         //TODO: update this to seen_addresses once #1764 is resolved
+                         let address = match peer_info.listening_addresses.get(0) {
+                             Some(addr) => addr.to_string(),
+                             None => "".to_string(),
+                         };
+                         Ok(PeerData {
+                             peer_id: peer_id.to_string(),
+                             enr: peer_info.enr.as_ref().map(|enr|enr.to_base64()),
+                             address,
+                             direction: PeerDirection::from_peer_connection_status(&peer_info.connection_status),
+                             state: PeerState::from_peer_connection_status(&peer_info.connection_status),
+                         })
+                    }).collect::<Result<Vec<PeerData>, warp::Rejection>>()?;
+                    Ok(api_types::GenericResponse::from(peers))
+                })
+            },
+        );
+
     /*
      * validator
      */
@@ -1651,6 +1735,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_node_identity.boxed())
                 .or(get_node_version.boxed())
                 .or(get_node_syncing.boxed())
+                .or(get_node_health.boxed())
+                .or(get_node_peer.boxed())
+                .or(get_node_peers.boxed())
                 .or(get_validator_duties_attester.boxed())
                 .or(get_validator_duties_proposer.boxed())
                 .or(get_validator_blocks.boxed())

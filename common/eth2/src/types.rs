@@ -1,7 +1,7 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
-use eth2_libp2p::{Enr, Multiaddr};
+use eth2_libp2p::{Enr, Multiaddr, PeerConnectionStatus};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -416,6 +416,79 @@ pub struct BeaconCommitteeSubscription {
     pub committees_at_slot: u64,
     pub slot: Slot,
     pub is_aggregator: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeerData {
+    pub peer_id: String,
+    pub enr: Option<String>,
+    pub address: String,
+    pub state: PeerState,
+    pub direction: PeerDirection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerState {
+    Connected,
+    Connecting,
+    Disconnected,
+    Disconnecting,
+}
+
+impl PeerState {
+    pub fn from_peer_connection_status(status: &PeerConnectionStatus) -> Self {
+        match status {
+            PeerConnectionStatus::Connected { .. } => PeerState::Connected,
+            PeerConnectionStatus::Dialing { .. } => PeerState::Connecting,
+            PeerConnectionStatus::Disconnected { .. } | PeerConnectionStatus::Banned { .. } | PeerConnectionStatus::Unknown => PeerState::Disconnected,
+            //TODO: do we want to track PeerState::Disconnecting?
+        }
+    }
+}
+
+impl FromStr for PeerState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "connected" => Ok(PeerState::Connected),
+            "connecting" => Ok(PeerState::Connecting),
+            "disconnected" => Ok(PeerState::Disconnected),
+            "disconnecting" => Ok(PeerState::Disconnecting),
+            _ => Err("peer state cannot be parsed.".to_string())
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerDirection {
+    Inbound,
+    Outbound,
+}
+
+impl PeerDirection {
+    pub fn from_peer_connection_status(status: &PeerConnectionStatus) -> Self {
+        //TODO: fix this with #1768
+        match status {
+            PeerConnectionStatus::Connected { .. } => PeerDirection::Inbound,
+            PeerConnectionStatus::Dialing { .. } => PeerDirection::Inbound,
+            PeerConnectionStatus::Disconnected { .. } | PeerConnectionStatus::Banned { .. } | PeerConnectionStatus::Unknown => PeerDirection::Inbound,
+        }
+    }
+}
+
+impl FromStr for PeerDirection {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "inbound" => Ok(PeerDirection::Inbound),
+            "outbound" => Ok(PeerDirection::Outbound),
+            _ => Err("peer direction cannot be parsed.".to_string())
+        }
+    }
 }
 
 #[cfg(test)]

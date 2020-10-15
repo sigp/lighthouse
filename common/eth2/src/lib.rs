@@ -20,6 +20,7 @@ use std::fmt;
 
 pub use reqwest;
 pub use reqwest::{StatusCode, Url};
+use eth2_libp2p::PeerId;
 
 #[derive(Debug)]
 pub enum Error {
@@ -590,6 +591,45 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("syncing");
+
+        self.get(path).await
+    }
+
+    /// `GET node/health`
+    pub async fn get_node_health(&self) -> Result<(), Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("health");
+
+        self.get(path).await
+    }
+
+    /// `GET node/peer/{peer_id}`
+    pub async fn get_node_peer(&self
+    ,                           peer_id: PeerId,
+    ) -> Result<GenericResponse<PeerData>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("peer")
+            .push(&peer_id.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET node/peers`
+    pub async fn get_node_peers(&self) -> Result<GenericResponse<Vec<PeerData>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("peers");
 
         self.get(path).await
     }
