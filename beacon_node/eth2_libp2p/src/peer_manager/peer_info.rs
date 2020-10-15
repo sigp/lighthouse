@@ -61,7 +61,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             meta_data: None,
             min_ttl: None,
             is_trusted: false,
-            connection_direction: None
+            connection_direction: None,
         }
     }
 }
@@ -122,10 +122,7 @@ impl<T: EthSpec> PeerInfo<T> {
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
             Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                self.connection_status = Connected {
-                    n_in: 1,
-                    n_out: 0,
-                };
+                self.connection_status = Connected { n_in: 1, n_out: 0 };
                 self.connection_direction = Some(ConnectionDirection::Incoming);
             }
         }
@@ -137,10 +134,7 @@ impl<T: EthSpec> PeerInfo<T> {
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                self.connection_status = Connected {
-                    n_in: 0,
-                    n_out: 1,
-                };
+                self.connection_status = Connected { n_in: 0, n_out: 1 };
                 self.connection_direction = Some(ConnectionDirection::Outgoing);
             }
         }
@@ -310,10 +304,7 @@ impl PeerConnectionStatus {
         match self {
             Connected { n_in, .. } => *n_in += 1,
             Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected {
-                    n_in: 1,
-                    n_out: 0,
-                }
+                *self = Connected { n_in: 1, n_out: 0 }
             }
         }
     }
@@ -324,10 +315,7 @@ impl PeerConnectionStatus {
         match self {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected {
-                    n_in: 0,
-                    n_out: 1,
-                }
+                *self = Connected { n_in: 0, n_out: 1 }
             }
         }
     }
