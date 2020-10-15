@@ -39,7 +39,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
-    Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
+    Hash256, MetaData, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
 use warp::Filter;
@@ -110,7 +110,11 @@ pub fn slog_logging(
 ) -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
     warp::log::custom(move |info| {
         match info.status() {
-            status if status == StatusCode::OK || status == StatusCode::NOT_FOUND => {
+            status
+                if status == StatusCode::OK
+                    || status == StatusCode::NOT_FOUND
+                    || status == StatusCode::PARTIAL_CONTENT =>
+            {
                 trace!(
                     log,
                     "Processed HTTP API request";
@@ -1109,6 +1113,11 @@ pub fn serve<T: BeaconChainTypes>(
                     peer_id: network_globals.local_peer_id().to_base58(),
                     enr: network_globals.local_enr(),
                     p2p_addresses: network_globals.listen_multiaddrs(),
+                    metadata: api_types::MetaData{
+                        seq_number: network_globals.local_metadata.read().seq_number,
+                        attnets: hex::decode(network_globals.local_metadata.read().attnets.as_bytes).map_err()?
+                    }
+
                 }))
             })
         });
@@ -1206,29 +1215,29 @@ pub fn serve<T: BeaconChainTypes>(
                         warp_utils::reject::custom_bad_request("invalid peer id.".to_string())
                     })?;
 
-                    match network_globals.peers.read().peer_info(&peer_id) {
-                        Some(peer_info) => {
-                            //TODO: update this to seen_addresses once #1764 is resolved
-                            let address = match peer_info.listening_addresses.get(0) {
-                                Some(addr) => addr.to_string(),
-                                None => "".to_string(),
-                            };
-                            Ok(api_types::GenericResponse::from(PeerData {
-                                peer_id: requested_peer_id.clone(),
+                    if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
+                        //TODO: update this to seen_addresses once #1764 is resolved
+                        let address = match peer_info.listening_addresses.get(0) {
+                            Some(addr) => addr.to_string(),
+                            None => "".to_string(), // this field is non-nullable in the eth2 API spec
+                        };
+
+                        // the eth2 API spec implies only peers we have been connected to at some point should be included.
+                        if let Some(dir) = peer_info.connection_direction.as_ref() {
+                            return Ok(api_types::GenericResponse::from(PeerData {
+                                peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
                                 address,
-                                direction: PeerDirection::from_peer_connection_status(
-                                    &peer_info.connection_status,
-                                ),
+                                direction: PeerDirection::from_connection_direction(&dir),
                                 state: PeerState::from_peer_connection_status(
                                     &peer_info.connection_status,
                                 ),
-                            }))
+                            }));
                         }
-                        None => Err(warp_utils::reject::custom_not_found(
-                            "peer not found.".to_string(),
-                        )),
                     }
+                    Err(warp_utils::reject::custom_not_found(
+                        "peer not found.".to_string(),
+                    ))
                 })
             },
         );
@@ -1241,29 +1250,31 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
-                let peers = network_globals
+                let mut peers: Vec<PeerData> = Vec::new();
+                network_globals
                     .peers
                     .read()
                     .peers()
-                    .map(|(peer_id, peer_info)| {
+                    // the eth2 API spec implies only peers we have been connected to at some point should be included.
+                    .filter(|(_, peer_info)| peer_info.connection_direction.is_some()) // The eth2 API spec currently
+                    .for_each(|(peer_id, peer_info)| {
                         //TODO: update this to seen_addresses once #1764 is resolved
                         let address = match peer_info.listening_addresses.get(0) {
                             Some(addr) => addr.to_string(),
-                            None => "".to_string(),
+                            None => "".to_string(), // this field is non-nullable in the eth2 API spec
                         };
-                        Ok(PeerData {
-                            peer_id: peer_id.to_string(),
-                            enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
-                            address,
-                            direction: PeerDirection::from_peer_connection_status(
-                                &peer_info.connection_status,
-                            ),
-                            state: PeerState::from_peer_connection_status(
-                                &peer_info.connection_status,
-                            ),
-                        })
-                    })
-                    .collect::<Result<Vec<PeerData>, warp::Rejection>>()?;
+                        if let Some(dir) = peer_info.connection_direction.as_ref() {
+                            peers.push(PeerData {
+                                peer_id: peer_id.to_string(),
+                                enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                address,
+                                direction: PeerDirection::from_connection_direction(&dir),
+                                state: PeerState::from_peer_connection_status(
+                                    &peer_info.connection_status,
+                                ),
+                            });
+                        }
+                    });
                 Ok(api_types::GenericResponse::from(peers))
             })
         });
