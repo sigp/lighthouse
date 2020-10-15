@@ -156,10 +156,7 @@ impl MerkleTree {
 
     /// Is this Merkle tree a leaf?
     pub fn is_leaf(&self) -> bool {
-        match self {
-            MerkleTree::Leaf(_) => true,
-            _ => false,
-        }
+        matches!(self, MerkleTree::Leaf(_))
     }
 
     /// Return the leaf at `index` and a Merkle proof of its inclusion.

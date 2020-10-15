@@ -47,10 +47,7 @@ impl SyncState {
 
     /// Returns true if the node is synced.
     pub fn is_synced(&self) -> bool {
-        match self {
-            SyncState::Synced => true,
-            _ => false,
-        }
+        matches!(self, SyncState::Synced)
     }
 }
 
