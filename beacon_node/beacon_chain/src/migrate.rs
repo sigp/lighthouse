@@ -185,9 +185,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 *latest_checkpoint = notif.finalized_checkpoint;
             }
             Err(e) => {
-                // We keep executing even if pruning fails, as pruning will likely fail
-                // permanently, but we may as well keep advancing the split point.
                 warn!(log, "Block pruning failed"; "error" => format!("{:?}", e));
+                return;
             }
         };
 
@@ -232,6 +231,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     /// Traverses live heads and prunes blocks and states of chains that we know can't be built
     /// upon because finalization would prohibit it. This is an optimisation intended to save disk
     /// space.
+    #[allow(clippy::too_many_arguments)]
     fn prune_abandoned_forks(
         store: Arc<HotColdDB<E, Hot, Cold>>,
         head_tracker: Arc<HeadTracker>,
