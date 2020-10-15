@@ -26,7 +26,7 @@ the `validator_keys` directory.
 
 Now, assuming that the user is in the `eth2-deposit-cli` directory and they're
 using the default (`~/.lighthouse/{testnet}/validators`) `validators` directory (specify a different one using
-`--validator-dir` flag), they can follow these steps:
+`--validators-dir` flag), they can follow these steps:
 
 ### 1. Run the `lighthouse account validator import` command.
 
