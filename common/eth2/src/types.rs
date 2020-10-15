@@ -330,7 +330,7 @@ pub struct IdentityData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MetaData{
+pub struct MetaData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub seq_number: u64,
     pub attnets: String,

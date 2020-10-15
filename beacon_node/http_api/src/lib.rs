@@ -17,7 +17,6 @@ use beacon_chain::{
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
-use eth2::types::{PeerData, PeerDirection, PeerState};
 use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
@@ -39,7 +38,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
-    Hash256, MetaData, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
+    Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
 use warp::Filter;
@@ -1113,11 +1112,12 @@ pub fn serve<T: BeaconChainTypes>(
                     peer_id: network_globals.local_peer_id().to_base58(),
                     enr: network_globals.local_enr(),
                     p2p_addresses: network_globals.listen_multiaddrs(),
-                    metadata: api_types::MetaData{
+                    metadata: api_types::MetaData {
                         seq_number: network_globals.local_metadata.read().seq_number,
-                        attnets: hex::decode(network_globals.local_metadata.read().attnets.as_bytes).map_err()?
-                    }
-
+                        attnets: hex::encode(
+                            network_globals.local_metadata.read().attnets.clone().into_bytes(),
+                        ),
+                    },
                 }))
             })
         });
@@ -1224,12 +1224,14 @@ pub fn serve<T: BeaconChainTypes>(
 
                         // the eth2 API spec implies only peers we have been connected to at some point should be included.
                         if let Some(dir) = peer_info.connection_direction.as_ref() {
-                            return Ok(api_types::GenericResponse::from(PeerData {
+                            return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
                                 address,
-                                direction: PeerDirection::from_connection_direction(&dir),
-                                state: PeerState::from_peer_connection_status(
+                                direction: api_types::PeerDirection::from_connection_direction(
+                                    &dir,
+                                ),
+                                state: api_types::PeerState::from_peer_connection_status(
                                     &peer_info.connection_status,
                                 ),
                             }));
@@ -1250,7 +1252,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
-                let mut peers: Vec<PeerData> = Vec::new();
+                let mut peers: Vec<api_types::PeerData> = Vec::new();
                 network_globals
                     .peers
                     .read()
@@ -1264,12 +1266,14 @@ pub fn serve<T: BeaconChainTypes>(
                             None => "".to_string(), // this field is non-nullable in the eth2 API spec
                         };
                         if let Some(dir) = peer_info.connection_direction.as_ref() {
-                            peers.push(PeerData {
+                            peers.push(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
                                 address,
-                                direction: PeerDirection::from_connection_direction(&dir),
-                                state: PeerState::from_peer_connection_status(
+                                direction: api_types::PeerDirection::from_connection_direction(
+                                    &dir,
+                                ),
+                                state: api_types::PeerState::from_peer_connection_status(
                                     &peer_info.connection_status,
                                 ),
                             });
