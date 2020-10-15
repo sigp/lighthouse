@@ -1,5 +1,7 @@
+use crate::beacon_chain::BEACON_CHAIN_DB_KEY;
 use crate::errors::BeaconChainError;
 use crate::head_tracker::HeadTracker;
+use crate::persisted_beacon_chain::PersistedBeaconChain;
 use parking_lot::Mutex;
 use slog::{debug, warn, Logger};
 use std::collections::{HashMap, HashSet};
@@ -9,7 +11,7 @@ use std::sync::Arc;
 use std::thread;
 use store::hot_cold_store::{migrate_database, HotColdDBError};
 use store::iter::RootsIterator;
-use store::{Error, ItemStore, StoreOp};
+use store::{Error, ItemStore, StoreItem, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::{
     BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
@@ -71,6 +73,7 @@ pub struct MigrationNotification<E: EthSpec> {
     finalized_checkpoint: Checkpoint,
     head_tracker: Arc<HeadTracker>,
     latest_checkpoint: Arc<Mutex<Checkpoint>>,
+    persist_head: PersistedBeaconChain,
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
@@ -104,6 +107,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         finalized_state: BeaconState<E>,
         finalized_checkpoint: Checkpoint,
         head_tracker: Arc<HeadTracker>,
+        persist_head: PersistedBeaconChain,
     ) -> Result<(), BeaconChainError> {
         let notif = MigrationNotification {
             finalized_state_root,
@@ -111,6 +115,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             finalized_checkpoint,
             head_tracker,
             latest_checkpoint: self.latest_checkpoint.clone(),
+            persist_head,
         };
 
         // Async path, on the background thread.
@@ -163,6 +168,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             &finalized_state,
             *latest_checkpoint,
             notif.finalized_checkpoint,
+            notif.persist_head,
             log,
         ) {
             Ok(PruningOutcome::DeferredConcurrentMutation) => {
@@ -233,6 +239,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         new_finalized_state: &BeaconState<E>,
         old_finalized_checkpoint: Checkpoint,
         new_finalized_checkpoint: Checkpoint,
+        mut persist_head: PersistedBeaconChain,
         log: &Logger,
     ) -> Result<PruningOutcome, BeaconChainError> {
         let old_finalized_slot = old_finalized_checkpoint
@@ -415,7 +422,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }
         }
 
-        // Then remove them for real, and release the lock.
+        // Then remove them for real.
         for head_hash in abandoned_heads {
             head_tracker_lock.remove(&head_hash);
         }
@@ -431,8 +438,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             )
             .collect();
 
-        // FIXME(sproul): add the head to this atomic batch
-        store.do_atomically(batch)?;
+        let mut kv_batch = store.convert_to_kv_batch(&batch)?;
+
+        // Persist the head in case the process is killed or crashes here. This prevents
+        // the head tracker reverting after our mutation above. This write may revert the
+        // head block stored in the persisted beacon chain if pruning takes a long time,
+        // but that's a price we're willing to pay (for now).
+        persist_head.ssz_head_tracker = head_tracker.to_ssz_container();
+        kv_batch.push(persist_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
+
+        store.hot_db.do_atomically(kv_batch)?;
         debug!(log, "Database pruning complete");
 
         Ok(PruningOutcome::Successful)

@@ -47,7 +47,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
-use store::{Error as DBError, HotColdDB, StoreOp};
+use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -240,47 +240,56 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes:
     ///
-    /// In this function we first obtain the head, persist fork choice, then persist the head. We
-    /// do it in this order to ensure that the persisted head is always from a time prior to fork
-    /// choice.
+    /// In this function we first obtain the head, obtain fork choice, and then persist
+    /// them together in one atomic operation. We do it in this order to ensure that the persisted
+    /// head is always from a time prior to fork choice.
     ///
     /// We want to ensure that the head never out dates the fork choice to avoid having references
     /// to blocks that do not exist in fork choice.
     pub fn persist_head_and_fork_choice(&self) -> Result<(), Error> {
+        let mut batch = vec![];
+
+        let _head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
+        batch.push(self.persist_head_in_batch()?);
+
+        let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+        batch.push(self.persist_fork_choice_in_batch());
+
+        self.store.hot_db.do_atomically(batch)?;
+
+        Ok(())
+    }
+
+    /// Return a `PersistedBeaconChain` representing the current head.
+    pub fn make_persisted_head(&self) -> Result<PersistedBeaconChain, Error> {
         let canonical_head_block_root = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
             .beacon_block_root;
 
-        let persisted_head = PersistedBeaconChain {
+        Ok(PersistedBeaconChain {
             canonical_head_block_root,
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
-        };
+        })
+    }
 
-        let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+    /// Return a database operation for writing the beacon chain head to disk.
+    pub fn persist_head_in_batch(&self) -> Result<KeyValueStoreOp, Error> {
+        Ok(self
+            .make_persisted_head()?
+            .as_kv_store_op(BEACON_CHAIN_DB_KEY))
+    }
 
+    /// Return a database operation for writing fork choice to disk.
+    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
         let fork_choice = self.fork_choice.read();
-
-        self.store.put_item(
-            &FORK_CHOICE_DB_KEY,
-            &PersistedForkChoice {
-                fork_choice: fork_choice.to_persisted(),
-                fork_choice_store: fork_choice.fc_store().to_persisted(),
-            },
-        )?;
-
-        drop(fork_choice);
-
-        metrics::stop_timer(fork_choice_timer);
-        let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
-
-        self.store.put_item(&BEACON_CHAIN_DB_KEY, &persisted_head)?;
-
-        metrics::stop_timer(head_timer);
-
-        Ok(())
+        let persisted_fork_choice = PersistedForkChoice {
+            fork_choice: fork_choice.to_persisted(),
+            fork_choice_store: fork_choice.fc_store().to_persisted(),
+        };
+        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)
     }
 
     /// Persists `self.op_pool` to disk.
@@ -2108,6 +2117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             finalized_state,
             new_finalized_checkpoint,
             self.head_tracker.clone(),
+            self.make_persisted_head()?,
         )?;
 
         let _ = self.event_handler.register(EventKind::BeaconFinalization {
