@@ -298,28 +298,6 @@ impl PeerConnectionStatus {
         }
     }
 
-    /// Modifies the status to Connected and increases the number of ingoing
-    /// connections by one
-    pub fn connect_ingoing(&mut self) {
-        match self {
-            Connected { n_in, .. } => *n_in += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected { n_in: 1, n_out: 0 }
-            }
-        }
-    }
-
-    /// Modifies the status to Connected and increases the number of outgoing
-    /// connections by one
-    pub fn connect_outgoing(&mut self) {
-        match self {
-            Connected { n_out, .. } => *n_out += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
-                *self = Connected { n_in: 0, n_out: 1 }
-            }
-        }
-    }
-
     /// Modifies the status to Disconnected and sets the last seen instant to now
     pub fn disconnect(&mut self) {
         *self = Disconnected {
