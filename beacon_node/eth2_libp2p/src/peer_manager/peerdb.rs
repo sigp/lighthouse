@@ -365,7 +365,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
         self.banned_peers_count
             .remove_banned_peer(&info.connection_status);
-        info.connection_status.connect_ingoing();
+        info.connect_ingoing();
 
         // Add the seen ip address to the peer's info
         if let Some(ip_addr) = multiaddr.iter().find_map(|p| match p {
@@ -386,7 +386,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
         self.banned_peers_count
             .remove_banned_peer(&info.connection_status);
-        info.connection_status.connect_outgoing();
+        info.connect_outgoing();
 
         // Add the seen ip address to the peer's info
         if let Some(ip_addr) = multiaddr.iter().find_map(|p| match p {
