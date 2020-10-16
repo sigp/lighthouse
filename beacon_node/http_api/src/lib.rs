@@ -211,8 +211,8 @@ pub fn serve<T: BeaconChainTypes>(
     // Configure CORS.
     let cors_builder = {
         let builder = warp::cors()
-            .allow_methods(vec!["GET", "POST", "UPDATE"])
-            .allow_headers(vec!["Content-Type", "Authorization"]);
+            .allow_methods(vec!["GET", "POST"])
+            .allow_headers(vec!["Content-Type"]);
 
         warp_utils::cors::set_builder_origins(
             builder,
