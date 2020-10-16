@@ -447,7 +447,6 @@ impl PeerState {
             PeerConnectionStatus::Disconnected { .. }
             | PeerConnectionStatus::Banned { .. }
             | PeerConnectionStatus::Unknown => PeerState::Disconnected,
-            //TODO: do we want to track PeerState::Disconnecting?
         }
     }
 }

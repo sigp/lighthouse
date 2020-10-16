@@ -1270,7 +1270,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .read()
                     .peers()
                     // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                    .filter(|(_, peer_info)| peer_info.connection_direction.is_some()) // The eth2 API spec currently
+                    .filter(|(_, peer_info)| peer_info.connection_direction.is_some())
                     .for_each(|(peer_id, peer_info)| {
                         //TODO: update this to seen_addresses once #1764 is resolved
                         let address = match peer_info.listening_addresses.get(0) {
