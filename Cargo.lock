@@ -27,11 +27,9 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "state_processing",
  "tokio 0.2.22",
  "types",
  "validator_dir",
- "web3",
 ]
 
 [[package]]
