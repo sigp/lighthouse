@@ -109,7 +109,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
         warp_utils::cors::set_builder_origins(
             builder,
-            config.allow_origin.as_ref().map(String::as_str),
+            config.allow_origin.as_deref(),
             (config.listen_addr, config.listen_port),
         )
     };

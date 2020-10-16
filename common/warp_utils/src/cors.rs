@@ -13,7 +13,7 @@ pub fn set_builder_origins(
         if allow_origin == "*" {
             builder.allow_any_origin()
         } else {
-            builder.allow_origins(allow_origin.split(","))
+            builder.allow_origins(allow_origin.split(','))
         }
     } else {
         builder.allow_origin(format!("http://{}:{}", default_origin.0, default_origin.1).as_str())
