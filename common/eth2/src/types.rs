@@ -321,12 +321,8 @@ pub struct IdentityData {
     pub peer_id: String,
     pub enr: Enr,
     pub p2p_addresses: Vec<Multiaddr>,
+    pub discovery_addresses: Vec<Multiaddr>,
     pub metadata: MetaData,
-    // TODO: missing the following fields:
-    //
-    // - discovery_addresses
-    //
-    // Tracked here: https://github.com/sigp/lighthouse/issues/1434
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

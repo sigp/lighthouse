@@ -21,7 +21,7 @@ use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
 };
-use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId, PubsubMessage};
+use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
@@ -1108,19 +1108,26 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
+                let enr = network_globals.local_enr();
+                let p2p_addresses = enr.multiaddr_p2p_tcp();
+                let discovery_addresses = enr.multiaddr_p2p_udp();
                 Ok(api_types::GenericResponse::from(api_types::IdentityData {
                     peer_id: network_globals.local_peer_id().to_base58(),
-                    enr: network_globals.local_enr(),
-                    p2p_addresses: network_globals.listen_multiaddrs(),
+                    enr,
+                    p2p_addresses,
+                    discovery_addresses,
                     metadata: api_types::MetaData {
                         seq_number: network_globals.local_metadata.read().seq_number,
-                        attnets: hex::encode(
-                            network_globals
-                                .local_metadata
-                                .read()
-                                .attnets
-                                .clone()
-                                .into_bytes(),
+                        attnets: format!(
+                            "0x{}",
+                            hex::encode(
+                                network_globals
+                                    .local_metadata
+                                    .read()
+                                    .attnets
+                                    .clone()
+                                    .into_bytes()
+                            ),
                         ),
                     },
                 }))

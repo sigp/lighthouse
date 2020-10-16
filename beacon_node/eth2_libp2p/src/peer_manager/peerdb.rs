@@ -792,7 +792,7 @@ mod tests {
         for ip in ips {
             let mut addr = Multiaddr::empty();
             addr.push(Protocol::from(ip));
-            pdb.connect_ingoing(&p, addr);
+            pdb.connect_ingoing(&p, addr, None);
         }
         p
     }
