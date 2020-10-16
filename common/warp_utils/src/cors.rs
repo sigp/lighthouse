@@ -1,7 +1,9 @@
 use std::net::Ipv4Addr;
 use warp::filters::cors::Builder;
 
-/// Add CORS headers to `reply` only if `allow_origin.is_some()`.
+/// Configure a `cors::Builder`.
+///
+/// If `allow_origin.is_none()` the `default_origin` is used.
 pub fn set_builder_origins(
     builder: Builder,
     allow_origin: Option<&str>,
