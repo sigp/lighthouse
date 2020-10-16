@@ -107,17 +107,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             .allow_methods(vec!["GET", "POST", "UPDATE"])
             .allow_headers(vec!["Content-Type", "Authorization"]);
 
-        if let Some(allow_origin) = &config.allow_origin {
-            if allow_origin == "*" {
-                builder.allow_any_origin()
-            } else {
-                builder.allow_origins(allow_origin.split(","))
-            }
-        } else {
-            builder.allow_origin(
-                format!("http://{}:{}", config.listen_addr, config.listen_port).as_str(),
-            )
-        }
+        warp_utils::cors::set_builder_origins(
+            builder,
+            config.allow_origin.as_ref().map(String::as_str),
+            (config.listen_addr, config.listen_port),
+        )
     };
 
     // Sanity check.
