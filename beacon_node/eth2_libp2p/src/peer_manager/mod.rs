@@ -250,7 +250,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .collect();
 
         // request the subnet query from discovery
-        self.discovery.discover_subnet_peers(filtered);
+        if !filtered.is_empty() {
+            self.discovery.discover_subnet_peers(filtered);
+        }
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -517,10 +519,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut out_list = enr.multiaddr();
             out_list.retain(|addr| {
                 addr.iter()
-                    .find(|v| match v {
-                        MProtocol::Udp(_) => true,
-                        _ => false,
-                    })
+                    .find(|v| matches!(v, MProtocol::Udp(_)))
                     .is_none()
             });
 

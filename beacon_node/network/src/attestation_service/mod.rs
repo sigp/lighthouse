@@ -353,11 +353,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // if there is an unsubscription event for the slot prior, we remove it to prevent
         // unsubscriptions immediately after the subscription. We also want to minimize
         // subscription churn and maintain a consecutive subnet subscriptions.
-        let to_remove_subnet = ExactSubnet {
-            subnet_id: exact_subnet.subnet_id,
-            slot: exact_subnet.slot.saturating_sub(1u64),
-        };
-        self.unsubscriptions.remove(&to_remove_subnet);
+        self.unsubscriptions.retain(|subnet| {
+            !(subnet.subnet_id == exact_subnet.subnet_id && subnet.slot <= exact_subnet.slot)
+        });
         // add an unsubscription event to remove ourselves from the subnet once completed
         self.unsubscriptions
             .insert_at(exact_subnet, expected_end_subscription_duration);
@@ -429,6 +427,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // if we are not already subscribed, then subscribe
             if !self.subscriptions.contains(&subnet_id) {
                 self.subscriptions.insert(subnet_id);
+                debug!(self.log, "Subscribing to random subnet"; "subnet_id" => ?subnet_id);
                 self.events
                     .push_back(AttServiceMessage::Subscribe(subnet_id));
             }
@@ -504,17 +503,23 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.random_subnets.insert(subnet_id);
             return;
         }
+        // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
+        if self
+            .unsubscriptions
+            .keys()
+            .find(|s| s.subnet_id == subnet_id)
+            .is_none()
+        {
+            // we are not at capacity, unsubscribe from the current subnet.
+            debug!(self.log, "Unsubscribing from random subnet"; "subnet_id" => *subnet_id);
+            self.events
+                .push_back(AttServiceMessage::Unsubscribe(subnet_id));
+        }
 
-        // we are not at capacity, unsubscribe from the current subnet, remove the ENR bitfield bit and choose a new random one
-        // from the available subnets
-        // Note: This should not occur during a required subnet as subscriptions update the timeout
-        // to last as long as they are needed.
-
-        debug!(self.log, "Unsubscribing from random subnet"; "subnet_id" => *subnet_id);
-        self.events
-            .push_back(AttServiceMessage::Unsubscribe(subnet_id));
+        // Remove the ENR bitfield bit and choose a new random on from the available subnets
         self.events
             .push_back(AttServiceMessage::EnrRemove(subnet_id));
+        // Subscribe to a new random subnet
         self.subscribe_to_random_subnets(1);
     }
 

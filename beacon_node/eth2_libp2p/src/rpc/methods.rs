@@ -277,10 +277,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
 
     /// Tells the codec whether to decode as an RPCResponse or an error.
     pub fn is_response(response_code: u8) -> bool {
-        match response_code {
-            0 => true,
-            _ => false,
-        }
+        matches!(response_code, 0)
     }
 
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
@@ -311,10 +308,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
 
     /// Returns true if this response always terminates the stream.
     pub fn close_after(&self) -> bool {
-        match self {
-            RPCCodedResponse::Success(_) => false,
-            _ => true,
-        }
+        !matches!(self, RPCCodedResponse::Success(_))
     }
 }
 

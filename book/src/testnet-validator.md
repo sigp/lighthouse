@@ -115,6 +115,9 @@ lighthouse --testnet MY_TESTNET bn --staking
 lighthouse --testnet MY_TESTNET vc
 ```
 
+> Note: `~/.lighthouse/{testnet}` is the default directory which contains the keys and databases.
+> To specify a custom dir, see [this](#custom-directories) section 
+
 #### Docker users
 
 Those using Docker images can start the processes with:
@@ -160,3 +163,20 @@ If you see any `ERRO` (error) logs, please reach out on
 issue](https://github.com/sigp/lighthouse/issues/new).
 
 Happy staking!
+
+
+## Custom directories
+
+Users can override the default Lighthouse data directories (`~/.lighthouse/{testnet}`) using the `--datadir` flag. The custom data directory mirrors the structure of any testnet specific default directory (e.g. `~/.lighthouse/medalla`).
+
+> Note: Users should specify different custom directories for different testnets. 
+
+Below is an example flow for importing validator keys, running a beacon node and validator client using a custom data directory `/var/lib/my-custom-dir` for the medalla testnet.
+
+```bash
+lighthouse --testnet medalla --datadir /var/lib/my-custom-dir account validator import --directory <PATH-TO-LAUNCHPAD-KEYS-DIRECTORY>
+lighthouse --testnet medalla --datadir /var/lib/my-custom-dir bn --staking
+lighthouse --testnet medalla --datadir /var/lib/my-custom-dir vc
+```
+The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md). 
+After that, we simply run the beacon chain and validator client with the custom dir path. 
