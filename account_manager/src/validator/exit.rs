@@ -8,6 +8,7 @@ use eth2::{
     types::{GenesisData, StateId, ValidatorId},
     BeaconNodeHttpClient, Url,
 };
+use safe_arith::{ArithError, SafeArith};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{ChainSpec, Epoch, EthSpec, Fork, Slot, VoluntaryExit};
@@ -16,10 +17,13 @@ use validator_dir::{Manager as ValidatorManager, ValidatorDir};
 pub const CMD: &str = "exit";
 pub const VALIDATOR_FLAG: &str = "validator";
 pub const BEACON_SERVER_FLAG: &str = "beacon-node";
-pub const REUSE_PASSWORD_FLAG: &str = "reuse-password";
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password: ";
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
+pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
+// TODO(pawan): link to docs page on exits
+pub const PROMPT: &str = "WARNING: Withdrawing staked eth will not be possible until Eth1/Eth2 merge \
+                          Please visit [website] to make sure you understand the implications of a voluntary exit.";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("exit")
@@ -28,9 +32,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(VALIDATOR_FLAG)
                 .long(VALIDATOR_FLAG)
                 .value_name("VALIDATOR_NAME")
+                // TODO(pawan): change docs to say public key of validator.
                 .help(
-                    "The name of the directory in --data-dir for which to send a VoluntaryExit. \
-                    Set to 'all' to exit all validators in the --data-dir.",
+                    "The name of the directory in validators directory for which to send a VoluntaryExit. \
+                    Set to 'all' to exit all validators in the validators directory.",
                 )
                 .takes_value(true)
                 .required(true),
@@ -60,11 +65,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(STDIN_INPUTS_FLAG)
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
-        )
-        .arg(
-            Arg::with_name(REUSE_PASSWORD_FLAG)
-                .long(REUSE_PASSWORD_FLAG)
-                .help("If present, the same password will be used for all imported keystores."),
         )
 }
 
@@ -123,7 +123,7 @@ pub fn cli_run<E: EthSpec>(
         stdin_inputs,
     ))?;
 
-    return Ok(());
+    Ok(())
 }
 
 /// Gets the associated keypair for a validator and calls `publish_voluntary_exit` on it.
@@ -136,7 +136,7 @@ async fn publish_voluntary_exits<E: EthSpec>(
 ) -> Result<(), String> {
     for validator_dir in validator_dirs {
         let keypair = load_voting_keypair(&validator_dir, secrets_dir, stdin_inputs)?;
-        if let Err(e) = publish_voluntary_exit::<E>(&keypair, client, spec).await {
+        if let Err(e) = publish_voluntary_exit::<E>(&keypair, client, spec, stdin_inputs).await {
             eprintln!(
                 "Failed to publish voluntary exit for validator {:?}, error: {}",
                 validator_dir.dir(),
@@ -153,10 +153,12 @@ async fn publish_voluntary_exit<E: EthSpec>(
     keypair: &Keypair,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
+    stdin_inputs: bool,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let voluntary_exit = VoluntaryExit {
-        epoch: get_current_epoch::<E>(genesis_data.genesis_time, spec)?,
+        epoch: get_current_epoch::<E>(genesis_data.genesis_time, spec)
+            .map_err(|e| format!("Failed to get current epoch: {:?}", e))?,
         validator_index: get_validator_index(client, &keypair.pk).await?,
     };
 
@@ -169,13 +171,27 @@ async fn publish_voluntary_exit<E: EthSpec>(
         spec,
     );
 
-    // TODO(pawan): prompt user to verify deets
+    dbg!(&signed_voluntary_exit);
+    eprintln!("Publishing a voluntary exit for validator: {} ", keypair.pk);
+    eprintln!("WARNING: This is an irreversible operation");
+    eprintln!("{}", PROMPT);
+    eprintln!("Enter the phrase from the above URL to confirm the voluntary exit");
 
-    // Publish the voluntary exit to network
-    client
-        .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
-        .await
-        .map_err(|e| format!("Failed to publish voluntary exit: {}", e))
+    let confirmation = account_utils::read_input_from_user(stdin_inputs)?;
+    if confirmation == CONFIRMATION_PHRASE {
+        // Publish the voluntary exit to network
+        client
+            .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
+            .await
+            .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
+        eprintln!("Published voluntary exit for validator {}", keypair.pk);
+    } else {
+        eprintln!(
+            "Did not publish voluntary exit for validator {}. Please check that you entered the correct passphrase.",
+            keypair.pk
+        );
+    }
+    Ok(())
 }
 
 /// Get the validator index given the validator public key by querying the beacon node endpoint.
@@ -185,7 +201,7 @@ async fn get_validator_index(
 ) -> Result<u64, String> {
     Ok(client
         .get_beacon_states_validator_id(
-            StateId::Head, //TODO(pawan): should we query StateId::Finalized?
+            StateId::Finalized, //TODO(pawan): should we query finalized?
             &ValidatorId::PublicKey(validator_pubkey.into()),
         )
         .await
@@ -208,9 +224,10 @@ async fn get_geneisis_data(client: &BeaconNodeHttpClient) -> Result<GenesisData,
         .data)
 }
 
+/// Get fork object for the current state by querying the beacon node client.
 async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, String> {
     Ok(client
-        .get_beacon_states_fork(StateId::Finalized)
+        .get_beacon_states_fork(StateId::Finalized) //TODO(pawan): should we use finalized?
         .await
         .map_err(|e| format!("Failed to get get fork: {:?}", e))?
         .ok_or_else(|| "Failed to get fork, state not found".to_string())?
@@ -218,17 +235,16 @@ async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, St
 }
 
 /// Calculates the current epoch from the genesis time and current time.
-fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Result<Epoch, String> {
+fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Result<Epoch, ArithError> {
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| format!("Failed to get current time: {}", e))?
+        .expect("UNIX EPOCH should always be lower than current time")
         .as_secs();
 
-    // TODO(pawan): Do safe math here
-    let elapsed = current_time - genesis_time;
-    let seconds_per_slot = spec.milliseconds_per_slot / 1000;
+    let elapsed = current_time.safe_sub(genesis_time)?;
+    let seconds_per_slot = spec.milliseconds_per_slot.safe_div(1000)?;
 
-    let current_slot = Slot::new(elapsed / seconds_per_slot);
+    let current_slot = Slot::new(elapsed.safe_div(seconds_per_slot)?);
     Ok(current_slot.epoch(E::slots_per_epoch()))
 }
 
@@ -312,4 +328,33 @@ fn read_voting_keystore_path(
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slot_clock::{SlotClock, SystemTimeSlotClock};
+    use std::time::Duration;
+    use types::MinimalEthSpec;
+
+    type E = MinimalEthSpec;
+    const GENESIS_TIME: u64 = 1602504013;
+
+    #[test]
+    fn test_get_current_epoch() {
+        let spec = E::default_spec();
+
+        let slot_clock = SystemTimeSlotClock::new(
+            spec.genesis_slot,
+            Duration::from_secs(GENESIS_TIME),
+            Duration::from_millis(spec.milliseconds_per_slot),
+        );
+        let expected_epoch = slot_clock
+            .now()
+            .map(|s| s.epoch(E::slots_per_epoch()))
+            .unwrap();
+        let epoch = get_current_epoch::<E>(GENESIS_TIME, &spec).unwrap();
+
+        assert_eq!(expected_epoch, epoch);
+    }
 }
