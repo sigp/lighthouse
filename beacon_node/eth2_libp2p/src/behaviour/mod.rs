@@ -1,11 +1,14 @@
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
-use crate::types::{GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery};
+use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetDiscovery};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
+use libp2p::gossipsub::subscription_filter::{
+    MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
+};
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
@@ -13,8 +16,8 @@ use libp2p::{
         Multiaddr,
     },
     gossipsub::{
-        Gossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity,
-        MessageId,
+        GenericGossipsub, GenericGossipsubEvent, IdentTopic as Topic, MessageAcceptance,
+        MessageAuthenticity, MessageId,
     },
     identify::{Identify, IdentifyEvent},
     swarm::{
@@ -25,6 +28,7 @@ use libp2p::{
 };
 use slog::{crit, debug, o, trace, warn};
 use ssz::Encode;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -42,6 +46,10 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
+
+pub type SubscriptionFilter = MaxCountSubscriptionFilter<WhitelistSubscriptionFilter>;
+pub type Gossipsub = GenericGossipsub<MessageData, SubscriptionFilter>;
+pub type GossipsubEvent = GenericGossipsubEvent<MessageData>;
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
@@ -146,8 +154,19 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let gossipsub = Gossipsub::new(MessageAuthenticity::Anonymous, net_conf.gs_config.clone())
-            .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+        let possible_fork_digests = vec![enr_fork_id.fork_digest];
+        let filter = MaxCountSubscriptionFilter {
+            filter: Self::create_whitelist_filter(possible_fork_digests, 64), //TODO change this to a constant
+            max_subscribed_topics: 200, //TODO change this to a constant
+            max_subscriptions_per_request: 100, //this is according to the current go implementation
+        };
+
+        let gossipsub = Gossipsub::new_with_subscription_filter(
+            MessageAuthenticity::Anonymous,
+            net_conf.gs_config.clone(),
+            filter,
+        )
+        .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
         // Temporarily disable scoring until parameters are tested.
         /*
@@ -518,7 +537,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
+                match PubsubMessage::decode(&gs_msg.topics, gs_msg.data()) {
                     Err(e) => {
                         debug!(self.log, "Could not decode gossipsub message"; "error" => e);
                         //reject the message
@@ -781,6 +800,33 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         if let Some(waker) = &self.waker {
             waker.wake_by_ref();
         }
+    }
+
+    /// Creates a whitelist topic filter that covers all possible topics using the given set of
+    /// possible fork digests.
+    fn create_whitelist_filter(
+        possible_fork_digests: Vec<[u8; 4]>,
+        attestation_subnet_count: u64,
+    ) -> WhitelistSubscriptionFilter {
+        let mut possible_hashes = HashSet::new();
+        for fork_digest in possible_fork_digests {
+            let mut add = |kind| {
+                let topic: Topic =
+                    GossipTopic::new(kind, GossipEncoding::SSZSnappy, fork_digest).into();
+                possible_hashes.insert(topic.hash());
+            };
+
+            use GossipKind::*;
+            add(BeaconBlock);
+            add(BeaconAggregateAndProof);
+            add(VoluntaryExit);
+            add(ProposerSlashing);
+            add(AttesterSlashing);
+            for id in 0..attestation_subnet_count {
+                add(Attestation(SubnetId::new(id)));
+            }
+        }
+        WhitelistSubscriptionFilter(possible_hashes)
     }
 }
 

@@ -228,18 +228,12 @@ impl Default for PeerConnectionStatus {
 impl PeerConnectionStatus {
     /// Checks if the status is connected.
     pub fn is_connected(&self) -> bool {
-        match self {
-            PeerConnectionStatus::Connected { .. } => true,
-            _ => false,
-        }
+        matches!(self, PeerConnectionStatus::Connected { .. })
     }
 
     /// Checks if the status is connected.
     pub fn is_dialing(&self) -> bool {
-        match self {
-            PeerConnectionStatus::Dialing { .. } => true,
-            _ => false,
-        }
+        matches!(self, PeerConnectionStatus::Dialing { .. })
     }
 
     /// The peer is either connected or in the process of being dialed.
@@ -249,18 +243,12 @@ impl PeerConnectionStatus {
 
     /// Checks if the status is banned.
     pub fn is_banned(&self) -> bool {
-        match self {
-            PeerConnectionStatus::Banned { .. } => true,
-            _ => false,
-        }
+        matches!(self, PeerConnectionStatus::Banned { .. })
     }
 
     /// Checks if the status is disconnected.
     pub fn is_disconnected(&self) -> bool {
-        match self {
-            Disconnected { .. } => true,
-            _ => false,
-        }
+        matches!(self, Disconnected { .. })
     }
 
     /// Modifies the status to Connected and increases the number of ingoing
