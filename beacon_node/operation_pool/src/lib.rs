@@ -990,4 +990,97 @@ mod release_tests {
         op_pool.prune_attester_slashings(state, state.fork);
         assert_eq!(op_pool.get_slashings(state, spec).1, vec![slashing]);
     }
+
+    // Check that we get maximum coverage for attester slashings (highest qty of validators slashed)
+    #[test]
+    fn simple_max_cover_attester_slashing() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+
+        let slashing_1 = ctxt.attester_slashing(&[1]);
+        let slashing_2 = ctxt.attester_slashing(&[2, 3]);
+        let slashing_3 = ctxt.attester_slashing(&[4, 5, 6]);
+        let slashing_4 = ctxt.attester_slashing(&[7, 8, 9, 10]);
+
+        op_pool.insert_attester_slashing(
+            slashing_1.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_2.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_3.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_4.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+
+        let best_slashings = op_pool.get_slashings(state, spec);
+        assert_eq!(best_slashings.1, vec![slashing_4, slashing_3]);
+    }
+
+    // Check that we get maximum coverage for attester slashings with overlapping indices
+    #[test]
+    fn overlapping_max_cover_attester_slashing() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+
+        let slashing_1 = ctxt.attester_slashing(&[1, 2, 3, 4]);
+        let slashing_2 = ctxt.attester_slashing(&[1, 2, 5]);
+        let slashing_3 = ctxt.attester_slashing(&[5, 6]);
+        let slashing_4 = ctxt.attester_slashing(&[6]);
+
+        op_pool.insert_attester_slashing(
+            slashing_1.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_2.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_3.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_4.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+
+        let best_slashings = op_pool.get_slashings(state, spec);
+        assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
+    }
+
+    // Max coverage of attester slashings taking into account proposer slashings
+    #[test]
+    fn max_coverage_attester_proposer_slashings() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+
+        let p_slashing = ctxt.proposer_slashing(1);
+        let a_slashing_1 = ctxt.attester_slashing(&[1, 2, 3, 4]);
+        let a_slashing_2 = ctxt.attester_slashing(&[1, 3, 4]);
+        let a_slashing_3 = ctxt.attester_slashing(&[5, 6]);
+
+        op_pool.insert_proposer_slashing(p_slashing.clone().validate(state, spec).unwrap());
+        op_pool.insert_attester_slashing(
+            a_slashing_1.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            a_slashing_2.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            a_slashing_3.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+
+        let best_slashings = op_pool.get_slashings(state, spec);
+        assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
+    }
 }
