@@ -212,7 +212,7 @@ impl Serialize for PeerConnectionStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("connection_status", 5)?;
         match self {
-            Connected { n_in, n_out} => {
+            Connected { n_in, n_out } => {
                 s.serialize_field("status", "connected")?;
                 s.serialize_field("connections_in", n_in)?;
                 s.serialize_field("connections_out", n_out)?;
