@@ -100,6 +100,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     store_migrator: Option<T::StoreMigrator>,
     pub genesis_time: Option<u64>,
     genesis_block_root: Option<Hash256>,
+    genesis_state_root: Option<Hash256>,
     #[allow(clippy::type_complexity)]
     fork_choice: Option<
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
@@ -151,6 +152,7 @@ where
             store_migrator: None,
             genesis_time: None,
             genesis_block_root: None,
+            genesis_state_root: None,
             fork_choice: None,
             op_pool: None,
             eth1_chain: None,
@@ -320,6 +322,7 @@ where
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
+        self.genesis_state_root = Some(genesis_block.state_root());
         self.head_tracker = Some(
             HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
@@ -349,6 +352,7 @@ where
         let beacon_state_root = beacon_block.message.state_root;
         let beacon_block_root = beacon_block.canonical_root();
 
+        self.genesis_state_root = Some(beacon_state_root);
         self.genesis_block_root = Some(beacon_block_root);
 
         store
@@ -476,6 +480,9 @@ where
         let genesis_block_root = self
             .genesis_block_root
             .ok_or_else(|| "Cannot build without a genesis block root".to_string())?;
+        let genesis_state_root = self
+            .genesis_state_root
+            .ok_or_else(|| "Cannot build without a genesis state root".to_string())?;
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -575,9 +582,9 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
-            genesis_state_root: canonical_head.beacon_state_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
+            genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
             event_handler: self
                 .event_handler
