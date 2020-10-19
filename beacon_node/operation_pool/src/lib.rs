@@ -220,17 +220,18 @@ impl<T: EthSpec> OperationPool<T> {
             .map(|s| s.signed_header_1.message.proposer_index)
             .collect::<HashSet<_>>();
 
-        let coverage: Vec<AttesterSlashing<T>> = self
-            .attester_slashings
-            .read()
-            .iter()
-            .map(|(slashing, _)| slashing.clone())
-            .collect();
+        let reader = self.attester_slashings.read();
 
-        let attester_slashings = maximum_cover(
-            coverage.iter().flat_map(|slashing| {
+        let relevant_attester_slashings = reader.iter().flat_map(|(slashing, fork)| {
+            if *fork == state.fork.previous_version || *fork == state.fork.current_version {
                 AttesterSlashingMaxCover::new(&slashing, &to_be_slashed, state, spec)
-            }),
+            } else {
+                None
+            }
+        });
+        
+        let attester_slashings = maximum_cover(
+            relevant_attester_slashings,
             T::MaxAttesterSlashings::to_usize(),
         );
 
