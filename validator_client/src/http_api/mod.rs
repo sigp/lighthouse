@@ -111,7 +111,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             builder,
             config.allow_origin.as_deref(),
             (config.listen_addr, config.listen_port),
-        )
+        )?
     };
 
     // Sanity check.

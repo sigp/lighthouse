@@ -6534,8 +6534,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f41be6df54c97904af01aa23e613d4521eed7ab23537cede692d4058f6449407"
+source = "git+https://github.com/paulhauner/warp?branch=cors-wildcard#a7685b76d70c3e5628e31d60aee510acec3c5c30"
 dependencies = [
  "bytes 0.5.6",
  "futures 0.3.6",
@@ -6565,6 +6564,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "eth2",
+ "headers",
  "safe_arith",
  "serde",
  "state_processing",
