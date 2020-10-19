@@ -48,7 +48,6 @@ pub struct PeerInfo<T: EthSpec> {
     /// None if this peer was never connected.
     pub connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
-    #[serde(skip)]
     pub enr: Option<Enr>,
 }
 
