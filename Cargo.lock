@@ -1376,6 +1376,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "discv5"
+version = "0.1.0-beta.1"
+source = "git+https://github.com/sigp/discv5?rev=9b6326bcf169c186e62774985e2327ac06f49e50#9b6326bcf169c186e62774985e2327ac06f49e50"
+dependencies = [
+ "aes-ctr",
+ "aes-gcm",
+ "arrayvec",
+ "digest 0.9.0",
+ "enr",
+ "fnv",
+ "futures 0.3.6",
+ "hex 0.4.2",
+ "hkdf",
+ "k256",
+ "lazy_static",
+ "libp2p-core 0.22.1",
+ "lru_time_cache",
+ "multihash",
+ "parking_lot 0.11.0",
+ "rand 0.7.3",
+ "rlp",
+ "sha2 0.9.1",
+ "smallvec 1.4.2",
+ "socket2",
+ "tokio 0.2.22",
+ "tracing",
+ "tracing-subscriber",
+ "uint",
+ "zeroize",
+]
+
+[[package]]
 name = "dtoa"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1674,7 +1706,7 @@ dependencies = [
  "base64 0.13.0",
  "directory",
  "dirs 3.0.1",
- "discv5",
+ "discv5 0.1.0-beta.1 (git+https://github.com/sigp/discv5?rev=9b6326bcf169c186e62774985e2327ac06f49e50)",
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -2486,7 +2518,7 @@ name = "http_api"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "discv5",
+ "discv5 0.1.0-beta.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "environment",
  "eth1",
  "eth2",
@@ -3589,19 +3621,6 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.8.3"
-source = "git+https://github.com/sigp/rust-libp2p?rev=a731aa803d986977c25a77ed2b002d9578f7377c#a731aa803d986977c25a77ed2b002d9578f7377c"
-dependencies = [
- "bytes 0.5.6",
- "futures 0.3.6",
- "log 0.4.11",
- "pin-project 0.4.27",
- "smallvec 1.4.2",
- "unsigned-varint 0.5.1",
-]
-
-[[package]]
-name = "multistream-select"
-version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa0075eaaf3102b344f122e1a2e1cedf0f3d388c5fb27a0e31eb09c1151fbbd1"
 dependencies = [
@@ -3609,6 +3628,19 @@ dependencies = [
  "futures 0.3.6",
  "log 0.4.11",
  "pin-project 1.0.1",
+ "smallvec 1.4.2",
+ "unsigned-varint 0.5.1",
+]
+
+[[package]]
+name = "multistream-select"
+version = "0.8.3"
+source = "git+https://github.com/sigp/rust-libp2p?rev=a731aa803d986977c25a77ed2b002d9578f7377c#a731aa803d986977c25a77ed2b002d9578f7377c"
+dependencies = [
+ "bytes 0.5.6",
+ "futures 0.3.6",
+ "log 0.4.11",
+ "pin-project 0.4.27",
  "smallvec 1.4.2",
  "unsigned-varint 0.5.1",
 ]
@@ -3896,7 +3928,8 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.9.3"
-source = "git+https://github.com/sigp/rust-libp2p?rev=a731aa803d986977c25a77ed2b002d9578f7377c#a731aa803d986977c25a77ed2b002d9578f7377c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7ad66970bbab360c97179b60906e2dc4aef1f7fca8ab4e5c5db8c97b16814a"
 dependencies = [
  "arrayref",
  "bs58",
@@ -3913,8 +3946,7 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c7ad66970bbab360c97179b60906e2dc4aef1f7fca8ab4e5c5db8c97b16814a"
+source = "git+https://github.com/sigp/rust-libp2p?rev=a731aa803d986977c25a77ed2b002d9578f7377c#a731aa803d986977c25a77ed2b002d9578f7377c"
 dependencies = [
  "arrayref",
  "bs58",
