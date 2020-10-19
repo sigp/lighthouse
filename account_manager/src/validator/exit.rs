@@ -147,8 +147,7 @@ async fn publish_voluntary_exits<E: EthSpec>(
         .genesis_state
         .as_ref()
         .expect("network should have valid genesis state")
-        .genesis_validators_root
-        .clone();
+        .genesis_validators_root;
 
     // Verify that the beacon node and validator being exited are on the same network.
     if genesis_data.genesis_validators_root != testnet_genesis_root {
@@ -195,6 +194,7 @@ async fn publish_voluntary_exits<E: EthSpec>(
 
 /// Constructs a `VoluntaryExit` object for a given validator and signs it using the given bls keypair.
 /// Publishes the voluntary exit to the beacon chain using the beacon node endpoint.
+#[allow(clippy::too_many_arguments)]
 async fn publish_voluntary_exit<E: EthSpec>(
     keypair: &Keypair,
     client: &BeaconNodeHttpClient,
