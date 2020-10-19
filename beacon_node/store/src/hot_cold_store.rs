@@ -391,39 +391,41 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut key_value_batch = Vec::with_capacity(batch.len());
         for op in batch {
             match op {
-                StoreOp::PutBlock(block_hash, block) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    key_value_batch.push(block.as_kv_store_op(untyped_hash));
+                StoreOp::PutBlock(block_root, block) => {
+                    key_value_batch.push(block.as_kv_store_op(*block_root));
                 }
 
-                StoreOp::PutState(state_hash, state) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    self.store_hot_state(&untyped_hash, state, &mut key_value_batch)?;
+                StoreOp::PutState(state_root, state) => {
+                    self.store_hot_state(state_root, state, &mut key_value_batch)?;
                 }
 
-                StoreOp::PutStateSummary(state_hash, summary) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    key_value_batch.push(summary.as_kv_store_op(untyped_hash));
+                StoreOp::PutStateSummary(state_root, summary) => {
+                    key_value_batch.push(summary.as_kv_store_op(*state_root));
                 }
 
-                StoreOp::DeleteBlock(block_hash) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    let key =
-                        get_key_for_col(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes());
+                StoreOp::PutStateTemporaryFlag(state_root) => {
+                    key_value_batch.push(TemporaryFlag.as_kv_store_op(*state_root));
+                }
+
+                StoreOp::DeleteStateTemporaryFlag(state_root) => {
+                    let db_key =
+                        get_key_for_col(TemporaryFlag::db_column().into(), state_root.as_bytes());
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(db_key));
+                }
+
+                StoreOp::DeleteBlock(block_root) => {
+                    let key = get_key_for_col(DBColumn::BeaconBlock.into(), block_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
 
-                StoreOp::DeleteState(state_hash, slot) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    let state_summary_key = get_key_for_col(
-                        DBColumn::BeaconStateSummary.into(),
-                        untyped_hash.as_bytes(),
-                    );
+                StoreOp::DeleteState(state_root, slot) => {
+                    let state_summary_key =
+                        get_key_for_col(DBColumn::BeaconStateSummary.into(), state_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(state_summary_key));
 
                     if *slot % E::slots_per_epoch() == 0 {
                         let state_key =
-                            get_key_for_col(DBColumn::BeaconState.into(), untyped_hash.as_bytes());
+                            get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(state_key));
                     }
                 }
@@ -440,18 +442,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         for op in &batch {
             match op {
-                StoreOp::PutBlock(block_hash, block) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    guard.put(untyped_hash, block.clone());
+                StoreOp::PutBlock(block_root, block) => {
+                    guard.put(*block_root, (**block).clone());
                 }
 
                 StoreOp::PutState(_, _) => (),
 
                 StoreOp::PutStateSummary(_, _) => (),
 
-                StoreOp::DeleteBlock(block_hash) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    guard.pop(&untyped_hash);
+                StoreOp::PutStateTemporaryFlag(_) => (),
+
+                StoreOp::DeleteStateTemporaryFlag(_) => (),
+
+                StoreOp::DeleteBlock(block_root) => {
+                    guard.pop(block_root);
                 }
 
                 StoreOp::DeleteState(_, _) => (),
@@ -500,6 +504,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
+        if let Some(TemporaryFlag) = self.load_state_temporary_flag(state_root)? {
+            return Ok(None);
+        }
+
+        // FIXME(sproul): could use snapshot here to read state from same source as temp flag
         if let Some(HotStateSummary {
             slot,
             latest_block_root,
@@ -846,6 +855,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.get(state_root)
     }
 
+    /// Load the temporary flag for a state root, if one exists.
+    ///
+    /// Returns `Some` if the state is temporary, or `None` if the state is permanent or does not
+    /// exist -- you should call `load_hot_state_summary` to find out which.
+    pub fn load_state_temporary_flag(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<Option<TemporaryFlag>, Error> {
+        self.hot_db.get(state_root)
+    }
+
     /// Check that the restore point frequency is valid.
     ///
     /// Specifically, check that it is:
@@ -1105,5 +1125,22 @@ impl StoreItem for RestorePointHash {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TemporaryFlag;
+
+impl StoreItem for TemporaryFlag {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconStateTemporary
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        vec![]
+    }
+
+    fn from_store_bytes(_: &[u8]) -> Result<Self, Error> {
+        Ok(TemporaryFlag)
     }
 }

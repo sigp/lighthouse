@@ -34,6 +34,10 @@ type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+    println!(
+        "StoreOp size: {}",
+        std::mem::size_of::<store::StoreOp<types::MainnetEthSpec>>()
+    );
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
