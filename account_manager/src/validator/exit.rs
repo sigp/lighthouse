@@ -8,6 +8,7 @@ use eth2::{
     types::{GenesisData, StateId, ValidatorId},
     BeaconNodeHttpClient, Url,
 };
+use eth2_testnet_config::Eth2TestnetConfig;
 use safe_arith::{ArithError, SafeArith};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,7 +33,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(VALIDATOR_FLAG)
                 .long(VALIDATOR_FLAG)
                 .value_name("VALIDATOR_NAME")
-                // TODO(pawan): change docs to say public key of validator.
                 .help(
                     "The name of the directory in validators directory for which to send a VoluntaryExit. \
                     Set to 'all' to exit all validators in the validators directory.",
@@ -115,12 +115,19 @@ pub fn cli_run<E: EthSpec>(
         Url::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
     );
+
+    let testnet_config = env
+        .testnet
+        .clone()
+        .expect("network should have a valid config");
+
     env.runtime().block_on(publish_voluntary_exits::<E>(
         validators,
         &secrets_dir,
         &client,
         &spec,
         stdin_inputs,
+        &testnet_config,
     ))?;
 
     Ok(())
@@ -133,10 +140,13 @@ async fn publish_voluntary_exits<E: EthSpec>(
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
     stdin_inputs: bool,
+    testnet_config: &Eth2TestnetConfig<E>,
 ) -> Result<(), String> {
     for validator_dir in validator_dirs {
         let keypair = load_voting_keypair(&validator_dir, secrets_dir, stdin_inputs)?;
-        if let Err(e) = publish_voluntary_exit::<E>(&keypair, client, spec, stdin_inputs).await {
+        if let Err(e) =
+            publish_voluntary_exit::<E>(&keypair, client, spec, stdin_inputs, &testnet_config).await
+        {
             eprintln!(
                 "Failed to publish voluntary exit for validator {:?}, error: {}",
                 validator_dir.dir(),
@@ -154,8 +164,25 @@ async fn publish_voluntary_exit<E: EthSpec>(
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
     stdin_inputs: bool,
+    testnet_config: &Eth2TestnetConfig<E>,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
+    let testnet_genesis_root = testnet_config
+        .genesis_state
+        .as_ref()
+        .expect("network should have valid genesis state")
+        .genesis_validators_root
+        .clone();
+
+    // Verify that the beacon node and validator being exited are on the same network.
+    if genesis_data.genesis_validators_root != testnet_genesis_root {
+        return Err(
+            "Invalid genesis state. Please ensure that your beacon node is on the same network \
+                 as the validator you are publishing an exit for"
+                .to_string(),
+        );
+    }
+
     let voluntary_exit = VoluntaryExit {
         epoch: get_current_epoch::<E>(genesis_data.genesis_time, spec)
             .map_err(|e| format!("Failed to get current epoch: {:?}", e))?,
