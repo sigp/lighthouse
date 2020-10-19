@@ -1,0 +1,22 @@
+name: test-docker
+
+on:
+    push:
+        branches:
+            - master
+            - staging
+            - trying
+            - 'pr/*'
+        paths:
+            - 'Dockerfile'
+    pull_request:
+        paths:
+            - 'Dockerfile'
+jobs:
+    dockerfile-ubuntu:
+        name: dockerfile-ubuntu
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v1
+            - name: Build the root Dockerfile
+              run: docker build .
