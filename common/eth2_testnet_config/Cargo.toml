@@ -19,4 +19,4 @@ serde_yaml = "0.8.13"
 types = { path = "../../consensus/types"}
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2_config"}
-enr = "0.3.0"
+enr = { version = "0.3.0", features = ["ed25519"] }

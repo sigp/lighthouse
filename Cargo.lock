@@ -432,7 +432,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "slog",
- "slog-term",
  "sloggers",
  "slot_clock",
  "smallvec 1.4.2",

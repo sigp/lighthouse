@@ -1,8 +1,5 @@
 use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy,
-        BlockingMigratorEphemeralHarnessType,
-    },
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig,
 };
 use discv5::enr::{CombinedKey, EnrBuilder};
@@ -46,7 +43,7 @@ const SKIPPED_SLOTS: &[u64] = &[
 ];
 
 struct ApiTester {
-    chain: Arc<BeaconChain<BlockingMigratorEphemeralHarnessType<E>>>,
+    chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: SignedBeaconBlock<E>,
     attestations: Vec<Attestation<E>>,
@@ -191,7 +188,7 @@ impl ApiTester {
             proposer_slashing,
             voluntary_exit,
             _server_shutdown: shutdown_tx,
-            validator_keypairs: harness.validators_keypairs,
+            validator_keypairs: harness.validator_keypairs,
             network_rx,
         }
     }
