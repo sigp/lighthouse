@@ -17,13 +17,13 @@ use validator_dir::{Manager as ValidatorManager, ValidatorDir};
 pub const CMD: &str = "exit";
 pub const VALIDATOR_FLAG: &str = "validator";
 pub const BEACON_SERVER_FLAG: &str = "beacon-node";
-pub const PASSWORD_PROMPT: &str = "Enter the keystore password: ";
+pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
-// TODO(pawan): link to docs page on exits
-pub const PROMPT: &str = "WARNING: Withdrawing staked eth will not be possible until Eth1/Eth2 merge \
-                          Please visit [website] to make sure you understand the implications of a voluntary exit.";
+pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
+pub const PROMPT: &str =
+    "WARNING: WITHDRAWING STAKED ETH WILL NOT BE POSSIBLE UNTIL ETH1/ETH2 MERGE";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("exit")
@@ -172,19 +172,29 @@ async fn publish_voluntary_exit<E: EthSpec>(
     );
 
     dbg!(&signed_voluntary_exit);
-    eprintln!("Publishing a voluntary exit for validator: {} ", keypair.pk);
-    eprintln!("WARNING: This is an irreversible operation");
-    eprintln!("{}", PROMPT);
-    eprintln!("Enter the phrase from the above URL to confirm the voluntary exit");
+    eprintln!(
+        "Publishing a voluntary exit for validator: {} \n",
+        keypair.pk
+    );
+    eprintln!("WARNING: THIS IS AN IRREVERSIBLE OPERATION\n");
+    eprintln!("{}\n", PROMPT);
+    eprintln!(
+        "PLEASE VISIT {} TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.",
+        WEBSITE_URL
+    );
+    eprintln!("Enter the exit phrase from the above URL to confirm the voluntary exit: ");
 
     let confirmation = account_utils::read_input_from_user(stdin_inputs)?;
     if confirmation == CONFIRMATION_PHRASE {
-        // Publish the voluntary exit to network
+        // Verify and publish the voluntary exit to network
         client
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
             .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
-        eprintln!("Published voluntary exit for validator {}", keypair.pk);
+        eprintln!(
+            "Successfully validated and published voluntary exit for validator {}",
+            keypair.pk
+        );
     } else {
         eprintln!(
             "Did not publish voluntary exit for validator {}. Please check that you entered the correct passphrase.",
@@ -286,7 +296,7 @@ fn load_voting_keypair(
             // There is no password file for the given validator, prompt password from user.
             eprintln!("");
             eprintln!(
-                "{} for validator in {:?}",
+                "{} for validator in {:?}: ",
                 PASSWORD_PROMPT,
                 validator_dir.dir()
             );
