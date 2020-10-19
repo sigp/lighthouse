@@ -175,7 +175,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5052).")
-                .default_value("")
                 .takes_value(true),
         )
         /* Prometheus metrics HTTP server related arguments */
@@ -209,7 +208,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5054).")
-                .default_value("")
                 .takes_value(true),
         )
         /* Websocket related arguments */

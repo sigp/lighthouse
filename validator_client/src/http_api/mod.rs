@@ -104,7 +104,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     // Configure CORS.
     let cors_builder = {
         let builder = warp::cors()
-            .allow_methods(vec!["GET", "POST", "UPDATE"])
+            .allow_methods(vec!["GET", "POST", "PATCH"])
             .allow_headers(vec!["Content-Type", "Authorization"]);
 
         warp_utils::cors::set_builder_origins(
