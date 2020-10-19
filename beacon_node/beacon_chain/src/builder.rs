@@ -512,7 +512,12 @@ where
         })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
-        let store_migrator = BackgroundMigrator::new(store.clone(), migrator_config, log.clone());
+        let store_migrator = BackgroundMigrator::new(
+            store.clone(),
+            migrator_config,
+            genesis_block_root,
+            log.clone(),
+        );
 
         let beacon_chain = BeaconChain {
             spec: self.spec,

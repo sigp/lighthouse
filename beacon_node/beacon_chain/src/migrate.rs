@@ -1,7 +1,7 @@
 use crate::beacon_chain::BEACON_CHAIN_DB_KEY;
 use crate::errors::BeaconChainError;
-use crate::head_tracker::HeadTracker;
-use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::head_tracker::{HeadTracker, SszHeadTracker};
+use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
 use slog::{debug, warn, Logger};
 use std::collections::{HashMap, HashSet};
@@ -30,6 +30,8 @@ pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         )>,
     >,
     latest_checkpoint: Arc<Mutex<Checkpoint>>,
+    /// Genesis block root, for persisting the `PersistedBeaconChain`.
+    genesis_block_root: Hash256,
     log: Logger,
 }
 
@@ -73,12 +75,17 @@ pub struct MigrationNotification<E: EthSpec> {
     finalized_checkpoint: Checkpoint,
     head_tracker: Arc<HeadTracker>,
     latest_checkpoint: Arc<Mutex<Checkpoint>>,
-    persist_head: PersistedBeaconChain,
+    genesis_block_root: Hash256,
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
     /// Create a new `BackgroundMigrator` and spawn its thread if necessary.
-    pub fn new(db: Arc<HotColdDB<E, Hot, Cold>>, config: MigratorConfig, log: Logger) -> Self {
+    pub fn new(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        config: MigratorConfig,
+        genesis_block_root: Hash256,
+        log: Logger,
+    ) -> Self {
         let tx_thread = if config.blocking {
             None
         } else {
@@ -92,6 +99,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             db,
             tx_thread,
             latest_checkpoint,
+            genesis_block_root,
             log,
         }
     }
@@ -107,7 +115,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         finalized_state: BeaconState<E>,
         finalized_checkpoint: Checkpoint,
         head_tracker: Arc<HeadTracker>,
-        persist_head: PersistedBeaconChain,
     ) -> Result<(), BeaconChainError> {
         let notif = MigrationNotification {
             finalized_state_root,
@@ -115,7 +122,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             finalized_checkpoint,
             head_tracker,
             latest_checkpoint: self.latest_checkpoint.clone(),
-            persist_head,
+            genesis_block_root: self.genesis_block_root,
         };
 
         // Async path, on the background thread.
@@ -168,7 +175,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             &finalized_state,
             *latest_checkpoint,
             notif.finalized_checkpoint,
-            notif.persist_head,
+            notif.genesis_block_root,
             log,
         ) {
             Ok(PruningOutcome::DeferredConcurrentMutation) => {
@@ -239,7 +246,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         new_finalized_state: &BeaconState<E>,
         old_finalized_checkpoint: Checkpoint,
         new_finalized_checkpoint: Checkpoint,
-        mut persist_head: PersistedBeaconChain,
+        genesis_block_root: Hash256,
         log: &Logger,
     ) -> Result<PruningOutcome, BeaconChainError> {
         let old_finalized_slot = old_finalized_checkpoint
@@ -426,7 +433,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         for head_hash in abandoned_heads {
             head_tracker_lock.remove(&head_hash);
         }
-        drop(head_tracker_lock);
 
         let batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
@@ -441,11 +447,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let mut kv_batch = store.convert_to_kv_batch(&batch)?;
 
         // Persist the head in case the process is killed or crashes here. This prevents
-        // the head tracker reverting after our mutation above. This write may revert the
-        // head block stored in the persisted beacon chain if pruning takes a long time,
-        // but that's a price we're willing to pay (for now).
-        persist_head.ssz_head_tracker = head_tracker.to_ssz_container();
-        kv_batch.push(persist_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
+        // the head tracker reverting after our mutation above.
+        let persisted_head = PersistedBeaconChain {
+            _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
+            genesis_block_root: genesis_block_root,
+            ssz_head_tracker: SszHeadTracker::from_map(&*head_tracker_lock),
+        };
+        drop(head_tracker_lock);
+        kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
 
         store.hot_db.do_atomically(kv_batch)?;
         debug!(log, "Database pruning complete");

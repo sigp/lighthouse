@@ -236,21 +236,15 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Persists the core `BeaconChain` components (including the head block) and the fork choice.
+    /// Persists the head tracker and fork choice.
     ///
-    /// ## Notes:
-    ///
-    /// In this function we first obtain the head, obtain fork choice, and then persist
-    /// them together in one atomic operation. We do it in this order to ensure that the persisted
-    /// head is always from a time prior to fork choice.
-    ///
-    /// We want to ensure that the head never out dates the fork choice to avoid having references
-    /// to blocks that do not exist in fork choice.
+    /// We do it atomically even though no guarantees need to be made about blocks from
+    /// the head tracker also being present in fork choice.
     pub fn persist_head_and_fork_choice(&self) -> Result<(), Error> {
         let mut batch = vec![];
 
         let _head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
-        batch.push(self.persist_head_in_batch()?);
+        batch.push(self.persist_head_in_batch());
 
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
         batch.push(self.persist_fork_choice_in_batch());
@@ -261,19 +255,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Return a `PersistedBeaconChain` representing the current head.
-    pub fn make_persisted_head(&self) -> Result<PersistedBeaconChain, Error> {
-        Ok(PersistedBeaconChain {
+    pub fn make_persisted_head(&self) -> PersistedBeaconChain {
+        PersistedBeaconChain {
             _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
-        })
+        }
     }
 
     /// Return a database operation for writing the beacon chain head to disk.
-    pub fn persist_head_in_batch(&self) -> Result<KeyValueStoreOp, Error> {
-        Ok(self
-            .make_persisted_head()?
-            .as_kv_store_op(BEACON_CHAIN_DB_KEY))
+    pub fn persist_head_in_batch(&self) -> KeyValueStoreOp {
+        self.make_persisted_head()
+            .as_kv_store_op(BEACON_CHAIN_DB_KEY)
     }
 
     /// Return a database operation for writing fork choice to disk.
@@ -2111,7 +2104,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             finalized_state,
             new_finalized_checkpoint,
             self.head_tracker.clone(),
-            self.make_persisted_head()?,
         )?;
 
         let _ = self.event_handler.register(EventKind::BeaconFinalization {

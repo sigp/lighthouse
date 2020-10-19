@@ -46,14 +46,7 @@ impl HeadTracker {
     /// Returns a `SszHeadTracker`, which contains all necessary information to restore the state
     /// of `Self` at some later point.
     pub fn to_ssz_container(&self) -> SszHeadTracker {
-        let (roots, slots) = self
-            .0
-            .read()
-            .iter()
-            .map(|(hash, slot)| (*hash, *slot))
-            .unzip();
-
-        SszHeadTracker { roots, slots }
+        SszHeadTracker::from_map(&*self.0.read())
     }
 
     /// Creates a new `Self` from the given `SszHeadTracker`, restoring `Self` to the same state of
@@ -94,6 +87,13 @@ impl PartialEq<HeadTracker> for HeadTracker {
 pub struct SszHeadTracker {
     roots: Vec<Hash256>,
     slots: Vec<Slot>,
+}
+
+impl SszHeadTracker {
+    pub fn from_map(map: &HashMap<Hash256, Slot>) -> Self {
+        let (roots, slots) = map.iter().map(|(hash, slot)| (*hash, *slot)).unzip();
+        SszHeadTracker { roots, slots }
+    }
 }
 
 #[cfg(test)]
