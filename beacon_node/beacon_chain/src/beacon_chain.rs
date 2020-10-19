@@ -18,7 +18,7 @@ use crate::observed_attestations::{Error as AttestationObservationError, Observe
 use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
-use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
@@ -262,14 +262,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Return a `PersistedBeaconChain` representing the current head.
     pub fn make_persisted_head(&self) -> Result<PersistedBeaconChain, Error> {
-        let canonical_head_block_root = self
-            .canonical_head
-            .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
-            .beacon_block_root;
-
         Ok(PersistedBeaconChain {
-            canonical_head_block_root,
+            _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
         })
