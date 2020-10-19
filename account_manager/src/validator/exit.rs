@@ -5,14 +5,14 @@ use clap::{App, Arg, ArgMatches};
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use environment::Environment;
 use eth2::{
-    types::{GenesisData, StateId, ValidatorId},
+    types::{GenesisData, StateId, ValidatorId, ValidatorStatus},
     BeaconNodeHttpClient, Url,
 };
 use eth2_testnet_config::Eth2TestnetConfig;
 use safe_arith::{ArithError, SafeArith};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{ChainSpec, Epoch, EthSpec, Fork, Slot, VoluntaryExit};
+use types::{ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, VoluntaryExit};
 use validator_dir::{Manager as ValidatorManager, ValidatorDir};
 
 pub const CMD: &str = "exit";
@@ -142,30 +142,6 @@ async fn publish_voluntary_exits<E: EthSpec>(
     stdin_inputs: bool,
     testnet_config: &Eth2TestnetConfig<E>,
 ) -> Result<(), String> {
-    for validator_dir in validator_dirs {
-        let keypair = load_voting_keypair(&validator_dir, secrets_dir, stdin_inputs)?;
-        if let Err(e) =
-            publish_voluntary_exit::<E>(&keypair, client, spec, stdin_inputs, &testnet_config).await
-        {
-            eprintln!(
-                "Failed to publish voluntary exit for validator {:?}, error: {}",
-                validator_dir.dir(),
-                e
-            );
-        }
-    }
-    Ok(())
-}
-
-/// Constructs a `VoluntaryExit` object for a given validator and signs it using the given bls keypair.
-/// Publishes the voluntary exit to the beacon chain using the beacon node endpoint.
-async fn publish_voluntary_exit<E: EthSpec>(
-    keypair: &Keypair,
-    client: &BeaconNodeHttpClient,
-    spec: &ChainSpec,
-    stdin_inputs: bool,
-    testnet_config: &Eth2TestnetConfig<E>,
-) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = testnet_config
         .genesis_state
@@ -182,21 +158,60 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 .to_string(),
         );
     }
-
-    let voluntary_exit = VoluntaryExit {
-        epoch: get_current_epoch::<E>(genesis_data.genesis_time, spec)
-            .map_err(|e| format!("Failed to get current epoch: {:?}", e))?,
-        validator_index: get_validator_index(client, &keypair.pk).await?,
-    };
-
+    let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
+        .map_err(|e| format!("Failed to get current epoch: {:?}", e))?;
     let fork = get_beacon_state_fork(client).await?;
 
-    let signed_voluntary_exit = voluntary_exit.sign(
-        &keypair.sk,
-        &fork,
-        genesis_data.genesis_validators_root,
-        spec,
-    );
+    for validator_dir in validator_dirs {
+        let keypair = load_voting_keypair(&validator_dir, secrets_dir, stdin_inputs)?;
+        let validator_index = get_validator_index::<E>(client, &keypair.pk, epoch, spec).await;
+
+        match validator_index {
+            Ok(index) => {
+                if let Err(e) = publish_voluntary_exit::<E>(
+                    &keypair,
+                    client,
+                    spec,
+                    stdin_inputs,
+                    epoch,
+                    index,
+                    &fork,
+                    genesis_data.genesis_validators_root,
+                )
+                .await
+                {
+                    eprintln!(
+                        "Failed to publish voluntary exit for validator {:?}, error: {}",
+                        validator_dir.dir(),
+                        e
+                    );
+                }
+            }
+            Err(e) => eprintln!("{}", e),
+        }
+    }
+    Ok(())
+}
+
+/// Constructs a `VoluntaryExit` object for a given validator and signs it using the given bls keypair.
+/// Publishes the voluntary exit to the beacon chain using the beacon node endpoint.
+async fn publish_voluntary_exit<E: EthSpec>(
+    keypair: &Keypair,
+    client: &BeaconNodeHttpClient,
+    spec: &ChainSpec,
+    stdin_inputs: bool,
+    epoch: Epoch,
+    validator_index: u64,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+) -> Result<(), String> {
+    let voluntary_exit = VoluntaryExit {
+        epoch,
+        validator_index,
+    };
+
+    let signed_voluntary_exit =
+        voluntary_exit.sign(&keypair.sk, &fork, genesis_validators_root, spec);
 
     dbg!(&signed_voluntary_exit);
     eprintln!(
@@ -231,14 +246,18 @@ async fn publish_voluntary_exit<E: EthSpec>(
     Ok(())
 }
 
-/// Get the validator index given the validator public key by querying the beacon node endpoint.
-async fn get_validator_index(
+/// Get the validator index af given the validator public key by querying the beacon node endpoint.
+/// Returns an error if the beacon endpoint returns an error or given validator is not eligible for an exit.
+async fn get_validator_index<E: EthSpec>(
     client: &BeaconNodeHttpClient,
     validator_pubkey: &PublicKey,
+    epoch: Epoch,
+    spec: &ChainSpec,
 ) -> Result<u64, String> {
-    Ok(client
+    let validator_data = client
         .get_beacon_states_validator_id(
-            StateId::Finalized, //TODO(pawan): should we query finalized?
+            // TODO: verify this is the state that we want to query.
+            StateId::Slot(epoch.start_slot(E::slots_per_epoch())),
             &ValidatorId::PublicKey(validator_pubkey.into()),
         )
         .await
@@ -249,7 +268,26 @@ async fn get_validator_index(
                 validator_pubkey
             )
         })?
-        .data.index)
+        .data;
+
+    match validator_data.status {
+        ValidatorStatus::Active => {
+            let eligible_epoch =
+                validator_data.validator.activation_epoch + spec.shard_committee_period;
+            if epoch >= eligible_epoch {
+                Ok(validator_data.index)
+            } else {
+                Err(format!(
+                    "Validator {:?} is not eligible for exit. It will become eligible on epoch {}",
+                    validator_pubkey, eligible_epoch
+                ))
+            }
+        }
+        status => Err(format!(
+            "Validator {:?} is not eligible for voluntary exit. Validator status: {:?}",
+            validator_pubkey, status
+        )),
+    }
 }
 
 /// Get genesis data by querying the beacon node client.
