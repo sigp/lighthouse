@@ -133,7 +133,7 @@ pub fn cli_run<E: EthSpec>(
     Ok(())
 }
 
-/// Gets the associated keypair for a validator and calls `publish_voluntary_exit` on it.
+/// Gets the keypair and validator_index for every validator and calls `publish_voluntary_exit` on it.
 async fn publish_voluntary_exits<E: EthSpec>(
     validator_dirs: Vec<ValidatorDir>,
     secrets_dir: &PathBuf,
@@ -159,7 +159,8 @@ async fn publish_voluntary_exits<E: EthSpec>(
     }
     let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
         .map_err(|e| format!("Failed to get current epoch: {:?}", e))?;
-    let fork = get_beacon_state_fork(client).await?;
+
+    let fork = get_beacon_state_fork::<E>(client, epoch).await?;
 
     for validator_dir in validator_dirs {
         let keypair = load_voting_keypair(&validator_dir, secrets_dir, stdin_inputs)?;
@@ -180,7 +181,7 @@ async fn publish_voluntary_exits<E: EthSpec>(
                 .await
                 {
                     eprintln!(
-                        "Failed to publish voluntary exit for validator {:?}, error: {}",
+                        "Failed to publish voluntary exit for validator {:?}: {}",
                         validator_dir.dir(),
                         e
                     );
@@ -213,7 +214,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
     let signed_voluntary_exit =
         voluntary_exit.sign(&keypair.sk, &fork, genesis_validators_root, spec);
 
-    dbg!(&signed_voluntary_exit);
     eprintln!(
         "Publishing a voluntary exit for validator: {} \n",
         keypair.pk
@@ -233,6 +233,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
             .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
+        tokio::time::delay_for(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
         eprintln!(
             "Successfully validated and published voluntary exit for validator {}",
             keypair.pk
@@ -300,9 +301,13 @@ async fn get_geneisis_data(client: &BeaconNodeHttpClient) -> Result<GenesisData,
 }
 
 /// Get fork object for the current state by querying the beacon node client.
-async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, String> {
+async fn get_beacon_state_fork<E: EthSpec>(
+    client: &BeaconNodeHttpClient,
+    epoch: Epoch,
+) -> Result<Fork, String> {
     Ok(client
-        .get_beacon_states_fork(StateId::Finalized) //TODO(pawan): should we use finalized?
+        // TODO: verify this is the state that we want to query.
+        .get_beacon_states_fork(StateId::Slot(epoch.start_slot(E::slots_per_epoch())))
         .await
         .map_err(|e| format!("Failed to get get fork: {:?}", e))?
         .ok_or_else(|| "Failed to get fork, state not found".to_string())?
