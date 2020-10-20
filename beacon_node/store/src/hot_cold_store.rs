@@ -11,6 +11,7 @@ use crate::metadata::{
     SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
+use crate::schema_change;
 use crate::{
     get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
     StoreOp,
@@ -46,8 +47,6 @@ pub enum BlockReplay {
 /// intermittent "restore point" states pre-finalization.
 #[derive(Debug)]
 pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    /// The schema version. Loaded from disk on initialization.
-    schema_version: SchemaVersion,
     /// The slot and state root at the point where the database is split between hot and cold.
     ///
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
@@ -73,8 +72,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
 #[derive(Debug, PartialEq)]
 pub enum HotColdDBError {
     UnsupportedSchemaVersion {
-        software_version: SchemaVersion,
-        disk_version: SchemaVersion,
+        target_version: SchemaVersion,
+        current_version: SchemaVersion,
     },
     /// Recoverable error indicating that the database freeze point couldn't be updated
     /// due to the finalized block not lying on an epoch boundary (should be infrequent).
@@ -112,7 +111,6 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
-            schema_version: CURRENT_SCHEMA_VERSION,
             split: RwLock::new(Split::default()),
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
@@ -141,7 +139,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
-            schema_version: CURRENT_SCHEMA_VERSION,
             split: RwLock::new(Split::default()),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
@@ -153,15 +150,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         };
 
         // Ensure that the schema version of the on-disk database matches the software.
-        // In the future, this would be the spot to hook in auto-migration, etc.
+        // If the version is mismatched, an automatic migration will be attempted.
         if let Some(schema_version) = db.load_schema_version()? {
-            if schema_version != CURRENT_SCHEMA_VERSION {
-                return Err(HotColdDBError::UnsupportedSchemaVersion {
-                    software_version: CURRENT_SCHEMA_VERSION,
-                    disk_version: schema_version,
-                }
-                .into());
-            }
+            debug!(
+                db.log,
+                "Attempting schema migration";
+                "from_version" => schema_version.as_u64(),
+                "to_version" => CURRENT_SCHEMA_VERSION.as_u64(),
+            );
+            schema_change::migrate_schema(&db, schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
             db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
         }
@@ -178,7 +175,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             info!(
                 db.log,
                 "Hot-Cold DB initialized";
-                "version" => db.schema_version.0,
+                "version" => CURRENT_SCHEMA_VERSION.as_u64(),
                 "split_slot" => split.slot,
                 "split_state" => format!("{:?}", split.state_root)
             );
@@ -794,7 +791,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Store the database schema version.
-    fn store_schema_version(&self, schema_version: SchemaVersion) -> Result<(), Error> {
+    pub(crate) fn store_schema_version(&self, schema_version: SchemaVersion) -> Result<(), Error> {
         self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
     }
 

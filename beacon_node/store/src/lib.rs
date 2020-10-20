@@ -22,6 +22,7 @@ mod memory_store;
 mod metadata;
 mod metrics;
 mod partial_beacon_state;
+mod schema_change;
 
 pub mod iter;
 
