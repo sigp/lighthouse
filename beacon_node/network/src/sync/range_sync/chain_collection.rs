@@ -230,7 +230,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 Ok(Some((
                     RangeSyncType::Finalized,
                     chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                    chain.target_head_slot.clone(),
+                    chain.target_head_slot,
                 )))
             }
             RangeSyncState::Head(ref syncing_head_ids) => {
@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     });
                 }
                 let (start_slot, target_slot) =
-                    range.ok_or("Syncing head with empty head ids".to_string())?;
+                    range.ok_or_else(|| "Syncing head with empty head ids".to_string())?;
                 Ok(Some((RangeSyncType::Head, start_slot, target_slot)))
             }
             RangeSyncState::Idle => Ok(None),
@@ -354,7 +354,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         for (id, chain) in self.head_chains.iter_mut() {
             if chain.is_syncing() {
                 if syncing_chains.len() < PARALLEL_HEAD_CHAINS {
-                    syncing_chains.push(id.clone());
+                    syncing_chains.push(*id);
                 } else {
                     chain.stop_syncing();
                     debug!(self.log, "Stopping extra head chain"; "chain" => id);
@@ -377,11 +377,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 if let ProcessingResult::RemoveChain =
                     chain.start_syncing(network, local_epoch, local_head_epoch)
                 {
-                    let id = id.clone();
+                    let id = *id;
                     self.head_chains.remove(&id);
                     error!(self.log, "Chain removed while switching head chains"; "id" => id);
                 } else {
-                    syncing_chains.push(id.clone());
+                    syncing_chains.push(*id);
                 }
             }
             // update variables
@@ -441,7 +441,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of finalized chain"; &chain);
-                removed_chains.push((id.clone(), chain.is_syncing()));
+                removed_chains.push((*id, chain.is_syncing()));
                 false
             } else {
                 true
@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of date head chain"; &chain);
-                removed_chains.push((id.clone(), chain.is_syncing()));
+                removed_chains.push((*id, chain.is_syncing()));
                 false
             } else {
                 true
