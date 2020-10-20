@@ -17,6 +17,7 @@ use beacon_chain::{
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
+use eth2::types::ValidatorStatus;
 use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
@@ -39,7 +40,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
     Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
+    SignedBeaconBlock, SignedVoluntaryExit, Slot, Validator, YamlConfig,
 };
 use warp::Filter;
 use warp_utils::task::{blocking_json_task, blocking_task};
@@ -203,8 +204,8 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 /// configuration.
 pub fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
-    shutdown: impl Future<Output=()> + Send + Sync + 'static,
-) -> Result<(SocketAddr, impl Future<Output=()>), Error> {
+    shutdown: impl Future<Output = ()> + Send + Sync + 'static,
+) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = ctx.config.clone();
     let log = ctx.log.clone();
     let allow_origin = config.allow_origin.clone();
@@ -408,47 +409,64 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validators"))
         .and(warp::query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
-        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
-            blocking_json_task(move || {
-                let id_predicate = |validator_index: u64| query.id.map(|id|
+        .and_then(
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
+                blocking_json_task(move || {
+                    let id_predicate = |index: &u64, validator: &Validator| match query.id.as_ref()
                     {
-                        match &id {
-                            ValidatorId::PublicKey(pubkey) => {
-                                state.validators.iter().position(|v| v.pubkey == *pubkey)
+                        Some(ids) => ids.iter().any(|id| match &id {
+                            ValidatorId::PublicKey(param_pubkey) => {
+                                validator.pubkey == *param_pubkey
                             }
-                            ValidatorId::Index(index) => Some(*index as usize),
+                            ValidatorId::Index(param_index) => index == param_index,
+                        }),
+                        None => true,
+                    };
+                    let status_predicate =
+                        |validator_status: &ValidatorStatus| match query.status.as_ref() {
+                            Some(statuses) => statuses
+                                .iter()
+                                .any(|param_status| param_status == validator_status),
+                            None => true,
                         };
-                    }
-                ).unwrap_or_else(true);
-                state_id
-                    .map_state(&chain, |state| {
-                        let epoch = state.current_epoch();
-                        let finalized_epoch = state.finalized_checkpoint.epoch;
-                        let far_future_epoch = chain.spec.far_future_epoch;
+                    state_id
+                        .map_state(&chain, |state| {
+                            let epoch = state.current_epoch();
+                            let finalized_epoch = state.finalized_checkpoint.epoch;
+                            let far_future_epoch = chain.spec.far_future_epoch;
 
-                        Ok(state
-                            .validators
-                            .iter()
+                            Ok(state
+                                .validators
+                                .iter()
+                                .zip(state.balances.iter())
+                                .enumerate()
+                                .filter_map(|(index, (validator, balance))| {
+                                    let status = api_types::ValidatorStatus::from_validator(
+                                        Some(validator),
+                                        epoch,
+                                        finalized_epoch,
+                                        far_future_epoch,
+                                    );
 
-                            .zip(state.balances.iter())
-                            .enumerate()
-                            .filter(||)
-                            .map(|(index, (validator, balance))| api_types::ValidatorData {
-                                index: index as u64,
-                                balance: *balance,
-                                status: api_types::ValidatorStatus::from_validator(
-                                    Some(validator),
-                                    epoch,
-                                    finalized_epoch,
-                                    far_future_epoch,
-                                ),
-                                validator: validator.clone(),
-                            })
-                            .collect::<Vec<_>>())
-                    })
-                    .map(api_types::GenericResponse::from)
-            })
-        });
+                                    if id_predicate(&(index as u64), validator)
+                                        && status_predicate(&status)
+                                    {
+                                        Some(api_types::ValidatorData {
+                                            index: index as u64,
+                                            balance: *balance,
+                                            status,
+                                            validator: validator.clone(),
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>())
+                        })
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
 
     // GET beacon/states/{state_id}/validators/{validator_id}
     let get_beacon_state_validators_id = beacon_states_path
@@ -1234,7 +1252,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let convert = |validator_index: u64,
                                    pubkey: PublicKey,
                                    duty: AttestationDuty|
-                                   -> api_types::AttesterData {
+                     -> api_types::AttesterData {
                         api_types::AttesterData {
                             pubkey: pubkey.into(),
                             validator_index,

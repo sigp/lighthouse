@@ -278,9 +278,8 @@ pub struct CommitteesQuery {
 
 #[derive(Serialize, Deserialize)]
 pub struct ValidatorsQuery {
-    // the eth2 API spec includes max length of 30 here
-    pub id: Option<VariableList<ValidatorId, U30>>,
-    pub status: Option<ValidatorStatus>,
+    pub id: Option<Vec<ValidatorId>>,
+    pub status: Option<Vec<ValidatorStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
