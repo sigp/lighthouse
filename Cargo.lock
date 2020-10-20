@@ -1725,9 +1725,9 @@ version = "0.2.0"
 dependencies = [
  "arbitrary",
  "eth2_ssz",
+ "hex 0.4.2",
  "serde",
  "serde_derive",
- "serde_utils",
  "tree_hash",
  "tree_hash_derive",
  "typenum",
@@ -4955,6 +4955,7 @@ dependencies = [
 name = "serde_utils"
 version = "0.1.0"
 dependencies = [
+ "eth2_ssz_types",
  "hex 0.4.2",
  "serde",
  "serde_derive",

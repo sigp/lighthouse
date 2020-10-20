@@ -1,10 +1,10 @@
 use crate::tree_hash::bitfield_bytes_tree_hash_root;
 use crate::Error;
 use core::marker::PhantomData;
-use serde::de::{Deserialize, Deserializer};
+use serde::de::{self, Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
-use serde_utils::hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use std::fmt;
 use tree_hash::Hash256;
 use typenum::Unsigned;
 
@@ -614,6 +614,36 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
 
     fn tree_hash_root(&self) -> Hash256 {
         bitfield_bytes_tree_hash_root::<N>(self.as_slice())
+    }
+}
+
+/// Encode `data` as a 0x-prefixed hex string.
+fn hex_encode<T: AsRef<[u8]>>(data: T) -> String {
+    let hex = hex::encode(data);
+    let mut s = "0x".to_string();
+    s.push_str(hex.as_str());
+    s
+}
+
+struct PrefixedHexVisitor;
+
+impl<'de> Visitor<'de> for PrefixedHexVisitor {
+    type Value = Vec<u8>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a hex string with 0x prefix")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if value.starts_with("0x") {
+            Ok(hex::decode(&value[2..])
+                .map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))?)
+        } else {
+            Err(de::Error::custom("missing 0x prefix"))
+        }
     }
 }
 
