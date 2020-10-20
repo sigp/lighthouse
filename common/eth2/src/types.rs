@@ -165,7 +165,7 @@ pub struct FinalityCheckpointsData {
     pub finalized: Checkpoint,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ValidatorId {
     PublicKey(PublicKeyBytes),
     Index(u64),
@@ -211,6 +211,7 @@ pub struct ValidatorData {
 //
 // https://hackmd.io/bQxMDRt1RbS1TLno8K4NPg?view
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ValidatorStatus {
     Unknown,
     WaitingForEligibility,
@@ -273,6 +274,13 @@ impl ValidatorStatus {
 pub struct CommitteesQuery {
     pub slot: Option<Slot>,
     pub index: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ValidatorsQuery {
+    // the eth2 API spec includes max length of 30 here
+    pub id: Option<VariableList<ValidatorId, U30>>,
+    pub status: Option<ValidatorStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

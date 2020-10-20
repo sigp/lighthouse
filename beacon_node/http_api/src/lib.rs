@@ -203,8 +203,8 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 /// configuration.
 pub fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
-    shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
+    shutdown: impl Future<Output=()> + Send + Sync + 'static,
+) -> Result<(SocketAddr, impl Future<Output=()>), Error> {
     let config = ctx.config.clone();
     let log = ctx.log.clone();
     let allow_origin = config.allow_origin.clone();
@@ -406,9 +406,20 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
+        .and(warp::query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
-        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
+        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
             blocking_json_task(move || {
+                let id_predicate = |validator_index: u64| query.id.map(|id|
+                    {
+                        match &id {
+                            ValidatorId::PublicKey(pubkey) => {
+                                state.validators.iter().position(|v| v.pubkey == *pubkey)
+                            }
+                            ValidatorId::Index(index) => Some(*index as usize),
+                        };
+                    }
+                ).unwrap_or_else(true);
                 state_id
                     .map_state(&chain, |state| {
                         let epoch = state.current_epoch();
@@ -418,8 +429,10 @@ pub fn serve<T: BeaconChainTypes>(
                         Ok(state
                             .validators
                             .iter()
+
                             .zip(state.balances.iter())
                             .enumerate()
+                            .filter(||)
                             .map(|(index, (validator, balance))| api_types::ValidatorData {
                                 index: index as u64,
                                 balance: *balance,
@@ -518,8 +531,8 @@ pub fn serve<T: BeaconChainTypes>(
                         } else {
                             CommitteeCache::initialized(state, epoch, &chain.spec).map(Cow::Owned)
                         }
-                        .map_err(BeaconChainError::BeaconStateError)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                            .map_err(BeaconChainError::BeaconStateError)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
                         // Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {
@@ -547,11 +560,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 let committee = committee_cache
                                     .get_beacon_committee(slot, index)
                                     .ok_or_else(|| {
-                                    warp_utils::reject::custom_bad_request(format!(
-                                        "committee index {} does not exist in epoch {}",
-                                        index, epoch
-                                    ))
-                                })?;
+                                        warp_utils::reject::custom_bad_request(format!(
+                                            "committee index {} does not exist in epoch {}",
+                                            index, epoch
+                                        ))
+                                    })?;
 
                                 response.push(api_types::CommitteeData {
                                     index,
@@ -581,6 +594,7 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_headers = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("headers"))
+        //TODO: should this be after the path ends?
         .and(warp::query::<api_types::HeadersQuery>())
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -1220,7 +1234,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let convert = |validator_index: u64,
                                    pubkey: PublicKey,
                                    duty: AttestationDuty|
-                     -> api_types::AttesterData {
+                                   -> api_types::AttesterData {
                         api_types::AttesterData {
                             pubkey: pubkey.into(),
                             validator_index,
@@ -1350,6 +1364,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    //TODO: I can't get this working
     // GET validator/blocks/{slot}
     let get_validator_blocks = eth1_v1
         .and(warp::path("validator"))
@@ -1382,8 +1397,8 @@ pub fn serve<T: BeaconChainTypes>(
     let get_validator_attestation_data = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("attestation_data"))
-        .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
+        .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and_then(
@@ -1402,8 +1417,8 @@ pub fn serve<T: BeaconChainTypes>(
     let get_validator_aggregate_attestation = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("aggregate_attestation"))
-        .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
+        .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and_then(
@@ -1452,7 +1467,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 return Err(warp_utils::reject::object_invalid(format!(
                                     "gossip verification failed: {:?}",
                                     e
-                                )))
+                                )));
                             }
                         };
 
