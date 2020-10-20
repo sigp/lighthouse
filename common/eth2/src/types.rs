@@ -211,7 +211,6 @@ pub struct ValidatorData {
 //
 // https://hackmd.io/bQxMDRt1RbS1TLno8K4NPg?view
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum ValidatorStatus {
     Unknown,
     WaitingForEligibility,
@@ -278,8 +277,8 @@ pub struct CommitteesQuery {
 
 #[derive(Serialize, Deserialize)]
 pub struct ValidatorsQuery {
-    pub id: Option<Vec<ValidatorId>>,
-    pub status: Option<Vec<ValidatorStatus>>,
+    pub id: Option<QueryVec<ValidatorId>>,
+    pub status: Option<QueryVec<ValidatorStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
