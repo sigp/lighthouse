@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 prometheus = "0.10.0"
-warp = "0.2.5"
+warp = { git = "https://github.com/realbigsean/warp.git", rev = "ecf0874a7a7766ef108424916db7898eb003c8cd" }
 serde = { version = "1.0.116", features = ["derive"] }
 slog = "2.5.2"
 beacon_chain = { path = "../beacon_chain" }
