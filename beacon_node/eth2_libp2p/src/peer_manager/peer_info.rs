@@ -158,18 +158,49 @@ impl<T: EthSpec> PeerInfo<T> {
 
     // Setters
 
-    /// Modifies the status to Disconnected and sets the last seen instant to now
-    pub fn disconnect(&mut self) {
-        self.connection_status = Disconnected {
-            since: Instant::now(),
-        };
+    /// Modifies the status to Disconnected and sets the last seen instant to now. Returns None if
+    /// no changes were made. Returns Some(bool) where the bool represents if peer became banned or
+    /// simply just disconnected.
+    pub fn notify_disconnect(&mut self) -> Option<bool> {
+        match self.connection_status {
+            Banned { .. } | Disconnected { .. } => None,
+            Disconnecting { to_ban } => {
+                // If we are disconnecting this peer in the process of banning, we now ban the
+                // peer.
+                if to_ban {
+                    self.connection_status = Banned {
+                        since: Instant::now(),
+                    };
+                    Some(true)
+                } else {
+                    self.connection_status = Disconnected {
+                        since: Instant::now(),
+                    };
+                    Some(false)
+                }
+            }
+            Connected { .. } | Dialing { .. } | Unknown => {
+                self.connection_status = Disconnected {
+                    since: Instant::now(),
+                };
+                Some(false)
+            }
+        }
+    }
+
+    /// Notify the we are currently disconnecting this peer, after which the peer will be
+    /// considered banned.
+    // This intermediate state is required to inform the network behaviours that the sub-protocols
+    // are aware this peer exists and it is in the process of being banned. Compared to nodes that
+    // try to connect to us and are already banned (sub protocols do not know of these peers).
+    pub fn disconnecting(&mut self, to_ban: bool) {
+        self.connection_status = Disconnecting { to_ban }
     }
 
     /// Modifies the status to Banned
-    pub fn ban(&mut self, ip_addresses: Vec<IpAddr>) {
+    pub fn ban(&mut self) {
         self.connection_status = Banned {
             since: Instant::now(),
-            ip_addresses,
         };
     }
 
@@ -190,6 +221,7 @@ impl<T: EthSpec> PeerInfo<T> {
         match &mut self.connection_status {
             Connected { .. } => return Err("Dialing connected peer"),
             Dialing { .. } => return Err("Dialing and already dialing peer"),
+            Disconnecting { .. } => return Err("Dialing a disconnecting peer"),
             Disconnected { .. } | Banned { .. } | Unknown => return Ok(()),
         }
     }
@@ -199,7 +231,11 @@ impl<T: EthSpec> PeerInfo<T> {
     pub(crate) fn connect_ingoing(&mut self) {
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
+            Disconnected { .. }
+            | Banned { .. }
+            | Dialing { .. }
+            | Disconnecting { .. }
+            | Unknown => {
                 self.connection_status = Connected { n_in: 1, n_out: 0 };
                 self.connection_direction = Some(ConnectionDirection::Incoming);
             }
@@ -211,7 +247,11 @@ impl<T: EthSpec> PeerInfo<T> {
     pub(crate) fn connect_outgoing(&mut self) {
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
+            Disconnected { .. }
+            | Banned { .. }
+            | Dialing { .. }
+            | Disconnecting { .. }
+            | Unknown => {
                 self.connection_status = Connected { n_in: 0, n_out: 1 };
                 self.connection_direction = Some(ConnectionDirection::Outgoing);
             }
@@ -259,17 +299,21 @@ pub enum PeerConnectionStatus {
         /// number of outgoing connections.
         n_out: u8,
     },
+    /// The peer is being disconnected.
+    Disconnecting {
+        // After the disconnection the peer will be considered banned.
+        to_ban: bool,
+    },
     /// The peer has disconnected.
     Disconnected {
         /// last time the peer was connected or discovered.
         since: Instant,
     },
+
     /// The peer has been banned and is disconnected.
     Banned {
         /// moment when the peer was banned.
         since: Instant,
-        /// ip addresses this peer had a the moment of the ban
-        ip_addresses: Vec<IpAddr>,
     },
     /// We are currently dialing this peer.
     Dialing {
@@ -283,14 +327,20 @@ pub enum PeerConnectionStatus {
 /// Serialization for http requests.
 impl Serialize for PeerConnectionStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("connection_status", 5)?;
+        let mut s = serializer.serialize_struct("connection_status", 6)?;
         match self {
             Connected { n_in, n_out } => {
                 s.serialize_field("status", "connected")?;
                 s.serialize_field("connections_in", n_in)?;
                 s.serialize_field("connections_out", n_out)?;
                 s.serialize_field("last_seen", &0)?;
-                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
+                s.end()
+            }
+            Disconnecting { .. } => {
+                s.serialize_field("status", "disconnecting")?;
+                s.serialize_field("connections_in", &0)?;
+                s.serialize_field("connections_out", &0)?;
+                s.serialize_field("last_seen", &0)?;
                 s.end()
             }
             Disconnected { since } => {
@@ -301,15 +351,11 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
                 s.end()
             }
-            Banned {
-                since,
-                ip_addresses,
-            } => {
+            Banned { since } => {
                 s.serialize_field("status", "banned")?;
                 s.serialize_field("connections_in", &0)?;
                 s.serialize_field("connections_out", &0)?;
                 s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.serialize_field("banned_ips", &ip_addresses)?;
                 s.end()
             }
             Dialing { since } => {
@@ -317,7 +363,6 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("connections_in", &0)?;
                 s.serialize_field("connections_out", &0)?;
                 s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
                 s.end()
             }
             Unknown => {
@@ -325,7 +370,6 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("connections_in", &0)?;
                 s.serialize_field("connections_out", &0)?;
                 s.serialize_field("last_seen", &0)?;
-                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
                 s.end()
             }
         }
@@ -337,5 +381,3 @@ impl Default for PeerConnectionStatus {
         PeerConnectionStatus::Unknown
     }
 }
-
-impl PeerConnectionStatus {}

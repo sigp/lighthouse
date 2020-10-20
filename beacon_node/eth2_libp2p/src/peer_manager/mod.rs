@@ -273,7 +273,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .read()
             .peer_info(peer_id)
             .and_then(|peer_info| {
-                if let Connected { .. } = peer_info.connection_status() {
+                if !peer_info.is_banned() && !peer_info.is_disconnected() {
                     Some(peer_info.client.kind.clone())
                 } else {
                     None
@@ -287,7 +287,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             };
         }
 
-        self.network_globals.peers.write().disconnect(peer_id);
+        self.network_globals
+            .peers
+            .write()
+            .notify_disconnect(peer_id);
 
         // remove the ping and status timer for the peer
         self.ping_peers.remove(peer_id);
@@ -686,18 +689,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     ScoreState::Banned => {
                         debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
                         to_ban_peers.push(peer_id.clone());
-                        if info.is_connected_or_dialing() {
-                            self.events.push(PeerManagerEvent::DisconnectPeer(
-                                peer_id.clone(),
-                                GoodbyeReason::BadScore,
-                            ));
-                        }
                     }
                     ScoreState::Disconnected => {
                         debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // disconnect the peer if it's currently connected or dialing
                         to_unban_peers.push(peer_id.clone());
                         if info.is_connected_or_dialing() {
+                            info.disconnecting(false);
                             self.events.push(PeerManagerEvent::DisconnectPeer(
                                 peer_id.clone(),
                                 GoodbyeReason::BadScore,
@@ -728,6 +726,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// peer from participating in discovery and removes them from the routing table.
     fn ban_peer(&mut self, peer_id: &PeerId) {
         let mut peer_db = self.network_globals.peers.write();
+
+        if info.is_connected_or_dialing() {
+            self.events.push(PeerManagerEvent::DisconnectPeer(
+                peer_id.clone(),
+                GoodbyeReason::BadScore,
+            ));
+        }
+
         peer_db.ban(peer_id);
         let banned_ip_addresses = peer_db
             .peer_info(peer_id)

@@ -852,6 +852,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     }
 
     // This gets called every time a connection is closed.
+    // NOTE: The peer manager state can be modified in the lifetime of the peer. Due to the scoring
+    // mechanism. Peers can become banned. In this case, we still want to inform the behaviours.
     fn inject_connection_closed(
         &mut self,
         peer_id: &PeerId,
@@ -860,6 +862,12 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     ) {
         // If the peer manager (and therefore the behaviour's) believe this peer connected, inform
         // about the disconnection.
+
+        let peer_db = self.network_globals.peers.read();
+
+        if peer_db.is_connected(&peer_id) | peer_db.is_banned
+
+
         if self.network_globals.peers.read().is_connected(&peer_id) {
             delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
         }
@@ -889,6 +897,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     }
 
     // This gets called every time a connection is established.
+    // NOTE: The current logic implies that we would reject extra connections for already connected
+    // peers if we have reached our peer limit. This is fine for the time being as we currently
+    // only allow a single connection per peer.
     fn inject_connection_established(
         &mut self,
         peer_id: &PeerId,
@@ -913,14 +924,17 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             None
         };
 
-        if goodbye_reason.is_some() {
-            debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.as_ref().expect("Is some").to_string());
+        if let Some(goodbye_reason) = goodbye_reason {
+            debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.to_string());
             self.peers_to_dc
-                .push_back((peer_id.clone(), goodbye_reason));
+                .push_back((peer_id.clone(), Some(goodbye_reason)));
+            // Notify the peer manager that we disconnecting from this peer.
+            self.peer_manager.disconnecting(&peer_id);
             return;
         }
 
-        // notify the peer manager of a successful connection
+        // All peers at this point will be registered as being connected.
+        // Notify the peer manager of a successful connection
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.peer_manager
@@ -946,6 +960,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     }
 
     // This gets called on the initial connection establishment.
+    // NOTE: This gets called after inject_connection_established. Therefore the logic in that
+    // function dictates the logic here.
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // If the PeerManager has connected this peer, inform the behaviours
         if !self.network_globals.peers.read().is_connected(&peer_id) {

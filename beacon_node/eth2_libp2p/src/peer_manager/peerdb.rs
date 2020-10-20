@@ -6,7 +6,7 @@ use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, trace, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
@@ -41,27 +41,19 @@ pub struct BannedPeersCount {
 impl BannedPeersCount {
     /// Removes the peer from the counts if it is banned. Returns true if the peer was banned and
     /// false otherwise.
-    pub fn remove_banned_peer(&mut self, connection_status: &PeerConnectionStatus) -> bool {
-        match connection_status {
-            PeerConnectionStatus::Banned { ip_addresses, .. } => {
-                self.banned_peers = self.banned_peers.saturating_sub(1);
-                for address in ip_addresses {
-                    if let Some(count) = self.banned_peers_per_ip.get_mut(address) {
-                        *count = count.saturating_sub(1);
-                    }
-                }
-                true
+    pub fn remove_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
+        self.banned_peers = self.banned_peers.saturating_sub(1);
+        for address in ip_addresses {
+            if let Some(count) = self.banned_peers_per_ip.get_mut(address) {
+                *count = count.saturating_sub(1);
             }
-            _ => false, //if not banned do nothing
         }
     }
 
-    pub fn add_banned_peer(&mut self, connection_status: &PeerConnectionStatus) {
-        if let PeerConnectionStatus::Banned { ip_addresses, .. } = connection_status {
-            self.banned_peers += 1;
-            for address in ip_addresses {
-                *self.banned_peers_per_ip.entry(*address).or_insert(0) += 1;
-            }
+    pub fn add_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
+        self.banned_peers += 1;
+        for address in ip_addresses {
+            *self.banned_peers_per_ip.entry(*address).or_insert(0) += 1;
         }
     }
 
@@ -157,6 +149,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns true if the Peer is banned.
+    /// This is used to determine if we should accept incoming connections or not.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
             match peer.score().state() {
@@ -306,8 +299,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
 
-        self.banned_peers_count
-            .remove_banned_peer(&info.connection_status());
+        if info.is_banned() {
+            self.banned_peers_count
+                .remove_banned_peer(&info.seen_addresses);
+        }
 
         if let Err(e) = info.dialing_peer() {
             error!(self.log, "{}", e);
@@ -346,7 +341,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     .checked_duration_since(Instant::now())
                     .map(|duration| duration.as_secs())
                     .unwrap_or_else(|| 0);
-                trace!(log, "Updating minimum duration a peer is required for"; "peer_id" => peer_id.to_string(), "min_ttl" => min_ttl_secs);
+                trace!(log, "Updating minimum duration a peer is required for"; "peer_id" => %peer_id, "min_ttl" => min_ttl_secs);
             });
     }
 
@@ -357,8 +352,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if info.is_disconnected() {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
-        self.banned_peers_count
-            .remove_banned_peer(&info.connection_status());
+
+        if info.is_banned() {
+            error!(self.log, "Accepted a connection from a banned peer"; "peer_id" => %peer_id);
+            self.banned_peers_count
+                .remove_banned_peer(&info.seen_addresses);
+        }
+
         info.connect_ingoing();
 
         // Add the seen ip address to the peer's info
@@ -378,8 +378,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if info.is_disconnected() {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
-        self.banned_peers_count
-            .remove_banned_peer(&info.connection_status());
+
+        if info.is_banned() {
+            error!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
+            self.banned_peers_count
+                .remove_banned_peer(&info.seen_addresses);
+        }
+
         info.connect_outgoing();
 
         // Add the seen ip address to the peer's info
@@ -393,20 +398,32 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Sets the peer as disconnected. A banned peer remains banned
-    pub fn disconnect(&mut self, peer_id: &PeerId) {
+    pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
         // Note that it could be the case we prevent new nodes from joining. In this instance,
         // we don't bother tracking the new node.
         if let Some(info) = self.peers.get_mut(peer_id) {
-            if !info.is_disconnected() && !info.is_banned() {
-                info.disconnect();
-                self.disconnected_peers += 1;
+            if let Some(became_banned) = info.notify_disconnect() {
+                if became_banned {
+                    self.banned_peers_count
+                        .add_banned_peer(&info.seen_addresses);
+                } else {
+                    self.disconnected_peers += 1;
+                }
             }
             self.shrink_to_fit();
         }
     }
 
-    /// Marks a peer as banned.
-    pub fn ban(&mut self, peer_id: &PeerId) {
+    /// Notifies the peer manager that the peer is undergoing a normal disconnect (without banning
+    /// afterwards.
+    pub fn notify_disconnecting(&mut self, peer_id: &PeerId) {
+        if let Some(info) = self.peers.get_mut(peer_id) {
+            info.disconnecting(false);
+        }
+    }
+
+    /// Marks a peer to be disconnected and then banned.
+    pub fn disconnect_and_ban(&mut self, peer_id: &PeerId) {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
@@ -415,14 +432,17 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         });
 
         if info.is_disconnected() {
+            // This should not be possible.
+            error!(log_ref, "Banning a disconnected peer"; "peer_id" => %peer_id);
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
-        if !info.is_banned() {
-            info.ban(info.seen_addresses.iter().cloned().collect());
-            self.banned_peers_count
-                .add_banned_peer(&info.connection_status());
+
+        if info.is_banned() {
+            error!(log_ref, "Banning already banned peer"; "peer_id" => %peer_id);
+            return;
         }
-        self.shrink_to_fit();
+
+        info.disconnecting(true);
     }
 
     /// Unbans a peer.
@@ -434,11 +454,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerInfo::default()
         });
 
-        if info.is_banned() {
-            self.banned_peers_count
-                .remove_banned_peer(&info.connection_status());
-            info.unban();
+        if !info.is_banned() {
+            error!(log_ref, "Unbanning peer that is not banned"; "peer_id" => %peer_id);
+            return;
         }
+
+        self.banned_peers_count
+            .remove_banned_peer(&info.seen_addresses);
+        info.unban();
+        // This transitions a banned peer to a disconnected peer
+        self.disconnected_peers.saturating_add(1);
         self.shrink_to_fit();
     }
 
@@ -459,7 +484,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 }) {
                 self.banned_peers_count
-                    .remove_banned_peer(&info.connection_status());
+                    .remove_banned_peer(&info.seen_addresses);
                 Some(id.clone())
             } else {
                 // If there is no minimum, this is a coding error.
@@ -588,7 +613,7 @@ mod tests {
         assert_eq!(pdb.disconnected_peers, 0);
 
         for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
-            pdb.disconnect(&p);
+            pdb.notify_disconnect(&p);
         }
 
         assert_eq!(pdb.disconnected_peers, MAX_DC_PEERS);
@@ -605,7 +630,8 @@ mod tests {
         assert_eq!(pdb.banned_peers_count.banned_peers(), 0);
 
         for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
-            pdb.ban(&p);
+            pdb.disconnect_and_ban(&p);
+            pdb.disconnect(&p);
         }
 
         assert_eq!(pdb.banned_peers_count.banned_peers(), MAX_BANNED_PEERS);
