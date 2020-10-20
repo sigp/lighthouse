@@ -336,7 +336,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // - Poisoned -> this is an intermediate state that should never be reached
                         // - AwaitingDownload -> A recoverable failed batch should have been
                         //   re-requested.
-                        debug!(self.log, "Optimistic batch indicates inconsistent chain state"; "state" => ?state);
+                        crit!(self.log, "Optimistic batch indicates inconsistent chain state"; "state" => ?state);
                         return ProcessingResult::RemoveChain;
                     }
                     BatchState::AwaitingValidation(_) => {
@@ -613,7 +613,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         active_batches.remove(&id);
                     }
                 }
-                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => debug!(
+                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => crit!(
                     self.log,
                     "batch indicates inconsistent chain state while advancing chain"
                 ),
