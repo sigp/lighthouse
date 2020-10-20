@@ -290,7 +290,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| async move {
                 match *network_globals.sync_state.read() {
-                    SyncState::SyncingFinalized { head_slot, .. } => {
+                    SyncState::SyncingFinalized { target_slot, .. } => {
                         let current_slot = chain
                             .slot_clock
                             .now_or_genesis()
@@ -302,12 +302,12 @@ pub fn serve<T: BeaconChainTypes>(
 
                         let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
 
-                        if head_slot + tolerance >= current_slot {
+                        if target_slot + tolerance >= current_slot {
                             Ok(())
                         } else {
                             Err(warp_utils::reject::not_synced(format!(
                                 "head slot is {}, current slot is {}",
-                                head_slot, current_slot
+                                target_slot, current_slot
                             )))
                         }
                     }
