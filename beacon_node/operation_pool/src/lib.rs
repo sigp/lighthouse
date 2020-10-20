@@ -229,7 +229,7 @@ impl<T: EthSpec> OperationPool<T> {
                 None
             }
         });
-        
+
         let attester_slashings = maximum_cover(
             relevant_attester_slashings,
             T::MaxAttesterSlashings::to_usize(),
@@ -947,6 +947,27 @@ mod release_tests {
                 &self.spec,
             )
         }
+
+        fn attester_slashing_two_indices(
+            &self,
+            slashed_indices_1: &[u64],
+            slashed_indices_2: &[u64],
+        ) -> AttesterSlashing<MainnetEthSpec> {
+            let signer = |idx: u64, message: &[u8]| {
+                self.keypairs[idx as usize]
+                    .sk
+                    .sign(Hash256::from_slice(&message))
+            };
+            TestingAttesterSlashingBuilder::double_vote_with_additional_indices(
+                AttesterSlashingTestTask::Valid,
+                slashed_indices_1,
+                Some(slashed_indices_2),
+                signer,
+                &self.state.fork,
+                self.state.genesis_validators_root,
+                &self.spec,
+            )
+        }
     }
 
     /// Insert two slashings for the same proposer and ensure only one is returned.
@@ -1083,5 +1104,32 @@ mod release_tests {
 
         let best_slashings = op_pool.get_slashings(state, spec);
         assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
+    }
+
+    #[test]
+    fn max_coverage_different_indices_set() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+
+        let slashing_1 =
+            ctxt.attester_slashing_two_indices(&[1, 2, 3, 4, 5, 6], &[3, 4, 5, 6, 7, 8]);
+        let slashing_2 = ctxt.attester_slashing(&[5, 6]);
+        let slashing_3 = ctxt.attester_slashing(&[1, 2, 3]);
+
+        op_pool.insert_attester_slashing(
+            slashing_1.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_2.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_3.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+
+        let best_slashings = op_pool.get_slashings(state, spec);
+        assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
     }
 }
