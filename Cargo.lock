@@ -6533,7 +6533,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.2.5"
-source = "git+https://github.com/realbigsean/warp.git?rev=0cf18802ef723c2202b35a6504892d174edfe26e#0cf18802ef723c2202b35a6504892d174edfe26e"
+source = "git+https://github.com/realbigsean/warp.git?rev=10441f38b2d47ee6e52afaf93a099aa75342c6b3#10441f38b2d47ee6e52afaf93a099aa75342c6b3"
 dependencies = [
  "bytes 0.5.6",
  "futures 0.3.6",
