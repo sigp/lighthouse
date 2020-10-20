@@ -1,5 +1,6 @@
 use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
+use eth2::lighthouse::Eth1SyncStatusData;
 use eth2_hashing::hash;
 use slog::{debug, error, trace, Logger};
 use ssz::{Decode, Encode};
@@ -50,6 +51,69 @@ pub enum Error {
 impl From<safe_arith::ArithError> for Error {
     fn from(e: safe_arith::ArithError) -> Self {
         Self::ArithError(e)
+    }
+}
+
+fn get_sync_status<T: EthSpec>(
+    latest_block: Option<&Eth1Block>,
+    genesis_time: u64,
+    current_slot: Slot,
+    spec: &ChainSpec,
+) -> Eth1SyncStatusData {
+    let period = T::SlotsPerEth1VotingPeriod::to_u64();
+    let voting_period_start_slot = (current_slot / period) * period;
+    let voting_period_start_timestamp = {
+        let period_start = slot_start_seconds::<T>(
+            genesis_time,
+            spec.milliseconds_per_slot,
+            voting_period_start_slot,
+        );
+        let eth1_follow_distance_seconds = spec
+            .seconds_per_eth1_block
+            .saturating_mul(spec.eth1_follow_distance);
+
+        period_start.saturating_sub(eth1_follow_distance_seconds)
+    };
+
+    if let Some(block) = latest_block {
+        let seconds_till_period_start =
+            voting_period_start_timestamp.saturating_sub(block.timestamp);
+        let blocks_till_period_start = seconds_till_period_start
+            .checked_div(spec.seconds_per_eth1_block)
+            .unwrap_or(0);
+        let voting_period_start_block_number_estimate =
+            block.number.saturating_add(blocks_till_period_start);
+
+        let progress_percentage = {
+            let part = f64::from(block.number as u32);
+            let whole = f64::from(voting_period_start_block_number_estimate as u32);
+
+            if whole > 0.0 {
+                (part / whole) * 100.0
+            } else {
+                0.0
+            }
+        };
+
+        Eth1SyncStatusData {
+            latest_block_number: block.number,
+            latest_block_timestamp: block.timestamp,
+            voting_period_start_timestamp,
+            voting_period_start_block_number_estimate: Some(
+                block.number + blocks_till_period_start,
+            ),
+            blocks_remaining: Some(blocks_till_period_start),
+            progress_percentage,
+        }
+    } else {
+        Eth1SyncStatusData {
+            latest_block_number: 0,
+            latest_block_timestamp: 0,
+            voting_period_start_timestamp,
+            voting_period_start_block_number_estimate: None,
+            blocks_remaining: None,
+            progress_percentage: 0.0,
+        }
     }
 }
 
@@ -143,6 +207,21 @@ where
         }
     }
 
+    /// Returns a status indicating how synced our caches are with the eth1 chain.
+    pub fn sync_status(
+        &self,
+        genesis_time: u64,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Eth1SyncStatusData {
+        get_sync_status::<E>(
+            self.backend.latest_block().as_ref(),
+            genesis_time,
+            current_slot,
+            spec,
+        )
+    }
+
     /// Instantiate `Eth1Chain` from a persisted `SszEth1`.
     ///
     /// The `Eth1Chain` will have the same caches as the persisted `SszEth1`.
@@ -195,6 +274,10 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error>;
 
+    /// Returns the latest block stored in the cache. Used to obtain an idea of how up-to-date the
+    /// eth1 cache is.
+    fn latest_block(&self) -> Option<Eth1Block>;
+
     /// Encode the `Eth1ChainBackend` instance to bytes.
     fn as_bytes(&self) -> Vec<u8>;
 
@@ -239,6 +322,10 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
         _: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         Ok(vec![])
+    }
+
+    fn latest_block(&self) -> Option<Eth1Block> {
+        None
     }
 
     /// Return empty Vec<u8> for dummy backend.
@@ -398,6 +485,10 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
                     .map(|(_deposit_root, deposits)| deposits)
             }
         }
+    }
+
+    fn latest_block(&self) -> Option<Eth1Block> {
+        self.core.latest_block()
     }
 
     /// Return encoded byte representation of the block and deposit caches.

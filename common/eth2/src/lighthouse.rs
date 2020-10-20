@@ -142,6 +142,17 @@ impl Health {
     }
 }
 
+/// Indicates how up-to-date the Eth1 caches are.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Eth1SyncStatusData {
+    pub latest_block_number: u64,
+    pub latest_block_timestamp: Option<u64>,
+    pub voting_period_start_timestamp: u64,
+    pub voting_period_start_block_number_estimate: Option<u64>,
+    pub blocks_remaining: Option<u64>,
+    pub progress_percentage: f64,
+}
+
 impl BeaconNodeHttpClient {
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {

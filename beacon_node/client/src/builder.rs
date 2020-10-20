@@ -334,6 +334,7 @@ where
                 chain: self.beacon_chain.clone(),
                 network_tx: self.network_send.clone(),
                 network_globals: self.network_globals.clone(),
+                eth1_service: self.eth1_service.clone(),
                 log: log.clone(),
             });
 
