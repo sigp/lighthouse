@@ -136,7 +136,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => peer_id.to_string(), "reason" => reason.to_string(), "score" => info.score().to_string());
             // Goodbye's are fatal
             info.apply_peer_action_to_score(PeerAction::Fatal);
-            if info.connection_status.is_connected_or_dialing() {
+            if info.is_connected_or_dialing() {
                 self.events
                     .push(PeerManagerEvent::DisconnectPeer(peer_id.clone(), reason));
             }
@@ -161,7 +161,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     ScoreState::Banned => {
                         debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
                         ban_peer = Some(peer_id.clone());
-                        if info.connection_status.is_connected_or_dialing() {
+                        if info.is_connected_or_dialing() {
                             self.events.push(PeerManagerEvent::DisconnectPeer(
                                 peer_id.clone(),
                                 GoodbyeReason::BadScore,
@@ -172,7 +172,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // disconnect the peer if it's currently connected or dialing
                         unban_peer = Some(peer_id.clone());
-                        if info.connection_status.is_connected_or_dialing() {
+                        if info.is_connected_or_dialing() {
                             self.events.push(PeerManagerEvent::DisconnectPeer(
                                 peer_id.clone(),
                                 GoodbyeReason::BadScore,
@@ -273,7 +273,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .read()
             .peer_info(peer_id)
             .and_then(|peer_info| {
-                if let Connected { .. } = peer_info.connection_status {
+                if let Connected { .. } = peer_info.connection_status() {
                     Some(peer_info.client.kind.clone())
                 } else {
                     None
@@ -618,7 +618,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn connect_peer(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
         {
             let mut peerdb = self.network_globals.peers.write();
-            if peerdb.connection_status(peer_id).map(|c| c.is_banned()) == Some(true) {
+            if peerdb.is_banned(&peer_id) {
                 // don't connect if the peer is banned
                 slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => peer_id.to_string());
             }
@@ -686,7 +686,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     ScoreState::Banned => {
                         debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
                         to_ban_peers.push(peer_id.clone());
-                        if info.connection_status.is_connected_or_dialing() {
+                        if info.is_connected_or_dialing() {
                             self.events.push(PeerManagerEvent::DisconnectPeer(
                                 peer_id.clone(),
                                 GoodbyeReason::BadScore,
@@ -697,7 +697,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // disconnect the peer if it's currently connected or dialing
                         to_unban_peers.push(peer_id.clone());
-                        if info.connection_status.is_connected_or_dialing() {
+                        if info.is_connected_or_dialing() {
                             self.events.push(PeerManagerEvent::DisconnectPeer(
                                 peer_id.clone(),
                                 GoodbyeReason::BadScore,

@@ -5,7 +5,7 @@ use crate::multiaddr::{Multiaddr, Protocol};
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use rand::seq::SliceRandom;
-use slog::{crit, debug, trace, warn};
+use slog::{crit, debug, error, trace, warn};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Instant;
@@ -193,16 +193,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Gives the ids of all known connected peers.
     pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
-        self.peers
-            .iter()
-            .filter(|(_, info)| info.connection_status.is_connected())
+        self.peers.iter().filter(|(_, info)| info.is_connected())
     }
 
     /// Gives the ids of all known connected peers.
     pub fn connected_peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(|(_, info)| info.connection_status.is_connected())
+            .filter(|(_, info)| info.is_connected())
             .map(|(peer_id, _)| peer_id)
     }
 
@@ -210,9 +208,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn connected_or_dialing_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(|(_, info)| {
-                info.connection_status.is_connected() || info.connection_status.is_dialing()
-            })
+            .filter(|(_, info)| info.is_connected() || info.is_dialing())
             .map(|(peer_id, _)| peer_id)
     }
 
@@ -222,7 +218,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .iter()
             .filter(|(_, info)| {
                 if info.sync_status.is_synced() || info.sync_status.is_advanced() {
-                    return info.connection_status.is_connected();
+                    return info.is_connected();
                 }
                 false
             })
@@ -233,9 +229,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(move |(_, info)| {
-                info.connection_status.is_connected() && info.on_subnet(subnet_id)
-            })
+            .filter(move |(_, info)| info.is_connected() && info.on_subnet(subnet_id))
             .map(|(peer_id, _)| peer_id)
     }
 
@@ -243,7 +237,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn disconnected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(|(_, info)| info.connection_status.is_disconnected())
+            .filter(|(_, info)| info.is_disconnected())
             .map(|(peer_id, _)| peer_id)
     }
 
@@ -251,7 +245,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn banned_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(|(_, info)| info.connection_status.is_banned())
+            .filter(|(_, info)| info.is_banned())
             .map(|(peer_id, _)| peer_id)
     }
 
@@ -261,7 +255,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let mut connected = self
             .peers
             .iter()
-            .filter(|(_, info)| info.connection_status.is_connected())
+            .filter(|(_, info)| info.is_connected())
             .collect::<Vec<_>>();
 
         connected.shuffle(&mut rand::thread_rng());
@@ -273,12 +267,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// score from highest to lowest, and filtered using `is_status`
     pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<TSpec>)>
     where
-        F: Fn(&PeerConnectionStatus) -> bool,
+        F: Fn(&PeerInfo<TSpec>) -> bool,
     {
         let mut by_status = self
             .peers
             .iter()
-            .filter(|(_, info)| is_status(&info.connection_status))
+            .filter(|(_, info)| is_status(&info))
             .collect::<Vec<_>>();
         by_status.sort_by_key(|(_, info)| info.score());
         by_status.into_iter().rev().collect()
@@ -287,11 +281,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns the peer with highest reputation that satisfies `is_status`
     pub fn best_by_status<F>(&self, is_status: F) -> Option<&PeerId>
     where
-        F: Fn(&PeerConnectionStatus) -> bool,
+        F: Fn(&PeerInfo<TSpec>) -> bool,
     {
         self.peers
             .iter()
-            .filter(|(_, info)| is_status(&info.connection_status))
+            .filter(|(_, info)| is_status(&info))
             .max_by_key(|(_, info)| info.score())
             .map(|(id, _)| id)
     }
@@ -299,7 +293,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns the peer's connection status. Returns unknown if the peer is not in the DB.
     pub fn connection_status(&self, peer_id: &PeerId) -> Option<PeerConnectionStatus> {
         self.peer_info(peer_id)
-            .map(|info| info.connection_status.clone())
+            .map(|info| info.connection_status().clone())
     }
 
     /* Setters */
@@ -308,16 +302,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn dialing_peer(&mut self, peer_id: &PeerId) {
         let info = self.peers.entry(peer_id.clone()).or_default();
 
-        if info.connection_status.is_disconnected() {
+        if info.is_disconnected() {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
 
         self.banned_peers_count
-            .remove_banned_peer(&info.connection_status);
+            .remove_banned_peer(&info.connection_status());
 
-        info.connection_status = PeerConnectionStatus::Dialing {
-            since: Instant::now(),
-        };
+        if let Err(e) = info.dialing_peer() {
+            error!(self.log, "{}", e);
+        }
     }
 
     /// Update min ttl of a peer.
@@ -342,7 +336,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let log = &self.log;
         self.peers.iter_mut()
             .filter(move |(_, info)| {
-                info.connection_status.is_connected() && info.on_subnet(subnet_id)
+                info.is_connected() && info.on_subnet(subnet_id)
             })
             .for_each(|(peer_id,info)| {
                 if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
@@ -360,11 +354,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) {
         let info = self.peers.entry(peer_id.clone()).or_default();
 
-        if info.connection_status.is_disconnected() {
+        if info.is_disconnected() {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
         self.banned_peers_count
-            .remove_banned_peer(&info.connection_status);
+            .remove_banned_peer(&info.connection_status());
         info.connect_ingoing();
 
         // Add the seen ip address to the peer's info
@@ -381,11 +375,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) {
         let info = self.peers.entry(peer_id.clone()).or_default();
 
-        if info.connection_status.is_disconnected() {
+        if info.is_disconnected() {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
         self.banned_peers_count
-            .remove_banned_peer(&info.connection_status);
+            .remove_banned_peer(&info.connection_status());
         info.connect_outgoing();
 
         // Add the seen ip address to the peer's info
@@ -403,8 +397,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         // Note that it could be the case we prevent new nodes from joining. In this instance,
         // we don't bother tracking the new node.
         if let Some(info) = self.peers.get_mut(peer_id) {
-            if !info.connection_status.is_disconnected() && !info.connection_status.is_banned() {
-                info.connection_status.disconnect();
+            if !info.is_disconnected() && !info.is_banned() {
+                info.disconnect();
                 self.disconnected_peers += 1;
             }
             self.shrink_to_fit();
@@ -420,14 +414,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerInfo::default()
         });
 
-        if info.connection_status.is_disconnected() {
+        if info.is_disconnected() {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
         }
-        if !info.connection_status.is_banned() {
-            info.connection_status
-                .ban(info.seen_addresses.iter().cloned().collect());
+        if !info.is_banned() {
+            info.ban(info.seen_addresses.iter().cloned().collect());
             self.banned_peers_count
-                .add_banned_peer(&info.connection_status);
+                .add_banned_peer(&info.connection_status());
         }
         self.shrink_to_fit();
     }
@@ -441,10 +434,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerInfo::default()
         });
 
-        if info.connection_status.is_banned() {
+        if info.is_banned() {
             self.banned_peers_count
-                .remove_banned_peer(&info.connection_status);
-            info.connection_status.unban();
+                .remove_banned_peer(&info.connection_status());
+            info.unban();
         }
         self.shrink_to_fit();
     }
@@ -458,7 +451,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             if let Some(to_drop) = if let Some((id, info)) = self
                 .peers
                 .iter()
-                .filter(|(_, info)| info.connection_status.is_banned())
+                .filter(|(_, info)| info.is_banned())
                 .min_by(|(_, info_a), (_, info_b)| {
                     info_a
                         .score()
@@ -466,7 +459,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 }) {
                 self.banned_peers_count
-                    .remove_banned_peer(&info.connection_status);
+                    .remove_banned_peer(&info.connection_status());
                 Some(id.clone())
             } else {
                 // If there is no minimum, this is a coding error.
@@ -488,7 +481,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             if let Some(to_drop) = self
                 .peers
                 .iter()
-                .filter(|(_, info)| info.connection_status.is_disconnected())
+                .filter(|(_, info)| info.is_disconnected())
                 .min_by(|(_, info_a), (_, info_b)| {
                     info_a
                         .score()
@@ -580,11 +573,8 @@ mod tests {
         assert_eq!(pdb.score(&random_peer).score(), Score::default().score());
         // it should be connected, and therefore not counted as disconnected
         assert_eq!(pdb.disconnected_peers, 0);
-        assert!(peer_info.unwrap().connection_status.is_connected());
-        assert_eq!(
-            peer_info.unwrap().connection_status.connections(),
-            (n_in, n_out)
-        );
+        assert!(peer_info.unwrap().is_connected());
+        assert_eq!(peer_info.unwrap().connections(), (n_in, n_out));
     }
 
     #[test]
@@ -636,7 +626,7 @@ mod tests {
         add_score(&mut pdb, &p2, 50.0);
 
         let best_peers: Vec<&PeerId> = pdb
-            .best_peers_by_status(PeerConnectionStatus::is_connected)
+            .best_peers_by_status(PeerInfo::is_connected)
             .iter()
             .map(|p| p.0)
             .collect();
@@ -657,10 +647,10 @@ mod tests {
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
 
-        let the_best = pdb.best_by_status(PeerConnectionStatus::is_connected);
+        let the_best = pdb.best_by_status(PeerInfo::is_connected);
         assert!(the_best.is_some());
         // Consistency check
-        let best_peers = pdb.best_peers_by_status(PeerConnectionStatus::is_connected);
+        let best_peers = pdb.best_peers_by_status(PeerInfo::is_connected);
         assert_eq!(the_best, best_peers.iter().next().map(|p| p.0));
     }
 
