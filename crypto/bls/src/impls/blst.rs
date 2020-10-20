@@ -119,7 +119,10 @@ impl TPublicKey for blst_core::PublicKey {
         // key_validate accepts uncompressed bytes too so enforce byte length here.
         // It also does subgroup checks, noting infinity check is done in `generic_public_key.rs`.
         if bytes.len() != PUBLIC_KEY_BYTES_LEN {
-            return Err(Error::InvalidByteLength{got: bytes.len(), expected: PUBLIC_KEY_BYTES_LEN})
+            return Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: PUBLIC_KEY_BYTES_LEN,
+            });
         }
         Self::key_validate(&bytes).map_err(Into::into)
     }
