@@ -613,7 +613,6 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_headers = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("headers"))
-        //TODO: should this be after the path ends?
         .and(warp::query::<api_types::HeadersQuery>())
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -1383,7 +1382,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    //TODO: I can't get this working
     // GET validator/blocks/{slot}
     let get_validator_blocks = eth1_v1
         .and(warp::path("validator"))
