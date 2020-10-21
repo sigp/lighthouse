@@ -10,6 +10,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::marker::PhantomData;
+use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
 use types::{
@@ -19,6 +20,9 @@ use types::{
 
 type BlockNumber = u64;
 type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
+
+/// We will declare ourself synced with the Eth1 chain, even if we are this many blocks behind.
+const ETH1_SYNC_TOLERANCE: u64 = 8;
 
 #[derive(Debug)]
 pub enum Error {
@@ -55,11 +59,12 @@ impl From<safe_arith::ArithError> for Error {
 }
 
 fn get_sync_status<T: EthSpec>(
-    latest_block: Option<&Eth1Block>,
+    latest_cached_block: Option<&Eth1Block>,
+    head_block: Option<&Eth1Block>,
     genesis_time: u64,
     current_slot: Slot,
     spec: &ChainSpec,
-) -> Eth1SyncStatusData {
+) -> Option<Eth1SyncStatusData> {
     let period = T::SlotsPerEth1VotingPeriod::to_u64();
     let voting_period_start_slot = (current_slot / period) * period;
     let voting_period_start_timestamp = {
@@ -75,46 +80,47 @@ fn get_sync_status<T: EthSpec>(
         period_start.saturating_sub(eth1_follow_distance_seconds)
     };
 
-    if let Some(block) = latest_block {
-        let seconds_till_period_start =
-            voting_period_start_timestamp.saturating_sub(block.timestamp);
-        let blocks_till_period_start = seconds_till_period_start
-            .checked_div(spec.seconds_per_eth1_block)
-            .unwrap_or(0);
-        let voting_period_start_block_number_estimate =
-            block.number.saturating_add(blocks_till_period_start);
+    let latest_cached_block_number = latest_cached_block.map(|b| b.number);
+    let latest_cached_block_timestamp = latest_cached_block.map(|b| b.timestamp);
+    let head_block_number = head_block.map(|b| b.number);
+    let head_block_timestamp = head_block.map(|b| b.timestamp);
 
-        let progress_percentage = {
-            let part = f64::from(block.number as u32);
-            let whole = f64::from(voting_period_start_block_number_estimate as u32);
+    let eth1_node_sync_status_percentage = if let Some(head_block) = head_block {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+        let head_age = now.saturating_sub(head_block.timestamp);
+
+        if head_age < ETH1_SYNC_TOLERANCE * spec.seconds_per_eth1_block {
+            100.0
+        } else {
+            let blocks_behind = head_age
+                .checked_div(spec.seconds_per_eth1_block)
+                .unwrap_or(0);
+
+            let part = f64::from(head_block.number as u32);
+            let whole = f64::from(head_block.number.saturating_add(blocks_behind) as u32);
 
             if whole > 0.0 {
                 (part / whole) * 100.0
             } else {
                 0.0
             }
-        };
-
-        Eth1SyncStatusData {
-            latest_block_number: block.number,
-            latest_block_timestamp: block.timestamp,
-            voting_period_start_timestamp,
-            voting_period_start_block_number_estimate: Some(
-                block.number + blocks_till_period_start,
-            ),
-            blocks_remaining: Some(blocks_till_period_start),
-            progress_percentage,
         }
     } else {
-        Eth1SyncStatusData {
-            latest_block_number: 0,
-            latest_block_timestamp: 0,
-            voting_period_start_timestamp,
-            voting_period_start_block_number_estimate: None,
-            blocks_remaining: None,
-            progress_percentage: 0.0,
-        }
-    }
+        0.0
+    };
+
+    let lighthouse_is_cached_and_ready =
+        latest_cached_block_timestamp.map_or(false, |t| t >= voting_period_start_timestamp);
+
+    Some(Eth1SyncStatusData {
+        head_block_number,
+        head_block_timestamp,
+        latest_cached_block_number,
+        latest_cached_block_timestamp,
+        voting_period_start_timestamp,
+        eth1_node_sync_status_percentage,
+        lighthouse_is_cached_and_ready,
+    })
 }
 
 #[derive(Encode, Decode, Clone)]
@@ -213,9 +219,10 @@ where
         genesis_time: u64,
         current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Eth1SyncStatusData {
+    ) -> Option<Eth1SyncStatusData> {
         get_sync_status::<E>(
-            self.backend.latest_block().as_ref(),
+            self.backend.latest_cached_block().as_ref(),
+            self.backend.head_block().as_ref(),
             genesis_time,
             current_slot,
             spec,
@@ -276,7 +283,11 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
 
     /// Returns the latest block stored in the cache. Used to obtain an idea of how up-to-date the
     /// eth1 cache is.
-    fn latest_block(&self) -> Option<Eth1Block>;
+    fn latest_cached_block(&self) -> Option<Eth1Block>;
+
+    /// Returns the block at the head of the chain (ignoring follow distance, etc). Used to obtain
+    /// an idea of how up-to-date the node is.
+    fn head_block(&self) -> Option<Eth1Block>;
 
     /// Encode the `Eth1ChainBackend` instance to bytes.
     fn as_bytes(&self) -> Vec<u8>;
@@ -324,7 +335,11 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
         Ok(vec![])
     }
 
-    fn latest_block(&self) -> Option<Eth1Block> {
+    fn latest_cached_block(&self) -> Option<Eth1Block> {
+        None
+    }
+
+    fn head_block(&self) -> Option<Eth1Block> {
         None
     }
 
@@ -487,8 +502,12 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
         }
     }
 
-    fn latest_block(&self) -> Option<Eth1Block> {
-        self.core.latest_block()
+    fn latest_cached_block(&self) -> Option<Eth1Block> {
+        self.core.latest_cached_block()
+    }
+
+    fn head_block(&self) -> Option<Eth1Block> {
+        self.core.head_block()
     }
 
     /// Return encoded byte representation of the block and deposit caches.

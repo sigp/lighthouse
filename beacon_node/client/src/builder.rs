@@ -591,7 +591,7 @@ where
                 })?
         };
 
-        self.eth1_service = None;
+        self.eth1_service = Some(backend.core.clone());
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
         backend.start(context.executor);

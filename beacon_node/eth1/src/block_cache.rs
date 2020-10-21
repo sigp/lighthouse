@@ -1,6 +1,7 @@
 use ssz_derive::{Decode, Encode};
 use std::ops::RangeInclusive;
-use types::{Eth1Data, Hash256};
+
+pub use eth2::lighthouse::Eth1Block;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -13,28 +14,6 @@ pub enum Error {
     NonConsecutive { given: u64, expected: u64 },
     /// Some invariant was violated, there is a likely bug in the code.
     Internal(String),
-}
-
-/// A block of the eth1 chain.
-///
-/// Contains all information required to add a `BlockCache` entry.
-#[derive(Debug, PartialEq, Clone, Eq, Hash, Encode, Decode)]
-pub struct Eth1Block {
-    pub hash: Hash256,
-    pub timestamp: u64,
-    pub number: u64,
-    pub deposit_root: Option<Hash256>,
-    pub deposit_count: Option<u64>,
-}
-
-impl Eth1Block {
-    pub fn eth1_data(self) -> Option<Eth1Data> {
-        Some(Eth1Data {
-            deposit_root: self.deposit_root?,
-            deposit_count: self.deposit_count?,
-            block_hash: self.hash,
-        })
-    }
 }
 
 /// Stores block and deposit contract information and provides queries based upon the block
@@ -191,6 +170,7 @@ impl BlockCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use types::Hash256;
 
     fn get_block(i: u64, interval_secs: u64) -> Eth1Block {
         Eth1Block {

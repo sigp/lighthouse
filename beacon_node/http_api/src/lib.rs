@@ -1661,8 +1661,54 @@ pub fn serve<T: BeaconChainTypes>(
                             "Eth1 sync is disabled. See the --eth1 CLI flag."
                         ))
                     })
-                    .map(|eth1| eth1.sync_status(head_info.genesis_time, current_slot, &chain.spec))
+                    .and_then(|eth1| {
+                        eth1.sync_status(head_info.genesis_time, current_slot, &chain.spec)
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "Unable to determine Eth1 sync status"
+                                ))
+                            })
+                    })
                     .map(api_types::GenericResponse::from)
+            })
+        });
+
+    // GET lighthouse/eth1/block_cache
+    let get_lighthouse_eth1_block_cache = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("block_cache"))
+        .and(warp::path::end())
+        .and(eth1_service_filter.clone())
+        .and_then(|eth1_service: eth1::Service| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    eth1_service
+                        .blocks()
+                        .read()
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                ))
+            })
+        });
+
+    // GET lighthouse/eth1/deposit_cache
+    let get_lighthouse_eth1_deposit_cache = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("deposit_cache"))
+        .and(warp::path::end())
+        .and(eth1_service_filter.clone())
+        .and_then(|eth1_service: eth1::Service| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    eth1_service
+                        .deposits()
+                        .read()
+                        .cache
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                ))
             })
         });
 
@@ -1706,6 +1752,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_validator_inclusion_global.boxed())
                 .or(get_lighthouse_validator_inclusion.boxed())
                 .or(get_lighthouse_eth1_syncing.boxed())
+                .or(get_lighthouse_eth1_block_cache.boxed())
+                .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .boxed(),
         )
         .or(warp::post()

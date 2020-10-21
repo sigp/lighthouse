@@ -6,7 +6,6 @@ use crate::{
         get_block, get_block_number, get_deposit_logs_in_range, get_network_id, Eth1NetworkId, Log,
     },
     inner::{DepositUpdater, Inner},
-    DepositLog,
 };
 use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -207,8 +206,19 @@ impl Service {
         self.inner.block_cache.read().latest_block_timestamp()
     }
 
+    /// Returns the latest head block returned from an Eth1 node.
+    ///
+    /// ## Note
+    ///
+    /// This is the simply the head of the Eth1 chain, with no regard to follow distance or the
+    /// voting period start.
     pub fn head_block(&self) -> Option<Eth1Block> {
         self.inner.remote_head_block.read().as_ref().cloned()
+    }
+
+    /// Returns the latest cached block.
+    pub fn latest_cached_block(&self) -> Option<Eth1Block> {
+        self.inner.block_cache.read().latest_block().cloned()
     }
 
     /// Returns the lowest block number stored.
@@ -503,7 +513,7 @@ impl Service {
             log_chunk
                 .iter()
                 .map(|raw_log| {
-                    DepositLog::from_log(&raw_log, self.inner.spec()).map_err(|error| {
+                    raw_log.to_deposit_log(self.inner.spec()).map_err(|error| {
                         Error::FailedToParseDepositLog {
                             block_range: block_range.clone(),
                             error,

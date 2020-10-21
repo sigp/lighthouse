@@ -2,10 +2,11 @@
 
 use crate::{
     types::{Epoch, EthSpec, GenericResponse, ValidatorId},
-    BeaconNodeHttpClient, Error,
+    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256,
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -145,12 +146,45 @@ impl Health {
 /// Indicates how up-to-date the Eth1 caches are.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Eth1SyncStatusData {
-    pub latest_block_number: u64,
-    pub latest_block_timestamp: Option<u64>,
+    pub head_block_number: Option<u64>,
+    pub head_block_timestamp: Option<u64>,
+    pub latest_cached_block_number: Option<u64>,
+    pub latest_cached_block_timestamp: Option<u64>,
     pub voting_period_start_timestamp: u64,
-    pub voting_period_start_block_number_estimate: Option<u64>,
-    pub blocks_remaining: Option<u64>,
-    pub progress_percentage: f64,
+    pub eth1_node_sync_status_percentage: f64,
+    pub lighthouse_cached_and_ready: bool,
+}
+
+/// A fully parsed eth1 deposit contract log.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct DepositLog {
+    pub deposit_data: DepositData,
+    /// The block number of the log that included this `DepositData`.
+    pub block_number: u64,
+    /// The index included with the deposit log.
+    pub index: u64,
+    /// True if the signature is valid.
+    pub signature_is_valid: bool,
+}
+
+/// A block of the eth1 chain.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct Eth1Block {
+    pub hash: Hash256,
+    pub timestamp: u64,
+    pub number: u64,
+    pub deposit_root: Option<Hash256>,
+    pub deposit_count: Option<u64>,
+}
+
+impl Eth1Block {
+    pub fn eth1_data(self) -> Option<Eth1Data> {
+        Some(Eth1Data {
+            deposit_root: self.deposit_root?,
+            deposit_count: self.deposit_count?,
+            block_hash: self.hash,
+        })
+    }
 }
 
 impl BeaconNodeHttpClient {
