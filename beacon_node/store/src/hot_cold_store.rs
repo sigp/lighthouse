@@ -5,6 +5,7 @@ use crate::config::StoreConfig;
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
+use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
@@ -16,6 +17,7 @@ use crate::{
     get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
     StoreOp,
 };
+use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use slog::{debug, error, info, trace, warn, Logger};
@@ -100,6 +102,9 @@ pub enum HotColdDBError {
         slots_per_epoch: u64,
     },
     RestorePointBlockHashError(BeaconStateError),
+    IterationError {
+        unexpected_key: BytesKey,
+    },
 }
 
 impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
@@ -181,7 +186,34 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             );
             *db.split.write() = split;
         }
+
+        // Finally, run a garbage collection pass.
+        db.remove_garbage()?;
+
         Ok(db)
+    }
+
+    /// Return an iterator over the state roots of all temporary states.
+    pub fn iter_temporary_state_roots<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = Result<Hash256, Error>> + 'a {
+        let column = DBColumn::BeaconStateTemporary;
+        let start_key =
+            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+
+        let keys_iter = self.hot_db.keys_iter();
+        keys_iter.seek(&start_key);
+
+        keys_iter
+            .take_while(move |key| key.matches_column(column))
+            .map(move |bytes_key| {
+                bytes_key.remove_column(column).ok_or_else(|| {
+                    HotColdDBError::IterationError {
+                        unexpected_key: bytes_key,
+                    }
+                    .into()
+                })
+            })
     }
 }
 
@@ -420,7 +452,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         get_key_for_col(DBColumn::BeaconStateSummary.into(), state_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(state_summary_key));
 
-                    if *slot % E::slots_per_epoch() == 0 {
+                    if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
                         let state_key =
                             get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(state_key));
@@ -954,7 +986,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         store.cold_db.do_atomically(cold_db_ops)?;
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
-        hot_db_ops.push(StoreOp::DeleteState(state_root.into(), slot));
+        hot_db_ops.push(StoreOp::DeleteState(state_root.into(), Some(slot)));
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an

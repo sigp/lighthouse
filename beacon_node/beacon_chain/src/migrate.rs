@@ -441,7 +441,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .chain(
                 abandoned_states
                     .into_iter()
-                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash.into(), slot)),
+                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash.into(), Some(slot))),
             )
             .collect();
 

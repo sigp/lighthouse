@@ -15,6 +15,7 @@ pub mod chunked_vector;
 pub mod config;
 pub mod errors;
 mod forwards_iter;
+mod garbage_collection;
 pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
@@ -127,7 +128,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
-    DeleteState(Hash256, Slot),
+    DeleteState(Hash256, Option<Slot>),
 }
 
 /// A unique column identifier.
@@ -176,6 +177,16 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconRandaoMixes => "brm",
             DBColumn::DhtEnrs => "dht",
         }
+    }
+}
+
+impl DBColumn {
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
+
+    pub fn as_bytes(self) -> &'static [u8] {
+        self.as_str().as_bytes()
     }
 }
 
