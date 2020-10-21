@@ -48,7 +48,7 @@ pub enum PeerAction {
     /// An error occurred with this peer but it is not necessarily malicious.
     /// We have high tolerance for this actions: several occurrences are needed for a peer to get
     /// kicked.
-    /// NOTE: ~15 occurrences will get the peer banned
+    /// NOTE: ~50 occurrences will get the peer banned
     HighToleranceError,
     /// Received an expected message.
     _ValidMessage,
