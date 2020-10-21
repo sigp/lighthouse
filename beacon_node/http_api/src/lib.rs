@@ -1643,7 +1643,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("eth1"))
         .and(warp::path("syncing"))
         .and(warp::path::end())
-        .and(chain_filter.clone())
+        .and(chain_filter)
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let head_info = chain
@@ -1657,16 +1657,16 @@ pub fn serve<T: BeaconChainTypes>(
                     .eth1_chain
                     .as_ref()
                     .ok_or_else(|| {
-                        warp_utils::reject::custom_not_found(format!(
-                            "Eth1 sync is disabled. See the --eth1 CLI flag."
-                        ))
+                        warp_utils::reject::custom_not_found(
+                            "Eth1 sync is disabled. See the --eth1 CLI flag.".to_string(),
+                        )
                     })
                     .and_then(|eth1| {
                         eth1.sync_status(head_info.genesis_time, current_slot, &chain.spec)
                             .ok_or_else(|| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "Unable to determine Eth1 sync status"
-                                ))
+                                warp_utils::reject::custom_server_error(
+                                    "Unable to determine Eth1 sync status".to_string(),
+                                )
                             })
                     })
                     .map(api_types::GenericResponse::from)
@@ -1697,7 +1697,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("eth1"))
         .and(warp::path("deposit_cache"))
         .and(warp::path::end())
-        .and(eth1_service_filter.clone())
+        .and(eth1_service_filter)
         .and_then(|eth1_service: eth1::Service| {
             blocking_json_task(move || {
                 Ok(api_types::GenericResponse::from(

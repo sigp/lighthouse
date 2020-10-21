@@ -401,6 +401,7 @@ dependencies = [
  "derivative",
  "environment",
  "eth1",
+ "eth2",
  "eth2_config",
  "eth2_hashing",
  "eth2_ssz",
