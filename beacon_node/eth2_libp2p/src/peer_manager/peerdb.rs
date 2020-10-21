@@ -229,6 +229,19 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Gives the `peer_id` of all known connected and advanced peers.
+    pub fn advanced_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(|(_, info)| {
+                if info.sync_status.is_advanced() {
+                    return info.connection_status.is_connected();
+                }
+                false
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Gives an iterator of all peers on a given subnet.
     pub fn peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
         self.peers
