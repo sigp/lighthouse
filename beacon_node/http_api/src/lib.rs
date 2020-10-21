@@ -1625,7 +1625,7 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // GET lighthouse/beacon/state/{state_id}/ssz
+    // GET lighthouse/beacon/states/{state_id}/ssz
     let get_lighthouse_beacon_states_ssz = warp::path("lighthouse")
         .and(warp::path("beacon"))
         .and(warp::path("states"))

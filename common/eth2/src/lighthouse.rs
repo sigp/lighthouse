@@ -246,7 +246,7 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET lighthouse/beacon/states/{epoch}/ssz`
+    /// `GET lighthouse/beacon/states/{state_id}/ssz`
     pub async fn get_lighthouse_beacon_states_ssz<E: EthSpec>(
         &self,
         state_id: &StateId,
