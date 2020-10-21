@@ -403,7 +403,7 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // GET beacon/states/{state_id}/validators
+    // GET beacon/states/{state_id}/validators?id,status
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
@@ -414,7 +414,7 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let id_predicate = |index: &u64, validator: &Validator| match query.id.as_ref()
                     {
-                        Some(ids) => ids.iter().any(|id| match &id {
+                        Some(ids) => ids.0.iter().any(|id| match &id {
                             ValidatorId::PublicKey(param_pubkey) => {
                                 validator.pubkey == *param_pubkey
                             }
@@ -425,6 +425,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let status_predicate =
                         |validator_status: &ValidatorStatus| match query.status.as_ref() {
                             Some(statuses) => statuses
+                                .0
                                 .iter()
                                 .any(|param_status| param_status == validator_status),
                             None => true,
