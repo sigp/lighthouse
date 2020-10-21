@@ -8,10 +8,12 @@ impl<E> HotColdDB<E, LevelDB<E>, LevelDB<E>>
 where
     E: EthSpec,
 {
+    /// Clean up the database by performing one-off maintenance at start-up.
     pub fn remove_garbage(&self) -> Result<(), Error> {
         self.delete_temp_states()
     }
 
+    /// Delete the temporary states that were leftover by failed block imports.
     pub fn delete_temp_states(&self) -> Result<(), Error> {
         let delete_ops =
             self.iter_temporary_state_roots()

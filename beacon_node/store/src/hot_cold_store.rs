@@ -12,7 +12,6 @@ use crate::metadata::{
     SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
-use crate::schema_change;
 use crate::{
     get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
     StoreOp,
@@ -163,7 +162,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "from_version" => schema_version.as_u64(),
                 "to_version" => CURRENT_SCHEMA_VERSION.as_u64(),
             );
-            schema_change::migrate_schema(&db, schema_version, CURRENT_SCHEMA_VERSION)?;
+            db.migrate_schema(schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
             db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
         }
@@ -533,11 +532,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
-        if let Some(TemporaryFlag) = self.load_state_temporary_flag(state_root)? {
+        // If the state is marked as temporary, do not return it. It will become visible
+        // only once its transaction commits and deletes its temporary flag.
+        if self.load_state_temporary_flag(state_root)?.is_some() {
             return Ok(None);
         }
 
-        // FIXME(sproul): could use snapshot here to read state from same source as temp flag
         if let Some(HotStateSummary {
             slot,
             latest_block_root,
@@ -986,7 +986,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         store.cold_db.do_atomically(cold_db_ops)?;
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
-        hot_db_ops.push(StoreOp::DeleteState(state_root.into(), Some(slot)));
+        hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
