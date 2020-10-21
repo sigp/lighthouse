@@ -214,16 +214,16 @@ impl<T: EthSpec> PeerInfo<T> {
     /// Modifies the status to Dialing
     /// Returns an error if the current state is unexpected.
     pub(crate) fn dialing_peer(&mut self) -> Result<(), &'static str> {
+        match &mut self.connection_status {
+            Connected { .. } => return Err("Dialing connected peer"),
+            Dialing { .. } => return Err("Dialing an already dialing peer"),
+            Disconnecting { .. } => return Err("Dialing a disconnecting peer"),
+            Disconnected { .. } | Banned { .. } | Unknown => {}
+        }
         self.connection_status = Dialing {
             since: Instant::now(),
         };
-
-        match &mut self.connection_status {
-            Connected { .. } => return Err("Dialing connected peer"),
-            Dialing { .. } => return Err("Dialing and already dialing peer"),
-            Disconnecting { .. } => return Err("Dialing a disconnecting peer"),
-            Disconnected { .. } | Banned { .. } | Unknown => return Ok(()),
-        }
+        return Ok(());
     }
 
     /// Modifies the status to Connected and increases the number of ingoing
