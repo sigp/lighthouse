@@ -152,7 +152,7 @@ pub struct Eth1SyncStatusData {
     pub latest_cached_block_timestamp: Option<u64>,
     pub voting_period_start_timestamp: u64,
     pub eth1_node_sync_status_percentage: f64,
-    pub lighthouse_cached_and_ready: bool,
+    pub lighthouse_is_cached_and_ready: bool,
 }
 
 /// A fully parsed eth1 deposit contract log.
@@ -263,6 +263,51 @@ impl BeaconNodeHttpClient {
             .push("validator_inclusion")
             .push(&epoch.to_string())
             .push(&validator_id.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/eth1/syncing`
+    pub async fn get_lighthouse_eth1_syncing(
+        &self,
+    ) -> Result<GenericResponse<Eth1SyncStatusData>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("eth1")
+            .push("syncing");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/eth1/block_cache`
+    pub async fn get_lighthouse_eth1_block_cache(
+        &self,
+    ) -> Result<GenericResponse<Vec<Eth1Block>>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("eth1")
+            .push("block_cache");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/eth1/deposit_cache`
+    pub async fn get_lighthouse_eth1_deposit_cache(
+        &self,
+    ) -> Result<GenericResponse<Vec<DepositLog>>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("eth1")
+            .push("deposit_cache");
 
         self.get(path).await
     }
