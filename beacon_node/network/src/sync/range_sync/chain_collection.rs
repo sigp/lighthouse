@@ -240,13 +240,12 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         .head_chains
                         .get(id)
                         .ok_or(format!("Head syncing chain not found: {}", id))?;
-                    range = range.map(|(min_start, max_slot)| {
-                        (
-                            min_start
-                                .min(chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch())),
-                            max_slot.max(chain.target_head_slot),
-                        )
-                    });
+                    let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                    let target = chain.target_head_slot;
+
+                    range = range
+                        .map(|(min_start, max_slot)| (min_start.min(start), max_slot.max(target)))
+                        .or(Some((start, target)));
                 }
                 let (start_slot, target_slot) =
                     range.ok_or_else(|| "Syncing head with empty head ids".to_string())?;

@@ -670,7 +670,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
-                debug!(self.log, "Error getting range sync state"; "error" => %e);
+                crit!(self.log, "Error getting range sync state"; "error" => %e);
                 return;
             }
             Ok(state) => match state {
