@@ -139,6 +139,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         matches!(self.connection_status(peer_id), Some(PeerConnectionStatus::Connected { .. })
              | Some(PeerConnectionStatus::Dialing { .. }))
     }
+
+    /// If we are connected or in the process of disconnecting
+    pub fn is_connected_or_disconnecting(&self, peer_id: &PeerId) -> bool {
+        matches!(self.connection_status(peer_id), Some(PeerConnectionStatus::Connected { .. })
+             | Some(PeerConnectionStatus::Disconnecting { .. }))
+    }
+
     /// Returns true if the peer is synced at least to our current head.
     pub fn is_synced(&self, peer_id: &PeerId) -> bool {
         match self.peers.get(peer_id).map(|info| &info.sync_status) {

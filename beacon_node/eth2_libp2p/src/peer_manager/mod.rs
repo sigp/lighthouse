@@ -29,7 +29,7 @@ mod peer_sync_status;
 mod peerdb;
 pub(crate) mod score;
 
-pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
+pub use peer_info::{PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ScoreState};
 use std::collections::HashMap;
@@ -155,12 +155,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        // NOTE: This is duplicated in the update_peer_scores() and could be improved.
-
-        // Variables to update the PeerDb if required.
-        //let mut ban_peer = None;
-        //let mut unban_peer = None;
-
         let mut peer_db = self.network_globals.peers.write();
         if let Some(info) = peer_db.peer_info_mut(peer_id) {
             let previous_state = info.score_state();
@@ -169,14 +163,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 match info.score_state() {
                     ScoreState::Banned => {
                         debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
-                        //ban_peer = Some(peer_id.clone());
                         drop(peer_db);
                         self.ban_peer(&peer_id);
                     }
                     ScoreState::Disconnected => {
                         debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // disconnect the peer if it's currently connected or dialing
-                        //unban_peer = Some(peer_id.clone());
                         if info.is_connected_or_dialing() {
                             self.events.push(PeerManagerEvent::DisconnectPeer(
                                 peer_id.clone(),
@@ -198,15 +190,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 debug!(self.log, "Peer score adjusted"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
             }
         }
-
-        /*
-        // Update the PeerDB state.
-        if let Some(peer_id) = ban_peer.take() {
-            self.ban_peer(&peer_id);
-        } else if let Some(peer_id) = unban_peer.take() {
-            self.unban_peer(&peer_id);
-        }
-        */
     }
 
     /* Discovery Requests */
@@ -277,27 +260,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
-        // Decrement the PEERS_PER_CLIENT metric
-        if let Some(kind) = self
-            .network_globals
-            .peers
-            .read()
-            .peer_info(peer_id)
-            .and_then(|peer_info| {
-                if !peer_info.is_banned() && !peer_info.is_disconnected() {
-                    Some(peer_info.client.kind.clone())
-                } else {
-                    None
-                }
-            })
-        {
-            if let Some(v) =
-                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-            {
-                v.dec()
-            };
-        }
-
         self.network_globals
             .peers
             .write()
@@ -306,11 +268,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // remove the ping and status timer for the peer
         self.ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
-        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
     }
 
     /// A dial attempt has failed.
