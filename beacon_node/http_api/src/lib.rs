@@ -1414,8 +1414,8 @@ pub fn serve<T: BeaconChainTypes>(
     let get_validator_attestation_data = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("attestation_data"))
-        .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(warp::path::end())
+        .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and_then(
@@ -1434,8 +1434,8 @@ pub fn serve<T: BeaconChainTypes>(
     let get_validator_aggregate_attestation = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("aggregate_attestation"))
-        .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(warp::path::end())
+        .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and_then(
