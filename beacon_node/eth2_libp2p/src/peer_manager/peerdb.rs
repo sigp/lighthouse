@@ -423,7 +423,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Marks a peer to be disconnected and then banned.
-    pub fn disconnect_and_ban(&mut self, peer_id: &PeerId) {
+    /// Returns true if the peer is currently connected and false otherwise.
+    pub fn disconnect_and_ban(&mut self, peer_id: &PeerId) -> bool {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
@@ -431,18 +432,42 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerInfo::default()
         });
 
-        if info.is_disconnected() {
-            // This should not be possible.
-            error!(log_ref, "Banning a disconnected peer"; "peer_id" => %peer_id);
-            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        // Check and verify all the connection states
+        match info.connection_status() {
+            PeerConnectionStatus::Disconnected { .. } => {
+                // It should not be possible to ban a peer that is already disconnected.
+                error!(log_ref, "Banning a disconnected peer"; "peer_id" => %peer_id);
+                self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+                info.ban();
+                self.banned_peers_count
+                    .add_banned_peer(&info.seen_addresses);
+                false
+            }
+            PeerConnectionStatus::Disconnecting { .. } => {
+                warn!(log_ref, "Banning peer that is currently disconnecting"; "peer_id" => %peer_id);
+                info.disconnecting(true);
+                false
+            }
+            PeerConnectionStatus::Banned { .. } => {
+                error!(log_ref, "Banning already banned peer"; "peer_id" => %peer_id);
+                false
+            }
+            PeerConnectionStatus::Connected { .. } | PeerConnectionStatus::Dialing { .. } => {
+                self.banned_peers_count
+                    .add_banned_peer(&info.seen_addresses);
+                // update the state
+                info.disconnecting(true);
+                true
+            }
+            PeerConnectionStatus::Unknown => {
+                // shift the peer straight to banned
+                warn!(log_ref, "Banning a peer of unknown connection state"; "peer_id" => %peer_id);
+                self.banned_peers_count
+                    .add_banned_peer(&info.seen_addresses);
+                info.ban();
+                false
+            }
         }
-
-        if info.is_banned() {
-            error!(log_ref, "Banning already banned peer"; "peer_id" => %peer_id);
-            return;
-        }
-
-        info.disconnecting(true);
     }
 
     /// Unbans a peer.
@@ -463,7 +488,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .remove_banned_peer(&info.seen_addresses);
         info.unban();
         // This transitions a banned peer to a disconnected peer
-        self.disconnected_peers.saturating_add(1);
+        self.disconnected_peers = self.disconnected_peers.saturating_add(1);
         self.shrink_to_fit();
     }
 
@@ -631,7 +656,7 @@ mod tests {
 
         for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
             pdb.disconnect_and_ban(&p);
-            pdb.disconnect(&p);
+            pdb.notify_disconnect(&p);
         }
 
         assert_eq!(pdb.banned_peers_count.banned_peers(), MAX_BANNED_PEERS);
@@ -693,28 +718,29 @@ mod tests {
         pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
-        pdb.disconnect(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
 
         pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
-        pdb.disconnect(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
 
-        pdb.ban(&random_peer);
+        pdb.disconnect_and_ban(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
-        pdb.disconnect(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
 
-        pdb.disconnect(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
-        pdb.disconnect(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         dbg!("1");
     }
@@ -739,15 +765,17 @@ mod tests {
         );
 
         pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
-        pdb.disconnect(&random_peer1);
-        pdb.ban(&random_peer2);
+        pdb.notify_disconnect(&random_peer1);
+        pdb.disconnect_and_ban(&random_peer2);
+        pdb.notify_disconnect(&random_peer2);
         pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
-        pdb.ban(&random_peer1);
+        pdb.disconnect_and_ban(&random_peer1);
+        pdb.notify_disconnect(&random_peer1);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -760,37 +788,41 @@ mod tests {
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
-        pdb.ban(&random_peer3);
+        pdb.disconnect_and_ban(&random_peer3);
+        pdb.notify_disconnect(&random_peer3);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
 
-        pdb.ban(&random_peer3);
+        pdb.disconnect_and_ban(&random_peer3);
+        pdb.notify_disconnect(&random_peer3);
         pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0".parse().unwrap());
-        pdb.disconnect(&random_peer2);
-        pdb.ban(&random_peer3);
+        pdb.notify_disconnect(&random_peer2);
+        pdb.disconnect_and_ban(&random_peer3);
+        pdb.notify_disconnect(&random_peer3);
         pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
-        pdb.disconnect(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
 
-        pdb.disconnect(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
-        pdb.ban(&random_peer);
+        pdb.disconnect_and_ban(&random_peer);
+        pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
     }
 
@@ -834,7 +866,8 @@ mod tests {
         let p5 = connect_peer_with_ips(&mut pdb, vec![ip5]);
 
         for p in &peers[..BANNED_PEERS_PER_IP_THRESHOLD + 1] {
-            pdb.ban(p);
+            pdb.disconnect_and_ban(p);
+            pdb.notify_disconnect(p);
         }
 
         //check that ip1 and ip2 are banned but ip3-5 not
@@ -845,7 +878,8 @@ mod tests {
         assert!(!pdb.is_banned(&p5));
 
         //ban also the last peer in peers
-        pdb.ban(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1]);
+        pdb.disconnect_and_ban(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1]);
+        pdb.notify_disconnect(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1]);
 
         //check that ip1-ip4 are banned but ip5 not
         assert!(pdb.is_banned(&p1));
@@ -892,7 +926,8 @@ mod tests {
 
         // ban all peers
         for p in &peers {
-            pdb.ban(p);
+            pdb.disconnect_and_ban(p);
+            pdb.notify_disconnect(p);
         }
 
         // check ip is banned
@@ -920,7 +955,8 @@ mod tests {
         // unban and reban all peers
         for p in &peers {
             pdb.unban(p);
-            pdb.ban(p);
+            pdb.disconnect_and_ban(p);
+            pdb.notify_disconnect(p);
         }
 
         // ip2 is now banned
@@ -937,7 +973,8 @@ mod tests {
         // reban every peer except one
         for p in &peers[1..] {
             pdb.unban(p);
-            pdb.ban(p);
+            pdb.disconnect_and_ban(p);
+            pdb.notify_disconnect(p);
         }
 
         // nothing is banned
@@ -946,7 +983,8 @@ mod tests {
 
         //reban last peer
         pdb.unban(&peers[0]);
-        pdb.ban(&peers[0]);
+        pdb.disconnect_and_ban(&peers[0]);
+        pdb.notify_disconnect(&peers[0]);
 
         //ip1 is banned
         assert!(pdb.is_banned(&p1));

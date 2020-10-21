@@ -863,10 +863,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         // If the peer manager (and therefore the behaviour's) believe this peer connected, inform
         // about the disconnection.
 
-        let peer_db = self.network_globals.peers.read();
-
-        if peer_db.is_connected(&peer_id) | peer_db.is_banned
-
+        let _peer_db = self.network_globals.peers.read();
 
         if self.network_globals.peers.read().is_connected(&peer_id) {
             delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
@@ -929,7 +926,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             self.peers_to_dc
                 .push_back((peer_id.clone(), Some(goodbye_reason)));
             // Notify the peer manager that we disconnecting from this peer.
-            self.peer_manager.disconnecting(&peer_id);
+            //self.peer_manager.notify_disconnecting(&peer_id);
             return;
         }
 
