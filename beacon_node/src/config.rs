@@ -270,6 +270,7 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
+    client_config.eth1.network_id = spec.deposit_network_id.into();
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
