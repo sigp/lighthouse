@@ -1106,6 +1106,7 @@ mod release_tests {
         assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
     }
 
+    //Max coverage checking that non overlapping indices are still recognized for their value
     #[test]
     fn max_coverage_different_indices_set() {
         let ctxt = TestContext::new();
@@ -1131,5 +1132,36 @@ mod release_tests {
 
         let best_slashings = op_pool.get_slashings(state, spec);
         assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
+    }
+
+    //Max coverage should be affected by the overall effective balances
+    #[test]
+    fn max_coverage_effective_balances() {
+        let mut ctxt = TestContext::new();
+        ctxt.state.validators[1].effective_balance = 17_000_000_000;
+        ctxt.state.validators[2].effective_balance = 17_000_000_000;
+        ctxt.state.validators[3].effective_balance = 17_000_000_000;
+
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+
+        let slashing_1 = ctxt.attester_slashing(&[1, 2, 3]);
+        let slashing_2 = ctxt.attester_slashing(&[4, 5, 6]);
+        let slashing_3 = ctxt.attester_slashing(&[7, 8]);
+
+        op_pool.insert_attester_slashing(
+            slashing_1.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_2.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+        op_pool.insert_attester_slashing(
+            slashing_3.clone().validate(state, spec).unwrap(),
+            state.fork,
+        );
+
+        let best_slashings = op_pool.get_slashings(state, spec);
+        assert_eq!(best_slashings.1, vec![slashing_2, slashing_3]);
     }
 }
