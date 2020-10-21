@@ -223,7 +223,7 @@ impl<T: EthSpec> PeerInfo<T> {
         self.connection_status = Dialing {
             since: Instant::now(),
         };
-        return Ok(());
+        Ok(())
     }
 
     /// Modifies the status to Connected and increases the number of ingoing
