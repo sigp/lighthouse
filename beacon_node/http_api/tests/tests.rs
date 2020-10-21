@@ -1065,7 +1065,7 @@ impl ApiTester {
         let expected = PeerData {
             peer_id: self.external_peer_id.to_string(),
             enr: None,
-            address: EXTERNAL_ADDR.to_string(),
+            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
         };
@@ -1081,7 +1081,7 @@ impl ApiTester {
         let expected = PeerData {
             peer_id: self.external_peer_id.to_string(),
             enr: None,
-            address: EXTERNAL_ADDR.to_string(),
+            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
         };

@@ -1239,7 +1239,7 @@ pub fn serve<T: BeaconChainTypes>(
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
-                                address,
+                                last_seen_p2p_address: address,
                                 direction: api_types::PeerDirection::from_connection_direction(
                                     &dir,
                                 ),
@@ -1281,7 +1281,7 @@ pub fn serve<T: BeaconChainTypes>(
                             peers.push(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
-                                address,
+                                last_seen_p2p_address: address,
                                 direction: api_types::PeerDirection::from_connection_direction(
                                     &dir,
                                 ),

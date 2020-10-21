@@ -425,7 +425,7 @@ pub struct BeaconCommitteeSubscription {
 pub struct PeerData {
     pub peer_id: String,
     pub enr: Option<String>,
-    pub address: String,
+    pub last_seen_p2p_address: String,
     pub state: PeerState,
     pub direction: PeerDirection,
 }
