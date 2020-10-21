@@ -90,8 +90,8 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         id: MessageId,
         /// The peer from which we received this message, not the peer that published it.
         source: PeerId,
-        /// The topics that this message was sent on.
-        topics: Vec<TopicHash>,
+        /// The topic that this message was sent on.
+        topic: TopicHash,
         /// The message itself.
         message: PubsubMessage<TSpec>,
     },
@@ -537,7 +537,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                match PubsubMessage::decode(&gs_msg.topics, gs_msg.data()) {
+                match PubsubMessage::decode(&gs_msg.topic, gs_msg.data()) {
                     Err(e) => {
                         debug!(self.log, "Could not decode gossipsub message"; "error" => e);
                         //reject the message
@@ -554,7 +554,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         self.add_event(BehaviourEvent::PubsubMessage {
                             id,
                             source: propagation_source,
-                            topics: gs_msg.topics,
+                            topic: gs_msg.topic,
                             message: msg,
                         });
                     }
