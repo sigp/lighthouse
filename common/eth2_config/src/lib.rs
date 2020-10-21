@@ -7,7 +7,7 @@ use types::ChainSpec;
 #[macro_export]
 macro_rules! testnets_dir {
     () => {
-        "testnet_configs"
+        "built_in_testnet_configs"
     };
 }
 
