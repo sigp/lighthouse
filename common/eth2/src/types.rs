@@ -211,6 +211,7 @@ pub struct ValidatorData {
 //
 // https://hackmd.io/bQxMDRt1RbS1TLno8K4NPg?view
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ValidatorStatus {
     Unknown,
     WaitingForEligibility,
@@ -287,27 +288,6 @@ impl FromStr for ValidatorStatus {
             "withdrawable" => Ok(ValidatorStatus::Withdrawable),
             "withdrawn" => Ok(ValidatorStatus::Withdrawn),
             _ => Err(format!("{} cannot be parsed as a validator status.", s)),
-        }
-    }
-}
-
-impl fmt::Display for ValidatorStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ValidatorStatus::Unknown => write!(f, "unknown"),
-            ValidatorStatus::WaitingForEligibility => write!(f, "waiting_for_eligibility"),
-            ValidatorStatus::WaitingForFinality => write!(f, "waiting_for_finality"),
-            ValidatorStatus::WaitingInQueue => write!(f, "waiting_in_queue"),
-            ValidatorStatus::StandbyForActive => write!(f, "standby_for_active"),
-            ValidatorStatus::Active => write!(f, "active"),
-            ValidatorStatus::ActiveAwaitingVoluntaryExit => {
-                write!(f, "active_awaiting_voluntary_exit")
-            }
-            ValidatorStatus::ActiveAwaitingSlashedExit => write!(f, "active_awaiting_slashed_exit"),
-            ValidatorStatus::ExitedVoluntarily => write!(f, "exited_voluntarily"),
-            ValidatorStatus::ExitedSlashed => write!(f, "exited_slashed"),
-            ValidatorStatus::Withdrawable => write!(f, "withdrawable"),
-            ValidatorStatus::Withdrawn => write!(f, "withdrawn"),
         }
     }
 }
