@@ -361,6 +361,8 @@ impl ChainSpec {
             milliseconds_per_slot: 6_000,
             safe_slots_to_update_justified: 2,
             network_id: 2, // lighthouse testnet network id
+            deposit_chain_id: 5,
+            deposit_network_id: 5,
             boot_nodes,
             ..ChainSpec::mainnet()
         }
