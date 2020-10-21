@@ -1,8 +1,8 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
+use eth1::DepositCache;
 use eth1::{Config, Service};
-use eth1::{DepositCache, DepositLog};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::compat::Future01CompatExt;
 use merkle_proof::verify_merkle_proof;
@@ -477,7 +477,7 @@ mod deposit_tree {
         let logs: Vec<_> = blocking_deposit_logs(&eth1, 0..block_number)
             .await
             .iter()
-            .map(|raw| DepositLog::from_log(raw, spec).expect("should parse deposit log"))
+            .map(|raw| raw.to_deposit_log(spec).expect("should parse deposit log"))
             .inspect(|log| {
                 tree.insert_log(log.clone())
                     .expect("should add consecutive logs")
