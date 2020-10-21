@@ -291,7 +291,7 @@ pub fn serve<T: BeaconChainTypes>(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| async move {
                 match *network_globals.sync_state.read() {
                     SyncState::SyncingFinalized { .. } => {
-                        let head_slot = chain.slot().map_err(warp_utils::reject::beacon_chain_error)?;
+                        let head_slot = chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)?;
 
                         let current_slot = chain
                             .slot_clock
