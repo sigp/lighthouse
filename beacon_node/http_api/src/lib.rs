@@ -28,6 +28,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::{crit, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use state_id::StateId;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
@@ -41,7 +42,7 @@ use types::{
     Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
-use warp::Filter;
+use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
 
 const API_PREFIX: &str = "eth";
@@ -1768,11 +1769,35 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::param::<Epoch>())
         .and(warp::path("global"))
         .and(warp::path::end())
-        .and(chain_filter)
+        .and(chain_filter.clone())
         .and_then(|epoch: Epoch, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 validator_inclusion::global_validator_inclusion_data(epoch, &chain)
                     .map(api_types::GenericResponse::from)
+            })
+        });
+
+    // GET lighthouse/beacon/states/{state_id}/ssz
+    let get_lighthouse_beacon_states_ssz = warp::path("lighthouse")
+        .and(warp::path("beacon"))
+        .and(warp::path("states"))
+        .and(warp::path::param::<StateId>())
+        .and(warp::path("ssz"))
+        .and(warp::path::end())
+        .and(chain_filter)
+        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
+            blocking_task(move || {
+                let state = state_id.state(&chain)?;
+                Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/ssz")
+                    .body(state.as_ssz_bytes())
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to create response: {}",
+                            e
+                        ))
+                    })
             })
         });
 
@@ -1818,6 +1843,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_proto_array.boxed())
                 .or(get_lighthouse_validator_inclusion_global.boxed())
                 .or(get_lighthouse_validator_inclusion.boxed())
+                .or(get_lighthouse_beacon_states_ssz.boxed())
                 .boxed(),
         )
         .or(warp::post()

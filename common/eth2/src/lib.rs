@@ -40,6 +40,8 @@ pub enum Error {
     MissingSignatureHeader,
     /// The server returned an invalid JSON response.
     InvalidJson(serde_json::Error),
+    /// The server returned an invalid SSZ response.
+    InvalidSsz(ssz::DecodeError),
 }
 
 impl Error {
@@ -54,6 +56,7 @@ impl Error {
             Error::InvalidSignatureHeader => None,
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
+            Error::InvalidSsz(_) => None,
         }
     }
 }

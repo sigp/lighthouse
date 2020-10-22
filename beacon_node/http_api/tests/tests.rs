@@ -1571,6 +1571,23 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_get_lighthouse_beacon_states_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let result = self
+                .client
+                .get_lighthouse_beacon_states_ssz(&state_id)
+                .await
+                .unwrap();
+
+            let mut expected = self.get_state(state_id);
+            expected.as_mut().map(|state| state.drop_all_caches());
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
 }
 
 #[tokio::test(core_threads = 2)]
@@ -1871,5 +1888,7 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_validator_inclusion()
         .await
         .test_get_lighthouse_validator_inclusion_global()
+        .await
+        .test_get_lighthouse_beacon_states_ssz()
         .await;
 }
