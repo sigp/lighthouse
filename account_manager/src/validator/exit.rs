@@ -100,7 +100,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
         );
     }
     let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
-        .ok_or_else(|| format!("Failed to get current epoch. Please check your system time"))?;
+        .ok_or_else(|| "Failed to get current epoch. Please check your system time".to_string())?;
 
     let fork = get_beacon_state_fork(client).await?;
 

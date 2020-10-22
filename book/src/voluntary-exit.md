@@ -23,18 +23,11 @@ To understand the phased rollout strategy for Eth2, please visit <https://ethere
 
 In order to initiate an exit, users can use the `lighthouse account validator exit` command.
 
-The `--validator` flag is used to specify the validator for which the user wants to initiate an exit transaction.
+The `--keystore` flag is used to specify the path to the EIP-2335 voting keystore for the validator.
 
 The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Eth2.0 Standard API](https://ethereum.github.io/eth2.0-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
 
 The `--testnet` flag is used to specify a particular testnet (default is `medalla`).
-
-The `exit` command will search for the provided validator in the `validators-dir` (default `~/.lighthouse/{testnet}/validators`) directory and for the validator's password file in `secrets-dir` (default `  ~/.lighthouse/{testnet}/secrets`).
-
-If the corresponding password file is not found in the `secrets-dir`, the user will be prompted for a password on the terminal.
-
-[//]: # (Word this better or remove datadir part entirely)
-Alternately, users can specify custom directories using  `--validator-dir` and `--secrets-dir` flags or a custom parent directory using `--datadir`.
 
 After validating the password, the user will be prompted to enter a special exit phrase as a final confirmation after which the voluntary exit will be published to the beacon chain.
 
@@ -43,10 +36,10 @@ The exit phrase is the following:
 
 
 
-Below is an example for initiating a voluntary exit for validator `0xabcd` on the zinken testnet.
+Below is an example for initiating a voluntary exit on the zinken testnet.
 
 ```
-$ lighthouse --testnet zinken account validator exit --validator 0xabcd --beacon-node http://localhost:5052
+$ lighthouse --testnet zinken account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
 
 Running account manager for zinken testnet
 validator-dir path: ~/.lighthouse/zinken/validators
