@@ -444,7 +444,7 @@ impl ApiTester {
                         let mut validators = Vec::with_capacity(validator_indices.len());
 
                         for i in validator_indices {
-                            if i >= state.validators.len() as u64{
+                            if i >= state.validators.len() as u64 {
                                 continue;
                             }
                             let validator = state.validators[i as usize].clone();
