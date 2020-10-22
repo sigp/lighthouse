@@ -3,6 +3,7 @@ use super::score::{PeerAction, Score, ScoreState};
 use super::PeerSyncStatus;
 use crate::rpc::MetaData;
 use crate::Multiaddr;
+use discv5::Enr;
 use serde::{
     ser::{SerializeStruct, Serializer},
     Serialize,
@@ -46,6 +47,8 @@ pub struct PeerInfo<T: EthSpec> {
     /// Direction of the first connection of the last (or current) connected session with this peer.
     /// None if this peer was never connected.
     pub connection_direction: Option<ConnectionDirection>,
+    /// The enr of the peer, if known.
+    pub enr: Option<Enr>,
 }
 
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
@@ -62,6 +65,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             min_ttl: None,
             is_trusted: false,
             connection_direction: None,
+            enr: None,
         }
     }
 }

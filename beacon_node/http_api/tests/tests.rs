@@ -8,7 +8,7 @@ use eth2::{types::*, BeaconNodeHttpClient, Url};
 use eth2_libp2p::{
     rpc::methods::MetaData,
     types::{EnrBitfield, SyncState},
-    NetworkGlobals,
+    Enr, EnrExt, NetworkGlobals, PeerId,
 };
 use http_api::{Config, Context};
 use network::NetworkMessage;
@@ -23,6 +23,7 @@ use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
     EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
+use warp::http::StatusCode;
 
 type E = MainnetEthSpec;
 
@@ -31,6 +32,10 @@ const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5;
 const JUSTIFIED_EPOCH: u64 = 4;
 const FINALIZED_EPOCH: u64 = 3;
+const TCP_PORT: u16 = 42;
+const UDP_PORT: u16 = 42;
+const SEQ_NUMBER: u64 = 0;
+const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0";
 
 /// Skipping the slots around the epoch boundary allows us to check that we're obtaining states
 /// from skipped slots for the finalized and justified checkpoints (instead of the state from the
@@ -53,6 +58,8 @@ struct ApiTester {
     _server_shutdown: oneshot::Sender<()>,
     validator_keypairs: Vec<Keypair>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    local_enr: Enr,
+    external_peer_id: PeerId,
 }
 
 impl ApiTester {
@@ -139,12 +146,24 @@ impl ApiTester {
 
         // Default metadata
         let meta_data = MetaData {
-            seq_number: 0,
-            attnets: EnrBitfield::<MinimalEthSpec>::default(),
+            seq_number: SEQ_NUMBER,
+            attnets: EnrBitfield::<MainnetEthSpec>::default(),
         };
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-        let network_globals = NetworkGlobals::new(enr, 42, 42, meta_data, vec![], &log);
+        let enr_clone = enr.clone();
+        let network_globals = NetworkGlobals::new(enr, TCP_PORT, UDP_PORT, meta_data, vec![], &log);
+
+        let peer_id = PeerId::random();
+        network_globals.peers.write().connect_ingoing(
+            &peer_id,
+            EXTERNAL_ADDR.parse().unwrap(),
+            None,
+        );
+        //TODO: have to update this once #1764 is resolved
+        if let Some(peer_info) = network_globals.peers.write().peer_info_mut(&peer_id) {
+            peer_info.listening_addresses = vec![EXTERNAL_ADDR.parse().unwrap()];
+        }
 
         *network_globals.sync_state.write() = SyncState::Synced;
 
@@ -190,6 +209,8 @@ impl ApiTester {
             _server_shutdown: shutdown_tx,
             validator_keypairs: harness.validator_keypairs,
             network_rx,
+            local_enr: enr_clone,
+            external_peer_id: peer_id,
         }
     }
 
@@ -1004,6 +1025,69 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_node_identity(self) -> Self {
+        let result = self.client.get_node_identity().await.unwrap().data;
+
+        let expected = IdentityData {
+            peer_id: self.local_enr.peer_id().to_string(),
+            enr: self.local_enr.clone(),
+            p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
+            discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
+            metadata: eth2::types::MetaData {
+                seq_number: 0,
+                attnets: "0x0000000000000000".to_string(),
+            },
+        };
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    pub async fn test_get_node_health(self) -> Self {
+        let status = self.client.get_node_health().await.unwrap();
+        assert_eq!(status, StatusCode::OK);
+
+        self
+    }
+
+    pub async fn test_get_node_peers_by_id(self) -> Self {
+        let result = self
+            .client
+            .get_node_peers_by_id(self.external_peer_id.clone())
+            .await
+            .unwrap()
+            .data;
+
+        let expected = PeerData {
+            peer_id: self.external_peer_id.to_string(),
+            enr: None,
+            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
+            state: PeerState::Connected,
+            direction: PeerDirection::Inbound,
+        };
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    pub async fn test_get_node_peers(self) -> Self {
+        let result = self.client.get_node_peers().await.unwrap().data;
+
+        let expected = PeerData {
+            peer_id: self.external_peer_id.to_string(),
+            enr: None,
+            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
+            state: PeerState::Connected,
+            direction: PeerDirection::Inbound,
+        };
+
+        assert_eq!(result, vec![expected]);
+
+        self
+    }
+
     pub async fn test_get_debug_beacon_states(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let result = self
@@ -1660,6 +1744,14 @@ async fn node_get() {
         .test_get_node_version()
         .await
         .test_get_node_syncing()
+        .await
+        .test_get_node_identity()
+        .await
+        .test_get_node_health()
+        .await
+        .test_get_node_peers_by_id()
+        .await
+        .test_get_node_peers()
         .await;
 }
 

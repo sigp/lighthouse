@@ -240,13 +240,12 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         .head_chains
                         .get(id)
                         .ok_or(format!("Head syncing chain not found: {}", id))?;
-                    range = range.map(|(min_start, max_slot)| {
-                        (
-                            min_start
-                                .min(chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch())),
-                            max_slot.max(chain.target_head_slot),
-                        )
-                    });
+                    let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                    let target = chain.target_head_slot;
+
+                    range = range
+                        .map(|(min_start, max_slot)| (min_start.min(start), max_slot.max(target)))
+                        .or(Some((start, target)));
                 }
                 let (start_slot, target_slot) =
                     range.ok_or_else(|| "Syncing head with empty head ids".to_string())?;
@@ -348,45 +347,37 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             return;
         }
 
-        // NOTE: if switching from Head Syncing to Finalized Syncing, the head chains are allowed
-        // to continue, so we check for such chains first, and allow them to continue.
-        let mut syncing_chains = SmallVec::<[u64; PARALLEL_HEAD_CHAINS]>::new();
-        for (id, chain) in self.head_chains.iter_mut() {
-            if chain.is_syncing() {
-                if syncing_chains.len() < PARALLEL_HEAD_CHAINS {
-                    syncing_chains.push(*id);
-                } else {
-                    chain.stop_syncing();
-                    debug!(self.log, "Stopping extra head chain"; "chain" => id);
-                }
-            }
-        }
+        // Order chains by available peers, if two chains have the same number of peers, prefer one
+        // that is already syncing
+        let mut preferred_ids = self
+            .head_chains
+            .iter()
+            .map(|(id, chain)| (chain.available_peers(), !chain.is_syncing(), *id))
+            .collect::<Vec<_>>();
+        preferred_ids.sort_unstable();
 
-        let mut not_syncing = self.head_chains.len() - syncing_chains.len();
-        // Find all head chains that are not currently syncing ordered by peer count.
-        while syncing_chains.len() < PARALLEL_HEAD_CHAINS && not_syncing > 0 {
-            // Find the chain with the most peers and start syncing
-            if let Some((id, chain)) = self
-                .head_chains
-                .iter_mut()
-                .filter(|(_id, chain)| !chain.is_syncing())
-                .max_by_key(|(_id, chain)| chain.available_peers())
-            {
-                // start syncing this chain
-                debug!(self.log, "New head chain started syncing"; &chain);
+        let mut syncing_chains = SmallVec::<[u64; PARALLEL_HEAD_CHAINS]>::new();
+        for (_, _, id) in preferred_ids {
+            let chain = self.head_chains.get_mut(&id).expect("known chain");
+            if syncing_chains.len() < PARALLEL_HEAD_CHAINS {
+                // start this chain if it's not already syncing
+                if !chain.is_syncing() {
+                    debug!(self.log, "New head chain started syncing"; &chain);
+                }
                 if let ProcessingResult::RemoveChain =
                     chain.start_syncing(network, local_epoch, local_head_epoch)
                 {
-                    let id = *id;
                     self.head_chains.remove(&id);
                     error!(self.log, "Chain removed while switching head chains"; "id" => id);
                 } else {
-                    syncing_chains.push(*id);
+                    syncing_chains.push(id);
                 }
+            } else {
+                // stop any other chain
+                chain.stop_syncing();
             }
-            // update variables
-            not_syncing = self.head_chains.len() - syncing_chains.len();
         }
+
         self.state = if syncing_chains.is_empty() {
             RangeSyncState::Idle
         } else {
