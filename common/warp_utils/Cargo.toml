@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-warp = "0.2.5"
+warp = { git = "https://github.com/paulhauner/warp", branch = "cors-wildcard" }
 eth2 = { path = "../eth2" }
 types = { path = "../../consensus/types" }
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
@@ -15,3 +15,4 @@ state_processing = { path = "../../consensus/state_processing" }
 safe_arith = { path = "../../consensus/safe_arith" }
 serde = { version = "1.0.116", features = ["derive"] }
 tokio = { version = "0.2.22", features = ["sync"] }
+headers = "0.3.2"

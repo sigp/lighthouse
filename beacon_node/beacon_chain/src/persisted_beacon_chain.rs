@@ -4,16 +4,19 @@ use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::Hash256;
 
+/// Dummy value to use for the canonical head block root, see below.
+pub const DUMMY_CANONICAL_HEAD_BLOCK_ROOT: Hash256 = Hash256::repeat_byte(0xff);
+
 #[derive(Clone, Encode, Decode)]
 pub struct PersistedBeaconChain {
     /// This value is ignored to resolve the issue described here:
     ///
     /// https://github.com/sigp/lighthouse/pull/1639
     ///
-    /// The following PR will clean-up and remove this field:
+    /// Its removal is tracked here:
     ///
-    /// https://github.com/sigp/lighthouse/pull/1638
-    pub canonical_head_block_root: Hash256,
+    /// https://github.com/sigp/lighthouse/issues/1784
+    pub _canonical_head_block_root: Hash256,
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
 }

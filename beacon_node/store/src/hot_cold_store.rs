@@ -55,11 +55,11 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     split: RwLock<Split>,
     config: StoreConfig,
     /// Cold database containing compact historical data.
-    pub(crate) cold_db: Cold,
+    pub cold_db: Cold,
     /// Hot database containing duplicated but quick-to-access recent data.
     ///
     /// The hot database also contains all blocks.
-    pub(crate) hot_db: Hot,
+    pub hot_db: Hot,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -386,11 +386,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.exists::<I>(key)
     }
 
-    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
-        let mut guard = self.block_cache.lock();
-
-        let mut key_value_batch: Vec<KeyValueStoreOp> = Vec::with_capacity(batch.len());
-        for op in &batch {
+    /// Convert a batch of `StoreOp` to a batch of `KeyValueStoreOp`.
+    pub fn convert_to_kv_batch(&self, batch: &[StoreOp<E>]) -> Result<Vec<KeyValueStoreOp>, Error> {
+        let mut key_value_batch = Vec::with_capacity(batch.len());
+        for op in batch {
             match op {
                 StoreOp::PutBlock(block_hash, block) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
@@ -430,7 +429,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
             }
         }
-        self.hot_db.do_atomically(key_value_batch)?;
+        Ok(key_value_batch)
+    }
+
+    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
+        let mut guard = self.block_cache.lock();
+
+        self.hot_db
+            .do_atomically(self.convert_to_kv_batch(&batch)?)?;
 
         for op in &batch {
             match op {

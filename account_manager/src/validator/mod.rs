@@ -1,5 +1,4 @@
 pub mod create;
-pub mod deposit;
 pub mod exit;
 pub mod import;
 pub mod list;
@@ -30,7 +29,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("datadir"),
         )
         .subcommand(create::cli_app())
-        .subcommand(deposit::cli_app())
         .subcommand(import::cli_app())
         .subcommand(list::cli_app())
         .subcommand(recover::cli_app())
@@ -49,7 +47,6 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
 
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, validator_base_dir),
-        (deposit::CMD, Some(matches)) => deposit::cli_run::<T>(matches, env, validator_base_dir),
         (import::CMD, Some(matches)) => import::cli_run(matches, validator_base_dir),
         (list::CMD, Some(_)) => list::cli_run(validator_base_dir),
         (recover::CMD, Some(matches)) => recover::cli_run(matches, validator_base_dir),

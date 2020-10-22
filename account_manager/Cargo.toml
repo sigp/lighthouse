@@ -11,7 +11,6 @@ slog = "2.5.2"
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 types = { path = "../consensus/types" }
-state_processing = { path = "../consensus/state_processing" }
 dirs = "3.0.1"
 environment = { path = "../lighthouse/environment" }
 deposit_contract = { path = "../common/deposit_contract" }
@@ -21,7 +20,6 @@ eth2_ssz_derive = "0.1.0"
 hex = "0.4.2"
 rayon = "1.4.1"
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
-web3 = "0.11.0"
 futures = { version = "0.3.5", features = ["compat"] }
 clap_utils = { path = "../common/clap_utils" }
 directory = { path = "../common/directory" }

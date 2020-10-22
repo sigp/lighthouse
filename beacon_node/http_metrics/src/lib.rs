@@ -87,7 +87,19 @@ pub fn serve<T: BeaconChainTypes>(
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
     let log = ctx.log.clone();
-    let allow_origin = config.allow_origin.clone();
+
+    // Configure CORS.
+    let cors_builder = {
+        let builder = warp::cors()
+            .allow_method("GET")
+            .allow_headers(vec!["Content-Type"]);
+
+        warp_utils::cors::set_builder_origins(
+            builder,
+            config.allow_origin.as_deref(),
+            (config.listen_addr, config.listen_port),
+        )?
+    };
 
     // Sanity check.
     if !config.enabled {
@@ -115,8 +127,7 @@ pub fn serve<T: BeaconChainTypes>(
         })
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        // Maybe add some CORS headers.
-        .map(move |reply| warp_utils::reply::maybe_cors(reply, allow_origin.as_ref()));
+        .with(cors_builder.build());
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
         SocketAddrV4::new(config.listen_addr, config.listen_port),

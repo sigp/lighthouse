@@ -10,3 +10,4 @@ mod sync_type;
 pub use batch::BatchInfo;
 pub use chain::{BatchId, ChainId, EPOCHS_PER_BATCH};
 pub use range::RangeSync;
+pub use sync_type::RangeSyncType;
