@@ -9,10 +9,11 @@ use eth2::{
     BeaconNodeHttpClient, Url,
 };
 use eth2_testnet_config::Eth2TestnetConfig;
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::SafeArith;
+use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-use types::{ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, VoluntaryExit};
+use std::time::Duration;
+use types::{ChainSpec, Epoch, EthSpec, Fork, Hash256, VoluntaryExit};
 use validator_dir::{Manager as ValidatorManager, ValidatorDir};
 
 pub const CMD: &str = "exit";
@@ -157,7 +158,7 @@ async fn publish_voluntary_exits<E: EthSpec>(
         );
     }
     let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
-        .map_err(|e| format!("Failed to get current epoch: {:?}", e))?;
+        .ok_or_else(|| format!("Failed to get current epoch. Please check your system time"))?;
 
     let fork = get_beacon_state_fork(client).await?;
 
@@ -312,17 +313,13 @@ async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, St
 }
 
 /// Calculates the current epoch from the genesis time and current time.
-fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Result<Epoch, ArithError> {
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("UNIX EPOCH should always be lower than current time")
-        .as_secs();
-
-    let elapsed = current_time.safe_sub(genesis_time)?;
-    let seconds_per_slot = spec.milliseconds_per_slot.safe_div(1000)?;
-
-    let current_slot = Slot::new(elapsed.safe_div(seconds_per_slot)?);
-    Ok(current_slot.epoch(E::slots_per_epoch()))
+fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
+    let slot_clock = SystemTimeSlotClock::new(
+        spec.genesis_slot,
+        Duration::from_secs(genesis_time),
+        Duration::from_millis(spec.milliseconds_per_slot),
+    );
+    slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
 
 /// Load the voting keypair by loading the keystore and decrypting the keystore
@@ -405,33 +402,4 @@ fn read_voting_keystore_path(
         }
         Ok(())
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use slot_clock::{SlotClock, SystemTimeSlotClock};
-    use std::time::Duration;
-    use types::MinimalEthSpec;
-
-    type E = MinimalEthSpec;
-    const GENESIS_TIME: u64 = 1602504013;
-
-    #[test]
-    fn test_get_current_epoch() {
-        let spec = E::default_spec();
-
-        let slot_clock = SystemTimeSlotClock::new(
-            spec.genesis_slot,
-            Duration::from_secs(GENESIS_TIME),
-            Duration::from_millis(spec.milliseconds_per_slot),
-        );
-        let expected_epoch = slot_clock
-            .now()
-            .map(|s| s.epoch(E::slots_per_epoch()))
-            .unwrap();
-        let epoch = get_current_epoch::<E>(GENESIS_TIME, &spec).unwrap();
-
-        assert_eq!(expected_epoch, epoch);
-    }
 }

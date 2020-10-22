@@ -35,6 +35,4 @@ account_utils = { path = "../common/account_utils" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
 eth2 = {path = "../common/eth2"}
 safe_arith = {path = "../consensus/safe_arith"}
-
-[dev-dependencies]
 slot_clock = { path = "../common/slot_clock" }
