@@ -292,6 +292,27 @@ impl FromStr for ValidatorStatus {
     }
 }
 
+impl fmt::Display for ValidatorStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ValidatorStatus::Unknown => write!(f, "unknown"),
+            ValidatorStatus::WaitingForEligibility => write!(f, "waiting_for_eligibility"),
+            ValidatorStatus::WaitingForFinality => write!(f, "waiting_for_finality"),
+            ValidatorStatus::WaitingInQueue => write!(f, "waiting_in_queue"),
+            ValidatorStatus::StandbyForActive => write!(f, "standby_for_active"),
+            ValidatorStatus::Active => write!(f, "active"),
+            ValidatorStatus::ActiveAwaitingVoluntaryExit => {
+                write!(f, "active_awaiting_voluntary_exit")
+            }
+            ValidatorStatus::ActiveAwaitingSlashedExit => write!(f, "active_awaiting_slashed_exit"),
+            ValidatorStatus::ExitedVoluntarily => write!(f, "exited_voluntarily"),
+            ValidatorStatus::ExitedSlashed => write!(f, "exited_slashed"),
+            ValidatorStatus::Withdrawable => write!(f, "withdrawable"),
+            ValidatorStatus::Withdrawn => write!(f, "withdrawn"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct CommitteesQuery {
     pub slot: Option<Slot>,

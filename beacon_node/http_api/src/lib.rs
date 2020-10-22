@@ -17,7 +17,6 @@ use beacon_chain::{
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
-use eth2::types::ValidatorStatus;
 use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
@@ -40,7 +39,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
     Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, Slot, Validator, YamlConfig,
+    SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
 use warp::Filter;
 use warp_utils::task::{blocking_json_task, blocking_task};
@@ -412,24 +411,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
                 blocking_json_task(move || {
-                    let id_predicate = |index: &u64, validator: &Validator| match query.id.as_ref()
-                    {
-                        Some(ids) => ids.0.iter().any(|id| match &id {
-                            ValidatorId::PublicKey(param_pubkey) => {
-                                validator.pubkey == *param_pubkey
-                            }
-                            ValidatorId::Index(param_index) => index == param_index,
-                        }),
-                        None => true,
-                    };
-                    let status_predicate =
-                        |validator_status: &ValidatorStatus| match query.status.as_ref() {
-                            Some(statuses) => statuses
-                                .0
-                                .iter()
-                                .any(|param_status| param_status == validator_status),
-                            None => true,
-                        };
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
@@ -441,26 +422,42 @@ pub fn serve<T: BeaconChainTypes>(
                                 .iter()
                                 .zip(state.balances.iter())
                                 .enumerate()
-                                .filter_map(|(index, (validator, balance))| {
-                                    let status = api_types::ValidatorStatus::from_validator(
+                                // filter by validator id(s) if provided
+                                .filter(|(index, (validator, _))| {
+                                    query.id.as_ref().map_or(true, |ids| {
+                                        ids.0.iter().any(|id| match id {
+                                            ValidatorId::PublicKey(pubkey) => {
+                                                &validator.pubkey == pubkey
+                                            }
+                                            ValidatorId::Index(param_index) => {
+                                                *param_index == *index as u64
+                                            }
+                                        })
+                                    })
+                                })
+                                // filter by status(es) if provided
+                                .filter(|(_, (validator, _))| {
+                                    query.status.as_ref().map_or(true, |statuses| {
+                                        statuses.0.contains(
+                                            &api_types::ValidatorStatus::from_validator(
+                                                Some(validator),
+                                                epoch,
+                                                finalized_epoch,
+                                                far_future_epoch,
+                                            ),
+                                        )
+                                    })
+                                })
+                                .map(|(index, (validator, balance))| api_types::ValidatorData {
+                                    index: index as u64,
+                                    balance: *balance,
+                                    status: api_types::ValidatorStatus::from_validator(
                                         Some(validator),
                                         epoch,
                                         finalized_epoch,
                                         far_future_epoch,
-                                    );
-
-                                    if id_predicate(&(index as u64), validator)
-                                        && status_predicate(&status)
-                                    {
-                                        Some(api_types::ValidatorData {
-                                            index: index as u64,
-                                            balance: *balance,
-                                            status,
-                                            validator: validator.clone(),
-                                        })
-                                    } else {
-                                        None
-                                    }
+                                    ),
+                                    validator: validator.clone(),
                                 })
                                 .collect::<Vec<_>>())
                         })
@@ -553,12 +550,12 @@ pub fn serve<T: BeaconChainTypes>(
                             .map_err(BeaconChainError::BeaconStateError)
                             .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                        // Use either the supplied slot or all slots in the epoch.
+// Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {
                             epoch.slot_iter(T::EthSpec::slots_per_epoch()).collect()
                         });
 
-                        // Use either the supplied committee index or all available indices.
+// Use either the supplied committee index or all available indices.
                         let indices = query.index.map(|index| vec![index]).unwrap_or_else(|| {
                             (0..committee_cache.committees_per_slot()).collect()
                         });
@@ -566,8 +563,8 @@ pub fn serve<T: BeaconChainTypes>(
                         let mut response = Vec::with_capacity(slots.len() * indices.len());
 
                         for slot in slots {
-                            // It is not acceptable to query with a slot that is not within the
-                            // specified epoch.
+// It is not acceptable to query with a slot that is not within the
+// specified epoch.
                             if slot.epoch(T::EthSpec::slots_per_epoch()) != epoch {
                                 return Err(warp_utils::reject::custom_bad_request(format!(
                                     "{} is not in epoch {}",
@@ -742,9 +739,9 @@ pub fn serve<T: BeaconChainTypes>(
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
                             info!(
-                                log,
-                                "Valid block from HTTP API";
-                                "root" => format!("{}", root)
+                            log,
+                            "Valid block from HTTP API";
+                            "root" => format! ("{}", root)
                             );
 
                             // Update the head since it's likely this block will become the new
@@ -758,9 +755,9 @@ pub fn serve<T: BeaconChainTypes>(
                         Err(e) => {
                             let msg = format!("{:?}", e);
                             error!(
-                                log,
-                                "Invalid block provided to HTTP API";
-                                "reason" => &msg
+                            log,
+                            "Invalid block provided to HTTP API";
+                            "reason" => & msg
                             );
                             Err(warp_utils::reject::broadcast_without_import(msg))
                         }
@@ -1727,9 +1724,9 @@ pub fn serve<T: BeaconChainTypes>(
     )?;
 
     info!(
-        log,
-        "HTTP API started";
-        "listen_address" => listening_socket.to_string(),
+    log,
+    "HTTP API started";
+    "listen_address" => listening_socket.to_string(),
     );
 
     Ok((listening_socket, server))

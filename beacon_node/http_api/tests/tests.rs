@@ -392,7 +392,7 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result = self
                 .client
-                .get_beacon_states_validators(state_id)
+                .get_beacon_states_validators(state_id, None, None)
                 .await
                 .unwrap()
                 .map(|res| res.data);
