@@ -56,7 +56,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
         (slashing_protection::CMD, Some(matches)) => {
             slashing_protection::cli_run(matches, env, validator_base_dir)
         }
-        (exit::CMD, Some(matches)) => exit::cli_run(matches, env, validator_base_dir),
+        (exit::CMD, Some(matches)) => exit::cli_run(matches, env),
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown
