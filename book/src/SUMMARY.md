@@ -1,11 +1,11 @@
 # Summary
 
 * [Introduction](./intro.md)
-* [Become a Validator](./become-a-validator.md)
-    * [Using Docker](./become-a-validator-docker.md)
-    * [Building from Source](./become-a-validator-source.md)
+* [Become a Testnet Validator](./testnet-validator.md)
 * [Installation](./installation.md)
+    * [Pre-Built Binaries](./installation-binaries.md)
     * [Docker](./docker.md)
+    * [Build from Source](./installation-source.md)
     * [Raspberry Pi 4](./pi.md)
     * [Cross-Compiling](./cross-compiling.md)
 * [Key Management](./key-management.md)
@@ -14,6 +14,7 @@
     * [Key recovery](./key-recovery.md)
 * [Validator Management](./validator-management.md)
 	* [Importing from the Eth2 Launchpad](./validator-import-launchpad.md)
+    * [Slashing Protection](./slashing-protection.md)
 * [APIs](./api.md)
 	* [Beacon Node API](./api-bn.md)
 		* [/lighthouse](./api-lighthouse.md)

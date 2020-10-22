@@ -12,6 +12,33 @@ use types::{
     SignedBeaconBlock, SignedVoluntaryExit,
 };
 
+#[derive(Clone)]
+pub struct MessageData {
+    pub raw: Vec<u8>,
+    pub decompressed: Result<Vec<u8>, String>,
+}
+
+impl AsRef<[u8]> for MessageData {
+    fn as_ref(&self) -> &[u8] {
+        self.raw.as_ref()
+    }
+}
+
+impl Into<Vec<u8>> for MessageData {
+    fn into(self) -> Vec<u8> {
+        self.raw
+    }
+}
+
+impl From<Vec<u8>> for MessageData {
+    fn from(raw: Vec<u8>) -> Self {
+        Self {
+            decompressed: decompress_snappy(raw.as_ref()),
+            raw,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
@@ -26,6 +53,24 @@ pub enum PubsubMessage<T: EthSpec> {
     ProposerSlashing(Box<ProposerSlashing>),
     /// Gossipsub message providing notification of a new attester slashing.
     AttesterSlashing(Box<AttesterSlashing<T>>),
+}
+
+fn decompress_snappy(data: &[u8]) -> Result<Vec<u8>, String> {
+    // Exit early if uncompressed data is > GOSSIP_MAX_SIZE
+    match decompress_len(data) {
+        Ok(n) if n > GOSSIP_MAX_SIZE => {
+            return Err("ssz_snappy decoded data > GOSSIP_MAX_SIZE".into());
+        }
+        Ok(_) => {}
+        Err(e) => {
+            return Err(format!("{}", e));
+        }
+    };
+    let mut decoder = Decoder::new();
+    match decoder.decompress_vec(data) {
+        Ok(decompressed_data) => Ok(decompressed_data),
+        Err(e) => Err(format!("{}", e)),
+    }
 }
 
 impl<T: EthSpec> PubsubMessage<T> {
@@ -59,7 +104,7 @@ impl<T: EthSpec> PubsubMessage<T> {
      * Also note that a message can be associated with many topics. As soon as one of the topics is
      * known we match. If none of the topics are known we return an unknown state.
      */
-    pub fn decode(topics: &[TopicHash], data: &[u8]) -> Result<Self, String> {
+    pub fn decode(topics: &[TopicHash], data: &MessageData) -> Result<Self, String> {
         let mut unknown_topics = Vec::new();
         for topic in topics {
             match GossipTopic::decode(topic.as_str()) {
@@ -68,25 +113,9 @@ impl<T: EthSpec> PubsubMessage<T> {
                     continue;
                 }
                 Ok(gossip_topic) => {
-                    let decompressed_data = &(match gossip_topic.encoding() {
-                        GossipEncoding::SSZSnappy => {
-                            // Exit early if uncompressed data is > GOSSIP_MAX_SIZE
-                            match decompress_len(data) {
-                                Ok(n) if n > GOSSIP_MAX_SIZE => {
-                                    return Err("ssz_snappy decoded data > GOSSIP_MAX_SIZE".into());
-                                }
-                                Ok(_) => {}
-                                Err(e) => {
-                                    return Err(format!("{}", e));
-                                }
-                            };
-                            let mut decoder = Decoder::new();
-                            match decoder.decompress_vec(data) {
-                                Ok(decompressed_data) => decompressed_data,
-                                Err(e) => return Err(format!("{}", e)),
-                            }
-                        }
-                    });
+                    let decompressed_data = match gossip_topic.encoding() {
+                        GossipEncoding::SSZSnappy => data.decompressed.as_ref()?.as_slice(),
+                    };
                     // the ssz decoders
                     match gossip_topic.kind() {
                         GossipKind::BeaconAggregateAndProof => {

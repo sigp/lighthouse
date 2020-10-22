@@ -18,7 +18,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("WALLETS_DIRECTORY")
                 .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
                 .takes_value(true)
-                .global(true)
                 .conflicts_with("datadir"),
         )
         .subcommand(create::cli_app())

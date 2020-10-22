@@ -1,9 +1,9 @@
-pub use crate::beacon_chain::{
-    BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
-};
-use crate::migrate::{BlockingMigrator, Migrate, NullMigrator};
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::slog::Drain;
+pub use crate::{
+    beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
+    migrate::MigratorConfig,
+    BeaconChainError,
+};
 use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
@@ -12,11 +12,12 @@ use crate::{
 };
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
+use parking_lot::Mutex;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand_core::SeedableRng;
 use rayon::prelude::*;
-use sloggers::{null::NullLoggerBuilder, Build};
+use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
@@ -28,10 +29,10 @@ use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconState,
-    BeaconStateHash, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Hash256, IndexedAttestation,
-    Keypair, ProposerSlashing, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId, VariableList,
-    VoluntaryExit,
+    BeaconStateHash, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Graffiti, Hash256,
+    IndexedAttestation, Keypair, ProposerSlashing, SelectionProof, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId,
+    VariableList, VoluntaryExit,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -41,8 +42,7 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
-pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witness<
-    TStoreMigrator,
+pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> = Witness<
     TestingSlotClock,
     CachingEth1Backend<TEthSpec>,
     TEthSpec,
@@ -51,16 +51,8 @@ pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witn
     TColdStore,
 >;
 
-pub type NullMigratorEphemeralHarnessType<E> =
-    BaseHarnessType<NullMigrator, E, MemoryStore<E>, MemoryStore<E>>;
-pub type BlockingMigratorDiskHarnessType<E> =
-    BaseHarnessType<BlockingMigrator<E, LevelDB<E>, LevelDB<E>>, E, LevelDB<E>, LevelDB<E>>;
-pub type BlockingMigratorEphemeralHarnessType<E> = BaseHarnessType<
-    BlockingMigrator<E, MemoryStore<E>, MemoryStore<E>>,
-    E,
-    MemoryStore<E>,
-    MemoryStore<E>,
->;
+pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
+pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
 
 pub type AddBlocksResult<E> = (
     HashMap<Slot, SignedBeaconBlockHash>,
@@ -94,10 +86,29 @@ pub enum AttestationStrategy {
     SomeValidators(Vec<usize>),
 }
 
-fn make_rng() -> StdRng {
+fn make_rng() -> Mutex<StdRng> {
     // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
     // but fixed value for reproducibility.
-    StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64)
+    Mutex::new(StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64))
+}
+
+/// Return a logger suitable for test usage.
+///
+/// By default no logs will be printed, but they can be enabled via the `test_logger` feature.
+///
+/// We've tried the `slog_term::TestStdoutWriter` in the past, but found it too buggy because
+/// of the threading limitation.
+pub fn test_logger() -> Logger {
+    use sloggers::Build;
+
+    if cfg!(feature = "test_logger") {
+        sloggers::terminal::TerminalLoggerBuilder::new()
+            .level(sloggers::types::Severity::Debug)
+            .build()
+            .unwrap()
+    } else {
+        sloggers::null::NullLoggerBuilder.build().unwrap()
+    }
 }
 
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
@@ -105,14 +116,14 @@ fn make_rng() -> StdRng {
 ///
 /// Used for testing.
 pub struct BeaconChainHarness<T: BeaconChainTypes> {
-    pub validators_keypairs: Vec<Keypair>,
+    pub validator_keypairs: Vec<Keypair>,
 
     pub chain: BeaconChain<T>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
     pub shutdown_receiver: Receiver<&'static str>,
 
-    pub rng: StdRng,
+    pub rng: Mutex<StdRng>,
 }
 
 type HarnessAttestations<E> = Vec<(
@@ -120,82 +131,37 @@ type HarnessAttestations<E> = Vec<(
     Option<SignedAggregateAndProof<E>>,
 )>;
 
-impl<E: EthSpec> BeaconChainHarness<BlockingMigratorEphemeralHarnessType<E>> {
-    pub fn new(eth_spec_instance: E, validators_keypairs: Vec<Keypair>) -> Self {
-        let data_dir = tempdir().unwrap();
-        let mut spec = E::default_spec();
-
-        // Setting the target aggregators to really high means that _all_ validators in the
-        // committee are required to produce an aggregate. This is overkill, however with small
-        // validator counts it's the only way to be certain there is _at least one_ aggregator per
-        // committee.
-        spec.target_aggregators_per_committee = 1 << 32;
-
-        let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
-        let drain = slog_term::FullFormat::new(decorator).build();
-        let debug_level = slog::LevelFilter::new(drain, slog::Level::Critical);
-        let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
-
-        let config = StoreConfig::default();
-        let store = Arc::new(HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap());
-        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
-
-        let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
-            .custom_spec(spec.clone())
-            .store(store.clone())
-            .store_migrator(BlockingMigrator::new(store, log.clone()))
-            .data_dir(data_dir.path().to_path_buf())
-            .genesis_state(
-                interop_genesis_state::<E>(&validators_keypairs, HARNESS_GENESIS_TIME, &spec)
-                    .unwrap(),
-            )
-            .unwrap()
-            .dummy_eth1_backend()
-            .unwrap()
-            .null_event_handler()
-            .testing_slot_clock(HARNESS_SLOT_TIME)
-            .unwrap()
-            .shutdown_sender(shutdown_tx)
-            .build()
-            .unwrap();
-
-        Self {
-            spec: chain.spec.clone(),
-            chain,
-            validators_keypairs,
-            data_dir,
-            shutdown_receiver,
-            rng: make_rng(),
-        }
+impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
+    pub fn new(eth_spec_instance: E, validator_keypairs: Vec<Keypair>) -> Self {
+        Self::new_with_store_config(
+            eth_spec_instance,
+            validator_keypairs,
+            StoreConfig::default(),
+        )
     }
-}
 
-impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
-    /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_store_config(
         eth_spec_instance: E,
-        validators_keypairs: Vec<Keypair>,
+        validator_keypairs: Vec<Keypair>,
         config: StoreConfig,
     ) -> Self {
         // Setting the target aggregators to really high means that _all_ validators in the
         // committee are required to produce an aggregate. This is overkill, however with small
         // validator counts it's the only way to be certain there is _at least one_ aggregator per
         // committee.
-        Self::new_with_target_aggregators(eth_spec_instance, validators_keypairs, 1 << 32, config)
+        Self::new_with_target_aggregators(eth_spec_instance, validator_keypairs, 1 << 32, config)
     }
 
-    /// Instantiate a new harness with `validator_count` initial validators and a custom
-    /// `target_aggregators_per_committee` spec value
+    /// Instantiate a new harness with  a custom `target_aggregators_per_committee` spec value
     pub fn new_with_target_aggregators(
         eth_spec_instance: E,
-        validators_keypairs: Vec<Keypair>,
+        validator_keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
     ) -> Self {
         Self::new_with_chain_config(
             eth_spec_instance,
-            validators_keypairs,
+            validator_keypairs,
             target_aggregators_per_committee,
             store_config,
             ChainConfig::default(),
@@ -206,7 +172,7 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
     /// `target_aggregators_per_committee` spec value, and a `ChainConfig`
     pub fn new_with_chain_config(
         eth_spec_instance: E,
-        validators_keypairs: Vec<Keypair>,
+        validator_keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
         chain_config: ChainConfig,
@@ -216,21 +182,19 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
 
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
-        let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
-        let drain = slog_term::FullFormat::new(decorator).build();
-        let debug_level = slog::LevelFilter::new(drain, slog::Level::Critical);
-        let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
+
+        let log = test_logger();
 
         let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log)
             .custom_spec(spec.clone())
             .store(Arc::new(store))
-            .store_migrator(NullMigrator)
+            .store_migrator_config(MigratorConfig::default().blocking())
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
-                interop_genesis_state::<E>(&validators_keypairs, HARNESS_GENESIS_TIME, &spec)
+                interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
                     .expect("should generate interop state"),
             )
             .expect("should build state using recent genesis")
@@ -247,7 +211,7 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
         Self {
             spec: chain.spec.clone(),
             chain,
-            validators_keypairs,
+            validator_keypairs,
             data_dir,
             shutdown_receiver,
             rng: make_rng(),
@@ -255,31 +219,28 @@ impl<E: EthSpec> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
     }
 }
 
-impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
+impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
-        validators_keypairs: Vec<Keypair>,
+        validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = E::default_spec();
 
-        let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
-        let drain = slog_term::FullFormat::new(decorator).build();
-        let debug_level = slog::LevelFilter::new(drain, slog::Level::Critical);
-        let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
+        let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec.clone())
             .import_max_skip_slots(None)
-            .store(store.clone())
-            .store_migrator(BlockingMigrator::new(store, log.clone()))
+            .store(store)
+            .store_migrator_config(MigratorConfig::default().blocking())
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
-                interop_genesis_state::<E>(&validators_keypairs, HARNESS_GENESIS_TIME, &spec)
+                interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
                     .expect("should generate interop state"),
             )
             .expect("should build state using recent genesis")
@@ -295,7 +256,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
         Self {
             spec: chain.spec.clone(),
             chain,
-            validators_keypairs,
+            validator_keypairs,
             data_dir,
             shutdown_receiver,
             rng: make_rng(),
@@ -303,28 +264,25 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
     }
 }
 
-impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
+impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
-        validators_keypairs: Vec<Keypair>,
+        validator_keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
         let spec = E::default_spec();
 
-        let log = NullLoggerBuilder.build().expect("logger should build");
+        let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec)
             .import_max_skip_slots(None)
-            .store(store.clone())
-            .store_migrator(<BlockingMigrator<_, _, _> as Migrate<E, _, _>>::new(
-                store,
-                log.clone(),
-            ))
+            .store(store)
+            .store_migrator_config(MigratorConfig::default().blocking())
             .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
@@ -340,7 +298,7 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
         Self {
             spec: chain.spec.clone(),
             chain,
-            validators_keypairs,
+            validator_keypairs,
             data_dir,
             shutdown_receiver,
             rng: make_rng(),
@@ -348,15 +306,18 @@ impl<E: EthSpec> BeaconChainHarness<BlockingMigratorDiskHarnessType<E>> {
     }
 }
 
-impl<M, E, Hot, Cold> BeaconChainHarness<BaseHarnessType<M, E, Hot, Cold>>
+impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
-    M: Migrate<E, Hot, Cold>,
     E: EthSpec,
     Hot: ItemStore<E>,
     Cold: ItemStore<E>,
 {
+    pub fn logger(&self) -> &slog::Logger {
+        &self.chain.log
+    }
+
     pub fn get_all_validators(&self) -> Vec<usize> {
-        (0..self.validators_keypairs.len()).collect()
+        (0..self.validator_keypairs.len()).collect()
     }
 
     pub fn slots_per_epoch(&self) -> u64 {
@@ -411,7 +372,7 @@ where
     }
 
     pub fn make_block(
-        &mut self,
+        &self,
         mut state: BeaconState<E>,
         slot: Slot,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
@@ -432,7 +393,7 @@ where
         // If we produce two blocks for the same slot, they hash up to the same value and
         // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
         // different blocks each time.
-        self.chain.set_graffiti(self.rng.gen::<[u8; 32]>().into());
+        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
         let randao_reveal = {
             let epoch = slot.epoch(E::slots_per_epoch());
@@ -443,17 +404,17 @@ where
                 state.genesis_validators_root,
             );
             let message = epoch.signing_root(domain);
-            let sk = &self.validators_keypairs[proposer_index].sk;
+            let sk = &self.validator_keypairs[proposer_index].sk;
             sk.sign(message)
         };
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, slot, randao_reveal, None)
+            .produce_block_on_state(state, slot, randao_reveal, Some(graffiti))
             .unwrap();
 
         let signed_block = block.sign(
-            &self.validators_keypairs[proposer_index].sk,
+            &self.validator_keypairs[proposer_index].sk,
             &state.fork,
             state.genesis_validators_root,
             &self.spec,
@@ -513,7 +474,7 @@ where
                             let mut agg_sig = AggregateSignature::infinity();
 
                             agg_sig.add_assign(
-                                &self.validators_keypairs[*validator_index].sk.sign(message),
+                                &self.validator_keypairs[*validator_index].sk.sign(message),
                             );
 
                             agg_sig
@@ -586,7 +547,7 @@ where
 
                             let selection_proof = SelectionProof::new::<E>(
                                 state.slot,
-                                &self.validators_keypairs[*validator_index].sk,
+                                &self.validator_keypairs[*validator_index].sk,
                                 &state.fork,
                                 state.genesis_validators_root,
                                 &self.spec,
@@ -616,7 +577,7 @@ where
                         aggregator_index as u64,
                         aggregate,
                         None,
-                        &self.validators_keypairs[aggregator_index].sk,
+                        &self.validator_keypairs[aggregator_index].sk,
                         &state.fork,
                         state.genesis_validators_root,
                         &self.spec,
@@ -659,7 +620,7 @@ where
 
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
-                let sk = &self.validators_keypairs[i as usize].sk;
+                let sk = &self.validator_keypairs[i as usize].sk;
 
                 let fork = self.chain.head_info().unwrap().fork;
                 let genesis_validators_root = self.chain.genesis_validators_root;
@@ -694,7 +655,7 @@ where
         let mut block_header_2 = block_header_1.clone();
         block_header_2.state_root = Hash256::zero();
 
-        let sk = &self.validators_keypairs[validator_index as usize].sk;
+        let sk = &self.validator_keypairs[validator_index as usize].sk;
         let fork = self.chain.head_info().unwrap().fork;
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -712,7 +673,7 @@ where
     }
 
     pub fn make_voluntary_exit(&self, validator_index: u64, epoch: Epoch) -> SignedVoluntaryExit {
-        let sk = &self.validators_keypairs[validator_index as usize].sk;
+        let sk = &self.validator_keypairs[validator_index as usize].sk;
         let fork = self.chain.head_info().unwrap().fork;
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -723,19 +684,21 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
-    pub fn process_block(&self, slot: Slot, block: SignedBeaconBlock<E>) -> SignedBeaconBlockHash {
-        assert_eq!(self.chain.slot().unwrap(), slot);
-        let block_hash: SignedBeaconBlockHash = self.chain.process_block(block).unwrap().into();
-        self.chain.fork_choice().unwrap();
-        block_hash
-    }
-
-    pub fn process_block_result(
+    pub fn process_block(
         &self,
         slot: Slot,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        assert_eq!(self.chain.slot().unwrap(), slot);
+        self.set_current_slot(slot);
+        let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
+        self.chain.fork_choice()?;
+        Ok(block_hash)
+    }
+
+    pub fn process_block_result(
+        &self,
+        block: SignedBeaconBlock<E>,
+    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
         self.chain.fork_choice().unwrap();
         Ok(block_hash)
@@ -780,14 +743,14 @@ where
     }
 
     pub fn add_block_at_slot(
-        &mut self,
+        &self,
         slot: Slot,
         state: BeaconState<E>,
-    ) -> (SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> Result<(SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>), BlockError<E>> {
         self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot);
-        let block_hash = self.process_block(slot, block.clone());
-        (block_hash, block, new_state)
+        let block_hash = self.process_block(slot, block.clone())?;
+        Ok((block_hash, block, new_state))
     }
 
     pub fn attest_block(
@@ -803,18 +766,18 @@ where
     }
 
     pub fn add_attested_block_at_slot(
-        &mut self,
+        &self,
         slot: Slot,
         state: BeaconState<E>,
         validators: &[usize],
-    ) -> (SignedBeaconBlockHash, BeaconState<E>) {
-        let (block_hash, block, state) = self.add_block_at_slot(slot, state);
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+        let (block_hash, block, state) = self.add_block_at_slot(slot, state)?;
         self.attest_block(&state, block_hash, &block, validators);
-        (block_hash, state)
+        Ok((block_hash, state))
     }
 
     pub fn add_attested_blocks_at_slots(
-        &mut self,
+        &self,
         state: BeaconState<E>,
         slots: &[Slot],
         validators: &[usize],
@@ -824,7 +787,7 @@ where
     }
 
     fn add_attested_blocks_at_slots_given_lbh(
-        &mut self,
+        &self,
         mut state: BeaconState<E>,
         slots: &[Slot],
         validators: &[usize],
@@ -837,7 +800,9 @@ where
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
-            let (block_hash, new_state) = self.add_attested_block_at_slot(*slot, state, validators);
+            let (block_hash, new_state) = self
+                .add_attested_block_at_slot(*slot, state, validators)
+                .unwrap();
             state = new_state;
             block_hash_from_slot.insert(*slot, block_hash);
             state_hash_from_slot.insert(*slot, state.tree_hash_root().into());
@@ -859,7 +824,7 @@ where
     ///
     /// Chains is a vec of `(state, slots, validators)` tuples.
     pub fn add_blocks_on_multiple_chains(
-        &mut self,
+        &self,
         chains: Vec<(BeaconState<E>, Vec<Slot>, Vec<usize>)>,
     ) -> Vec<AddBlocksResult<E>> {
         let slots_per_epoch = E::slots_per_epoch();
@@ -959,7 +924,7 @@ where
     ///
     /// Returns a newly created block, signed by the proposer for the given slot.
     pub fn build_block(
-        &mut self,
+        &self,
         state: BeaconState<E>,
         slot: Slot,
         _block_strategy: BlockStrategy,
@@ -979,7 +944,7 @@ where
     /// The `attestation_strategy` dictates which validators will attest to the newly created
     /// blocks.
     pub fn extend_chain(
-        &mut self,
+        &self,
         num_blocks: usize,
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
@@ -1028,7 +993,7 @@ where
     ///
     /// Returns `(honest_head, faulty_head)`, the roots of the blocks at the top of each chain.
     pub fn generate_two_forks_by_skipping_a_block(
-        &mut self,
+        &self,
         honest_validators: &[usize],
         faulty_validators: &[usize],
         honest_fork_blocks: usize,

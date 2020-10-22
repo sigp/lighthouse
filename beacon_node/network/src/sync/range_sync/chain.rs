@@ -2,14 +2,13 @@ use super::batch::{BatchInfo, BatchState};
 use crate::beacon_processor::ProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::BeaconChainTypes;
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -87,9 +86,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: Sender<BeaconWorkEvent<T::EthSpec>>,
 
-    /// A reference to the underlying beacon chain.
-    chain: Arc<BeaconChain<T>>,
-
     /// The chain's log.
     log: slog::Logger,
 }
@@ -116,7 +112,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_root: Hash256,
         peer_id: PeerId,
         beacon_processor_send: Sender<BeaconWorkEvent<T::EthSpec>>,
-        chain: Arc<BeaconChain<T>>,
         log: &slog::Logger,
     ) -> Self {
         let mut peers = FnvHashMap::default();
@@ -138,7 +133,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
             beacon_processor_send,
-            chain,
             log: log.new(o!("chain" => id)),
         }
     }
@@ -163,17 +157,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch_ids) = self.peers.remove(peer_id) {
             // fail the batches
             for id in batch_ids {
-                if let BatchState::Failed = self
-                    .batches
-                    .get_mut(&id)
-                    .expect("registered batch exists")
-                    .download_failed(&self.log)
-                {
-                    return ProcessingResult::RemoveChain;
-                }
-                if let ProcessingResult::RemoveChain = self.retry_batch_download(network, id) {
-                    // drop the chain early
-                    return ProcessingResult::RemoveChain;
+                if let Some(batch) = self.batches.get_mut(&id) {
+                    if let BatchState::Failed = batch.download_failed(&self.log) {
+                        return ProcessingResult::RemoveChain;
+                    }
+                    if let ProcessingResult::RemoveChain = self.retry_batch_download(network, id) {
+                        // drop the chain early
+                        return ProcessingResult::RemoveChain;
+                    }
+                } else {
+                    debug!(self.log, "Batch not found while removing peer";
+                        "peer" => %peer_id, "batch" => "id")
                 }
             }
         }
@@ -215,12 +209,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // sending an error /timeout) if the peer is removed from the chain for other
                 // reasons. Check that this block belongs to the expected peer, and that the
                 // request_id matches
-                if let BatchState::Downloading(expected_peer, _, expected_request_id) =
-                    batch.state()
-                {
-                    if expected_peer != peer_id || expected_request_id != &request_id {
-                        return ProcessingResult::KeepChain;
-                    }
+                if !batch.is_expecting_block(peer_id, &request_id) {
+                    return ProcessingResult::KeepChain;
                 }
                 batch
             }
@@ -275,7 +265,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return ProcessingResult::KeepChain;
         }
 
-        let batch = self.batches.get_mut(&batch_id).expect("Batch exists");
+        let batch = match self.batches.get_mut(&batch_id) {
+            Some(batch) => batch,
+            None => {
+                debug!(self.log, "Processing unknown batch"; "batch" => %batch_id);
+                return ProcessingResult::RemoveChain;
+            }
+        };
 
         // NOTE: We send empty batches to the processor in order to trigger the block processor
         // result callback. This is done, because an empty batch could end a chain and the logic
@@ -340,10 +336,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // - Poisoned -> this is an intermediate state that should never be reached
                         // - AwaitingDownload -> A recoverable failed batch should have been
                         //   re-requested.
-                        unreachable!(
-                            "Optimistic batch indicates inconsistent chain state: {:?}",
-                            state
-                        )
+                        crit!(self.log, "Optimistic batch indicates inconsistent chain state"; "state" => ?state);
+                        return ProcessingResult::RemoveChain;
                     }
                     BatchState::AwaitingValidation(_) => {
                         // This is possible due to race conditions, and tho it would be considered
@@ -352,7 +346,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // candidate. If the batch was empty the chain rejects it; if it was non
                         // empty the chain is advanced to this point (so that the old optimistic
                         // batch is now the processing target)
-                        crit!(self.log, "Optimistic batch should never be Awaiting Validation"; "batch" => epoch);
+                        debug!(self.log, "Optimistic batch should never be Awaiting Validation"; "batch" => epoch);
                         None
                     }
                 }
@@ -436,10 +430,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         match result {
             BatchProcessResult::Success(was_non_empty) => {
-                let batch = self
-                    .batches
-                    .get_mut(&batch_id)
-                    .expect("Chain was expecting a known batch");
+                let batch = match self.batches.get_mut(&batch_id) {
+                    Some(batch) => batch,
+                    None => {
+                        debug!(self.log, "Current processing batch not found"; "batch" => batch_id);
+                        return ProcessingResult::RemoveChain;
+                    }
+                };
                 let _ = batch.processing_completed(true, &self.log);
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
@@ -479,13 +476,19 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
             BatchProcessResult::Failed(imported_blocks) => {
-                let batch = self
-                    .batches
-                    .get_mut(&batch_id)
-                    .expect("Chain was expecting a known batch");
-                let peer = batch
-                    .current_peer()
-                    .expect("batch is processing blocks from a peer");
+                let (batch, peer) = match self.batches.get_mut(&batch_id) {
+                    Some(batch) => match batch.current_peer().cloned() {
+                        Some(peer) => (batch, peer),
+                        None => {
+                            debug!(self.log, "Current processing has no peer"; "batch" => batch_id);
+                            return ProcessingResult::RemoveChain;
+                        }
+                    },
+                    None => {
+                        debug!(self.log, "Current processing batch not found"; "batch" => batch_id);
+                        return ProcessingResult::RemoveChain;
+                    }
+                };
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
                 if let BatchState::Failed = batch.processing_completed(false, &self.log) {
@@ -610,12 +613,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         active_batches.remove(&id);
                     }
                 }
-                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
-                    unreachable!("batch indicates inconsistent chain state while advancing chain")
-                }
+                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => crit!(
+                    self.log,
+                    "batch indicates inconsistent chain state while advancing chain"
+                ),
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
-                    assert_eq!(
+                    debug_assert_eq!(
                         id,
                         self.current_processing_batch.expect(
                             "A batch in a processing state means the chain is processing it"
@@ -770,11 +774,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Sends a STATUS message to all peers in the peer pool.
-    pub fn status_peers(&self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        network.status_peers(self.chain.clone(), self.peers.keys().cloned());
-    }
-
     /// An RPC error has occurred.
     ///
     /// If the batch exists it is re-requested.
@@ -789,16 +788,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if let BatchState::Downloading(expected_peer, _, expected_request_id) = batch.state() {
-                if expected_peer != peer_id || expected_request_id != &request_id {
-                    return ProcessingResult::KeepChain;
-                }
+            if !batch.is_expecting_block(peer_id, &request_id) {
+                return ProcessingResult::KeepChain;
             }
             debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
-            self.peers
-                .get_mut(peer_id)
-                .expect("Peer belongs to the chain")
-                .remove(&batch_id);
+            if let Some(active_requests) = self.peers.get_mut(peer_id) {
+                active_requests.remove(&batch_id);
+            }
             if let BatchState::Failed = batch.download_failed(&self.log) {
                 return ProcessingResult::RemoveChain;
             }
@@ -865,11 +861,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         debug!(self.log, "Requesting batch"; "epoch" => batch_id, &batch);
                     }
                     // register the batch for this peer
-                    self.peers
+                    return self
+                        .peers
                         .get_mut(&peer)
-                        .expect("peer belongs to the peer pool")
-                        .insert(batch_id);
-                    return ProcessingResult::KeepChain;
+                        .map(|requests| {
+                            requests.insert(batch_id);
+                            ProcessingResult::KeepChain
+                        })
+                        .unwrap_or(ProcessingResult::RemoveChain);
                 }
                 Err(e) => {
                     // NOTE: under normal conditions this shouldn't happen but we handle it anyway
@@ -879,8 +878,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     batch.start_downloading_from_peer(peer.clone(), 1, &self.log); // fake request_id is not relevant
                     self.peers
                         .get_mut(&peer)
-                        .expect("peer belongs to the peer pool")
-                        .remove(&batch_id);
+                        .map(|request| request.remove(&batch_id));
                     if let BatchState::Failed = batch.download_failed(&self.log) {
                         return ProcessingResult::RemoveChain;
                     } else {

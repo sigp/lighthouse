@@ -29,14 +29,14 @@ mod peer_sync_status;
 mod peerdb;
 pub(crate) mod score;
 
-pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
+pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ScoreState};
 use std::collections::HashMap;
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
-/// The time in seconds between PING events. We do not send a ping if the other peer as PING'd us within
-/// this time frame (Seconds)
+/// The time in seconds between PING events. We do not send a ping if the other peer has PING'd us
+/// within this time frame (Seconds)
 const PING_INTERVAL: u64 = 30;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
@@ -250,7 +250,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .collect();
 
         // request the subnet query from discovery
-        self.discovery.discover_subnet_peers(filtered);
+        if !filtered.is_empty() {
+            self.discovery.discover_subnet_peers(filtered);
+        }
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -517,10 +519,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut out_list = enr.multiaddr();
             out_list.retain(|addr| {
                 addr.iter()
-                    .find(|v| match v {
-                        MProtocol::Udp(_) => true,
-                        _ => false,
-                    })
+                    .find(|v| matches!(v, MProtocol::Udp(_)))
                     .is_none()
             });
 
@@ -624,16 +623,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => peer_id.to_string());
             }
 
+            let enr = self.discovery.enr_of_peer(peer_id);
+
             match connection {
                 ConnectingType::Dialing => {
-                    peerdb.dialing_peer(peer_id);
+                    peerdb.dialing_peer(peer_id, enr);
                     return true;
                 }
                 ConnectingType::IngoingConnected { multiaddr } => {
-                    peerdb.connect_outgoing(peer_id, multiaddr)
+                    peerdb.connect_outgoing(peer_id, multiaddr, enr)
                 }
                 ConnectingType::OutgoingConnected { multiaddr } => {
-                    peerdb.connect_ingoing(peer_id, multiaddr)
+                    peerdb.connect_ingoing(peer_id, multiaddr, enr)
                 }
             }
         }
@@ -832,20 +833,16 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             }
         }
 
-        // We don't want to update peers during syncing, since this may result in a new chain being
-        // synced which leads to inefficient re-downloads of blocks.
-        if !self.network_globals.is_syncing() {
-            loop {
-                match self.status_peers.poll_next_unpin(cx) {
-                    Poll::Ready(Some(Ok(peer_id))) => {
-                        self.status_peers.insert(peer_id.clone());
-                        self.events.push(PeerManagerEvent::Status(peer_id))
-                    }
-                    Poll::Ready(Some(Err(e))) => {
-                        error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
-                    }
-                    Poll::Ready(None) | Poll::Pending => break,
+        loop {
+            match self.status_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
+                    self.status_peers.insert(peer_id.clone());
+                    self.events.push(PeerManagerEvent::Status(peer_id))
                 }
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
+                }
+                Poll::Ready(None) | Poll::Pending => break,
             }
         }
 

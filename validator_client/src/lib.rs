@@ -28,7 +28,8 @@ use futures::channel::mpsc;
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
-use slog::{error, info, Logger};
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::marker::PhantomData;
@@ -106,12 +107,64 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
+        let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
+
         info!(
             log,
             "Initialized validators";
             "disabled" => validators.num_total().saturating_sub(validators.num_enabled()),
             "enabled" => validators.num_enabled(),
         );
+
+        if voting_pubkeys.is_empty() {
+            warn!(
+                log,
+                "No enabled validators";
+                "hint" => "create validators via the API, or the `lighthouse account` CLI command"
+            );
+        }
+
+        // Initialize slashing protection.
+        //
+        // Create the slashing database if there are no validators, even if
+        // `init_slashing_protection` is not supplied. There is no risk in creating a slashing
+        // database without any validators in it.
+        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection = if config.init_slashing_protection || voting_pubkeys.is_empty() {
+            SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open or create slashing protection database: {:?}",
+                    e
+                )
+            })
+        } else {
+            SlashingDatabase::open(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open slashing protection database: {:?}.\n\
+                     Ensure that `slashing_protection.sqlite` is in {:?} folder",
+                    e, config.validator_dir
+                )
+            })
+        }?;
+
+        // Check validator registration with slashing protection, or auto-register all validators.
+        if config.init_slashing_protection {
+            slashing_protection
+                .register_validators(voting_pubkeys.iter().copied())
+                .map_err(|e| format!("Error while registering slashing protection: {:?}", e))?;
+        } else {
+            slashing_protection
+                .check_validator_registrations(voting_pubkeys.iter().copied())
+                .map_err(|e| {
+                    format!(
+                        "One or more validators not found in slashing protection database.\n\
+                         Ensure you haven't misplaced your slashing protection database, or \
+                         carefully consider running with --init-slashing-protection (see --help). \
+                         Error: {:?}",
+                        e
+                    )
+                })?;
+        }
 
         let beacon_node_url: Url = config
             .beacon_node
@@ -157,20 +210,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
             validators,
-            &config,
+            slashing_protection,
             genesis_validators_root,
             context.eth2_config.spec.clone(),
             fork_service.clone(),
             log.clone(),
-        )?;
+        );
 
         info!(
             log,
             "Loaded validator keypair store";
             "voting_validators" => validator_store.num_voting_validators()
         );
-
-        validator_store.register_all_validators_for_slashing_protection()?;
 
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())

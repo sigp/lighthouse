@@ -1,8 +1,8 @@
+use crate::behaviour::Gossipsub;
 use crate::rpc::*;
 use libp2p::{
     core::either::{EitherError, EitherOutput},
     core::upgrade::{EitherUpgrade, InboundUpgrade, OutboundUpgrade, SelectUpgrade, UpgradeError},
-    gossipsub::Gossipsub,
     identify::Identify,
     swarm::{
         protocols_handler::{

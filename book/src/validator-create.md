@@ -71,7 +71,7 @@ lighthouse --testnet medalla account validator create --name wally --wallet-pass
 
 This command will:
 
-- Derive a single new BLS keypair from `wally`, updating it so that it generates a
+- Derive a single new BLS keypair from wallet `wally` in `~/.lighthouse/{testnet}/wallets`, updating it so that it generates a
     new key next time.
 - Create a new directory in `~/.lighthouse/{testnet}/validators` containing:
     - An encrypted keystore containing the validators voting keypair.

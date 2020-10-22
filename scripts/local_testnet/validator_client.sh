@@ -15,4 +15,4 @@ exec lighthouse \
 	--datadir $VALIDATORS_DIR \
 	--secrets-dir $SECRETS_DIR \
 	--testnet-dir $TESTNET_DIR \
-	--auto-register
+	--init-slashing-protection

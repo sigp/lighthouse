@@ -17,6 +17,7 @@ use eth2::{
 };
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::TestingSlotClock;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
@@ -65,15 +66,17 @@ impl ApiTester {
             .build()
             .unwrap();
 
+        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
+
         let validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
             initialized_validators,
-            &config,
+            slashing_protection,
             Hash256::repeat_byte(42),
             E::default_spec(),
             fork_service.clone(),
             log.clone(),
-        )
-        .unwrap();
+        );
 
         let initialized_validators = validator_store.initialized_validators();
 

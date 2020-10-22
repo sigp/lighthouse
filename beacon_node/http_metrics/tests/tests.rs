@@ -1,4 +1,4 @@
-use beacon_chain::test_utils::BlockingMigratorEphemeralHarnessType;
+use beacon_chain::test_utils::EphemeralHarnessType;
 use environment::null_logger;
 use http_metrics::Config;
 use reqwest::StatusCode;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use types::MainnetEthSpec;
 
-type Context = http_metrics::Context<BlockingMigratorEphemeralHarnessType<MainnetEthSpec>>;
+type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
 
 #[tokio::test(core_threads = 2)]
 async fn returns_200_ok() {

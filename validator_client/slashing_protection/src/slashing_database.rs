@@ -173,6 +173,17 @@ impl SlashingDatabase {
         Ok(())
     }
 
+    /// Check that all of the given validators are registered.
+    pub fn check_validator_registrations<'a>(
+        &self,
+        mut public_keys: impl Iterator<Item = &'a PublicKey>,
+    ) -> Result<(), NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+        public_keys
+            .try_for_each(|public_key| self.get_validator_id_in_txn(&txn, public_key).map(|_| ()))
+    }
+
     /// Get the database-internal ID for a validator.
     ///
     /// This is NOT the same as a validator index, and depends on the ordering that validators
