@@ -1,7 +1,7 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
-use eth2_libp2p::{Enr, Multiaddr};
+use eth2_libp2p::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -321,12 +321,15 @@ pub struct IdentityData {
     pub peer_id: String,
     pub enr: Enr,
     pub p2p_addresses: Vec<Multiaddr>,
-    // TODO: missing the following fields:
-    //
-    // - discovery_addresses
-    // - metadata
-    //
-    // Tracked here: https://github.com/sigp/lighthouse/issues/1434
+    pub discovery_addresses: Vec<Multiaddr>,
+    pub metadata: MetaData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetaData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub seq_number: u64,
+    pub attnets: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -416,6 +419,78 @@ pub struct BeaconCommitteeSubscription {
     pub committees_at_slot: u64,
     pub slot: Slot,
     pub is_aggregator: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeerData {
+    pub peer_id: String,
+    pub enr: Option<String>,
+    pub last_seen_p2p_address: String,
+    pub state: PeerState,
+    pub direction: PeerDirection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerState {
+    Connected,
+    Connecting,
+    Disconnected,
+    Disconnecting,
+}
+
+impl PeerState {
+    pub fn from_peer_connection_status(status: &PeerConnectionStatus) -> Self {
+        match status {
+            PeerConnectionStatus::Connected { .. } => PeerState::Connected,
+            PeerConnectionStatus::Dialing { .. } => PeerState::Connecting,
+            PeerConnectionStatus::Disconnected { .. }
+            | PeerConnectionStatus::Banned { .. }
+            | PeerConnectionStatus::Unknown => PeerState::Disconnected,
+        }
+    }
+}
+
+impl FromStr for PeerState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "connected" => Ok(PeerState::Connected),
+            "connecting" => Ok(PeerState::Connecting),
+            "disconnected" => Ok(PeerState::Disconnected),
+            "disconnecting" => Ok(PeerState::Disconnecting),
+            _ => Err("peer state cannot be parsed.".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerDirection {
+    Inbound,
+    Outbound,
+}
+
+impl PeerDirection {
+    pub fn from_connection_direction(direction: &ConnectionDirection) -> Self {
+        match direction {
+            ConnectionDirection::Incoming => PeerDirection::Inbound,
+            ConnectionDirection::Outgoing => PeerDirection::Outbound,
+        }
+    }
+}
+
+impl FromStr for PeerDirection {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "inbound" => Ok(PeerDirection::Inbound),
+            "outbound" => Ok(PeerDirection::Outbound),
+            _ => Err("peer direction cannot be parsed.".to_string()),
+        }
+    }
 }
 
 #[cfg(test)]

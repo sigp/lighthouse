@@ -21,7 +21,7 @@ use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
 };
-use eth2_libp2p::{types::SyncState, NetworkGlobals, PubsubMessage};
+use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
@@ -109,7 +109,11 @@ pub fn slog_logging(
 ) -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
     warp::log::custom(move |info| {
         match info.status() {
-            status if status == StatusCode::OK || status == StatusCode::NOT_FOUND => {
+            status
+                if status == StatusCode::OK
+                    || status == StatusCode::NOT_FOUND
+                    || status == StatusCode::PARTIAL_CONTENT =>
+            {
                 trace!(
                     log,
                     "Processed HTTP API request";
@@ -1106,10 +1110,28 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
+                let enr = network_globals.local_enr();
+                let p2p_addresses = enr.multiaddr_p2p_tcp();
+                let discovery_addresses = enr.multiaddr_p2p_udp();
                 Ok(api_types::GenericResponse::from(api_types::IdentityData {
                     peer_id: network_globals.local_peer_id().to_base58(),
-                    enr: network_globals.local_enr(),
-                    p2p_addresses: network_globals.listen_multiaddrs(),
+                    enr,
+                    p2p_addresses,
+                    discovery_addresses,
+                    metadata: api_types::MetaData {
+                        seq_number: network_globals.local_metadata.read().seq_number,
+                        attnets: format!(
+                            "0x{}",
+                            hex::encode(
+                                network_globals
+                                    .local_metadata
+                                    .read()
+                                    .attnets
+                                    .clone()
+                                    .into_bytes()
+                            ),
+                        ),
+                    },
                 }))
             })
         });
@@ -1158,6 +1180,122 @@ pub fn serve<T: BeaconChainTypes>(
                 })
             },
         );
+
+    // GET node/health
+    let get_node_health = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            blocking_task(move || match *network_globals.sync_state.read() {
+                SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } => {
+                    Ok(warp::reply::with_status(
+                        warp::reply(),
+                        warp::http::StatusCode::PARTIAL_CONTENT,
+                    ))
+                }
+                SyncState::Synced => Ok(warp::reply::with_status(
+                    warp::reply(),
+                    warp::http::StatusCode::OK,
+                )),
+                SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                    "sync stalled, beacon chain may not yet be initialized.".to_string(),
+                )),
+            })
+        });
+
+    // GET node/peers/{peer_id}
+    let get_node_peers_by_id = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peers"))
+        .and(warp::path::param::<String>())
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(
+            |requested_peer_id: String, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                blocking_json_task(move || {
+                    let peer_id = PeerId::from_bytes(
+                        bs58::decode(requested_peer_id.as_str())
+                            .into_vec()
+                            .map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid peer id: {}",
+                                    e
+                                ))
+                            })?,
+                    )
+                    .map_err(|_| {
+                        warp_utils::reject::custom_bad_request("invalid peer id.".to_string())
+                    })?;
+
+                    if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
+                        //TODO: update this to seen_addresses once #1764 is resolved
+                        let address = match peer_info.listening_addresses.get(0) {
+                            Some(addr) => addr.to_string(),
+                            None => "".to_string(), // this field is non-nullable in the eth2 API spec
+                        };
+
+                        // the eth2 API spec implies only peers we have been connected to at some point should be included.
+                        if let Some(dir) = peer_info.connection_direction.as_ref() {
+                            return Ok(api_types::GenericResponse::from(api_types::PeerData {
+                                peer_id: peer_id.to_string(),
+                                enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                last_seen_p2p_address: address,
+                                direction: api_types::PeerDirection::from_connection_direction(
+                                    &dir,
+                                ),
+                                state: api_types::PeerState::from_peer_connection_status(
+                                    &peer_info.connection_status,
+                                ),
+                            }));
+                        }
+                    }
+                    Err(warp_utils::reject::custom_not_found(
+                        "peer not found.".to_string(),
+                    ))
+                })
+            },
+        );
+
+    // GET node/peers
+    let get_node_peers = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peers"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            blocking_json_task(move || {
+                let mut peers: Vec<api_types::PeerData> = Vec::new();
+                network_globals
+                    .peers
+                    .read()
+                    .peers()
+                    // the eth2 API spec implies only peers we have been connected to at some point should be included.
+                    .filter(|(_, peer_info)| peer_info.connection_direction.is_some())
+                    .for_each(|(peer_id, peer_info)| {
+                        //TODO: update this to seen_addresses once #1764 is resolved
+                        let address = match peer_info.listening_addresses.get(0) {
+                            Some(addr) => addr.to_string(),
+                            None => "".to_string(), // this field is non-nullable in the eth2 API spec
+                        };
+                        if let Some(dir) = peer_info.connection_direction.as_ref() {
+                            peers.push(api_types::PeerData {
+                                peer_id: peer_id.to_string(),
+                                enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                last_seen_p2p_address: address,
+                                direction: api_types::PeerDirection::from_connection_direction(
+                                    &dir,
+                                ),
+                                state: api_types::PeerState::from_peer_connection_status(
+                                    &peer_info.connection_status,
+                                ),
+                            });
+                        }
+                    });
+                Ok(api_types::GenericResponse::from(peers))
+            })
+        });
 
     /*
      * validator
@@ -1653,6 +1791,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_node_identity.boxed())
                 .or(get_node_version.boxed())
                 .or(get_node_syncing.boxed())
+                .or(get_node_health.boxed())
+                .or(get_node_peers_by_id.boxed())
+                .or(get_node_peers.boxed())
                 .or(get_validator_duties_attester.boxed())
                 .or(get_validator_duties_proposer.boxed())
                 .or(get_validator_blocks.boxed())

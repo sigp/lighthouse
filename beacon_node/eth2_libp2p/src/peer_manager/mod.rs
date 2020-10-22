@@ -29,7 +29,7 @@ mod peer_sync_status;
 mod peerdb;
 pub(crate) mod score;
 
-pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
+pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ScoreState};
 use std::collections::HashMap;
@@ -623,16 +623,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => peer_id.to_string());
             }
 
+            let enr = self.discovery.enr_of_peer(peer_id);
+
             match connection {
                 ConnectingType::Dialing => {
-                    peerdb.dialing_peer(peer_id);
+                    peerdb.dialing_peer(peer_id, enr);
                     return true;
                 }
                 ConnectingType::IngoingConnected { multiaddr } => {
-                    peerdb.connect_outgoing(peer_id, multiaddr)
+                    peerdb.connect_outgoing(peer_id, multiaddr, enr)
                 }
                 ConnectingType::OutgoingConnected { multiaddr } => {
-                    peerdb.connect_ingoing(peer_id, multiaddr)
+                    peerdb.connect_ingoing(peer_id, multiaddr, enr)
                 }
             }
         }
