@@ -23,8 +23,7 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
-pub const PROMPT: &str =
-    "WARNING: WITHDRAWING STAKED ETH WILL NOT BE POSSIBLE UNTIL ETH1/ETH2 MERGE";
+pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSIBLE";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("exit")
@@ -160,11 +159,11 @@ async fn publish_voluntary_exits<E: EthSpec>(
     let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
         .map_err(|e| format!("Failed to get current epoch: {:?}", e))?;
 
-    let fork = get_beacon_state_fork::<E>(client, epoch).await?;
+    let fork = get_beacon_state_fork(client).await?;
 
     for validator_dir in validator_dirs {
         let keypair = load_voting_keypair(&validator_dir, secrets_dir, stdin_inputs)?;
-        let validator_index = get_validator_index::<E>(client, &keypair.pk, epoch, spec).await;
+        let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await;
 
         match validator_index {
             Ok(index) => {
@@ -211,9 +210,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
         validator_index,
     };
 
-    let signed_voluntary_exit =
-        voluntary_exit.sign(&keypair.sk, &fork, genesis_validators_root, spec);
-
     eprintln!(
         "Publishing a voluntary exit for validator: {} \n",
         keypair.pk
@@ -229,6 +225,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
     let confirmation = account_utils::read_input_from_user(stdin_inputs)?;
     if confirmation == CONFIRMATION_PHRASE {
         // Verify and publish the voluntary exit to network
+        let signed_voluntary_exit =
+            voluntary_exit.sign(&keypair.sk, &fork, genesis_validators_root, spec);
         client
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
@@ -249,7 +247,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
 
 /// Get the validator index af given the validator public key by querying the beacon node endpoint.
 /// Returns an error if the beacon endpoint returns an error or given validator is not eligible for an exit.
-async fn get_validator_index<E: EthSpec>(
+async fn get_validator_index_for_exit(
     client: &BeaconNodeHttpClient,
     validator_pubkey: &PublicKey,
     epoch: Epoch,
@@ -257,8 +255,7 @@ async fn get_validator_index<E: EthSpec>(
 ) -> Result<u64, String> {
     let validator_data = client
         .get_beacon_states_validator_id(
-            // TODO: verify this is the state that we want to query.
-            StateId::Slot(epoch.start_slot(E::slots_per_epoch())),
+            StateId::Head,
             &ValidatorId::PublicKey(validator_pubkey.into()),
         )
         .await
@@ -273,8 +270,12 @@ async fn get_validator_index<E: EthSpec>(
 
     match validator_data.status {
         ValidatorStatus::Active => {
-            let eligible_epoch =
-                validator_data.validator.activation_epoch + spec.shard_committee_period;
+            let eligible_epoch = validator_data
+                .validator
+                .activation_epoch
+                .safe_add(spec.shard_committee_period)
+                .map_err(|e| format!("Failed to calculate eligible epoch, validator activation epoch too high: {:?}", e))?;
+
             if epoch >= eligible_epoch {
                 Ok(validator_data.index)
             } else {
@@ -301,13 +302,9 @@ async fn get_geneisis_data(client: &BeaconNodeHttpClient) -> Result<GenesisData,
 }
 
 /// Get fork object for the current state by querying the beacon node client.
-async fn get_beacon_state_fork<E: EthSpec>(
-    client: &BeaconNodeHttpClient,
-    epoch: Epoch,
-) -> Result<Fork, String> {
+async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, String> {
     Ok(client
-        // TODO: verify this is the state that we want to query.
-        .get_beacon_states_fork(StateId::Slot(epoch.start_slot(E::slots_per_epoch())))
+        .get_beacon_states_fork(StateId::Head)
         .await
         .map_err(|e| format!("Failed to get get fork: {:?}", e))?
         .ok_or_else(|| "Failed to get fork, state not found".to_string())?
@@ -330,7 +327,7 @@ fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Result<
 
 /// Load the voting keypair by loading the keystore and decrypting the keystore
 ///
-/// First attempts to load the password for the validator from the `secrets_dir`, if not
+/// First attempt to load the password for the validator from the `secrets_dir`, if not
 /// present, prompt user for the password.
 fn load_voting_keypair(
     validator_dir: &ValidatorDir,
