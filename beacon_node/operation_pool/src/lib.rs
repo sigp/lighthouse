@@ -21,8 +21,8 @@ use std::marker::PhantomData;
 use std::ptr;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit,
-    Validator,
+    Epoch, EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch,
+    SignedVoluntaryExit, Validator,
 };
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
@@ -156,17 +156,14 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Remove attestations which are too old to be included in a block.
-    pub fn prune_attestations(&self, finalized_state: &BeaconState<T>) {
-        // We know we can include an attestation if:
-        // state.slot <= attestation_slot + SLOTS_PER_EPOCH
-        // We approximate this check using the attestation's epoch, to avoid computing
-        // the slot or relying on the committee cache of the finalized state.
+    pub fn prune_attestations(&self, current_epoch: Epoch) {
+        // Prune attestations that are from before the previous epoch.
         self.attestations.write().retain(|_, attestations| {
             // All the attestations in this bucket have the same data, so we only need to
             // check the first one.
-            attestations.first().map_or(false, |att| {
-                finalized_state.current_epoch() <= att.data.target.epoch + 1
-            })
+            attestations
+                .first()
+                .map_or(false, |att| current_epoch <= att.data.target.epoch + 1)
         });
     }
 
@@ -299,20 +296,26 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune if validator has already exited at the last finalized state.
-    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>) {
+    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
-            |validator| validator.is_exited_at(finalized_state.current_epoch()),
+            |validator| validator.exit_epoch != spec.far_future_epoch,
             finalized_state,
         );
     }
 
     /// Prune all types of transactions given the latest finalized state and head fork.
-    pub fn prune_all(&self, finalized_state: &BeaconState<T>, head_fork: Fork) {
-        self.prune_attestations(finalized_state);
+    pub fn prune_all(
+        &self,
+        finalized_state: &BeaconState<T>,
+        current_epoch: Epoch,
+        head_fork: Fork,
+        spec: &ChainSpec,
+    ) {
+        self.prune_attestations(current_epoch);
         self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state, head_fork);
-        self.prune_voluntary_exits(finalized_state);
+        self.prune_voluntary_exits(finalized_state, spec);
     }
 
     /// Total number of voluntary exits in the pool.
@@ -612,13 +615,13 @@ mod release_tests {
         );
 
         // Prune attestations shouldn't do anything at this point.
-        op_pool.prune_attestations(state);
+        op_pool.prune_attestations(state.current_epoch());
         assert_eq!(op_pool.num_attestations(), committees.len());
 
         // But once we advance to more than an epoch after the attestation, it should prune it
         // out of existence.
         state.slot += 2 * MainnetEthSpec::slots_per_epoch();
-        op_pool.prune_attestations(state);
+        op_pool.prune_attestations(state.current_epoch());
         assert_eq!(op_pool.num_attestations(), 0);
     }
 

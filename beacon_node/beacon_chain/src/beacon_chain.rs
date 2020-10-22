@@ -1959,6 +1959,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             || is_reorg
         {
             self.persist_head_and_fork_choice()?;
+            self.op_pool.prune_attestations(self.epoch()?);
         }
 
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
@@ -2097,8 +2098,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_state(&new_finalized_state_root, None)?
             .ok_or_else(|| Error::MissingBeaconState(new_finalized_state_root))?;
 
-        self.op_pool
-            .prune_all(&finalized_state, self.head_info()?.fork);
+        self.op_pool.prune_all(
+            &finalized_state,
+            self.epoch()?,
+            self.head_info()?.fork,
+            &self.spec,
+        );
 
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),
