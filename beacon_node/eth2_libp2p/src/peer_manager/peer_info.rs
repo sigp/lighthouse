@@ -126,6 +126,12 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
+    #[cfg(test)]
+    /// Resets the peers score.
+    pub fn reset_score(&mut self) {
+        self.score.test_reset();
+    }
+
     /* Peer connection status API */
 
     /// Checks if the status is connected.
@@ -274,7 +280,7 @@ impl<T: EthSpec> PeerInfo<T> {
     /// Add an f64 to a non-trusted peer's score abiding by the limits.
     pub fn add_to_score(&mut self, score: f64) {
         if !self.is_trusted {
-            self.score.add(score)
+            self.score.test_add(score)
         }
     }
 }

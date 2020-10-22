@@ -43,23 +43,17 @@ impl BannedPeersCount {
     /// false otherwise.
     pub fn remove_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_sub(1);
-        dbg!("removing");
         for address in ip_addresses {
-            dbg!(&address);
             if let Some(count) = self.banned_peers_per_ip.get_mut(address) {
                 *count = count.saturating_sub(1);
-                dbg!(self.banned_peers_per_ip.entry(*address));
             }
         }
     }
 
     pub fn add_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_add(1);
-        dbg!("adding");
         for address in ip_addresses {
-            dbg!(&address);
             *self.banned_peers_per_ip.entry(*address).or_insert(0) += 1;
-            dbg!(self.banned_peers_per_ip.entry(*address));
         }
     }
 
@@ -161,7 +155,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
     }
 
-    /// Returns true if the Peer is banned.
+    /// Returns true if the Peer is banned. This doesn't check the connection state, rather the
+    /// underlying score of the peer. A peer may be banned but still in the connected state
+    /// temporarily.
+    ///
     /// This is used to determine if we should accept incoming connections or not.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
@@ -433,6 +430,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Marks a peer to be disconnected and then banned.
     /// Returns true if the peer is currently connected and false otherwise.
+    // NOTE: If the peer's score is not already low enough to be banned, this will decrease the
+    // peer's score to be a banned state.
     pub fn disconnect_and_ban(&mut self, peer_id: &PeerId) -> bool {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
@@ -440,6 +439,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 "peer_id" => peer_id.to_string());
             PeerInfo::default()
         });
+
+        // Ban the peer if the score is not already low enough.
+        match info.score().state() {
+            ScoreState::Banned => {}
+            _ => {
+                // If score isn't low enough to ban, this function has been called incorrectly.
+                error!(self.log, "Banning a peer with a good score"; "peer_id" => %peer_id);
+                info.apply_peer_action_to_score(super::score::PeerAction::Fatal);
+            }
+        }
 
         // Check and verify all the connection states
         match info.connection_status() {
@@ -478,7 +487,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Unbans a peer.
-    pub fn unban(&mut self, peer_id: &PeerId) {
+    /// This should only be called once a peer's score is no longer banned.
+    /// If this is called for a banned peer, it will error.
+    pub fn unban(&mut self, peer_id: &PeerId) -> Result<(), &'static str> {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "UnBanning unknown peer";
@@ -487,8 +498,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         });
 
         if !info.is_banned() {
-            error!(log_ref, "Unbanning peer that is not banned"; "peer_id" => %peer_id);
-            return;
+            return Err("Unbanning peer that is not banned");
+        }
+
+        if let ScoreState::Banned = info.score().state() {
+            return Err("Attempted to unban (connection status) a banned peer");
         }
 
         self.banned_peers_count
@@ -497,6 +511,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         // This transitions a banned peer to a disconnected peer
         self.disconnected_peers = self.disconnected_peers.saturating_add(1);
         self.shrink_to_fit();
+        Ok(())
     }
 
     /// Removes banned and disconnected peers from the DB if we have reached any of our limits.
@@ -600,6 +615,12 @@ mod tests {
     fn add_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {
             info.add_to_score(score);
+        }
+    }
+
+    fn reset_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId) {
+        if let Some(info) = db.peer_info_mut(peer_id) {
+            info.reset_score();
         }
     }
 
@@ -720,36 +741,27 @@ mod tests {
 
         pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
 
         pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
         pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
 
         pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
         pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
 
         pdb.disconnect_and_ban(&random_peer);
         pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
         pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
 
         pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
         pdb.notify_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        dbg!("1");
     }
 
     #[test]
@@ -896,7 +908,8 @@ mod tests {
         assert!(!pdb.is_banned(&p5));
 
         //peers[0] gets unbanned
-        pdb.unban(&peers[0]);
+        reset_score(&mut pdb, &peers[0]);
+        pdb.unban(&peers[0]).unwrap();
 
         //nothing changed
         assert!(pdb.is_banned(&p1));
@@ -906,7 +919,8 @@ mod tests {
         assert!(!pdb.is_banned(&p5));
 
         //peers[1] gets unbanned
-        pdb.unban(&peers[1]);
+        reset_score(&mut pdb, &peers[1]);
+        pdb.unban(&peers[1]).unwrap();
 
         //all ips are unbanned
         assert!(!pdb.is_banned(&p1));
@@ -941,63 +955,48 @@ mod tests {
         assert!(pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
 
-        // change addresses of banned peers
-        for p in &peers {
-            pdb.peers.get_mut(p).unwrap().connect_ingoing(Some(ip2));
-        }
-
-        // check still the same ip is banned
-        assert!(pdb.is_banned(&p1));
-        assert!(!pdb.is_banned(&p2));
-
-        dbg!(&pdb.banned_peers_count.banned_peers);
-        // unban a peers
-        dbg!("unbanning");
-        pdb.unban(&peers[0]);
+        // unban a peer
+        reset_score(&mut pdb, &peers[0]);
+        pdb.unban(&peers[0]).unwrap();
 
         // check not banned anymore
-        dbg!("here");
         assert!(!pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
 
-        // unban and reban all peers
+        // add ip2 to all peers and ban them.
         for p in &peers {
-            pdb.unban(p);
+            pdb.connect_ingoing(&p, ip2.into());
             pdb.disconnect_and_ban(p);
             pdb.notify_disconnect(p);
         }
 
-        // ip2 is now banned
-        dbg!("here");
-        assert!(!pdb.is_banned(&p1));
+        // both IP's are now banned
+        assert!(pdb.is_banned(&p1));
         assert!(pdb.is_banned(&p2));
 
-        // change ips back again
+        // unban all peers
         for p in &peers {
-            pdb.peers.get_mut(p).unwrap().connect_ingoing(Some(ip1));
+            reset_score(&mut pdb, &p);
+            pdb.unban(p).unwrap();
         }
 
         // reban every peer except one
         for p in &peers[1..] {
-            pdb.unban(p);
             pdb.disconnect_and_ban(p);
             pdb.notify_disconnect(p);
         }
 
         // nothing is banned
-        dbg!("here");
         assert!(!pdb.is_banned(&p1));
         assert!(!pdb.is_banned(&p2));
 
         //reban last peer
-        pdb.unban(&peers[0]);
         pdb.disconnect_and_ban(&peers[0]);
         pdb.notify_disconnect(&peers[0]);
 
-        //ip1 is banned
-        dbg!("here");
+        //Ip's are banned again
         assert!(pdb.is_banned(&p1));
-        assert!(!pdb.is_banned(&p2));
+        assert!(pdb.is_banned(&p2));
     }
 
     #[test]

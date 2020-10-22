@@ -198,7 +198,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.ban_peer(peer_id);
         }
         if let Some(peer_id) = unban_peer {
-            self.unban_peer(peer_id);
+            if let Err(e) = self.unban_peer(peer_id) {
+                error!(self.log, "{}", e; "peer_id" => %peer_id);
+            }
         }
     }
 
@@ -695,7 +697,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
         // process unbanning peers
         for peer_id in to_unban_peers {
-            self.unban_peer(&peer_id);
+            if let Err(e) = self.unban_peer(&peer_id) {
+                error!(self.log, "{}", e; "peer_id" => %peer_id);
+            }
         }
     }
 
@@ -735,9 +739,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// Records updates the peers connection status and updates the peer db as well as removes
     /// previous bans from discovery.
-    fn unban_peer(&mut self, peer_id: &PeerId) {
+    fn unban_peer(&mut self, peer_id: &PeerId) -> Result<(), &'static str> {
         let mut peer_db = self.network_globals.peers.write();
-        peer_db.unban(&peer_id);
+        peer_db.unban(&peer_id)?;
 
         let seen_ip_addresses = peer_db
             .peer_info(peer_id)
@@ -745,6 +749,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .unwrap_or_default();
 
         self.discovery.unban_peer(&peer_id, seen_ip_addresses);
+        Ok(())
     }
 
     /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
