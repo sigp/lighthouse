@@ -7,12 +7,15 @@ use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
 use leveldb::iterator::{Iterable, KeyIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
+use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
 use std::path::Path;
 
 /// A wrapped leveldb database.
 pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
+    /// A mutex to synchronise sensitive read-write transactions.
+    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
@@ -24,9 +27,11 @@ impl<E: EthSpec> LevelDB<E> {
         options.create_if_missing = true;
 
         let db = Database::open(path, options)?;
+        let transaction_mutex = Mutex::new(());
 
         Ok(Self {
             db,
+            transaction_mutex,
             _phantom: PhantomData,
         })
     }
@@ -142,6 +147,10 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         }
         self.db.write(self.write_options(), &leveldb_batch)?;
         Ok(())
+    }
+
+    fn begin_rw_transaction(&self) -> MutexGuard<()> {
+        self.transaction_mutex.lock()
     }
 }
 

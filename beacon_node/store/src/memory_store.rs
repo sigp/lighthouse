@@ -1,5 +1,5 @@
 use super::{Error, ItemStore, KeyValueStore, KeyValueStoreOp};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use types::*;
@@ -9,16 +9,8 @@ type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 /// A thread-safe `HashMap` wrapper.
 pub struct MemoryStore<E: EthSpec> {
     db: RwLock<DBHashMap>,
+    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
-}
-
-impl<E: EthSpec> Clone for MemoryStore<E> {
-    fn clone(&self) -> Self {
-        Self {
-            db: RwLock::new(self.db.read().clone()),
-            _phantom: PhantomData,
-        }
-    }
 }
 
 impl<E: EthSpec> MemoryStore<E> {
@@ -26,6 +18,7 @@ impl<E: EthSpec> MemoryStore<E> {
     pub fn open() -> Self {
         Self {
             db: RwLock::new(HashMap::new()),
+            transaction_mutex: Mutex::new(()),
             _phantom: PhantomData,
         }
     }
@@ -86,6 +79,10 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             }
         }
         Ok(())
+    }
+
+    fn begin_rw_transaction(&self) -> MutexGuard<()> {
+        self.transaction_mutex.lock()
     }
 }
 

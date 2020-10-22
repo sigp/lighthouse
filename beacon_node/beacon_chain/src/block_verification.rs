@@ -63,7 +63,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
-use store::{Error as DBError, HotColdDB, HotStateSummary, StoreOp};
+use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
@@ -704,6 +704,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
                 // Store the state immediately, marking it as temporary, and staging the deletion
                 // of its temporary status as part of the larger atomic operation.
+                let txn_lock = chain.store.hot_db.begin_rw_transaction();
                 let state_already_exists =
                     chain.store.load_hot_state_summary(&state_root)?.is_some();
 
@@ -727,6 +728,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                     ]
                 };
                 chain.store.do_atomically(state_batch)?;
+                drop(txn_lock);
 
                 confirmation_db_batch.push(StoreOp::DeleteStateTemporaryFlag(state_root));
 

@@ -1630,7 +1630,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Box::new(signed_block.clone()),
         ));
         ops.push(StoreOp::PutState(block.state_root, &state));
+        let txn_lock = self.store.hot_db.begin_rw_transaction();
         self.store.do_atomically(ops)?;
+        drop(txn_lock);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.

@@ -35,6 +35,7 @@ pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
+use parking_lot::MutexGuard;
 pub use types::*;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
@@ -60,6 +61,12 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Execute either all of the operations in `batch` or none at all, returning an error.
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error>;
+
+    /// Return a mutex guard that can be used to synchronize sensitive transactions.
+    ///
+    /// This doesn't prevent other threads writing to the DB unless they also use
+    /// this method. In future we may implement a safer mandatory locking scheme.
+    fn begin_rw_transaction(&self) -> MutexGuard<()>;
 }
 
 pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
