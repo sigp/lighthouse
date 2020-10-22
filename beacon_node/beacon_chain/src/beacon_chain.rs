@@ -1725,7 +1725,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
-        let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
+        let (proposer_slashings, attester_slashings) =
+            self.op_pool.get_slashings(&state, &self.spec);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain
