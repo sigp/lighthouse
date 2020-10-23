@@ -436,11 +436,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         let batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
+            .map(Into::into)
             .map(StoreOp::DeleteBlock)
             .chain(
                 abandoned_states
                     .into_iter()
-                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash, slot)),
+                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash.into(), Some(slot))),
             )
             .collect();
 

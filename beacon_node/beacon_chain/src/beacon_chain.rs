@@ -1498,7 +1498,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = fully_verified_block.block_root;
         let mut state = fully_verified_block.state;
         let current_slot = self.slot()?;
-        let mut ops = fully_verified_block.intermediate_states;
+        let mut ops = fully_verified_block.confirmation_db_batch;
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
@@ -1623,13 +1623,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
-        // Store all the states between the parent block state and this block's slot, the block and state.
-        ops.push(StoreOp::PutBlock(block_root.into(), signed_block.clone()));
-        ops.push(StoreOp::PutState(
-            block.state_root.into(),
-            Cow::Borrowed(&state),
+        // Store the block and its state, and execute the confirmation batch for the intermediate
+        // states, which will delete their temporary flags.
+        ops.push(StoreOp::PutBlock(
+            block_root,
+            Box::new(signed_block.clone()),
         ));
+        ops.push(StoreOp::PutState(block.state_root, &state));
+        let txn_lock = self.store.hot_db.begin_rw_transaction();
         self.store.do_atomically(ops)?;
+        drop(txn_lock);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
