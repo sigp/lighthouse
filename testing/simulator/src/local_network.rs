@@ -93,6 +93,11 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .enr()
                     .expect("bootnode must have a network"),
             );
+            let count = self.beacon_node_count() as u16;
+            beacon_config.network.discovery_port = BOOTNODE_PORT + count;
+            beacon_config.network.libp2p_port = BOOTNODE_PORT + count;
+            beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
         }
 
         let index = self.beacon_nodes.read().len();

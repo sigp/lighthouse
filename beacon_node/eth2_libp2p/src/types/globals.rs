@@ -110,25 +110,8 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
 
     /// Updates the syncing state of the node.
     ///
-    /// If there is a new state, the old state and the new states are returned.
-    pub fn update_sync_state(&self) -> Option<(SyncState, SyncState)> {
-        let mut result = None;
-        // if we are in a range sync, nothing changes. Range sync will update this.
-        if !self.is_syncing() {
-            let new_state = self
-                .peers
-                .read()
-                .synced_peers()
-                .next()
-                .map(|_| SyncState::Synced)
-                .unwrap_or_else(|| SyncState::Stalled);
-
-            let mut peer_state = self.sync_state.write();
-            if new_state != *peer_state {
-                result = Some((peer_state.clone(), new_state.clone()));
-            }
-            *peer_state = new_state;
-        }
-        result
+    /// The old state is returned
+    pub fn set_sync_state(&self, new_state: SyncState) -> SyncState {
+        std::mem::replace(&mut *self.sync_state.write(), new_state)
     }
 }

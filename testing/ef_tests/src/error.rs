@@ -37,9 +37,6 @@ impl Error {
     }
 
     pub fn is_skipped(&self) -> bool {
-        match self {
-            Error::SkippedBls | Error::SkippedKnownFailure => true,
-            _ => false,
-        }
+        matches!(self, Error::SkippedBls | Error::SkippedKnownFailure)
     }
 }

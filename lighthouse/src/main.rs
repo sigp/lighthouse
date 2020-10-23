@@ -91,9 +91,9 @@ fn main() {
                 .value_name("DIR")
                 .global(true)
                 .help(
-                    "Root data directory for lighthouse keys and databases. \
-                    Defaults to $HOME/.lighthouse/{default-testnet}, \
-                    currently, $HOME/.lighthouse/medalla")
+                    "Used to specify a custom root data directory for lighthouse keys and databases. \
+                    Defaults to $HOME/.lighthouse/{testnet} where testnet is the value of the `testnet` flag \
+                    Note: Users should specify separate custom datadirs for different testnets.")
                 .takes_value(true),
         )
         .arg(
@@ -114,7 +114,7 @@ fn main() {
                 .long("testnet")
                 .value_name("testnet")
                 .help("Name of network lighthouse will connect to")
-                .possible_values(&["medalla", "altona", "spadina"])
+                .possible_values(&["medalla", "altona", "spadina", "zinken"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)

@@ -1,6 +1,6 @@
 //! Downloads a testnet configuration from Github.
 
-use eth2_config::{altona, medalla, spadina, Eth2NetArchiveAndDirectory};
+use eth2_config::{altona, medalla, spadina, zinken, Eth2NetArchiveAndDirectory};
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -10,6 +10,7 @@ const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[
     altona::ETH2_NET_DIR,
     medalla::ETH2_NET_DIR,
     spadina::ETH2_NET_DIR,
+    zinken::ETH2_NET_DIR,
 ];
 
 fn main() {

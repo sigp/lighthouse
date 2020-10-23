@@ -63,7 +63,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
-use store::{Error as DBError, HotColdDB, HotStateSummary, StoreOp};
+use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
@@ -363,7 +363,7 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec>,
-    pub intermediate_states: Vec<StoreOp<'a, T::EthSpec>>,
+    pub confirmation_db_batch: Vec<StoreOp<'a, T::EthSpec>>,
 }
 
 /// Implemented on types that can be converted into a `FullyVerifiedBlock`.
@@ -676,9 +676,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
-        // Keep a batch of any states that were "skipped" (block-less) in between the parent state
-        // slot and the block slot. These will be stored in the database.
-        let mut intermediate_states: Vec<StoreOp<T::EthSpec>> = Vec::new();
+        // Stage a batch of operations to be completed atomically if this block is imported
+        // successfully.
+        let mut confirmation_db_batch = vec![];
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_state.slot {
@@ -702,18 +702,36 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 // processing, but we get early access to it.
                 let state_root = state.update_tree_hash_cache()?;
 
-                let op = if state.slot % T::EthSpec::slots_per_epoch() == 0 {
-                    StoreOp::PutState(
-                        state_root.into(),
-                        Cow::Owned(state.clone_with(CloneConfig::committee_caches_only())),
-                    )
+                // Store the state immediately, marking it as temporary, and staging the deletion
+                // of its temporary status as part of the larger atomic operation.
+                let txn_lock = chain.store.hot_db.begin_rw_transaction();
+                let state_already_exists =
+                    chain.store.load_hot_state_summary(&state_root)?.is_some();
+
+                let state_batch = if state_already_exists {
+                    // If the state exists, it could be temporary or permanent, but in neither case
+                    // should we rewrite it or store a new temporary flag for it. We *will* stage
+                    // the temporary flag for deletion because it's OK to double-delete the flag,
+                    // and we don't mind if another thread gets there first.
+                    vec![]
                 } else {
-                    StoreOp::PutStateSummary(
-                        state_root.into(),
-                        HotStateSummary::new(&state_root, &state)?,
-                    )
+                    vec![
+                        if state.slot % T::EthSpec::slots_per_epoch() == 0 {
+                            StoreOp::PutState(state_root, &state)
+                        } else {
+                            StoreOp::PutStateSummary(
+                                state_root,
+                                HotStateSummary::new(&state_root, &state)?,
+                            )
+                        },
+                        StoreOp::PutStateTemporaryFlag(state_root),
+                    ]
                 };
-                intermediate_states.push(op);
+                chain.store.do_atomically(state_batch)?;
+                drop(txn_lock);
+
+                confirmation_db_batch.push(StoreOp::DeleteStateTemporaryFlag(state_root));
+
                 state_root
             };
 
@@ -801,7 +819,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             block_root,
             state,
             parent_block: parent.beacon_block,
-            intermediate_states,
+            confirmation_db_batch,
         })
     }
 }

@@ -10,8 +10,8 @@ harness = false
 
 [dev-dependencies]
 tempfile = "3.1.0"
-criterion = "0.3.2"
-rayon = "1.3.0"
+criterion = "0.3.3"
+rayon = "1.4.1"
 
 [dependencies]
 db-key = "0.0.5"
@@ -20,13 +20,13 @@ parking_lot = "0.11.0"
 itertools = "0.9.0"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
-tree_hash = "0.1.0"
+tree_hash = "0.1.1"
 types = { path =  "../../consensus/types" }
 state_processing = { path = "../../consensus/state_processing" }
 slog = "2.5.2"
-serde = "1.0.110"
-serde_derive = "1.0.110"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-lru = "0.5.1"
-sloggers = "1.0.0"
+lru = "0.6.0"
+sloggers = "1.0.1"

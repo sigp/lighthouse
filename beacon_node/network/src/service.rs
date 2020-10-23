@@ -8,7 +8,7 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
+    Gossipsub, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
 };
 use eth2_libp2p::{
     types::GossipKind, BehaviourEvent, GossipTopic, MessageId, NetworkGlobals, PeerId, TopicHash,
@@ -51,7 +51,7 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Respond to a peer's request with an error.
     SendError {
-        // TODO: note that this is never used, we just say goodbye without nicely closing the
+        // NOTE: Currently this is never used, we just say goodbye without nicely closing the
         // stream assigned to the request
         peer_id: PeerId,
         error: RPCResponseErrorCode,
@@ -121,7 +121,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        executor: environment::TaskExecutor,
+        executor: task_executor::TaskExecutor,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -163,7 +163,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Loading peers into the routing table"; "peers" => enrs_to_load.len()
         );
         for enr in enrs_to_load {
-            libp2p.swarm.add_enr(enr.clone()); //TODO change?
+            libp2p.swarm.add_enr(enr.clone());
         }
 
         // launch derived network services
@@ -207,7 +207,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 }
 
 fn spawn_service<T: BeaconChainTypes>(
-    executor: environment::TaskExecutor,
+    executor: task_executor::TaskExecutor,
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
     let mut exit_rx = executor.exit();
@@ -349,7 +349,6 @@ fn spawn_service<T: BeaconChainTypes>(
                 // process any attestation service events
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
-                        // TODO: Implement
                         AttServiceMessage::Subscribe(subnet_id) => {
                             service.libp2p.swarm.subscribe_to_subnet(subnet_id);
                         }
@@ -538,7 +537,7 @@ fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
     }
 }
 
-fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
+fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
     // Clear the metrics
     let _ = metrics::PEERS_PER_PROTOCOL
         .as_ref()

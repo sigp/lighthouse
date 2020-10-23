@@ -5,7 +5,7 @@ pub mod enr_ext;
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::core::identity::Keypair;
+pub use libp2p::core::identity::{Keypair, PublicKey};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
@@ -365,7 +365,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// If the external address needs to be modified, use `update_enr_udp_socket.
     pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
-            .enr_insert("tcp", port.to_be_bytes().into())
+            .enr_insert("tcp", &port.to_be_bytes())
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -383,18 +383,18 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         match socket_addr {
             SocketAddr::V4(socket) => {
                 self.discv5
-                    .enr_insert("ip", socket.ip().octets().into())
+                    .enr_insert("ip", &socket.ip().octets())
                     .map_err(|e| format!("{:?}", e))?;
                 self.discv5
-                    .enr_insert("udp", socket.port().to_be_bytes().into())
+                    .enr_insert("udp", &socket.port().to_be_bytes())
                     .map_err(|e| format!("{:?}", e))?;
             }
             SocketAddr::V6(socket) => {
                 self.discv5
-                    .enr_insert("ip6", socket.ip().octets().into())
+                    .enr_insert("ip6", &socket.ip().octets())
                     .map_err(|e| format!("{:?}", e))?;
                 self.discv5
-                    .enr_insert("udp6", socket.port().to_be_bytes().into())
+                    .enr_insert("udp6", &socket.port().to_be_bytes())
                     .map_err(|e| format!("{:?}", e))?;
             }
         }
@@ -439,7 +439,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // insert the bitfield into the ENR record
         self.discv5
-            .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes())
+            .enr_insert(BITFIELD_ENR_KEY, &current_bitfield.as_ssz_bytes())
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -468,7 +468,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY, enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -858,7 +858,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 // Still awaiting the event stream, poll it
                 if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
                     match event_stream {
-                        Ok(stream) => self.event_stream = EventStream::Present(stream),
+                        Ok(stream) => {
+                            debug!(self.log, "Discv5 event stream ready");
+                            self.event_stream = EventStream::Present(stream);
+                        }
                         Err(e) => {
                             slog::crit!(self.log, "Discv5 event stream failed"; "error" => e.to_string());
                             self.event_stream = EventStream::InActive;

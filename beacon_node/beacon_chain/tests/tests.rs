@@ -6,7 +6,7 @@ extern crate lazy_static;
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
 };
@@ -25,9 +25,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness(
-    validator_count: usize,
-) -> BeaconChainHarness<NullMigratorEphemeralHarnessType<MinimalEthSpec>> {
+fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::new_with_store_config(
         MinimalEthSpec,
         KEYPAIRS[0..validator_count].to_vec(),
@@ -67,7 +65,7 @@ fn massive_skips() {
 fn iterators() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     harness.extend_chain(
         num_blocks_produced as usize,
@@ -142,7 +140,7 @@ fn iterators() {
 
 #[test]
 fn chooses_fork() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
     let delay = MinimalEthSpec::default_spec().min_attestation_inclusion_delay as usize;
@@ -193,7 +191,7 @@ fn chooses_fork() {
 fn finalizes_with_full_participation() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     harness.extend_chain(
         num_blocks_produced as usize,
@@ -228,7 +226,7 @@ fn finalizes_with_full_participation() {
 fn finalizes_with_two_thirds_participation() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
     let attesters = (0..two_thirds).collect();
@@ -271,7 +269,7 @@ fn finalizes_with_two_thirds_participation() {
 fn does_not_finalize_with_less_than_two_thirds_participation() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
     let less_than_two_thirds = two_thirds - 1;
@@ -308,7 +306,7 @@ fn does_not_finalize_with_less_than_two_thirds_participation() {
 fn does_not_finalize_without_attestation() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     harness.extend_chain(
         num_blocks_produced as usize,
@@ -341,7 +339,7 @@ fn does_not_finalize_without_attestation() {
 fn roundtrip_operation_pool() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     // Add some attestations
     harness.extend_chain(
@@ -372,7 +370,7 @@ fn roundtrip_operation_pool() {
 fn unaggregated_attestations_added_to_fork_choice_some_none() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() / 2;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     harness.extend_chain(
         num_blocks_produced as usize,
@@ -426,7 +424,7 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
 fn attestations_with_increasing_slots() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     let mut attestations = vec![];
 
@@ -438,8 +436,8 @@ fn attestations_with_increasing_slots() {
             AttestationStrategy::SomeValidators(vec![]),
         );
 
-        attestations.append(
-            &mut harness.get_unaggregated_attestations(
+        attestations.extend(
+            harness.get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &harness.chain.head().expect("should get head").beacon_state,
                 harness
@@ -488,7 +486,7 @@ fn attestations_with_increasing_slots() {
 fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
 
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     harness.extend_chain(
         num_blocks_produced as usize,
@@ -543,7 +541,7 @@ fn unaggregated_attestations_added_to_fork_choice_all_updated() {
 
 fn run_skip_slot_test(skip_slots: u64) {
     let num_validators = 8;
-    let mut harness_a = get_harness(num_validators);
+    let harness_a = get_harness(num_validators);
     let harness_b = get_harness(num_validators);
 
     for _ in 0..skip_slots {

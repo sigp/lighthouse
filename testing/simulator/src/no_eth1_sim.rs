@@ -2,8 +2,8 @@ use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
-    ValidatorFiles,
+    environment::EnvironmentBuilder, testing_client_config, testing_validator_config,
+    ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
@@ -99,14 +99,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let add_validators_fut = async {
             for (i, files) in validator_files.into_iter().enumerate() {
                 network
-                    .add_validator_client(
-                        ValidatorConfig {
-                            disable_auto_discover: false,
-                            ..ValidatorConfig::default()
-                        },
-                        i,
-                        files,
-                    )
+                    .add_validator_client(testing_validator_config(), i, files)
                     .await?;
             }
 
