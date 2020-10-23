@@ -428,6 +428,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 id,
                                 source,
                                 message,
+                                ..
                             } => {
                                 // Update prometheus metrics.
                                 expose_receive_metrics(&message);

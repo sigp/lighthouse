@@ -90,6 +90,8 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         id: MessageId,
         /// The peer from which we received this message, not the peer that published it.
         source: PeerId,
+        /// The topics that this message was sent on.
+        topics: Vec<TopicHash>,
         /// The message itself.
         message: PubsubMessage<TSpec>,
     },
@@ -302,34 +304,35 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
     pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
         for message in messages {
-            let topic = message.topic(GossipEncoding::default(), self.enr_fork_id.fork_digest);
-            match message.encode(GossipEncoding::default()) {
-                Ok(message_data) => {
-                    if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
-                        slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
+            for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
+                match message.encode(GossipEncoding::default()) {
+                    Ok(message_data) => {
+                        if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
+                            slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
 
-                        // add to metrics
-                        match topic.kind() {
-                            GossipKind::Attestation(subnet_id) => {
-                                if let Some(v) = metrics::get_int_gauge(
-                                    &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
-                                    &[&subnet_id.to_string()],
-                                ) {
-                                    v.inc()
-                                };
-                            }
-                            kind => {
-                                if let Some(v) = metrics::get_int_gauge(
-                                    &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
-                                    &[&format!("{:?}", kind)],
-                                ) {
-                                    v.inc()
-                                };
+                            // add to metrics
+                            match topic.kind() {
+                                GossipKind::Attestation(subnet_id) => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
+                                        &[&subnet_id.to_string()],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                                kind => {
+                                    if let Some(v) = metrics::get_int_gauge(
+                                        &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                                        &[&format!("{:?}", kind)],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
                             }
                         }
                     }
+                    Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
                 }
-                Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
             }
         }
     }
@@ -534,7 +537,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                match PubsubMessage::decode(&gs_msg.topic, gs_msg.data()) {
+                match PubsubMessage::decode(&gs_msg.topics, gs_msg.data()) {
                     Err(e) => {
                         debug!(self.log, "Could not decode gossipsub message"; "error" => e);
                         //reject the message
@@ -551,6 +554,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         self.add_event(BehaviourEvent::PubsubMessage {
                             id,
                             source: propagation_source,
+                            topics: gs_msg.topics,
                             message: msg,
                         });
                     }
