@@ -18,7 +18,7 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// we will negatively report peers with poor bandwidth. This can be set arbitrarily high, in which
 /// case the responder will fill the response up to the max request size, assuming they have the
 /// bandwidth to do so.
-pub const EPOCHS_PER_BATCH: u64 = 8;
+pub const EPOCHS_PER_BATCH: u64 = 2;
 
 /// The maximum number of batches to queue before requesting more.
 const BATCH_BUFFER_SIZE: u8 = 5;
