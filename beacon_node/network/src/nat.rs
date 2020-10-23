@@ -4,7 +4,7 @@
 //! - UPnP
 
 use crate::{NetworkConfig, NetworkMessage};
-use if_addrs::get_if_addrs;
+use get_if_addrs::get_if_addrs;
 use slog::{debug, info, warn};
 use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use tokio::sync::mpsc;
