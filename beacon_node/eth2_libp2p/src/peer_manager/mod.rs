@@ -710,17 +710,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Records updates the peers connection status and updates the peer db as well as blocks the
     /// peer from participating in discovery and removes them from the routing table.
     fn ban_peer(&mut self, peer_id: &PeerId) {
-        let mut peer_db = self.network_globals.peers.write();
+        {
+            // write lock scope
+            let mut peer_db = self.network_globals.peers.write();
 
-        if peer_db.disconnect_and_ban(peer_id) {
-            // The peer was currently connected, so we start a disconnection.
-            self.events.push(PeerManagerEvent::DisconnectPeer(
-                peer_id.clone(),
-                GoodbyeReason::BadScore,
-            ));
-        }
+            if peer_db.disconnect_and_ban(peer_id) {
+                // The peer was currently connected, so we start a disconnection.
+                self.events.push(PeerManagerEvent::DisconnectPeer(
+                    peer_id.clone(),
+                    GoodbyeReason::BadScore,
+                ));
+            }
+        } // end write lock
 
-        // drop the write lock take a read lock
+        // take a read lock
         let peer_db = self.network_globals.peers.read();
 
         let banned_ip_addresses = peer_db
