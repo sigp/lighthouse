@@ -36,16 +36,16 @@ pub fn construct_upnp_mappings<T: EthSpec>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
     log: slog::Logger,
 ) {
-    debug!(log, "UPnP Initialising routes");
+    info!(log, "UPnP Attempting to initialise routes");
     match igd::search_gateway(Default::default()) {
-        Err(e) => debug!(log, "UPnP not available"; "error" => %e),
+        Err(e) => info!(log, "UPnP not available"; "error" => %e),
         Ok(gateway) => {
             // Need to find the local listening address matched with the router subnet
             let mut local_ip = None;
             let interfaces = match get_if_addrs() {
                 Ok(v) => v,
                 Err(e) => {
-                    debug!(log, "UPnP failed to get local interfaces"; "error" => %e);
+                    info!(log, "UPnP failed to get local interfaces"; "error" => %e);
                     return;
                 }
             };
@@ -57,7 +57,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
             }
 
             if local_ip.is_none() {
-                debug!(log, "UPnP failed to find local IP address");
+                info!(log, "UPnP failed to find local IP address");
                 return;
             }
 
@@ -79,7 +79,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                         "lighthouse-tcp",
                     ) {
                         Err(e) => {
-                            debug!(log, "UPnP could not construct libp2p port route"; "error" => %e);
+                            info!(log, "UPnP could not construct libp2p port route"; "error" => %e);
                             None
                         }
                         Ok(_) => {
@@ -101,7 +101,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                             "lighthouse-udp",
                         ) {
                             Err(e) => {
-                                debug!(log, "UPnP could not construct discovery port route"; "error" => %e);
+                                info!(log, "UPnP could not construct discovery port route"; "error" => %e);
                                 None
                             }
                             Ok(_) => {
