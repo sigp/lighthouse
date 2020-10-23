@@ -1259,7 +1259,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     &dir,
                                 ),
                                 state: api_types::PeerState::from_peer_connection_status(
-                                    &peer_info.connection_status,
+                                    &peer_info.connection_status(),
                                 ),
                             }));
                         }
@@ -1301,7 +1301,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     &dir,
                                 ),
                                 state: api_types::PeerState::from_peer_connection_status(
-                                    &peer_info.connection_status,
+                                    &peer_info.connection_status(),
                                 ),
                             });
                         }

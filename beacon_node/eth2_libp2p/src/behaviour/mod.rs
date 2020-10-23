@@ -851,44 +851,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         self.peer_manager.addresses_of_peer(peer_id)
     }
 
-    // This gets called every time a connection is closed.
-    fn inject_connection_closed(
-        &mut self,
-        peer_id: &PeerId,
-        conn_id: &ConnectionId,
-        endpoint: &ConnectedPoint,
-    ) {
-        // If the peer manager (and therefore the behaviour's) believe this peer connected, inform
-        // about the disconnection.
-        if self.network_globals.peers.read().is_connected(&peer_id) {
-            delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
-        }
-    }
-
-    // This gets called once there are no more active connections.
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        // If the application/behaviour layers thinks this peer has connected inform it of the disconnect.
-        if self.network_globals.peers.read().is_connected(&peer_id) {
-            // Inform the application.
-            self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
-            // Inform the behaviour.
-            delegate_to_behaviours!(self, inject_disconnected, peer_id);
-        }
-        // Inform the peer manager.
-        // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
-        // here and the peer manager has no knowledge of its connection. We insert it here for
-        // reference so that peer manager can track this peer.
-        self.peer_manager.notify_disconnect(&peer_id);
-
-        // Update the prometheus metrics
-        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
-    }
-
     // This gets called every time a connection is established.
+    // NOTE: The current logic implies that we would reject extra connections for already connected
+    // peers if we have reached our peer limit. This is fine for the time being as we currently
+    // only allow a single connection per peer.
     fn inject_connection_established(
         &mut self,
         peer_id: &PeerId,
@@ -897,6 +863,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     ) {
         let goodbye_reason: Option<GoodbyeReason> = if self.peer_manager.is_banned(peer_id) {
             // If the peer is banned, send goodbye with reason banned.
+            // A peer that has recently transitioned to the banned state should be in the
+            // disconnecting state, but the `is_banned()` function is dependent on score so should
+            // be true here in this case.
             Some(GoodbyeReason::Banned)
         } else if self.peer_manager.peer_limit_reached()
             && self
@@ -913,14 +882,17 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             None
         };
 
-        if goodbye_reason.is_some() {
-            debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.as_ref().expect("Is some").to_string());
+        if let Some(goodbye_reason) = goodbye_reason {
+            debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.to_string());
             self.peers_to_dc
-                .push_back((peer_id.clone(), goodbye_reason));
+                .push_back((peer_id.clone(), Some(goodbye_reason)));
+            // NOTE: We don't inform the peer manager that this peer is disconnecting. It is simply
+            // rejected with a goodbye.
             return;
         }
 
-        // notify the peer manager of a successful connection
+        // All peers at this point will be registered as being connected.
+        // Notify the peer manager of a successful connection
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.peer_manager
@@ -946,6 +918,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     }
 
     // This gets called on the initial connection establishment.
+    // NOTE: This gets called after inject_connection_established. Therefore the logic in that
+    // function dictates the logic here.
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // If the PeerManager has connected this peer, inform the behaviours
         if !self.network_globals.peers.read().is_connected(&peer_id) {
@@ -960,6 +934,79 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         );
 
         delegate_to_behaviours!(self, inject_connected, peer_id);
+    }
+
+    // This gets called every time a connection is closed.
+    // NOTE: The peer manager state can be modified in the lifetime of the peer. Due to the scoring
+    // mechanism. Peers can become banned. In this case, we still want to inform the behaviours.
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &ConnectionId,
+        endpoint: &ConnectedPoint,
+    ) {
+        // If the peer manager (and therefore the behaviour's) believe this peer connected, inform
+        // about the disconnection.
+        // It could be the peer was in the process of being disconnected. In this case the
+        // sub-behaviours are expecting this peer to be connected and we inform them.
+        if self
+            .network_globals
+            .peers
+            .read()
+            .is_connected_or_disconnecting(peer_id)
+        {
+            // We are disconnecting the peer or the peer has already been connected.
+            // Both these cases, the peer has been previously registered in the sub protocols.
+            delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
+        }
+    }
+
+    // This gets called once there are no more active connections.
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        // If the application/behaviour layers thinks this peer has connected inform it of the disconnect.
+
+        if self
+            .network_globals
+            .peers
+            .read()
+            .is_connected_or_disconnecting(peer_id)
+        {
+            // We are disconnecting the peer or the peer has already been connected.
+            // Both these cases, the peer has been previously registered in the sub protocols and
+            // potentially the application layer.
+            // Inform the application.
+            self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
+            // Inform the behaviour.
+            delegate_to_behaviours!(self, inject_disconnected, peer_id);
+
+            // Decrement the PEERS_PER_CLIENT metric
+            if let Some(kind) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(peer_id)
+                .map(|info| info.client.kind.clone())
+            {
+                if let Some(v) =
+                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                {
+                    v.dec()
+                };
+            }
+        }
+
+        // Inform the peer manager.
+        // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
+        // here and the peer manager has no knowledge of its connection. We insert it here for
+        // reference so that peer manager can track this peer.
+        self.peer_manager.notify_disconnect(&peer_id);
+
+        // Update the prometheus metrics
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
     }
 
     fn inject_addr_reach_failure(

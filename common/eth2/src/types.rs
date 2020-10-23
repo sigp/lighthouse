@@ -444,6 +444,7 @@ impl PeerState {
         match status {
             PeerConnectionStatus::Connected { .. } => PeerState::Connected,
             PeerConnectionStatus::Dialing { .. } => PeerState::Connecting,
+            PeerConnectionStatus::Disconnecting { .. } => PeerState::Disconnecting,
             PeerConnectionStatus::Disconnected { .. }
             | PeerConnectionStatus::Banned { .. }
             | PeerConnectionStatus::Unknown => PeerState::Disconnected,
