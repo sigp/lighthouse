@@ -730,7 +730,7 @@ where
         }
     }
 
-    fn set_current_slot(&self, slot: Slot) {
+    pub fn set_current_slot(&self, slot: Slot) {
         let current_slot = self.chain.slot().unwrap();
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let epoch = slot.epoch(E::slots_per_epoch());

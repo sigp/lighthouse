@@ -24,6 +24,29 @@ impl TestingAttesterSlashingBuilder {
     where
         F: Fn(u64, &[u8]) -> Signature,
     {
+        TestingAttesterSlashingBuilder::double_vote_with_additional_indices(
+            test_task,
+            validator_indices,
+            None,
+            signer,
+            fork,
+            genesis_validators_root,
+            spec,
+        )
+    }
+
+    pub fn double_vote_with_additional_indices<F, T: EthSpec>(
+        test_task: AttesterSlashingTestTask,
+        validator_indices: &[u64],
+        additional_validator_indices: Option<&[u64]>,
+        signer: F,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> AttesterSlashing<T>
+    where
+        F: Fn(u64, &[u8]) -> Signature,
+    {
         let slot = Slot::new(1);
         let index = 0;
         let epoch_1 = Epoch::new(1);
@@ -73,13 +96,16 @@ impl TestingAttesterSlashingBuilder {
                 // Trigger bad validator indices ordering error.
                 vec![1, 0].into()
             } else {
-                validator_indices.to_vec().into()
+                match additional_validator_indices {
+                    Some(x) => x.to_vec().into(),
+                    None => validator_indices.to_vec().into(),
+                }
             },
             data: data_2,
             signature: AggregateSignature::empty(),
         };
 
-        let add_signatures = |attestation: &mut IndexedAttestation<T>| {
+        let add_signatures = |attestation: &mut IndexedAttestation<T>, indices_to_sign: &[u64]| {
             let domain = spec.get_domain(
                 attestation.data.target.epoch,
                 Domain::BeaconAttester,
@@ -88,14 +114,17 @@ impl TestingAttesterSlashingBuilder {
             );
             let message = attestation.data.signing_root(domain);
 
-            for validator_index in validator_indices {
+            for validator_index in indices_to_sign {
                 let signature = signer(*validator_index, message.as_bytes());
                 attestation.signature.add_assign(&signature);
             }
         };
 
-        add_signatures(&mut attestation_1);
-        add_signatures(&mut attestation_2);
+        add_signatures(&mut attestation_1, validator_indices);
+        add_signatures(
+            &mut attestation_2,
+            additional_validator_indices.unwrap_or(validator_indices),
+        );
 
         AttesterSlashing {
             attestation_1,
