@@ -1408,7 +1408,7 @@ dependencies = [
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/sigp/discv5?rev=3ab46fbec53a0bb9da53340e10b9daa1a3effc9f#3ab46fbec53a0bb9da53340e10b9daa1a3effc9f"
+source = "git+https://github.com/sigp/discv5?rev=fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0#fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0"
 dependencies = [
  "aes-ctr",
  "aes-gcm",
@@ -1737,7 +1737,7 @@ dependencies = [
  "base64 0.13.0",
  "directory",
  "dirs 3.0.1",
- "discv5 0.1.0-beta.1 (git+https://github.com/sigp/discv5?rev=3ab46fbec53a0bb9da53340e10b9daa1a3effc9f)",
+ "discv5 0.1.0-beta.1 (git+https://github.com/sigp/discv5?rev=fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0)",
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
