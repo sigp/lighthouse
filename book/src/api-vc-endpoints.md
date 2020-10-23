@@ -172,14 +172,17 @@ Typical Responses | 200
     "data": [
         {
             "enabled": true,
+            "description": "validator one",
             "voting_pubkey": "0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde"
         },
         {
             "enabled": true,
+            "description": "validator two",
             "voting_pubkey": "0xb0441246ed813af54c0a11efd53019f63dd454a1fa2a9939ce3c228419fbe113fb02b443ceeb38736ef97877eb88d43a"
         },
         {
             "enabled": true,
+            "description": "validator three",
             "voting_pubkey": "0xad77e388d745f24e13890353031dd8137432ee4225752642aad0a2ab003c86620357d91973b6675932ff51f817088f38"
         }
     ]
