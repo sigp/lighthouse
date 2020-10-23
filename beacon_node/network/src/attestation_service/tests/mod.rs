@@ -5,7 +5,6 @@ mod tests {
         builder::{BeaconChainBuilder, Witness},
         eth1_chain::CachingEth1Backend,
         events::NullEventHandler,
-        migrate::NullMigrator,
     };
     use futures::Stream;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
@@ -23,7 +22,6 @@ mod tests {
     const SLOT_DURATION_MILLIS: u64 = 400;
 
     type TestBeaconChainType = Witness<
-        NullMigrator,
         SystemTimeSlotClock,
         CachingEth1Backend<MinimalEthSpec>,
         MinimalEthSpec,
@@ -55,7 +53,6 @@ mod tests {
                     .logger(log.clone())
                     .custom_spec(spec.clone())
                     .store(Arc::new(store))
-                    .store_migrator(NullMigrator)
                     .data_dir(data_dir.path().to_path_buf())
                     .genesis_state(
                         interop_genesis_state::<MinimalEthSpec>(&keypairs, 0, &spec)

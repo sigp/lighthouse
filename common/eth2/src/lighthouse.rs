@@ -1,11 +1,14 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
 use crate::{
-    types::{Epoch, EthSpec, GenericResponse, ValidatorId},
-    BeaconNodeHttpClient, Error,
+    ok_or_error,
+    types::{BeaconState, Epoch, EthSpec, GenericResponse, ValidatorId},
+    BeaconNodeHttpClient, Error, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
+use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
+use ssz::Decode;
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -143,6 +146,27 @@ impl Health {
 }
 
 impl BeaconNodeHttpClient {
+    /// Perform a HTTP GET request, returning `None` on a 404 error.
+    async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
+        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        match ok_or_error(response).await {
+            Ok(resp) => Ok(Some(
+                resp.bytes()
+                    .await
+                    .map_err(Error::Reqwest)?
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+            )),
+            Err(err) => {
+                if err.status() == Some(StatusCode::NOT_FOUND) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
         let mut path = self.server.clone();
@@ -220,5 +244,26 @@ impl BeaconNodeHttpClient {
             .push(&validator_id.to_string());
 
         self.get(path).await
+    }
+
+    /// `GET lighthouse/beacon/states/{state_id}/ssz`
+    pub async fn get_lighthouse_beacon_states_ssz<E: EthSpec>(
+        &self,
+        state_id: &StateId,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("ssz");
+
+        self.get_bytes_opt(path)
+            .await?
+            .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .transpose()
     }
 }

@@ -15,7 +15,7 @@ pub enum Error {
 /// In order for this struct to be effective, every single block that is imported must be
 /// registered here.
 #[derive(Default, Debug)]
-pub struct HeadTracker(RwLock<HashMap<Hash256, Slot>>);
+pub struct HeadTracker(pub RwLock<HashMap<Hash256, Slot>>);
 
 impl HeadTracker {
     /// Register a block with `Self`, so it may or may not be included in a `Self::heads` call.
@@ -27,13 +27,6 @@ impl HeadTracker {
         let mut map = self.0.write();
         map.remove(&parent_root);
         map.insert(block_root, slot);
-    }
-
-    /// Removes abandoned head.
-    pub fn remove_head(&self, block_root: Hash256) {
-        let mut map = self.0.write();
-        debug_assert!(map.contains_key(&block_root));
-        map.remove(&block_root);
     }
 
     /// Returns true iff `block_root` is a recognized head.
@@ -53,14 +46,7 @@ impl HeadTracker {
     /// Returns a `SszHeadTracker`, which contains all necessary information to restore the state
     /// of `Self` at some later point.
     pub fn to_ssz_container(&self) -> SszHeadTracker {
-        let (roots, slots) = self
-            .0
-            .read()
-            .iter()
-            .map(|(hash, slot)| (*hash, *slot))
-            .unzip();
-
-        SszHeadTracker { roots, slots }
+        SszHeadTracker::from_map(&*self.0.read())
     }
 
     /// Creates a new `Self` from the given `SszHeadTracker`, restoring `Self` to the same state of
@@ -101,6 +87,13 @@ impl PartialEq<HeadTracker> for HeadTracker {
 pub struct SszHeadTracker {
     roots: Vec<Hash256>,
     slots: Vec<Slot>,
+}
+
+impl SszHeadTracker {
+    pub fn from_map(map: &HashMap<Hash256, Slot>) -> Self {
+        let (roots, slots) = map.iter().map(|(hash, slot)| (*hash, *slot)).unzip();
+        SszHeadTracker { roots, slots }
+    }
 }
 
 #[cfg(test)]
