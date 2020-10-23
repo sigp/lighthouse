@@ -15,6 +15,7 @@ pub mod chunked_vector;
 pub mod config;
 pub mod errors;
 mod forwards_iter;
+mod garbage_collection;
 pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
@@ -22,10 +23,9 @@ mod memory_store;
 mod metadata;
 mod metrics;
 mod partial_beacon_state;
+mod schema_change;
 
 pub mod iter;
-
-use std::borrow::Cow;
 
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{BlockReplay, HotColdDB, HotStateSummary, Split};
@@ -35,6 +35,7 @@ pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
+use parking_lot::MutexGuard;
 pub use types::*;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
@@ -60,6 +61,12 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Execute either all of the operations in `batch` or none at all, returning an error.
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error>;
+
+    /// Return a mutex guard that can be used to synchronize sensitive transactions.
+    ///
+    /// This doesn't prevent other threads writing to the DB unless they also use
+    /// this method. In future we may implement a safer mandatory locking scheme.
+    fn begin_rw_transaction(&self) -> MutexGuard<()>;
 }
 
 pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
@@ -121,13 +128,14 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
-#[allow(clippy::large_enum_variant)]
 pub enum StoreOp<'a, E: EthSpec> {
-    PutBlock(SignedBeaconBlockHash, SignedBeaconBlock<E>),
-    PutState(BeaconStateHash, Cow<'a, BeaconState<E>>),
-    PutStateSummary(BeaconStateHash, HotStateSummary),
-    DeleteBlock(SignedBeaconBlockHash),
-    DeleteState(BeaconStateHash, Slot),
+    PutBlock(Hash256, Box<SignedBeaconBlock<E>>),
+    PutState(Hash256, &'a BeaconState<E>),
+    PutStateSummary(Hash256, HotStateSummary),
+    PutStateTemporaryFlag(Hash256),
+    DeleteStateTemporaryFlag(Hash256),
+    DeleteBlock(Hash256),
+    DeleteState(Hash256, Option<Slot>),
 }
 
 /// A unique column identifier.
@@ -146,6 +154,9 @@ pub enum DBColumn {
     BeaconRestorePoint,
     /// For the mapping from state roots to their slots or summaries.
     BeaconStateSummary,
+    /// For the list of temporary states stored during block import,
+    /// and then made non-temporary by the deletion of their state root from this column.
+    BeaconStateTemporary,
     BeaconBlockRoots,
     BeaconStateRoots,
     BeaconHistoricalRoots,
@@ -166,12 +177,23 @@ impl Into<&'static str> for DBColumn {
             DBColumn::ForkChoice => "frk",
             DBColumn::BeaconRestorePoint => "brp",
             DBColumn::BeaconStateSummary => "bss",
+            DBColumn::BeaconStateTemporary => "bst",
             DBColumn::BeaconBlockRoots => "bbr",
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",
             DBColumn::BeaconRandaoMixes => "brm",
             DBColumn::DhtEnrs => "dht",
         }
+    }
+}
+
+impl DBColumn {
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
+
+    pub fn as_bytes(self) -> &'static [u8] {
+        self.as_str().as_bytes()
     }
 }
 

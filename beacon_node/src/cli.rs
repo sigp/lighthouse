@@ -315,13 +315,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("max-skip-slots")
                 .help(
                     "Refuse to skip more than this many slots when processing a block or attestation. \
-                    This prevents nodes on minority forks from wasting our time and RAM, \
-                    but might need to be raised or set to 'none' in times of extreme network \
-                    outage."
+                    This prevents nodes on minority forks from wasting our time and disk space, \
+                    but could also cause unnecessary consensus failures, so is disabled by default."
                 )
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
-                .default_value("700")
         )
         .arg(
             Arg::with_name("wss-checkpoint")
