@@ -1,6 +1,6 @@
-![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
-
 # Lighthouse: Ethereum 2.0
+
+![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
 
 An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
 
