@@ -2,7 +2,7 @@ use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::Hash256;
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(1);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(2);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -13,6 +13,12 @@ pub const SPLIT_KEY: Hash256 = Hash256::repeat_byte(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SchemaVersion(pub u64);
+
+impl SchemaVersion {
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+}
 
 impl StoreItem for SchemaVersion {
     fn db_column() -> DBColumn {
