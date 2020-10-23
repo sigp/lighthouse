@@ -738,7 +738,11 @@ pub fn serve<T: BeaconChainTypes>(
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
-                            info!(log,"Valid block from HTTP API";"root" => format! ("{}", root));
+                            info!(
+                                log,
+                                "Valid block from HTTP API";
+                                "root" => format!("{}", root)
+                            );
 
                             // Update the head since it's likely this block will become the new
                             // head.
@@ -753,7 +757,7 @@ pub fn serve<T: BeaconChainTypes>(
                             error!(
                                 log,
                                 "Invalid block provided to HTTP API";
-                                "reason" => & msg
+                                "reason" => &msg
                             );
                             Err(warp_utils::reject::broadcast_without_import(msg))
                         }
