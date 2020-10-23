@@ -100,9 +100,7 @@ impl<T: EthSpec> PubsubMessage<T> {
      */
     pub fn decode(topic: &TopicHash, data: &MessageData) -> Result<Self, String> {
         match GossipTopic::decode(topic.as_str()) {
-            Err(_) => {
-                Err(format!("Unknown gossipsub topic: {:?}", topic))
-            }
+            Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
             Ok(gossip_topic) => {
                 let decompressed_data = match gossip_topic.encoding() {
                     GossipEncoding::SSZSnappy => data.decompressed.as_ref()?.as_slice(),
@@ -131,31 +129,23 @@ impl<T: EthSpec> PubsubMessage<T> {
                         Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)))
                     }
                     GossipKind::VoluntaryExit => {
-                        let voluntary_exit =
-                            SignedVoluntaryExit::from_ssz_bytes(decompressed_data)
-                                .map_err(|e| format!("{:?}", e))?;
+                        let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(decompressed_data)
+                            .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::VoluntaryExit(Box::new(voluntary_exit)))
                     }
                     GossipKind::ProposerSlashing => {
-                        let proposer_slashing =
-                            ProposerSlashing::from_ssz_bytes(decompressed_data)
-                                .map_err(|e| format!("{:?}", e))?;
-                        Ok(PubsubMessage::ProposerSlashing(Box::new(
-                            proposer_slashing,
-                        )))
+                        let proposer_slashing = ProposerSlashing::from_ssz_bytes(decompressed_data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::ProposerSlashing(Box::new(proposer_slashing)))
                     }
                     GossipKind::AttesterSlashing => {
-                        let attester_slashing =
-                            AttesterSlashing::from_ssz_bytes(decompressed_data)
-                                .map_err(|e| format!("{:?}", e))?;
-                        Ok(PubsubMessage::AttesterSlashing(Box::new(
-                            attester_slashing,
-                        )))
+                        let attester_slashing = AttesterSlashing::from_ssz_bytes(decompressed_data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
                 }
             }
         }
-
     }
 
     /// Encodes a `PubsubMessage` based on the topic encodings. The first known encoding is used. If
