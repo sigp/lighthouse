@@ -550,12 +550,12 @@ pub fn serve<T: BeaconChainTypes>(
                             .map_err(BeaconChainError::BeaconStateError)
                             .map_err(warp_utils::reject::beacon_chain_error)?;
 
-// Use either the supplied slot or all slots in the epoch.
+                        // Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {
                             epoch.slot_iter(T::EthSpec::slots_per_epoch()).collect()
                         });
 
-// Use either the supplied committee index or all available indices.
+                        // Use either the supplied committee index or all available indices.
                         let indices = query.index.map(|index| vec![index]).unwrap_or_else(|| {
                             (0..committee_cache.committees_per_slot()).collect()
                         });
@@ -563,8 +563,8 @@ pub fn serve<T: BeaconChainTypes>(
                         let mut response = Vec::with_capacity(slots.len() * indices.len());
 
                         for slot in slots {
-// It is not acceptable to query with a slot that is not within the
-// specified epoch.
+                            // It is not acceptable to query with a slot that is not within the
+                            // specified epoch.
                             if slot.epoch(T::EthSpec::slots_per_epoch()) != epoch {
                                 return Err(warp_utils::reject::custom_bad_request(format!(
                                     "{} is not in epoch {}",
@@ -738,11 +738,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
-                            info!(
-                            log,
-                            "Valid block from HTTP API";
-                            "root" => format! ("{}", root)
-                            );
+                            info!(log,"Valid block from HTTP API";"root" => format! ("{}", root));
 
                             // Update the head since it's likely this block will become the new
                             // head.
@@ -755,9 +751,9 @@ pub fn serve<T: BeaconChainTypes>(
                         Err(e) => {
                             let msg = format!("{:?}", e);
                             error!(
-                            log,
-                            "Invalid block provided to HTTP API";
-                            "reason" => & msg
+                                log,
+                                "Invalid block provided to HTTP API";
+                                "reason" => & msg
                             );
                             Err(warp_utils::reject::broadcast_without_import(msg))
                         }
@@ -1724,9 +1720,9 @@ pub fn serve<T: BeaconChainTypes>(
     )?;
 
     info!(
-    log,
-    "HTTP API started";
-    "listen_address" => listening_socket.to_string(),
+        log,
+        "HTTP API started";
+        "listen_address" => listening_socket.to_string(),
     );
 
     Ok((listening_socket, server))
