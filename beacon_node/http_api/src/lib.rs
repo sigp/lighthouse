@@ -704,7 +704,7 @@ pub fn serve<T: BeaconChainTypes>(
      * beacon/blocks
      */
 
-    // POST beacon/blocks/{block_id}
+    // POST beacon/blocks
     let post_beacon_blocks = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))

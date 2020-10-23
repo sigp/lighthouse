@@ -388,6 +388,8 @@ pub struct AttesterData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposerData {
     pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
     pub slot: Slot,
 }
 

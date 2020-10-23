@@ -1265,7 +1265,7 @@ impl ApiTester {
                     .unwrap();
                 let pubkey = state.validators[index].pubkey.clone().into();
 
-                ProposerData { pubkey, slot }
+                ProposerData { pubkey, validator_index: index as u64, slot }
             })
             .collect::<Vec<_>>();
 
