@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-discv5 = { version = "0.1.0-alpha.13", features = ["libp2p"] }
+discv5 = { git = "https://github.com/sigp/discv5", rev = "3ab46fbec53a0bb9da53340e10b9daa1a3effc9f", features = ["libp2p"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
 eth2_ssz_types = { path =  "../../consensus/ssz_types" }
