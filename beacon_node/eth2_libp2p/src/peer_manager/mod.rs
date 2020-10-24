@@ -179,13 +179,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                     GoodbyeReason::BadScore,
                                 ));
                                 peer_db.notify_disconnecting(peer_id);
+                            } else if info.is_banned() {
+                                unban_peer = Some(peer_id);
                             }
-                            unban_peer = Some(peer_id);
                         }
                         ScoreState::Healthy => {
                             debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                             // unban the peer if it was previously banned.
-                            unban_peer = Some(peer_id);
+                            if info.is_banned() {
+                                unban_peer = Some(peer_id);
+                            }
                         }
                     }
                 } else {
