@@ -678,9 +678,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     ScoreState::Disconnected => {
                         debug!(self.log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // disconnect the peer if it's currently connected or dialing
-                        if info.is_banned() {
-                            to_unban_peers.push(peer_id.clone());
-                        }
                         if info.is_connected_or_dialing() {
                             // Change the state to inform that we are disconnecting the peer.
                             info.disconnecting(false);
@@ -688,12 +685,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                 peer_id.clone(),
                                 GoodbyeReason::BadScore,
                             ));
+                        } else if info.is_banned() {
+                            to_unban_peers.push(peer_id.clone());
                         }
                     }
                     ScoreState::Healthy => {
                         debug!(self.log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
                         // unban the peer if it was previously banned.
-                        to_unban_peers.push(peer_id.clone());
+                        if info.is_banned() {
+                            to_unban_peers.push(peer_id.clone());
+                        }
                     }
                 }
             }
