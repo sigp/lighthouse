@@ -103,10 +103,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /* Getters */
 
     /// Gives the score of a peer, or default score if it is unknown.
-    pub fn score(&self, peer_id: &PeerId) -> Score {
+    pub fn score(&self, peer_id: &PeerId) -> f64 {
         self.peers
             .get(peer_id)
-            .map_or(Score::default(), |info| info.score())
+            .map_or(&Score::default(), |info| info.score())
+            .score()
     }
 
     /// Returns an iterator over all peers in the db.
@@ -163,7 +164,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns true if the Peer is banned.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
-            match peer.score().state() {
+            match peer.score_state() {
                 ScoreState::Banned => true,
                 _ => self.ip_is_banned(peer),
             }
@@ -186,7 +187,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns true if the Peer is either banned or in the disconnected state.
     pub fn is_banned_or_disconnected(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
-            match peer.score().state() {
+            match peer.score_state() {
                 ScoreState::Banned | ScoreState::Disconnected => true,
                 _ => self.ip_is_banned(peer),
             }
@@ -581,7 +582,7 @@ mod tests {
         // this is the only peer
         assert_eq!(pdb.peers().count(), 1);
         // the peer has the default reputation
-        assert_eq!(pdb.score(&random_peer).score(), Score::default().score());
+        assert_eq!(pdb.score(&random_peer), Score::default().score());
         // it should be connected, and therefore not counted as disconnected
         assert_eq!(pdb.disconnected_peers, 0);
         assert!(peer_info.unwrap().connection_status.is_connected());

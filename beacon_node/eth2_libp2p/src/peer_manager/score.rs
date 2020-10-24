@@ -27,6 +27,9 @@ const SCORE_HALFLIFE: f64 = 600.0;
 /// The number of seconds we ban a peer for before their score begins to decay.
 const BANNED_BEFORE_DECAY: u64 = 1800;
 
+const GOSSIPSUB_NEGATIVE_SCORE_WEIGHT: f64 = 1.0;
+const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = 1.0;
+
 /// A collection of actions a peer can perform which will adjust its score.
 /// Each variant has an associated score change.
 // To easily assess the behaviour of scores changes the number of variants should stay low, and
@@ -54,74 +57,6 @@ pub enum PeerAction {
     _ValidMessage,
 }
 
-/// The expected state of the peer given the peer's score.
-#[derive(Debug, PartialEq)]
-pub(crate) enum ScoreState {
-    /// We are content with the peers performance. We permit connections and messages.
-    Healthy,
-    /// The peer should be disconnected. We allow re-connections if the peer is persistent.
-    Disconnected,
-    /// The peer is banned. We disallow new connections until it's score has decayed into a
-    /// tolerable threshold.
-    Banned,
-}
-
-/// A peer's score (perceived potential usefulness).
-///
-/// This simplistic version consists of a global score per peer which decays to 0 over time. The
-/// decay rate applies equally to positive and negative scores.
-#[derive(Copy, PartialEq, Clone, Debug, Serialize)]
-pub struct Score {
-    /// The global score.
-    // NOTE: In the future we may separate this into sub-scores involving the RPC, Gossipsub and
-    // lighthouse.
-    score: f64,
-    /// The time the score was last updated to perform time-based adjustments such as score-decay.
-    #[serde(skip)]
-    last_updated: Instant,
-}
-
-impl Default for Score {
-    fn default() -> Self {
-        Score {
-            score: DEFAULT_SCORE,
-            last_updated: Instant::now(),
-        }
-    }
-}
-
-impl Eq for Score {}
-
-impl PartialOrd for Score {
-    fn partial_cmp(&self, other: &Score) -> Option<std::cmp::Ordering> {
-        self.score
-            .partial_cmp(&other.score)
-            .or_else(|| self.last_updated.partial_cmp(&other.last_updated))
-    }
-}
-
-impl Ord for Score {
-    fn cmp(&self, other: &Score) -> std::cmp::Ordering {
-        self.partial_cmp(other)
-            .unwrap_or_else(|| std::cmp::Ordering::Equal)
-    }
-}
-
-impl From<f64> for Score {
-    fn from(f: f64) -> Self {
-        Score {
-            score: f,
-            last_updated: Instant::now(),
-        }
-    }
-}
-
-impl std::fmt::Display for Score {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:.2}", self.score)
-    }
-}
-
 impl std::fmt::Display for PeerAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -134,6 +69,18 @@ impl std::fmt::Display for PeerAction {
     }
 }
 
+/// The expected state of the peer given the peer's score.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ScoreState {
+    /// We are content with the peers performance. We permit connections and messages.
+    Healthy,
+    /// The peer should be disconnected. We allow re-connections if the peer is persistent.
+    Disconnected,
+    /// The peer is banned. We disallow new connections until it's score has decayed into a
+    /// tolerable threshold.
+    Banned,
+}
+
 impl std::fmt::Display for ScoreState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -144,23 +91,46 @@ impl std::fmt::Display for ScoreState {
     }
 }
 
-impl Score {
-    /// Return max possible score.
-    pub fn max_score() -> Self {
-        Score {
-            score: MAX_SCORE,
+/// A peer's score (perceived potential usefulness).
+///
+/// This simplistic version consists of a global score per peer which decays to 0 over time. The
+/// decay rate applies equally to positive and negative scores.
+#[derive(PartialEq, Clone, Debug, Serialize)]
+pub struct RealScore {
+    /// The global score.
+    // NOTE: In the future we may separate this into sub-scores involving the RPC, Gossipsub and
+    // lighthouse.
+    lighthouse_score: f64,
+    gossipsub_score: f64,
+    /// The time the score was last updated to perform time-based adjustments such as score-decay.
+    #[serde(skip)]
+    last_updated: Instant,
+}
+
+impl Default for RealScore {
+    fn default() -> Self {
+        RealScore {
+            lighthouse_score: DEFAULT_SCORE,
+            gossipsub_score: DEFAULT_SCORE,
             last_updated: Instant::now(),
         }
     }
+}
+
+impl RealScore {
     /// Access to the underlying score.
     pub fn score(&self) -> f64 {
-        self.score
+        self.lighthouse_score + self.gossipsub_score * if self.gossipsub_score > 0.0 {
+            GOSSIPSUB_POSITIVE_SCORE_WEIGHT
+        } else {
+            GOSSIPSUB_NEGATIVE_SCORE_WEIGHT
+        }
     }
 
     /// Modifies the score based on a peer's action.
     pub fn apply_peer_action(&mut self, peer_action: PeerAction) {
         match peer_action {
-            PeerAction::Fatal => self.score = MIN_SCORE, // The worst possible score
+            PeerAction::Fatal => self.lighthouse_score = MIN_SCORE, // The worst possible score
             PeerAction::LowToleranceError => self.add(-10.0),
             PeerAction::MidToleranceError => self.add(-5.0),
             PeerAction::HighToleranceError => self.add(-1.0),
@@ -168,18 +138,9 @@ impl Score {
         }
     }
 
-    /// Returns the expected state of the peer given it's score.
-    pub(crate) fn state(&self) -> ScoreState {
-        match self.score {
-            x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Banned,
-            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnected,
-            _ => ScoreState::Healthy,
-        }
-    }
-
     /// Add an f64 to the score abiding by the limits.
     pub fn add(&mut self, score: f64) {
-        let mut new_score = self.score + score;
+        let mut new_score = self.lighthouse_score + score;
         if new_score > MAX_SCORE {
             new_score = MAX_SCORE;
         }
@@ -187,7 +148,7 @@ impl Score {
             new_score = MIN_SCORE;
         }
 
-        self.score = new_score;
+        self.lighthouse_score = new_score;
     }
 
     /// Applies time-based logic such as decay rates to the score.
@@ -199,7 +160,7 @@ impl Score {
         // the score is below the banning threshold and the duration since it was last update is
         // shorter than the banning threshold, we do nothing.
         let now = Instant::now();
-        if self.score <= MIN_SCORE_BEFORE_BAN
+        if self.lighthouse_score <= MIN_SCORE_BEFORE_BAN
             && now
                 .checked_duration_since(self.last_updated)
                 .map(|d| d.as_secs())
@@ -219,9 +180,89 @@ impl Score {
         {
             // e^(-ln(2)/HL*t)
             let decay_factor = (*HALFLIFE_DECAY * secs_since_update as f64).exp();
-            self.score *= decay_factor;
+            self.lighthouse_score *= decay_factor;
             self.last_updated = now;
         }
+    }
+
+    pub fn update_gossipsub_score(&mut self, new_score: f64) {
+        //TODO: only update gossipsub score if peer is not banned or after BANNED_BEFORE_DECAY
+        self.gossipsub_score = new_score;
+    }
+}
+
+#[derive(PartialEq, Clone, Debug, Serialize)]
+pub enum Score {
+    Max,
+    Real(RealScore)
+}
+
+impl Default for Score {
+    fn default() -> Self {
+        Self::Real(RealScore::default())
+    }
+}
+
+macro_rules! apply {
+    ( $method:ident $(, $param_name: ident: $param_type: ty)*) => {
+        impl Score {
+            pub fn $method(
+                &mut self, $($param_name: $param_type, )*
+            ) {
+                if let Self::Real(score) = self {
+                    score.$method($($param_name, )*);
+                }
+            }
+        }
+    };
+}
+
+apply!(apply_peer_action, peer_action: PeerAction);
+apply!(add, delta: f64);
+apply!(update);
+apply!(update_gossipsub_score, new_score: f64);
+
+impl Score {
+    pub fn score(&self) -> f64 {
+        match self {
+            Self::Max => f64::INFINITY,
+            Self::Real(score) => score.score()
+        }
+    }
+
+    pub fn max_score() -> Self {
+        Self::Max
+    }
+
+    /// Returns the expected state of the peer given it's score.
+    pub(crate) fn state(&self) -> ScoreState {
+        match self.score() {
+            x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Banned,
+            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnected,
+            _ => ScoreState::Healthy,
+        }
+    }
+}
+
+impl Eq for Score {}
+
+impl PartialOrd for Score {
+    fn partial_cmp(&self, other: &Score) -> Option<std::cmp::Ordering> {
+        self.score()
+            .partial_cmp(&other.score())
+    }
+}
+
+impl Ord for Score {
+    fn cmp(&self, other: &Score) -> std::cmp::Ordering {
+        self.partial_cmp(other)
+            .unwrap_or_else(|| std::cmp::Ordering::Equal)
+    }
+}
+
+impl std::fmt::Display for Score {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.2}", self.score())
     }
 }
 

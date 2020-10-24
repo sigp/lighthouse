@@ -3,7 +3,7 @@
 pub use self::peerdb::*;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
-use crate::{error, metrics};
+use crate::{error, metrics, Gossipsub};
 use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
 use futures::Stream;
@@ -528,6 +528,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         } else {
             // PeerId is not known
             Vec::new()
+        }
+    }
+
+    pub(crate) fn update_gossipsub_scores(&mut self, gossipsub: &Gossipsub) {
+        for (peer_id, info) in self.network_globals.peers.write().peers_mut() {
+            if let Some(score) = gossipsub.peer_score(peer_id) {
+                info.update_gossipsub_score(score);
+            }
         }
     }
 

@@ -136,6 +136,9 @@ pub struct Behaviour<TSpec: EthSpec> {
     log: slog::Logger,
 
     score_settings: PeerScoreSettings<TSpec>,
+
+    /// The interval for updating gossipsub scores
+    update_gossipsub_scores: tokio::time::Interval,
 }
 
 /// Implements the combined behaviour for the libp2p service.
@@ -198,9 +201,14 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         debug!(behaviour_log, "Using peer score params"; "params" => format!("{:?}", params));
 
+        let update_gossipsub_scores = tokio::time::interval(tokio::time::Duration::from(
+            params.decay_interval
+        ));
+
         gossipsub
             .with_peer_score(params.clone(), thresholds)
             .expect("Valid score params and thresholds");
+
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
@@ -216,6 +224,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
             score_settings,
+            update_gossipsub_scores,
         })
     }
 
@@ -827,6 +836,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(NBAction::GenerateEvent(event));
+        }
+
+        // perform gossipsub score updates when necessary
+        while let Poll::Ready(Some(_)) = self.update_gossipsub_scores.poll_next_unpin(cx) {
+            self.peer_manager.update_gossipsub_scores(&self.gossipsub);
         }
 
         Poll::Pending
