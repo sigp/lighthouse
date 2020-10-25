@@ -13,7 +13,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 
 [Documentation](http://lighthouse-book.sigmaprime.io/)
 
-![terminalize](https://i.postimg.cc/kG11dpCW/lighthouse-cli-png.gif)
+![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
 
 ## Overview
 
@@ -25,8 +25,8 @@ Lighthouse is:
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the
 	Ethereum Foundation, ConsenSys and private individuals.
-- Actively involved in the specification and security analysis of the emerging
-    Ethereum 2.0 specification.
+- Actively involved in the specification and security analysis of the
+	Ethereum 2.0 specification.
 
 Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
 
@@ -34,7 +34,7 @@ Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
 
 Current development overview:
 
-- Specification `v0.12.3` implemented, optimized and passing test vectors.
+- Specification `v1.0.0` implemented, optimized and passing test vectors.
 - Rust-native libp2p with Gossipsub and Discv5.
 - RESTful JSON API via HTTP server.
 - Events via WebSocket.
@@ -47,8 +47,8 @@ Current development overview:
 - ~~**Q1 2020**: `lighthouse-0.1.0` release: All major phase 0 features implemented.~~
 - ~~**Q2 2020**: Public, multi-client testnet with user-facing functionality.~~
 - ~~**Q2 2020**: Third-party security review.~~
-- **Q3 2020**: Additional third-party security reviews.
-- **Q3 2020**: Long-lived, multi-client Beacon Chain testnet
+- ~~**Q4 2020**: Long-lived, multi-client Beacon Chain testnet~~
+- **Q4 2020**: Additional third-party security reviews.
 - **Q4 2020**: Production Beacon Chain (tentative).
 
 

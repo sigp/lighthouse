@@ -670,19 +670,38 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
-                debug!(self.log, "Error getting range sync state"; "error" => %e);
+                crit!(self.log, "Error getting range sync state"; "error" => %e);
                 return;
             }
             Ok(state) => match state {
                 None => {
-                    // no range sync, decide if we are stalled or synced
-                    self.network_globals
-                        .peers
-                        .read()
-                        .synced_peers()
-                        .next()
-                        .map(|_| SyncState::Synced)
-                        .unwrap_or_else(|| SyncState::Stalled)
+                    // no range sync, decide if we are stalled or synced.
+                    // For this we check if there is at least one advanced peer. An advanced peer
+                    // with Idle range is possible since a peer's status is updated periodically.
+                    // If we synced a peer between status messages, most likely the peer has
+                    // advanced and will produce a head chain on re-status. Otherwise it will shift
+                    // to being synced
+                    let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
+                    let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
+
+                    let peers = self.network_globals.peers.read();
+                    if current_slot >= head
+                        && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
+                        && head > 0
+                    {
+                        SyncState::Synced
+                    } else if peers.advanced_peers().next().is_some() {
+                        SyncState::SyncingHead {
+                            start_slot: head,
+                            target_slot: current_slot,
+                        }
+                    } else if peers.synced_peers().next().is_none() {
+                        SyncState::Stalled
+                    } else {
+                        // There are no peers that require syncing and we have at least one synced
+                        // peer
+                        SyncState::Synced
+                    }
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
                     SyncState::SyncingFinalized {
