@@ -108,6 +108,8 @@ pub struct ChainSpec {
      */
     pub eth1_follow_distance: u64,
     pub seconds_per_eth1_block: u64,
+    pub deposit_chain_id: u64,
+    pub deposit_network_id: u64,
     pub deposit_contract_address: Address,
 
     /*
@@ -320,6 +322,8 @@ impl ChainSpec {
              */
             eth1_follow_distance: 1_024,
             seconds_per_eth1_block: 14,
+            deposit_chain_id: 1,
+            deposit_network_id: 1,
             deposit_contract_address: "1234567890123456789012345678901234567890"
                 .parse()
                 .expect("chain spec deposit contract address"),
@@ -357,6 +361,8 @@ impl ChainSpec {
             milliseconds_per_slot: 6_000,
             safe_slots_to_update_justified: 2,
             network_id: 2, // lighthouse testnet network id
+            deposit_chain_id: 5,
+            deposit_network_id: 5,
             boot_nodes,
             ..ChainSpec::mainnet()
         }
@@ -440,7 +446,7 @@ mod tests {
 ///
 /// Spec v0.12.3
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "UPPERCASE", deny_unknown_fields)]
 pub struct YamlConfig {
     #[serde(default)]
     config_name: String,
@@ -562,11 +568,11 @@ pub struct YamlConfig {
     epochs_per_random_subnet_subscription: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
-    deposit_contract_address: Address,
-    /* TODO: incorporate these into ChainSpec and turn on `serde(deny_unknown_fields)`
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
-    */
+    deposit_contract_address: Address,
 }
 
 // Compatibility shim for proportional slashing multpilier on Altona and Medalla.
@@ -648,6 +654,8 @@ impl YamlConfig {
             random_subnets_per_validator: spec.random_subnets_per_validator,
             epochs_per_random_subnet_subscription: spec.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
+            deposit_chain_id: spec.deposit_chain_id,
+            deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
         }
     }
@@ -768,6 +776,8 @@ impl YamlConfig {
             genesis_slot: chain_spec.genesis_slot,
             far_future_epoch: chain_spec.far_future_epoch,
             base_rewards_per_epoch: chain_spec.base_rewards_per_epoch,
+            deposit_chain_id: chain_spec.deposit_chain_id,
+            deposit_network_id: chain_spec.deposit_network_id,
             deposit_contract_tree_depth: chain_spec.deposit_contract_tree_depth,
         })
     }

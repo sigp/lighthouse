@@ -1,7 +1,8 @@
 //! Downloads a testnet configuration from Github.
 
-use eth2_config::{altona, medalla, spadina, zinken, Eth2NetArchiveAndDirectory};
-use std::fs;
+use eth2_config::{
+    altona, medalla, spadina, zinken, Eth2NetArchiveAndDirectory, GENESIS_FILE_NAME,
+};
 use std::fs::File;
 use std::io;
 use zip::ZipArchive;
@@ -15,42 +16,41 @@ const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[
 
 fn main() {
     for testnet in ETH2_NET_DIRS {
-        match uncompress(testnet) {
+        match uncompress_state(testnet) {
             Ok(()) => (),
-            Err(e) => panic!("Failed to uncompress testnet zip file: {}", e),
+            Err(e) => panic!(
+                "Failed to uncompress {} genesis state zip file: {}",
+                testnet.name, e
+            ),
         }
     }
 }
 
 /// Uncompress the testnet configs archive into a testnet configs folder.
-fn uncompress(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
-    let archive_file = File::open(&testnet.archive_fullpath())
-        .map_err(|e| format!("Failed to open archive file: {:?}", e))?;
+fn uncompress_state(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
+    let archive_path = testnet.genesis_state_archive();
+    let archive_file = File::open(&archive_path)
+        .map_err(|e| format!("Failed to open archive file {:?}: {:?}", archive_path, e))?;
 
     let mut archive =
         ZipArchive::new(archive_file).map_err(|e| format!("Error with zip file: {}", e))?;
 
-    // Create testnet dir
-    fs::create_dir_all(testnet.dir())
-        .map_err(|e| format!("Failed to create testnet directory: {:?}", e))?;
-
-    // Create empty genesis.ssz if genesis is unknown
-    if !testnet.genesis_is_known {
-        File::create(testnet.dir().join("genesis.ssz"))
-            .map_err(|e| format!("Failed to create genesis.ssz: {}", e))?;
-    }
-
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .map_err(|e| format!("Error retrieving file {} inside zip: {}", i, e))?;
-
-        let path = testnet.dir().join(file.name());
-
+    if testnet.genesis_is_known {
+        let mut file = archive.by_name(GENESIS_FILE_NAME).map_err(|e| {
+            format!(
+                "Error retrieving file {} inside zip: {}",
+                GENESIS_FILE_NAME, e
+            )
+        })?;
+        let path = testnet.dir().join(GENESIS_FILE_NAME);
         let mut outfile = File::create(&path)
             .map_err(|e| format!("Error while creating file {:?}: {}", path, e))?;
         io::copy(&mut file, &mut outfile)
             .map_err(|e| format!("Error writing file {:?}: {}", path, e))?;
+    } else {
+        // Create empty genesis.ssz if genesis is unknown
+        File::create(testnet.dir().join(GENESIS_FILE_NAME))
+            .map_err(|e| format!("Failed to create {}: {}", GENESIS_FILE_NAME, e))?;
     }
 
     Ok(())

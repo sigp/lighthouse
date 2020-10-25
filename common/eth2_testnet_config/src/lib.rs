@@ -8,7 +8,8 @@
 //! https://github.com/sigp/lighthouse/pull/605
 //!
 use eth2_config::{
-    include_altona_file, include_medalla_file, include_spadina_file, include_zinken_file, unique_id,
+    include_altona_file, include_medalla_file, include_spadina_file, include_zinken_file,
+    testnets_dir,
 };
 
 use enr::{CombinedKey, Enr};
@@ -26,7 +27,6 @@ pub const YAML_CONFIG_FILE: &str = "config.yaml";
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
-    pub unique_id: &'static str,
     pub name: &'static str,
     pub genesis_is_known: bool,
     pub yaml_config: &'static [u8],
@@ -41,7 +41,6 @@ macro_rules! define_net {
         use eth2_config::$mod::ETH2_NET_DIR;
 
         HardcodedNet {
-            unique_id: ETH2_NET_DIR.unique_id,
             name: ETH2_NET_DIR.name,
             genesis_is_known: ETH2_NET_DIR.genesis_is_known,
             yaml_config: $include_file!("../", "config.yaml"),
@@ -259,8 +258,14 @@ mod tests {
     #[test]
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
-            let config = Eth2TestnetConfig::<E>::from_hardcoded_net(net).unwrap();
-            assert_eq!(config.genesis_state.is_some(), net.genesis_is_known);
+            let config =
+                Eth2TestnetConfig::<E>::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
+            assert_eq!(
+                config.genesis_state.is_some(),
+                net.genesis_is_known,
+                "{:?}",
+                net.name
+            );
         }
     }
 
