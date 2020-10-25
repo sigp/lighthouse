@@ -19,3 +19,4 @@ types = { path = "../../consensus/types" }
 validator_dir = { path = "../validator_dir" }
 regex = "1.3.9"
 rpassword = "5.0.0"
+directory = { path = "../directory" }

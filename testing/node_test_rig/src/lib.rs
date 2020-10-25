@@ -106,6 +106,14 @@ pub fn testing_client_config() -> ClientConfig {
     client_config
 }
 
+pub fn testing_validator_config() -> ValidatorConfig {
+    ValidatorConfig {
+        init_slashing_protection: true,
+        disable_auto_discover: false,
+        ..ValidatorConfig::default()
+    }
+}
+
 /// Contains the directories for a `LocalValidatorClient`.
 ///
 /// This struct is separate to `LocalValidatorClient` to allow for pre-computation of validator

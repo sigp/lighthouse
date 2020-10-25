@@ -35,7 +35,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .long("speed_up_factor")
                         .takes_value(true)
                         .default_value("3")
-                        .help("Speed up factor"))
+                        .help("Speed up factor. Please use a divisor of 12."))
                     .arg(Arg::with_name("continue_after_checks")
                         .short("c")
                         .long("continue_after_checks")

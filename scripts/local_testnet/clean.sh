@@ -6,4 +6,6 @@
 
 source ./vars.env
 
-rm -r $DATADIR
+if [ -d $DATADIR ]; then
+  rm -r $DATADIR
+fi

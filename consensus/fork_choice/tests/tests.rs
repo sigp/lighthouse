@@ -1,9 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
-    },
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig,
 };
@@ -34,7 +32,7 @@ pub enum MutationDelay {
 
 /// A helper struct to make testing fork choice more ergonomic and less repetitive.
 struct ForkChoiceTest {
-    harness: BeaconChainHarness<NullMigratorEphemeralHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
 }
 
 /// Allows us to use `unwrap` in some cases.
@@ -170,7 +168,7 @@ impl ForkChoiceTest {
     }
 
     /// Build the chain whilst `predicate` returns `true` and `process_block_result` does not error.
-    pub fn apply_blocks_while<F>(mut self, mut predicate: F) -> Result<Self, Self>
+    pub fn apply_blocks_while<F>(self, mut predicate: F) -> Result<Self, Self>
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
     {
@@ -184,7 +182,7 @@ impl ForkChoiceTest {
             if !predicate(&block.message, &state) {
                 break;
             }
-            if let Ok(block_hash) = self.harness.process_block_result(slot, block.clone()) {
+            if let Ok(block_hash) = self.harness.process_block_result(block.clone()) {
                 self.harness
                     .attest_block(&state, block_hash, &block, &validators);
                 self.harness.advance_slot();
@@ -197,7 +195,7 @@ impl ForkChoiceTest {
     }
 
     /// Apply `count` blocks to the chain (with attestations).
-    pub fn apply_blocks(mut self, count: usize) -> Self {
+    pub fn apply_blocks(self, count: usize) -> Self {
         self.harness.advance_slot();
         self.harness.extend_chain(
             count,
@@ -209,7 +207,7 @@ impl ForkChoiceTest {
     }
 
     /// Apply `count` blocks to the chain (without attestations).
-    pub fn apply_blocks_without_new_attestations(mut self, count: usize) -> Self {
+    pub fn apply_blocks_without_new_attestations(self, count: usize) -> Self {
         self.harness.advance_slot();
         self.harness.extend_chain(
             count,
@@ -248,7 +246,7 @@ impl ForkChoiceTest {
     /// Applies a block directly to fork choice, bypassing the beacon chain.
     ///
     /// Asserts the block was applied successfully.
-    pub fn apply_block_directly_to_fork_choice<F>(mut self, mut func: F) -> Self
+    pub fn apply_block_directly_to_fork_choice<F>(self, mut func: F) -> Self
     where
         F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
     {
@@ -277,7 +275,7 @@ impl ForkChoiceTest {
     ///
     /// Asserts that an error occurred and allows inspecting it via `comparison_func`.
     pub fn apply_invalid_block_directly_to_fork_choice<F, G>(
-        mut self,
+        self,
         mut mutation_func: F,
         mut comparison_func: G,
     ) -> Self
@@ -352,13 +350,13 @@ impl ForkChoiceTest {
     ///
     /// Also returns some info about who created it.
     fn apply_attestation_to_chain<F, G>(
-        mut self,
+        self,
         delay: MutationDelay,
         mut mutation_func: F,
         mut comparison_func: G,
     ) -> Self
     where
-        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<NullMigratorEphemeralHarnessType<E>>),
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralHarnessType<E>>),
         G: FnMut(Result<(), BeaconChainError>),
     {
         let head = self.harness.chain.head().expect("should get head");

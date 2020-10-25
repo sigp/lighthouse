@@ -48,7 +48,7 @@ pub enum PeerAction {
     /// An error occurred with this peer but it is not necessarily malicious.
     /// We have high tolerance for this actions: several occurrences are needed for a peer to get
     /// kicked.
-    /// NOTE: ~15 occurrences will get the peer banned
+    /// NOTE: ~50 occurrences will get the peer banned
     HighToleranceError,
     /// Received an expected message.
     _ValidMessage,
@@ -178,7 +178,7 @@ impl Score {
     }
 
     /// Add an f64 to the score abiding by the limits.
-    pub fn add(&mut self, score: f64) {
+    fn add(&mut self, score: f64) {
         let mut new_score = self.score + score;
         if new_score > MAX_SCORE {
             new_score = MAX_SCORE;
@@ -188,6 +188,26 @@ impl Score {
         }
 
         self.score = new_score;
+    }
+
+    /// Add an f64 to the score abiding by the limits.
+    #[cfg(test)]
+    pub fn test_add(&mut self, score: f64) {
+        let mut new_score = self.score + score;
+        if new_score > MAX_SCORE {
+            new_score = MAX_SCORE;
+        }
+        if new_score < MIN_SCORE {
+            new_score = MIN_SCORE;
+        }
+
+        self.score = new_score;
+    }
+
+    #[cfg(test)]
+    // reset the score
+    pub fn test_reset(&mut self) {
+        self.score = 0f64;
     }
 
     /// Applies time-based logic such as decay rates to the score.

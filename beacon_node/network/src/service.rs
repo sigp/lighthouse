@@ -8,7 +8,7 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
+    Gossipsub, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
 };
 use eth2_libp2p::{
     types::GossipKind, BehaviourEvent, GossipTopic, MessageId, NetworkGlobals, PeerId, TopicHash,
@@ -537,7 +537,7 @@ fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
     }
 }
 
-fn update_gossip_metrics<T: EthSpec>(gossipsub: &eth2_libp2p::Gossipsub) {
+fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
     // Clear the metrics
     let _ = metrics::PEERS_PER_PROTOCOL
         .as_ref()

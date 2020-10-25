@@ -37,6 +37,7 @@ use crate::{
 };
 use bls::verify_signature_sets;
 use proto_array::Block as ProtoBlock;
+use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::is_valid_indexed_attestation;
 use state_processing::{
