@@ -587,9 +587,13 @@ impl Default for YamlConfig {
     }
 }
 
+#[allow(clippy::integer_arithmetic)] // Arith cannot overflow or panic.
+fn milliseconds_to_seconds(millis: u64) -> u64 {
+    millis / 1000
+}
+
 /// Spec v0.12.1
 impl YamlConfig {
-    #[allow(clippy::integer_arithmetic)]
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: T::spec_name().to_string(),
@@ -611,7 +615,7 @@ impl YamlConfig {
             hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
             proportional_slashing_multiplier: spec.proportional_slashing_multiplier,
             bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
-            seconds_per_slot: spec.milliseconds_per_slot / 1000,
+            seconds_per_slot: milliseconds_to_seconds(spec.milliseconds_per_slot),
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
             min_seed_lookahead: spec.min_seed_lookahead.into(),
             max_seed_lookahead: spec.max_seed_lookahead.into(),

@@ -21,7 +21,6 @@ use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-#[allow(clippy::cognitive_complexity)]
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
     spec_constants: &str,
