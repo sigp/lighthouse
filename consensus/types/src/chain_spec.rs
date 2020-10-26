@@ -718,6 +718,8 @@ impl YamlConfig {
             random_subnets_per_validator: self.random_subnets_per_validator,
             epochs_per_random_subnet_subscription: self.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: self.seconds_per_eth1_block,
+            deposit_chain_id: self.deposit_chain_id,
+            deposit_network_id: self.deposit_network_id,
             deposit_contract_address: self.deposit_contract_address,
             /*
              * Gwei values
@@ -780,8 +782,6 @@ impl YamlConfig {
             genesis_slot: chain_spec.genesis_slot,
             far_future_epoch: chain_spec.far_future_epoch,
             base_rewards_per_epoch: chain_spec.base_rewards_per_epoch,
-            deposit_chain_id: chain_spec.deposit_chain_id,
-            deposit_network_id: chain_spec.deposit_network_id,
             deposit_contract_tree_depth: chain_spec.deposit_contract_tree_depth,
         })
     }
@@ -846,6 +846,8 @@ mod yaml_tests {
 
         // modifying the original spec
         spec.max_committees_per_slot += 1;
+        spec.deposit_chain_id += 1;
+        spec.deposit_network_id += 1;
         // Applying a yaml config with incorrect EthSpec should fail
         let res = yamlconfig.apply_to_chain_spec::<MainnetEthSpec>(&spec);
         assert_eq!(res, None);
