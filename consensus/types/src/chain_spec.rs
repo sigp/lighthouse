@@ -846,6 +846,8 @@ mod yaml_tests {
 
         // modifying the original spec
         spec.max_committees_per_slot += 1;
+        spec.deposit_chain_id += 1;
+        spec.deposit_network_id += 1;
         // Applying a yaml config with incorrect EthSpec should fail
         let res = yamlconfig.apply_to_chain_spec::<MainnetEthSpec>(&spec);
         assert_eq!(res, None);
