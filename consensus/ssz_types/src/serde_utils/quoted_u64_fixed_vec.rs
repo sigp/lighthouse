@@ -4,19 +4,13 @@
 //!
 //! Quotes can be optional during decoding. If `N` does not equal the length of the `Vec`, the `Vec` is truncated.
 
+use crate::FixedVector;
 use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serializer};
 use serde_derive::{Deserialize, Serialize};
-use ssz_types::typenum::Unsigned;
-use ssz_types::FixedVector;
+use serde_utils::quoted_u64_vec::QuotedIntWrapper;
 use std::marker::PhantomData;
-
-#[derive(Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct QuotedIntWrapper {
-    #[serde(with = "crate::quoted_u64")]
-    pub int: u64,
-}
+use typenum::Unsigned;
 
 pub struct QuotedIntFixedVecVisitor<N> {
     _phantom: PhantomData<N>,
@@ -71,11 +65,11 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use ssz_types::typenum::U4;
+    use typenum::U4;
 
     #[derive(Debug, Serialize, Deserialize)]
     struct Obj {
-        #[serde(with = "crate::quoted_u64_fixed_vec")]
+        #[serde(with = "crate::serde_utils::quoted_u64_fixed_vec")]
         values: FixedVector<u64, U4>,
     }
 

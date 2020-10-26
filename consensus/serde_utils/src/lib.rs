@@ -2,8 +2,6 @@ mod quoted_int;
 
 pub mod bytes_4_hex;
 pub mod hex;
-pub mod quoted_u64_fixed_vec;
-pub mod quoted_u64_var_list;
 pub mod quoted_u64_vec;
 pub mod u32_hex;
 pub mod u8_hex;
