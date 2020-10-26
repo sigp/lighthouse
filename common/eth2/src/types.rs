@@ -206,6 +206,14 @@ pub struct ValidatorData {
     pub validator: Validator,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ValidatorBalanceData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub balance: u64,
+}
+
 // TODO: This does not currently match the spec, but I'm going to try and change the spec using
 // this proposal:
 //
@@ -362,6 +370,11 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
             .collect::<Result<Vec<T>, String>>()
             .map(Self)
     }
+}
+
+#[derive(Clone, Deserialize)]
+pub struct ValidatorBalancesQuery {
+    pub id: Option<QueryVec<ValidatorId>>,
 }
 
 #[derive(Clone, Deserialize)]

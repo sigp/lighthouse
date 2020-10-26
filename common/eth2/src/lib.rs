@@ -210,6 +210,35 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET beacon/states/{state_id}/validator_balances?id`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_validator_balances(
+        &self,
+        state_id: StateId,
+        ids: Option<&[ValidatorId]>,
+    ) -> Result<Option<GenericResponse<Vec<ValidatorBalanceData>>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validators");
+
+        if let Some(ids) = ids {
+            let id_string = ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("id", &id_string);
+        }
+
+        self.get_opt(path).await
+    }
+
     /// `GET beacon/states/{state_id}/validators`
     ///
     /// Returns `Ok(None)` on a 404 error.

@@ -421,6 +421,50 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET beacon/states/{state_id}/validator_balances?id
+    let get_beacon_state_validator_balances = beacon_states_path
+        .clone()
+        .and(warp::path("validator_balances"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::ValidatorBalancesQuery>())
+        .and_then(
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query: api_types::ValidatorBalancesQuery| {
+                blocking_json_task(move || {
+                    state_id
+                        .map_state(&chain, |state| {
+                            Ok(state
+                                .validators
+                                .iter()
+                                .zip(state.balances.iter())
+                                .enumerate()
+                                // filter by validator id(s) if provided
+                                .filter(|(index, (validator, _))| {
+                                    query.id.as_ref().map_or(true, |ids| {
+                                        ids.0.iter().any(|id| match id {
+                                            ValidatorId::PublicKey(pubkey) => {
+                                                &validator.pubkey == pubkey
+                                            }
+                                            ValidatorId::Index(param_index) => {
+                                                *param_index == *index as u64
+                                            }
+                                        })
+                                    })
+                                })
+                                .map(|(index, (_, balance))| {
+                                    Some(api_types::ValidatorBalanceData {
+                                        index: index as u64,
+                                        balance: *balance,
+                                    })
+                                })
+                                .collect::<Vec<_>>())
+                        })
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
+
     // GET beacon/states/{state_id}/validators
     let get_beacon_state_validators = beacon_states_path
         .clone()
@@ -537,8 +581,8 @@ pub fn serve<T: BeaconChainTypes>(
                         } else {
                             CommitteeCache::initialized(state, epoch, &chain.spec).map(Cow::Owned)
                         }
-                        .map_err(BeaconChainError::BeaconStateError)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                            .map_err(BeaconChainError::BeaconStateError)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
                         // Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {
@@ -566,11 +610,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 let committee = committee_cache
                                     .get_beacon_committee(slot, index)
                                     .ok_or_else(|| {
-                                    warp_utils::reject::custom_bad_request(format!(
-                                        "committee index {} does not exist in epoch {}",
-                                        index, epoch
-                                    ))
-                                })?;
+                                        warp_utils::reject::custom_bad_request(format!(
+                                            "committee index {} does not exist in epoch {}",
+                                            index, epoch
+                                        ))
+                                    })?;
 
                                 response.push(api_types::CommitteeData {
                                     index,
@@ -1605,7 +1649,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 return Err(warp_utils::reject::object_invalid(format!(
                                     "gossip verification failed: {:?}",
                                     e
-                                )))
+                                )));
                             }
                         };
 
@@ -1808,6 +1852,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_root.boxed())
                 .or(get_beacon_state_fork.boxed())
                 .or(get_beacon_state_finality_checkpoints.boxed())
+                .or(get_beacon_state_validator_balances.boxed())
                 .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_validators_id.boxed())
                 .or(get_beacon_state_committees.boxed())
@@ -1860,7 +1905,6 @@ pub fn serve<T: BeaconChainTypes>(
             .boxed())
         .boxed()
         // Maps errors into HTTP responses.
-        .with(slog_logging(log.clone()))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
         .with(prometheus_metrics())

@@ -119,6 +119,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "NOT_FOUND".to_string();
+    } else if !err.is_not_found() {
+        message = format!("BANANA: debug err: {:?}", err);
+        code = StatusCode::BAD_REQUEST;
     } else if let Some(e) = err.find::<warp::filters::body::BodyDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e);
         code = StatusCode::BAD_REQUEST;

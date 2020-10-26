@@ -409,6 +409,87 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_validator_balances(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            for validator_indices in self.interesting_validator_indices() {
+                let state_opt = self.get_state(state_id);
+                let validators: Vec<Validator> = match state_opt.as_ref() {
+                    Some(state) => state.validators.clone().into(),
+                    None => vec![],
+                };
+                let validator_index_ids = validator_indices
+                    .iter()
+                    .cloned()
+                    .map(|i| ValidatorId::Index(i))
+                    .collect::<Vec<ValidatorId>>();
+                let validator_pubkey_ids = validator_indices
+                    .iter()
+                    .cloned()
+                    .map(|i| {
+                        ValidatorId::PublicKey(
+                            validators
+                                .get(i as usize)
+                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey.clone()),
+                        )
+                    })
+                    .collect::<Vec<ValidatorId>>();
+
+                let result_index_ids = self
+                    .client
+                    .get_beacon_states_validator_balances(
+                        state_id,
+                        Some(validator_index_ids.as_slice()),
+                    )
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
+
+                let result_pubkey_ids = self
+                    .client
+                    .get_beacon_states_validator_balances(
+                        state_id,
+                        Some(validator_pubkey_ids.as_slice()),
+                    )
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
+
+                let expected = state_opt.map(|state| {
+                    let epoch = state.current_epoch();
+                    let finalized_epoch = state.finalized_checkpoint.epoch;
+                    let far_future_epoch = self.chain.spec.far_future_epoch;
+
+                    let mut validators = Vec::with_capacity(validator_indices.len());
+
+                    for i in validator_indices {
+                        if i >= state.validators.len() as u64 {
+                            continue;
+                        }
+                        let validator = state.validators[i as usize].clone();
+                        validators.push(ValidatorData {
+                            index: i as u64,
+                            balance: state.balances[i as usize],
+                            status: ValidatorStatus::from_validator(
+                                Some(&validator),
+                                epoch,
+                                finalized_epoch,
+                                far_future_epoch,
+                            ),
+                            validator,
+                        });
+                    }
+
+                    validators
+                });
+
+                assert_eq!(result_index_ids, expected, "{:?}", state_id);
+                assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+            }
+        }
+
+        self
+    }
+
     pub async fn test_beacon_states_validators(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let result = self
@@ -1618,7 +1699,11 @@ async fn beacon_states_finality_checkpoints() {
 
 #[tokio::test(core_threads = 2)]
 async fn beacon_states_validators() {
-    ApiTester::new().test_beacon_states_validators().await;
+    ApiTester::new()
+        .test_beacon_states_validator_balances
+        .await
+        .test_beacon_states_validators()
+        .await;
 }
 
 #[tokio::test(core_threads = 2)]
