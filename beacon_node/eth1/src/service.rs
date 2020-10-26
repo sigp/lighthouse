@@ -370,7 +370,7 @@ impl Service {
                     crit!(
                         self.log,
                         "Invalid eth1 network. Please switch to correct network";
-                        "expected" => format!("{:?}",DEFAULT_NETWORK_ID),
+                        "expected" => format!("{:?}",config_network),
                         "received" => format!("{:?}",network_id),
                         "warning" => WARNING_MSG,
                     );
