@@ -216,15 +216,15 @@ pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 pub struct InteropEthSpec;
 
 impl EthSpec for InteropEthSpec {
-    type SlotsPerEpoch = U8;
-    type EpochsPerEth1VotingPeriod = U2;
-    type SlotsPerHistoricalRoot = U64;
-    type EpochsPerHistoricalVector = U64;
-    type EpochsPerSlashingsVector = U64;
-    type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
-    type SlotsPerEth1VotingPeriod = U16; // 2 epochs * 8 slots per epoch
+    type EpochsPerEth1VotingPeriod = U32;
+    type SlotsPerEth1VotingPeriod = U1024; // 32 epochs * 32 slots per epoch
 
     params_from_eth_spec!(MainnetEthSpec {
+        SlotsPerEpoch,
+        SlotsPerHistoricalRoot,
+        EpochsPerHistoricalVector,
+        EpochsPerSlashingsVector,
+        MaxPendingAttestations,
         JustificationBitsLength,
         SubnetBitfieldLength,
         MaxValidatorsPerCommittee,

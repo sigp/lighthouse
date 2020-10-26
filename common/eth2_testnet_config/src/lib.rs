@@ -251,15 +251,24 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
 mod tests {
     use super::*;
     use tempdir::TempDir;
-    use types::{Eth1Data, Hash256, MainnetEthSpec, YamlConfig};
+    use types::{Eth1Data, Hash256, InteropEthSpec, YamlConfig};
 
-    type E = MainnetEthSpec;
+    type E = InteropEthSpec;
 
     #[test]
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
             let config =
                 Eth2TestnetConfig::<E>::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
+
+            // Ensure we can parse the YAML config to a chain spec.
+            config
+                .yaml_config
+                .as_ref()
+                .unwrap()
+                .apply_to_chain_spec::<E>(&E::default_spec())
+                .unwrap();
+
             assert_eq!(
                 config.genesis_state.is_some(),
                 net.genesis_is_known,
