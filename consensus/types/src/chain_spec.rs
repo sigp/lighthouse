@@ -371,17 +371,19 @@ impl ChainSpec {
         }
     }
 
-    /// Interop testing spec
+    /// Suits the `v0.12.3` version of the eth2 spec:
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
     ///
-    /// This allows us to customize a chain spec for interop testing.
-    pub fn interop() -> Self {
+    /// This method only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
+    /// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
+    pub fn v012_legacy() -> Self {
         let boot_nodes = vec![];
 
         Self {
-            milliseconds_per_slot: 12_000,
-            target_committee_size: 4,
-            shuffle_round_count: 10,
-            network_id: 13,
+            genesis_delay: 172_800, // 2 days
+            inactivity_penalty_quotient: u64::pow(2, 24),
+            min_slashing_penalty_quotient: 32,
+            eth1_follow_distance: 1024,
             boot_nodes,
             ..ChainSpec::mainnet()
         }

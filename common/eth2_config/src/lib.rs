@@ -50,7 +50,7 @@ impl Eth2Config {
     pub fn v012_legacy() -> Self {
         Self {
             spec_constants: SPEC_LEGACY.to_string(),
-            spec: ChainSpec::interop(),
+            spec: ChainSpec::v012_legacy(),
         }
     }
 }

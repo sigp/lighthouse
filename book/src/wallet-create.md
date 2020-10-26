@@ -44,7 +44,7 @@ OPTIONS:
             password will be generated and saved at that path. To avoid confusion, if the file does not already exist it
             must include a '.pass' suffix.
     -s, --spec <TITLE>
-            Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, interop]
+            Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, v0.12-legacy]
 
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective

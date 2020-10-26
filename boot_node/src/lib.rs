@@ -8,7 +8,7 @@ mod config;
 mod server;
 pub use cli::cli_app;
 use config::BootNodeConfig;
-use types::EthSpec;
+use types::{EthSpec, LEGACY_SPEC, MAINNET_SPEC, MINIMAL_SPEC};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
 
@@ -49,9 +49,9 @@ pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
     let log = slog_scope::logger();
     // Run the main function emitting any errors
     if let Err(e) = match matches.value_of("spec") {
-        Some("minimal") => main::<types::MinimalEthSpec>(matches, log),
-        Some("mainnet") => main::<types::MainnetEthSpec>(matches, log),
-        Some("interop") => main::<types::V012LegacyEthSpec>(matches, log),
+        Some(MINIMAL_SPEC) => main::<types::MinimalEthSpec>(matches, log),
+        Some(MAINNET_SPEC) => main::<types::MainnetEthSpec>(matches, log),
+        Some(INTEROP_SPEC) => main::<types::V012LegacyEthSpec>(matches, log),
         spec => unreachable!("Unknown spec configuration: {:?}", spec),
     } {
         slog::crit!(slog_scope::logger(), "{}", e);

@@ -217,7 +217,7 @@ pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 /// Suits the `v0.12.3` version of the eth2 spec:
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
 ///
-/// This strucr only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
+/// This struct only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
 /// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -247,7 +247,7 @@ impl EthSpec for V012LegacyEthSpec {
     });
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::interop()
+        ChainSpec::v012_legacy()
     }
 
     fn spec_name() -> &'static str {
