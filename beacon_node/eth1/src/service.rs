@@ -325,12 +325,13 @@ impl Service {
         let remote_head_block = download_eth1_block(self.inner.clone(), remote_head_block_number)
             .map_err(|e| format!("Failed to update Eth1 service: {:?}", e))
             .await?;
+        let remote_head_block_number = Some(remote_head_block.number);
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 
         let update_deposit_cache = async {
             let outcome = self
-                .update_deposit_cache()
+                .update_deposit_cache(remote_head_block_number)
                 .await
                 .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
@@ -346,7 +347,7 @@ impl Service {
 
         let update_block_cache = async {
             let outcome = self
-                .update_block_cache()
+                .update_block_cache(remote_head_block_number)
                 .await
                 .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
@@ -443,13 +444,19 @@ impl Service {
     /// Will process no more than `BLOCKS_PER_LOG_QUERY * MAX_LOG_REQUESTS_PER_UPDATE` blocks in a
     /// single update.
     ///
+    /// If `remote_highest_block_opt` is `Some`, use that value instead of querying `self.endpoint`
+    /// for the head of the eth1 chain.
+    ///
     /// ## Resolves with
     ///
     /// - Ok(_) if the update was successful (the cache may or may not have been modified).
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn update_deposit_cache(&self) -> Result<DepositCacheUpdateOutcome, Error> {
+    pub async fn update_deposit_cache(
+        &self,
+        remote_highest_block_opt: Option<u64>,
+    ) -> Result<DepositCacheUpdateOutcome, Error> {
         let endpoint = self.config().endpoint.clone();
         let follow_distance = self.config().follow_distance;
         let deposit_contract_address = self.config().deposit_contract_address.clone();
@@ -467,7 +474,13 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
 
-        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
+        let range = get_new_block_numbers(
+            &endpoint,
+            remote_highest_block_opt,
+            next_required_block,
+            follow_distance,
+        )
+        .await?;
 
         let block_number_chunks = if let Some(range) = range {
             range
@@ -578,13 +591,19 @@ impl Service {
     ///
     /// If configured, prunes the block cache after importing new blocks.
     ///
+    /// If `remote_highest_block_opt` is `Some`, use that value instead of querying `self.endpoint`
+    /// for the head of the eth1 chain.
+    ///
     /// ## Resolves with
     ///
     /// - Ok(_) if the update was successful (the cache may or may not have been modified).
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn update_block_cache(&self) -> Result<BlockCacheUpdateOutcome, Error> {
+    pub async fn update_block_cache(
+        &self,
+        remote_highest_block_opt: Option<u64>,
+    ) -> Result<BlockCacheUpdateOutcome, Error> {
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
             .config()
@@ -602,7 +621,13 @@ impl Service {
         let endpoint = self.config().endpoint.clone();
         let follow_distance = self.config().follow_distance;
 
-        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
+        let range = get_new_block_numbers(
+            &endpoint,
+            remote_highest_block_opt,
+            next_required_block,
+            follow_distance,
+        )
+        .await?;
         // Map the range of required blocks into a Vec.
         //
         // If the required range is larger than the size of the cache, drop the exiting cache
@@ -738,13 +763,17 @@ impl Service {
 /// the locally stored best block.
 async fn get_new_block_numbers<'a>(
     endpoint: &str,
+    remote_highest_block_opt: Option<u64>,
     next_required_block: u64,
     follow_distance: u64,
 ) -> Result<Option<RangeInclusive<u64>>, Error> {
-    let remote_highest_block =
+    let remote_highest_block = if let Some(block_number) = remote_highest_block_opt {
+        block_number
+    } else {
         get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
             .map_err(Error::GetBlockNumberFailed)
-            .await?;
+            .await?
+    };
     let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
 
     if next_required_block <= remote_follow_block {

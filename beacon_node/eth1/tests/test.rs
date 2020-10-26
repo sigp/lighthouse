@@ -146,16 +146,16 @@ mod eth1_cache {
                 }
 
                 service
-                    .update_deposit_cache()
+                    .update_deposit_cache(None)
                     .await
                     .expect("should update deposit cache");
                 service
-                    .update_block_cache()
+                    .update_block_cache(None)
                     .await
                     .expect("should update block cache");
 
                 service
-                    .update_block_cache()
+                    .update_block_cache(None)
                     .await
                     .expect("should update cache when nothing has changed");
 
@@ -209,11 +209,11 @@ mod eth1_cache {
         }
 
         service
-            .update_deposit_cache()
+            .update_deposit_cache(None)
             .await
             .expect("should update deposit cache");
         service
-            .update_block_cache()
+            .update_block_cache(None)
             .await
             .expect("should update block cache");
 
@@ -256,11 +256,11 @@ mod eth1_cache {
                 eth1.ganache.evm_mine().await.expect("should mine block")
             }
             service
-                .update_deposit_cache()
+                .update_deposit_cache(None)
                 .await
                 .expect("should update deposit cache");
             service
-                .update_block_cache()
+                .update_block_cache(None)
                 .await
                 .expect("should update block cache");
         }
@@ -300,12 +300,15 @@ mod eth1_cache {
             eth1.ganache.evm_mine().await.expect("should mine block")
         }
         futures::try_join!(
-            service.update_deposit_cache(),
-            service.update_deposit_cache()
+            service.update_deposit_cache(None),
+            service.update_deposit_cache(None)
         )
         .expect("should perform two simultaneous updates of deposit cache");
-        futures::try_join!(service.update_block_cache(), service.update_block_cache())
-            .expect("should perform two simultaneous updates of block cache");
+        futures::try_join!(
+            service.update_block_cache(None),
+            service.update_block_cache(None)
+        )
+        .expect("should perform two simultaneous updates of block cache");
 
         assert!(service.block_cache_len() >= n, "should grow the cache");
     }
@@ -351,12 +354,12 @@ mod deposit_tree {
             }
 
             service
-                .update_deposit_cache()
+                .update_deposit_cache(None)
                 .await
                 .expect("should perform update");
 
             service
-                .update_deposit_cache()
+                .update_deposit_cache(None)
                 .await
                 .expect("should perform update when nothing has changed");
 
@@ -426,8 +429,8 @@ mod deposit_tree {
         }
 
         futures::try_join!(
-            service.update_deposit_cache(),
-            service.update_deposit_cache()
+            service.update_deposit_cache(None),
+            service.update_deposit_cache(None)
         )
         .expect("should perform two updates concurrently");
 
@@ -668,7 +671,7 @@ mod fast {
         }
 
         service
-            .update_deposit_cache()
+            .update_deposit_cache(None)
             .await
             .expect("should perform update");
 
@@ -736,7 +739,7 @@ mod persist {
         }
 
         service
-            .update_deposit_cache()
+            .update_deposit_cache(None)
             .await
             .expect("should perform update");
 
@@ -748,7 +751,7 @@ mod persist {
         let deposit_count = service.deposit_cache_len();
 
         service
-            .update_block_cache()
+            .update_block_cache(None)
             .await
             .expect("should perform update");
 
