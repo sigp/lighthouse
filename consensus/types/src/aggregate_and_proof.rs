@@ -53,7 +53,7 @@ impl<T: EthSpec> AggregateAndProof<T> {
 
         Self {
             aggregator_index,
-            aggregate: aggregate,
+            aggregate,
             selection_proof,
         }
     }

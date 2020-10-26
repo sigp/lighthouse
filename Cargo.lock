@@ -1375,7 +1375,8 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/sigp/discv5?rev=fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0#fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "595cf0600428cea17ce274cc11bb2fa8247a900a76fde1bbce2b81a39f335c02"
 dependencies = [
  "aes-ctr",
  "aes-gcm",
@@ -1407,8 +1408,7 @@ dependencies = [
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "595cf0600428cea17ce274cc11bb2fa8247a900a76fde1bbce2b81a39f335c02"
+source = "git+https://github.com/sigp/discv5?rev=fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0#fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0"
 dependencies = [
  "aes-ctr",
  "aes-gcm",
@@ -3987,7 +3987,8 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.9.3"
-source = "git+https://github.com/sigp/rust-libp2p?rev=a731aa803d986977c25a77ed2b002d9578f7377c#a731aa803d986977c25a77ed2b002d9578f7377c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7ad66970bbab360c97179b60906e2dc4aef1f7fca8ab4e5c5db8c97b16814a"
 dependencies = [
  "arrayref",
  "bs58",
@@ -4004,8 +4005,7 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c7ad66970bbab360c97179b60906e2dc4aef1f7fca8ab4e5c5db8c97b16814a"
+source = "git+https://github.com/sigp/rust-libp2p?rev=a731aa803d986977c25a77ed2b002d9578f7377c#a731aa803d986977c25a77ed2b002d9578f7377c"
 dependencies = [
  "arrayref",
  "bs58",
@@ -6783,7 +6783,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.2.5"
-source = "git+https://github.com/realbigsean/warp.git?branch=0.2.x#10441f38b2d47ee6e52afaf93a099aa75342c6b3"
+source = "git+https://github.com/paulhauner/warp?branch=cors-wildcard#a7685b76d70c3e5628e31d60aee510acec3c5c30"
 dependencies = [
  "bytes 0.5.6",
  "futures 0.3.6",
