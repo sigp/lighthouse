@@ -295,11 +295,11 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     ) -> Result<Vec<Deposit>, Error>;
 
     /// Returns the latest block stored in the cache. Used to obtain an idea of how up-to-date the
-    /// eth1 cache is.
+    /// beacon node eth1 cache is.
     fn latest_cached_block(&self) -> Option<Eth1Block>;
 
     /// Returns the block at the head of the chain (ignoring follow distance, etc). Used to obtain
-    /// an idea of how up-to-date the node is.
+    /// an idea of how up-to-date the remote eth1 node is.
     fn head_block(&self) -> Option<Eth1Block>;
 
     /// Encode the `Eth1ChainBackend` instance to bytes.
