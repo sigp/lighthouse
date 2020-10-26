@@ -9,7 +9,7 @@ name = "ssz_types"
 
 [dependencies]
 tree_hash = "0.1.1"
-serde = { version = "1.0.116", features = ["derive"] }
+serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_utils = { path = "../serde_utils" }
 eth2_ssz = "0.1.2"

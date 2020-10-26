@@ -7,7 +7,6 @@
 use crate::VariableList;
 use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serializer};
-use serde_derive::{Deserialize, Serialize};
 use serde_utils::quoted_u64_vec::QuotedIntWrapper;
 use std::marker::PhantomData;
 use typenum::Unsigned;
@@ -65,6 +64,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_derive::{Deserialize, Serialize};
     use typenum::U4;
 
     #[derive(Debug, Serialize, Deserialize)]
