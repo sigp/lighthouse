@@ -22,7 +22,10 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
-use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{
+    test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec, SPEC_LEGACY,
+    SPEC_MAINNET, SPEC_MINIMAL,
+};
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -495,9 +498,9 @@ fn main() {
     }
 
     match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
+        Some(SPEC_MINIMAL) => run_with_spec!(EnvironmentBuilder::minimal()),
+        Some(SPEC_MAINNET) => run_with_spec!(EnvironmentBuilder::mainnet()),
+        Some(SPEC_LEGACY) => run_with_spec!(EnvironmentBuilder::v012_legacy()),
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);
