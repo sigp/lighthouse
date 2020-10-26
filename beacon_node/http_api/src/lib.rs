@@ -1791,13 +1791,12 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-<<<<<<< HEAD
     // GET lighthouse/eth1/syncing
     let get_lighthouse_eth1_syncing = warp::path("lighthouse")
         .and(warp::path("eth1"))
         .and(warp::path("syncing"))
         .and(warp::path::end())
-        .and(chain_filter)
+        .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let head_info = chain
