@@ -35,7 +35,8 @@ where
             let val: QuotedIntWrapper = val;
             vec.push(val.int);
         }
-        let fix: FixedVector<u64, N> = FixedVector::from(vec);
+        let fix: FixedVector<u64, N> = FixedVector::new(vec)
+            .map_err(|e| serde::de::Error::custom(format!("FixedVector: {:?}", e)))?;
         Ok(fix)
     }
 }
@@ -95,25 +96,18 @@ mod test {
     }
 
     #[test]
-    fn empty_list_success() {
-        let obj: Obj = serde_json::from_str(r#"{ "values": [] }"#).unwrap();
-        let expected: FixedVector<u64, U4> = FixedVector::from(vec![0, 0, 0, 0]);
-        assert_eq!(obj.values, expected);
+    fn empty_list_err() {
+        serde_json::from_str::<Obj>(r#"{ "values": [] }"#).unwrap_err();
     }
 
     #[test]
-    fn short_list_success() {
-        let obj: Obj = serde_json::from_str(r#"{ "values": [1, 2] }"#).unwrap();
-        let expected: FixedVector<u64, U4> = FixedVector::from(vec![1, 2, 0, 0]);
-        assert_eq!(obj.values, expected);
+    fn short_list_err() {
+        serde_json::from_str::<Obj>(r#"{ "values": [1, 2] }"#).unwrap_err();
     }
 
     #[test]
-    fn long_list_success() {
-        let obj: Obj = serde_json::from_str(r#"{ "values": [1, 2, 3, 4, 5] }"#).unwrap();
-        dbg!(&obj.values);
-        let expected: FixedVector<u64, U4> = FixedVector::from(vec![1, 2, 3, 4]);
-        assert_eq!(obj.values, expected);
+    fn long_list_err() {
+        serde_json::from_str::<Obj>(r#"{ "values": [1, 2, 3, 4, 5] }"#).unwrap_err();
     }
 
     #[test]

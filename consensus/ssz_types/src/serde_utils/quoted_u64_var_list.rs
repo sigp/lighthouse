@@ -35,7 +35,8 @@ where
             let val: QuotedIntWrapper = val;
             vec.push(val.int);
         }
-        let fix: VariableList<u64, N> = VariableList::from(vec);
+        let fix: VariableList<u64, N> = VariableList::new(vec)
+            .map_err(|e| serde::de::Error::custom(format!("VariableList: {:?}", e)))?;
         Ok(fix)
     }
 }
@@ -108,11 +109,8 @@ mod test {
     }
 
     #[test]
-    fn long_list_success() {
-        let obj: Obj = serde_json::from_str(r#"{ "values": [1, 2, 3, 4, 5] }"#).unwrap();
-        dbg!(&obj.values);
-        let expected: VariableList<u64, U4> = VariableList::from(vec![1, 2, 3, 4]);
-        assert_eq!(obj.values, expected);
+    fn long_list_err() {
+        serde_json::from_str::<Obj>(r#"{ "values": [1, 2, 3, 4, 5] }"#).unwrap_err();
     }
 
     #[test]
