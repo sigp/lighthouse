@@ -8,6 +8,10 @@ use ssz_types::typenum::{
 };
 use std::fmt::Debug;
 
+pub const SPEC_MAINNET: &str = "mainnet";
+pub const SPEC_MINIMAL: &str = "minimal";
+pub const SPEC_LEGACY: &str = "v0.12-legacy";
+
 pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
     /*
      * Constants
@@ -163,7 +167,7 @@ impl EthSpec for MainnetEthSpec {
     }
 
     fn spec_name() -> &'static str {
-        "mainnet"
+        SPEC_MAINNET
     }
 }
 
@@ -204,13 +208,17 @@ impl EthSpec for MinimalEthSpec {
     }
 
     fn spec_name() -> &'static str {
-        "minimal"
+        SPEC_MINIMAL
     }
 }
 
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 
-/// Interop testnet spec
+/// Suits the `v0.12.3` version of the eth2 spec:
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
+///
+/// This strucr only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
+/// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct InteropEthSpec;
@@ -243,7 +251,7 @@ impl EthSpec for InteropEthSpec {
     }
 
     fn spec_name() -> &'static str {
-        "interop"
+        SPEC_LEGACY
     }
 }
 

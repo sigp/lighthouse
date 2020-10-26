@@ -7,7 +7,7 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use types::EthSpec;
+use types::{EthSpec, SPEC_LEGACY, SPEC_MAINNET, SPEC_MINIMAL};
 use validator_client::ProductionValidatorClient;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -48,9 +48,9 @@ fn main() {
                 .value_name("TITLE")
                 .help("Specifies the default eth2 spec type.")
                 .takes_value(true)
-                .possible_values(&["mainnet", "minimal", "interop"])
+                .possible_values(&[SPEC_MAINNET, SPEC_MINIMAL, SPEC_LEGACY])
                 .global(true)
-                .default_value("mainnet"),
+                .default_value(SPEC_LEGACY),
         )
         .arg(
             Arg::with_name("env_log")
@@ -151,9 +151,9 @@ fn main() {
     }
 
     let result = match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
+        Some(SPEC_MINIMAL) => run_with_spec!(EnvironmentBuilder::minimal()),
+        Some(SPEC_MAINNET) => run_with_spec!(EnvironmentBuilder::mainnet()),
+        Some(SPEC_LEGACY) => run_with_spec!(EnvironmentBuilder::v012_legacy()),
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);

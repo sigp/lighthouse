@@ -67,13 +67,13 @@ impl EnvironmentBuilder<MainnetEthSpec> {
 }
 
 impl EnvironmentBuilder<InteropEthSpec> {
-    /// Creates a new builder using the `interop` eth2 specification.
-    pub fn interop() -> Self {
+    /// Creates a new builder using the v0.12.x eth2 specification.
+    pub fn v012_legacy() -> Self {
         Self {
             runtime: None,
             log: None,
             eth_spec_instance: InteropEthSpec,
-            eth2_config: Eth2Config::interop(),
+            eth2_config: Eth2Config::v012_legacy(),
             testnet: None,
         }
     }
