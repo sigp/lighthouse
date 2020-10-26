@@ -452,12 +452,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         Some(api_types::ValidatorData {
                                             index: index as u64,
                                             balance: *balance,
-                                            status: api_types::ValidatorStatus::from_validator(
-                                                Some(validator),
-                                                epoch,
-                                                finalized_epoch,
-                                                far_future_epoch,
-                                            ),
+                                            status,
                                             validator: validator.clone(),
                                         })
                                     } else {
