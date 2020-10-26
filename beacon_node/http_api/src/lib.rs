@@ -435,29 +435,34 @@ pub fn serve<T: BeaconChainTypes>(
                                         })
                                     })
                                 })
-                                // filter by status(es) if provided
-                                .filter(|(_, (validator, _))| {
-                                    query.status.as_ref().map_or(true, |statuses| {
-                                        statuses.0.contains(
-                                            &api_types::ValidatorStatus::from_validator(
+                                // filter by status(es) if provided and map the result
+                                .filter_map(|(index, (validator, balance))| {
+                                    let status = api_types::ValidatorStatus::from_validator(
+                                        Some(validator),
+                                        epoch,
+                                        finalized_epoch,
+                                        far_future_epoch,
+                                    );
+
+                                    if query
+                                        .status
+                                        .as_ref()
+                                        .map_or(true, |statuses| statuses.0.contains(&status))
+                                    {
+                                        Some(api_types::ValidatorData {
+                                            index: index as u64,
+                                            balance: *balance,
+                                            status: api_types::ValidatorStatus::from_validator(
                                                 Some(validator),
                                                 epoch,
                                                 finalized_epoch,
                                                 far_future_epoch,
                                             ),
-                                        )
-                                    })
-                                })
-                                .map(|(index, (validator, balance))| api_types::ValidatorData {
-                                    index: index as u64,
-                                    balance: *balance,
-                                    status: api_types::ValidatorStatus::from_validator(
-                                        Some(validator),
-                                        epoch,
-                                        finalized_epoch,
-                                        far_future_epoch,
-                                    ),
-                                    validator: validator.clone(),
+                                            validator: validator.clone(),
+                                        })
+                                    } else {
+                                        None
+                                    }
                                 })
                                 .collect::<Vec<_>>())
                         })
