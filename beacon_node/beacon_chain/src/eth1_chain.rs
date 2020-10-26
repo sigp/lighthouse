@@ -58,6 +58,13 @@ impl From<safe_arith::ArithError> for Error {
     }
 }
 
+/// Returns an `Eth1SyncStatusData` given some parameters:
+///
+/// - `latest_cached_block`: The latest eth1 block in our cache, if any.
+/// - `head_block`: The block at the very head of our eth1 node (ignoring follow distance, etc).
+/// - `genesis_time`: beacon chain genesis time.
+/// - `current_slot`: current beacon chain slot.
+/// - `spec`: current beacon chain specification.
 fn get_sync_status<T: EthSpec>(
     latest_cached_block: Option<&Eth1Block>,
     head_block: Option<&Eth1Block>,
@@ -66,6 +73,7 @@ fn get_sync_status<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Option<Eth1SyncStatusData> {
     let period = T::SlotsPerEth1VotingPeriod::to_u64();
+    // Since `period` is a "constant", we assume it is set sensibly.
     let voting_period_start_slot = (current_slot / period) * period;
     let voting_period_start_timestamp = {
         let period_start = slot_start_seconds::<T>(
@@ -90,6 +98,7 @@ fn get_sync_status<T: EthSpec>(
         let head_age = now.saturating_sub(head_block.timestamp);
 
         if head_age < ETH1_SYNC_TOLERANCE * spec.seconds_per_eth1_block {
+            // Always indicate we are fully synced if it's within the sync threshold.
             100.0
         } else {
             let blocks_behind = head_age
@@ -102,13 +111,17 @@ fn get_sync_status<T: EthSpec>(
             if whole > 0.0 {
                 (part / whole) * 100.0
             } else {
+                // Avoids a divide-by-zero.
                 0.0
             }
         }
     } else {
+        // Always return 0% synced if the head block of the eth1 chain is unknown.
         0.0
     };
 
+    // Lighthouse is "cached and ready" when it has cached enough blocks to cover the start of the
+    // current voting period.
     let lighthouse_is_cached_and_ready =
         latest_cached_block_timestamp.map_or(false, |t| t >= voting_period_start_timestamp);
 
