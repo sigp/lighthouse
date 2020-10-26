@@ -19,7 +19,7 @@ dependencies = [
  "eth2_wallet",
  "eth2_wallet_manager",
  "futures 0.3.6",
- "hex 0.4.2",
+ "hex",
  "libc",
  "rand 0.7.3",
  "rayon",
@@ -173,7 +173,7 @@ dependencies = [
 [[package]]
 name = "amcl"
 version = "0.3.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.3.0#5ecda0f75238f4255db7d58b9aac61038b192b81"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.0#45a076a776a6f1d9f8157fd2d574bfefaee2c81a"
 
 [[package]]
 name = "ansi_term"
@@ -422,7 +422,7 @@ dependencies = [
  "exit-future",
  "futures 0.3.6",
  "genesis",
- "hex 0.4.2",
+ "hex",
  "hyper 0.13.8",
  "lighthouse_version",
  "logging",
@@ -583,7 +583,7 @@ dependencies = [
  "eth2_hashing",
  "eth2_ssz",
  "ethereum-types",
- "hex 0.4.2",
+ "hex",
  "milagro_bls",
  "rand 0.7.3",
  "serde",
@@ -596,7 +596,7 @@ dependencies = [
 [[package]]
 name = "blst"
 version = "0.2.0"
-source = "git+https://github.com/supranational/blst.git?rev=414ac6b185f6b2ef2e6364d5716f915af966c465#414ac6b185f6b2ef2e6364d5716f915af966c465"
+source = "git+https://github.com/sigp/blst.git?rev=7cf47864627ca479cad06c2a164f30d0cbaf16ce#7cf47864627ca479cad06c2a164f30d0cbaf16ce"
 dependencies = [
  "cc",
  "glob",
@@ -613,7 +613,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_testnet_config",
  "futures 0.3.6",
- "hex 0.4.2",
+ "hex",
  "log 0.4.11",
  "logging",
  "slog",
@@ -835,7 +835,7 @@ dependencies = [
  "dirs 3.0.1",
  "eth2_ssz",
  "eth2_testnet_config",
- "hex 0.4.2",
+ "hex",
  "types",
 ]
 
@@ -1263,7 +1263,7 @@ version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "ethabi",
- "hex 0.4.2",
+ "hex",
  "reqwest",
  "serde_json",
  "sha2 0.9.1",
@@ -1381,7 +1381,7 @@ dependencies = [
  "enr",
  "fnv",
  "futures 0.3.6",
- "hex 0.4.2",
+ "hex",
  "hkdf",
  "k256",
  "lazy_static",
@@ -1413,7 +1413,7 @@ dependencies = [
  "enr",
  "fnv",
  "futures 0.3.6",
- "hex 0.4.2",
+ "hex",
  "hkdf",
  "k256",
  "lazy_static",
@@ -1483,7 +1483,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "ethereum-types",
- "hex 0.4.2",
+ "hex",
  "rayon",
  "serde",
  "serde_derive",
@@ -1537,7 +1537,7 @@ dependencies = [
  "base64 0.12.3",
  "bs58",
  "ed25519-dalek",
- "hex 0.4.2",
+ "hex",
  "k256",
  "log 0.4.11",
  "rand 0.7.3",
@@ -1601,7 +1601,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "futures 0.3.6",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "libflate",
  "lighthouse_metrics",
@@ -1642,7 +1642,7 @@ dependencies = [
  "eth2_keystore",
  "eth2_libp2p",
  "eth2_ssz",
- "hex 0.4.2",
+ "hex",
  "libsecp256k1",
  "procinfo",
  "proto_array",
@@ -1684,7 +1684,7 @@ dependencies = [
  "base64 0.13.0",
  "bls",
  "eth2_hashing",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "num-bigint",
  "serde",
@@ -1697,7 +1697,7 @@ name = "eth2_key_derivation"
 version = "0.1.0"
 dependencies = [
  "bls",
- "hex 0.4.2",
+ "hex",
  "num-bigint-dig",
  "ring",
  "sha2 0.9.1",
@@ -1712,7 +1712,7 @@ dependencies = [
  "bls",
  "eth2_key_derivation",
  "eth2_ssz",
- "hex 0.4.2",
+ "hex",
  "hmac 0.9.0",
  "pbkdf2 0.5.0",
  "rand 0.7.3",
@@ -1742,7 +1742,7 @@ dependencies = [
  "fnv",
  "futures 0.3.6",
  "hashset_delay",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "libp2p",
  "lighthouse_metrics",
@@ -1821,7 +1821,7 @@ version = "0.1.0"
 dependencies = [
  "eth2_key_derivation",
  "eth2_keystore",
- "hex 0.4.2",
+ "hex",
  "rand 0.7.3",
  "serde",
  "serde_json",
@@ -2001,7 +2001,7 @@ dependencies = [
  "beacon_chain",
  "eth2_ssz",
  "eth2_ssz_derive",
- "hex 0.4.2",
+ "hex",
  "proto_array",
  "slot_clock",
  "state_processing",
@@ -2442,12 +2442,6 @@ dependencies = [
 
 [[package]]
 name = "hex"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
-
-[[package]]
-name = "hex"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
@@ -2566,7 +2560,7 @@ dependencies = [
  "eth2_libp2p",
  "eth2_ssz",
  "fork_choice",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
@@ -2822,7 +2816,7 @@ name = "int_to_bytes"
 version = "0.2.0"
 dependencies = [
  "bytes 0.5.6",
- "hex 0.4.2",
+ "hex",
  "yaml-rust",
 ]
 
@@ -2962,7 +2956,7 @@ dependencies = [
  "eth2_testnet_config",
  "futures 0.3.6",
  "genesis",
- "hex 0.4.2",
+ "hex",
  "lighthouse_version",
  "log 0.4.11",
  "rand 0.7.3",
@@ -3504,11 +3498,11 @@ dependencies = [
 
 [[package]]
 name = "milagro_bls"
-version = "1.3.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.3.0#5ecda0f75238f4255db7d58b9aac61038b192b81"
+version = "1.4.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.0#45a076a776a6f1d9f8157fd2d574bfefaee2c81a"
 dependencies = [
  "amcl",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "rand 0.7.3",
  "zeroize",
@@ -3744,7 +3738,7 @@ dependencies = [
  "genesis",
  "get_if_addrs",
  "hashset_delay",
- "hex 0.4.2",
+ "hex",
  "igd",
  "itertools 0.9.0",
  "lazy_static",
@@ -5133,7 +5127,7 @@ dependencies = [
 name = "serde_utils"
 version = "0.1.0"
 dependencies = [
- "hex 0.4.2",
+ "hex",
  "serde",
  "serde_derive",
  "serde_json",
@@ -6465,7 +6459,7 @@ dependencies = [
  "eth2_ssz_derive",
  "eth2_ssz_types",
  "ethereum-types",
- "hex 0.4.2",
+ "hex",
  "int_to_bytes",
  "log 0.4.11",
  "merkle_proof",
@@ -6667,7 +6661,7 @@ dependencies = [
  "eth2_ssz_derive",
  "exit-future",
  "futures 0.3.6",
- "hex 0.4.2",
+ "hex",
  "hyper 0.13.8",
  "libc",
  "libsecp256k1",
@@ -6705,7 +6699,7 @@ dependencies = [
  "bls",
  "deposit_contract",
  "eth2_keystore",
- "hex 0.4.2",
+ "hex",
  "rand 0.7.3",
  "rayon",
  "slog",
