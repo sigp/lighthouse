@@ -2,7 +2,7 @@
 //!
 //! E.g., `VariableList::from(vec![0, 1, 2])` serializes as `["0", "1", "2"]`.
 //!
-//! Quotes can be optional during decoding. If `N` is greater than the length of the `Vec`, the `Vec` is truncated.
+//! Quotes can be optional during decoding. If the length of the `Vec` is greater than `N`, deserialization fails.
 
 use crate::VariableList;
 use serde::ser::SerializeSeq;

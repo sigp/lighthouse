@@ -2,7 +2,7 @@
 //!
 //! E.g., `FixedVector::from(vec![0, 1, 2])` serializes as `["0", "1", "2"]`.
 //!
-//! Quotes can be optional during decoding. If `N` does not equal the length of the `Vec`, the `Vec` is truncated.
+//! Quotes can be optional during decoding. If `N` does not equal the length deserialization will fail.
 
 use crate::FixedVector;
 use serde::ser::SerializeSeq;
