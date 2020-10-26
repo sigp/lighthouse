@@ -3,13 +3,14 @@ mod metrics;
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use slog::{debug, o, trace};
-use tokio::runtime::Handle;
+use std::sync::Weak;
+use tokio::runtime::Runtime;
 
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
 pub struct TaskExecutor {
     /// The handle to the runtime on which tasks are spawned
-    handle: Handle,
+    runtime: Weak<Runtime>,
     /// The receiver exit future which on receiving shuts down the task
     exit: exit_future::Exit,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -27,13 +28,13 @@ impl TaskExecutor {
     /// Note: this function is mainly useful in tests. A `TaskExecutor` should be normally obtained from
     /// a [`RuntimeContext`](struct.RuntimeContext.html)
     pub fn new(
-        handle: Handle,
+        runtime: Weak<Runtime>,
         exit: exit_future::Exit,
         log: slog::Logger,
         signal_tx: Sender<&'static str>,
     ) -> Self {
         Self {
-            handle,
+            runtime,
             exit,
             signal_tx,
             log,
@@ -43,7 +44,7 @@ impl TaskExecutor {
     /// Clones the task executor adding a service name.
     pub fn clone_with_name(&self, service_name: String) -> Self {
         TaskExecutor {
-            handle: self.handle.clone(),
+            runtime: self.runtime.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
             log: self.log.new(o!("service" => service_name)),
@@ -73,7 +74,11 @@ impl TaskExecutor {
             });
 
             int_gauge.inc();
-            self.handle.spawn(future);
+            if let Some(runtime) = self.runtime.upgrade() {
+                runtime.spawn(future);
+            } else {
+                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+            }
         }
     }
 
@@ -99,7 +104,11 @@ impl TaskExecutor {
             });
 
             int_gauge.inc();
-            self.handle.spawn(future);
+            if let Some(runtime) = self.runtime.upgrade() {
+                runtime.spawn(future);
+            } else {
+                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+            }
         }
     }
 
@@ -117,7 +126,12 @@ impl TaskExecutor {
             {
                 let int_gauge_1 = int_gauge.clone();
                 let timer = metric.start_timer();
-                let join_handle = self.handle.spawn_blocking(task);
+                let join_handle = if let Some(runtime) = self.runtime.upgrade() {
+                    runtime.spawn_blocking(task)
+                } else {
+                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                    return;
+                };
 
                 let future = future::select(join_handle, exit).then(move |either| {
                     match either {
@@ -134,14 +148,18 @@ impl TaskExecutor {
                 });
 
                 int_gauge.inc();
-                self.handle.spawn(future);
+                if let Some(runtime) = self.runtime.upgrade() {
+                    runtime.spawn(future);
+                } else {
+                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                }
             }
         }
     }
 
     /// Returns the underlying runtime handle.
-    pub fn runtime_handle(&self) -> Handle {
-        self.handle.clone()
+    pub fn runtime_handle(&self) -> Weak<Runtime> {
+        self.runtime.clone()
     }
 
     /// Returns a copy of the `exit_future::Exit`.
