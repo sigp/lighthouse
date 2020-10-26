@@ -19,7 +19,6 @@ use slog::{debug, error, info, o, trace, warn};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
-use tokio::time::Delay;
 use types::{EthSpec, ValidatorSubscription};
 
 mod tests;
