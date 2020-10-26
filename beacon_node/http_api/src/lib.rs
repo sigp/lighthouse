@@ -1860,6 +1860,7 @@ pub fn serve<T: BeaconChainTypes>(
             .boxed())
         .boxed()
         // Maps errors into HTTP responses.
+        .with(slog_logging(log.clone()))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
         .with(prometheus_metrics())
