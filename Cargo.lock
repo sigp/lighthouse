@@ -5328,7 +5328,6 @@ dependencies = [
  "blake2b_simd",
  "byte-slice-cast",
  "criterion",
- "environment",
  "eth2_ssz",
  "eth2_ssz_derive",
  "flate2",
@@ -5342,9 +5341,11 @@ dependencies = [
  "slog",
  "slog-term",
  "slot_clock",
+ "task_executor",
  "tempdir",
  "tokio 0.2.22",
  "tree_hash",
+ "tree_hash_derive",
  "types",
 ]
 

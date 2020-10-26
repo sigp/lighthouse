@@ -1,16 +1,23 @@
-use crate::{array, AttestationQueue, AttesterRecord, Config, Error, SlasherDB};
+use crate::{
+    array, AttestationQueue, AttesterRecord, BlockQueue, Config, Error, ProposerSlashingStatus,
+    SlasherDB,
+};
 use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
 use slog::{debug, error, info, Logger};
 use std::sync::Arc;
-use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
+use types::{
+    AttesterSlashing, Epoch, EthSpec, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader,
+};
 
 #[derive(Debug)]
 pub struct Slasher<E: EthSpec> {
     db: SlasherDB<E>,
     pub(crate) attestation_queue: AttestationQueue<E>,
+    pub(crate) block_queue: BlockQueue,
     // TODO: consider using a set
     attester_slashings: Mutex<Vec<AttesterSlashing<E>>>,
+    proposer_slashings: Mutex<Vec<ProposerSlashing>>,
     // TODO: consider removing Arc
     config: Arc<Config>,
     pub(crate) log: Logger,
@@ -22,11 +29,15 @@ impl<E: EthSpec> Slasher<E> {
         let config = Arc::new(config);
         let db = SlasherDB::open(config.clone())?;
         let attester_slashings = Mutex::new(vec![]);
+        let proposer_slashings = Mutex::new(vec![]);
         let attestation_queue = AttestationQueue::new(config.validator_chunk_size);
+        let block_queue = BlockQueue::new();
         Ok(Self {
             db,
             attester_slashings,
+            proposer_slashings,
             attestation_queue,
+            block_queue,
             config,
             log,
         })
@@ -45,10 +56,52 @@ impl<E: EthSpec> Slasher<E> {
         self.attestation_queue.queue(attestation);
     }
 
-    /// Apply queued attestations to the on-disk database.
-    pub fn process_attestations(&self, current_epoch: Epoch) -> Result<(), Error> {
-        let snapshot = self.attestation_queue.get_snapshot();
+    /// Accept a block from the network and queue it for processing.
+    pub fn accept_block_header(&self, block_header: SignedBeaconBlockHeader) {
+        self.block_queue.queue(block_header);
+    }
+
+    /// Apply queued blocks and attestations to the on-disk database, and detect slashings!
+    pub fn process_queued(&self, current_epoch: Epoch) -> Result<(), Error> {
         let mut txn = self.db.begin_rw_txn()?;
+        self.process_blocks(&mut txn)?;
+        self.process_attestations(current_epoch, &mut txn)?;
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Apply queued blocks to the on-disk database.
+    pub fn process_blocks(&self, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
+        let blocks = self.block_queue.dequeue();
+        let mut slashings = vec![];
+
+        for block in blocks {
+            if let ProposerSlashingStatus::DoubleVote(slashing) =
+                self.db.check_or_insert_block_proposal(txn, block)?
+            {
+                slashings.push(*slashing);
+            }
+        }
+
+        if !slashings.is_empty() {
+            info!(
+                self.log,
+                "Found {} new proposer slashings!",
+                slashings.len(),
+            );
+            self.proposer_slashings.lock().extend(slashings);
+        }
+
+        Ok(())
+    }
+
+    /// Apply queued attestations to the on-disk database.
+    pub fn process_attestations(
+        &self,
+        current_epoch: Epoch,
+        txn: &mut RwTransaction<'_>,
+    ) -> Result<(), Error> {
+        let snapshot = self.attestation_queue.get_snapshot();
 
         // Insert attestations into database.
         debug!(
@@ -58,7 +111,7 @@ impl<E: EthSpec> Slasher<E> {
         );
         for attestation in snapshot.attestations_to_store {
             self.db.store_indexed_attestation(
-                &mut txn,
+                txn,
                 attestation.1.indexed_attestation_hash,
                 &attestation.0,
             )?;
@@ -66,9 +119,8 @@ impl<E: EthSpec> Slasher<E> {
 
         // Dequeue attestations in batches and process them.
         for (subqueue_id, subqueue) in snapshot.subqueues.into_iter().enumerate() {
-            self.process_batch(&mut txn, subqueue_id, subqueue.attestations, current_epoch);
+            self.process_batch(txn, subqueue_id, subqueue.attestations, current_epoch);
         }
-        txn.commit()?;
         Ok(())
     }
 

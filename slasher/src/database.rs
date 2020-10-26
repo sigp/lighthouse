@@ -1,9 +1,11 @@
-use crate::{AttesterRecord, Config, Error, SlashingStatus};
+use crate::{AttesterRecord, Config, Error, ProposerSlashingStatus, SlashingStatus};
 use lmdb::{Database, DatabaseFlags, Environment, RwTransaction, Transaction, WriteFlags};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{Epoch, EthSpec, Hash256, IndexedAttestation};
+use types::{
+    Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader, Slot,
+};
 
 /// Map from `(validator_index, target_epoch)` to `AttesterRecord`.
 const ATTESTER_DB: &str = "attester";
@@ -11,13 +13,17 @@ const ATTESTER_DB: &str = "attester";
 const INDEXED_ATTESTATION_DB: &str = "indexed_attestations";
 const MIN_TARGETS_DB: &str = "min_targets";
 const MAX_TARGETS_DB: &str = "max_targets";
+/// Map from `(validator_index, slot)` to `SignedBeaconBlockHeader`.
+const PROPOSER_DB: &str = "proposer";
 
 /// The number of DBs for LMDB to use (equal to the number of DBs defined above).
-const LMDB_MAX_DBS: u32 = 4;
+const LMDB_MAX_DBS: u32 = 5;
 /// The size of the in-memory map for LMDB (larger than the maximum size of the database).
+// FIXME(sproul): make this user configurable
 const LMDB_MAP_SIZE: usize = 256 * (1 << 30); // 256GiB
 
 const ATTESTER_KEY_SIZE: usize = 16;
+const PROPOSER_KEY_SIZE: usize = 16;
 
 #[derive(Debug)]
 pub struct SlasherDB<E: EthSpec> {
@@ -26,6 +32,7 @@ pub struct SlasherDB<E: EthSpec> {
     pub(crate) attester_db: Database,
     pub(crate) min_targets_db: Database,
     pub(crate) max_targets_db: Database,
+    pub(crate) proposer_db: Database,
     config: Arc<Config>,
     _phantom: PhantomData<E>,
 }
@@ -51,6 +58,26 @@ impl AsRef<[u8]> for AttesterKey {
     }
 }
 
+#[derive(Debug)]
+pub struct ProposerKey {
+    data: [u8; PROPOSER_KEY_SIZE],
+}
+
+impl ProposerKey {
+    pub fn new(validator_index: u64, slot: Slot) -> Self {
+        let mut data = [0; PROPOSER_KEY_SIZE];
+        data[0..8].copy_from_slice(&validator_index.to_be_bytes());
+        data[8..ATTESTER_KEY_SIZE].copy_from_slice(&slot.as_u64().to_be_bytes());
+        ProposerKey { data }
+    }
+}
+
+impl AsRef<[u8]> for ProposerKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
 impl<E: EthSpec> SlasherDB<E> {
     pub fn open(config: Arc<Config>) -> Result<Self, Error> {
         // TODO: open_with_permissions
@@ -64,12 +91,14 @@ impl<E: EthSpec> SlasherDB<E> {
         let attester_db = env.create_db(Some(ATTESTER_DB), Self::db_flags())?;
         let min_targets_db = env.create_db(Some(MIN_TARGETS_DB), Self::db_flags())?;
         let max_targets_db = env.create_db(Some(MAX_TARGETS_DB), Self::db_flags())?;
+        let proposer_db = env.create_db(Some(PROPOSER_DB), Self::db_flags())?;
         Ok(Self {
             env,
             indexed_attestation_db,
             attester_db,
             min_targets_db,
             max_targets_db,
+            proposer_db,
             config,
             _phantom: PhantomData,
         })
@@ -184,6 +213,50 @@ impl<E: EthSpec> SlasherDB<E> {
             Ok(bytes) => Ok(Some(AttesterRecord::from_ssz_bytes(bytes)?)),
             Err(lmdb::Error::NotFound) => Ok(None),
             Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn get_block_proposal(
+        &self,
+        txn: &mut RwTransaction<'_>,
+        proposer_index: u64,
+        slot: Slot,
+    ) -> Result<Option<SignedBeaconBlockHeader>, Error> {
+        let proposer_key = ProposerKey::new(proposer_index, slot);
+        match txn.get(self.proposer_db, &proposer_key) {
+            Ok(bytes) => Ok(Some(SignedBeaconBlockHeader::from_ssz_bytes(bytes)?)),
+            Err(lmdb::Error::NotFound) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn check_or_insert_block_proposal(
+        &self,
+        txn: &mut RwTransaction<'_>,
+        block_header: SignedBeaconBlockHeader,
+    ) -> Result<ProposerSlashingStatus, Error> {
+        let proposer_index = block_header.message.proposer_index;
+        let slot = block_header.message.slot;
+
+        if let Some(existing_block) = self.get_block_proposal(txn, proposer_index, slot)? {
+            if existing_block == block_header {
+                Ok(ProposerSlashingStatus::NotSlashable)
+            } else {
+                Ok(ProposerSlashingStatus::DoubleVote(Box::new(
+                    ProposerSlashing {
+                        signed_header_1: existing_block,
+                        signed_header_2: block_header,
+                    },
+                )))
+            }
+        } else {
+            txn.put(
+                self.proposer_db,
+                &ProposerKey::new(proposer_index, slot),
+                &block_header.as_ssz_bytes(),
+                Self::write_flags(),
+            )?;
+            Ok(ProposerSlashingStatus::NotSlashable)
         }
     }
 }

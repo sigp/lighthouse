@@ -17,7 +17,7 @@ pub struct AttestationQueue<E: EthSpec> {
 pub struct AttestationQueueSnapshot<E: EthSpec> {
     /// All attestations (unique) for storage on disk.
     pub attestations_to_store: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
-    /// Attestations group by validator index range.
+    /// Attestations grouped by validator index range.
     pub subqueues: Vec<SubQueue<E>>,
 }
 

@@ -6,7 +6,7 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-/// An exit voluntarily submitted a validator who wishes to withdraw.
+/// A signed header of a `BeaconBlock`.
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

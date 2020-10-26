@@ -50,7 +50,8 @@ impl SlasherServer {
                     let t = Instant::now();
                     let (num_validator_chunks, num_attestations) =
                         slasher.attestation_queue.stats();
-                    if let Err(e) = slasher.process_attestations(current_epoch) {
+                    let num_blocks = slasher.block_queue.len();
+                    if let Err(e) = slasher.process_queued(current_epoch) {
                         error!(
                             slasher.log,
                             "Error during scheduled slasher processing";
@@ -63,10 +64,11 @@ impl SlasherServer {
                         "time_taken" => format!("{}ms", t.elapsed().as_millis()),
                         "num_attestations" => num_attestations,
                         "num_validator_chunks" => num_validator_chunks,
+                        "num_blocks" => num_blocks,
                     );
                 }
             },
-            "slasher_server_process_attestations",
+            "slasher_server_process_queued",
         );
     }
 }
