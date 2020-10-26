@@ -51,7 +51,7 @@ pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
     if let Err(e) = match matches.value_of("spec") {
         Some("minimal") => main::<types::MinimalEthSpec>(matches, log),
         Some("mainnet") => main::<types::MainnetEthSpec>(matches, log),
-        Some("interop") => main::<types::InteropEthSpec>(matches, log),
+        Some("interop") => main::<types::V012LegacyEthSpec>(matches, log),
         spec => unreachable!("Unknown spec configuration: {:?}", spec),
     } {
         slog::crit!(slog_scope::logger(), "{}", e);

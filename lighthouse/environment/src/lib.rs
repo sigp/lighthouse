@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -66,13 +66,13 @@ impl EnvironmentBuilder<MainnetEthSpec> {
     }
 }
 
-impl EnvironmentBuilder<InteropEthSpec> {
+impl EnvironmentBuilder<V012LegacyEthSpec> {
     /// Creates a new builder using the v0.12.x eth2 specification.
     pub fn v012_legacy() -> Self {
         Self {
             runtime: None,
             log: None,
-            eth_spec_instance: InteropEthSpec,
+            eth_spec_instance: V012LegacyEthSpec,
             eth2_config: Eth2Config::v012_legacy(),
             testnet: None,
         }

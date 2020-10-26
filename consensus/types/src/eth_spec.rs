@@ -221,9 +221,9 @@ pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 /// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub struct InteropEthSpec;
+pub struct V012LegacyEthSpec;
 
-impl EthSpec for InteropEthSpec {
+impl EthSpec for V012LegacyEthSpec {
     type EpochsPerEth1VotingPeriod = U32;
     type SlotsPerEth1VotingPeriod = U1024; // 32 epochs * 32 slots per epoch
 
@@ -255,4 +255,4 @@ impl EthSpec for InteropEthSpec {
     }
 }
 
-pub type InteropBeaconState = BeaconState<InteropEthSpec>;
+pub type InteropBeaconState = BeaconState<V012LegacyEthSpec>;

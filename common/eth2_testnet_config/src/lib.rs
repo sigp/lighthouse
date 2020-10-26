@@ -251,9 +251,9 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
 mod tests {
     use super::*;
     use tempdir::TempDir;
-    use types::{Eth1Data, Hash256, InteropEthSpec, YamlConfig};
+    use types::{Eth1Data, Hash256, V012LegacyEthSpec, YamlConfig};
 
-    type E = InteropEthSpec;
+    type E = V012LegacyEthSpec;
 
     #[test]
     fn hard_coded_nets_work() {
