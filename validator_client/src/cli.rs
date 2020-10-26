@@ -4,6 +4,7 @@ use clap::{App, Arg};
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("validator_client")
         .visible_aliases(&["v", "vc", "validator"])
+        .setting(clap::AppSettings::ColoredHelp)
         .about(
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
@@ -131,8 +132,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
-                .default_value("")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5062).")
                 .takes_value(true),
         )
 }

@@ -5,7 +5,7 @@ pub mod enr_ext;
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::core::identity::Keypair;
+pub use libp2p::core::identity::{Keypair, PublicKey};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
@@ -240,7 +240,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         while let Some((result, original_addr)) = fut_coll.next().await {
             match result {
-                Ok(Some(enr)) => {
+                Ok(enr) => {
                     debug!(
                         log,
                         "Adding node to routing table";
@@ -258,9 +258,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             "error" => e.to_string(),
                         )
                     });
-                }
-                Ok(None) => {
-                    error!(log, "No ENR found for MultiAddr"; "addr" => original_addr.to_string())
                 }
                 Err(e) => {
                     error!(log, "Error getting mapping to ENR"; "multiaddr" => original_addr.to_string(), "error" => e.to_string())
