@@ -8,7 +8,7 @@ edition = "2018"
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 
 [dependencies]
-futures = "0.3.5"
+futures = "0.3.7"
 types = { path = "../../consensus/types"}
 environment = { path = "../../lighthouse/environment"}
 eth1 = { path = "../eth1"}

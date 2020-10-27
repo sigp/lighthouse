@@ -157,6 +157,52 @@ impl TaskExecutor {
         }
     }
 
+    /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future returning
+    /// a Join handle to the future.
+    /// This function generates prometheus metrics on number of tasks and task duration.
+    pub fn spawn_blocking<F>(&self, task: F, name: &'static str)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let exit = self.exit.clone();
+        let log = self.log.clone();
+
+        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
+            if let Some(int_gauge) = metrics::get_int_gauge(&metrics::BLOCKING_TASKS_COUNT, &[name])
+            {
+                let int_gauge_1 = int_gauge.clone();
+                let timer = metric.start_timer();
+                let join_handle = if let Some(runtime) = self.runtime.upgrade() {
+                    runtime.spawn_blocking(task)
+                } else {
+                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                    return;
+                };
+
+                let future = future::select(join_handle, exit).then(move |either| {
+                    match either {
+                        future::Either::Left(_) => {
+                            trace!(log, "Blocking task completed"; "task" => name)
+                        }
+                        future::Either::Right(_) => {
+                            debug!(log, "Blocking task shutdown, exit received"; "task" => name)
+                        }
+                    }
+                    timer.observe_duration();
+                    int_gauge_1.dec();
+                    futures::future::ready(())
+                });
+
+                int_gauge.inc();
+                if let Some(runtime) = self.runtime.upgrade() {
+                    runtime.spawn(future);
+                } else {
+                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                }
+            }
+        }
+    }
+
     /// Returns the underlying runtime handle.
     pub fn runtime_handle(&self) -> Weak<Runtime> {
         self.runtime.clone()

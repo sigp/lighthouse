@@ -31,7 +31,7 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 slog-async = "2.5.0"
 slog-term = "2.6.0"
 tokio = { version = "0.3.1", features = ["time"] }
-futures = { version = "0.3.5", features = ["compat"] }
+futures = { version = "0.3.7", features = ["compat"] }
 dirs = "3.0.1"
 directory = {path = "../common/directory"}
 logging = { path = "../common/logging" }

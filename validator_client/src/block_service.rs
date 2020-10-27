@@ -189,7 +189,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         proposers.into_iter().for_each(|validator_pubkey| {
             let service = self.clone();
             let log = log.clone();
-            self.inner.context.executor.runtime_handle().spawn(
+            self.inner.context.executor.spawn(
                 service
                     .publish_block(slot, validator_pubkey)
                     .map_err(move |e| {
@@ -199,6 +199,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             "message" => e
                         )
                     }),
+                "block service",
             );
         });
 

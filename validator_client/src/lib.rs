@@ -36,7 +36,7 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::time::{delay_for, Duration};
+use tokio::time::{sleep, Duration};
 use types::{EthSpec, Hash256, YamlConfig};
 use validator_store::ValidatorStore;
 
@@ -358,7 +358,7 @@ async fn init_from_beacon_node<E: EthSpec>(
             }
         }
 
-        delay_for(RETRY_DELAY).await;
+        sleep(RETRY_DELAY).await;
     };
 
     let now = SystemTime::now()
@@ -378,7 +378,7 @@ async fn init_from_beacon_node<E: EthSpec>(
             "seconds_to_wait" => (genesis_time - now).as_secs()
         );
 
-        delay_for(genesis_time - now).await;
+        sleep(genesis_time - now).await;
     } else {
         info!(
             context.log(),
@@ -422,7 +422,7 @@ async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Resu
                     "Unable to connect to beacon node";
                     "error" => format!("{:?}", e),
                 );
-                delay_for(RETRY_DELAY).await;
+                sleep(RETRY_DELAY).await;
             }
         }
     }

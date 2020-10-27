@@ -125,18 +125,17 @@ pub fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
             )));
         }
 
-        tokio::runtime::Handle::current()
-            .block_on(validator_store.add_validator_keystore(
-                validator_dir.voting_keystore_path(),
-                voting_password_string,
-                request.enable,
+        tokio::task::block_in_place(validator_store.add_validator_keystore(
+            validator_dir.voting_keystore_path(),
+            voting_password_string,
+            request.enable,
+        ))
+        .map_err(|e| {
+            warp_utils::reject::custom_server_error(format!(
+                "failed to initialize validator: {:?}",
+                e
             ))
-            .map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "failed to initialize validator: {:?}",
-                    e
-                ))
-            })?;
+        })?;
 
         validators.push(api_types::CreatedValidator {
             enabled: request.enable,

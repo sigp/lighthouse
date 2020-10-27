@@ -14,7 +14,7 @@ use web3::{
     Web3,
 };
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
+pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
     let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
     let from_address: Address = clap_utils::parse_required(matches, "from-address")?;
     let confirmations: usize = clap_utils::parse_required(matches, "confirmations")?;

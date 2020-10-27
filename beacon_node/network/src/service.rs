@@ -19,6 +19,7 @@ use slog::{debug, error, info, o, trace, warn};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
+use tokio::time::Sleep;
 use types::{EthSpec, ValidatorSubscription};
 
 mod tests;
@@ -108,7 +109,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// update the UDP socket of discovery if the UPnP mappings get established.
     discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
-    next_fork_update: Option<Delay>,
+    next_fork_update: Option<Sleep>,
     /// A timer for updating various network metrics.
     metrics_update: tokio::time::Interval,
     /// The logger for the network service.
@@ -490,15 +491,15 @@ fn spawn_service<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Returns a `Delay` that triggers shortly after the next change in the beacon chain fork version.
+/// Returns a `Sleep` that triggers shortly after the next change in the beacon chain fork version.
 /// If there is no scheduled fork, `None` is returned.
 fn next_fork_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
-) -> Option<tokio::time::Delay> {
+) -> Option<tokio::time::Sleep> {
     beacon_chain.duration_to_next_fork().map(|until_fork| {
         // Add a short time-out to start within the new fork period.
         let delay = Duration::from_millis(200);
-        tokio::time::delay_until(tokio::time::Instant::now() + until_fork + delay)
+        tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
     })
 }
 

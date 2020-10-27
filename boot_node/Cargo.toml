@@ -20,5 +20,5 @@ logging = { path = "../common/logging" }
 slog-async = "2.5.0"
 slog-scope = "4.3.0"
 slog-stdlog = "4.0.0"
-futures = "0.3.5"
+futures = "0.3.7"
 hex = "0.4.2"

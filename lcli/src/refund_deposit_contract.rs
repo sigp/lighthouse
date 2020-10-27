@@ -12,7 +12,7 @@ use web3::{
 /// `keccak("steal()")[0..4]`
 pub const STEAL_FN_SIGNATURE: &[u8] = &[0xcf, 0x7a, 0x89, 0x65];
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
+pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
     let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
     let from: Address = clap_utils::parse_required(matches, "from-address")?;
     let contract_address: Address = clap_utils::parse_required(matches, "contract-address")?;

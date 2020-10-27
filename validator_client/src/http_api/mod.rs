@@ -94,7 +94,7 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     ctx: Arc<Context<T, E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
@@ -354,12 +354,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
                     let voting_password = body.password.clone();
 
-                    let validator_def = tokio::runtime::Handle::current()
-                        .block_on(validator_store.add_validator_keystore(
+                    let validator_def =
+                        tokio::task::spawn_blocking(validator_store.add_validator_keystore(
                             validator_dir.voting_keystore_path(),
                             voting_password,
                             body.enable,
                         ))
+                        .await
                         .map_err(|e| {
                             warp_utils::reject::custom_server_error(format!(
                                 "failed to initialize validator: {:?}",
@@ -400,17 +401,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
-                            tokio::runtime::Handle::current()
-                                .block_on(
-                                    initialized_validators
-                                        .set_validator_status(&validator_pubkey, body.enabled),
-                                )
-                                .map_err(|e| {
-                                    warp_utils::reject::custom_server_error(format!(
-                                        "unable to set validator status: {:?}",
-                                        e
-                                    ))
-                                })?;
+                            tokio::task::spawn_blocking(|| {
+                                initialized_validators
+                                    .set_validator_status(&validator_pubkey, body.enabled)
+                            })
+                            .await
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "unable to set validator status: {:?}",
+                                    e
+                                ))
+                            })?;
 
                             Ok(())
                         }
