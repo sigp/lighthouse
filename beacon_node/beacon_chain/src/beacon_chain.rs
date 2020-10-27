@@ -1087,19 +1087,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn ingest_slashings_to_op_pool(&self, state: &BeaconState<T::EthSpec>) {
         if let Some(slasher) = self.slasher.as_ref() {
-            let slashings = slasher.get_attester_slashings();
+            let attester_slashings = slasher.get_attester_slashings();
+            let proposer_slashings = slasher.get_proposer_slashings();
 
-            if !slashings.is_empty() {
-                debug!(self.log, "Ingesting {} slashings", slashings.len());
+            if !attester_slashings.is_empty() || !proposer_slashings.is_empty() {
+                debug!(
+                    self.log,
+                    "Ingesting slashings";
+                    "num_attester_slashings" => attester_slashings.len(),
+                    "num_proposer_slashings" => proposer_slashings.len(),
+                );
             }
 
-            for slashing in slashings {
+            for slashing in attester_slashings {
                 let verified_slashing = match slashing.clone().validate(state, &self.spec) {
                     Ok(verified) => verified,
                     Err(e) => {
                         error!(
                             self.log,
-                            "Slashing from slasher failed verification";
+                            "Attester slashing from slasher failed verification";
                             "error" => format!("{:?}", e),
                             "slashing" => format!("{:?}", slashing),
                         );
@@ -1110,11 +1116,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if let Err(e) = self.import_attester_slashing(verified_slashing) {
                     error!(
                         self.log,
-                        "Slashing from slasher is invalid";
+                        "Attester slashing from slasher is invalid";
                         "error" => format!("{:?}", e),
                         "slashing" => format!("{:?}", slashing),
                     );
                 }
+            }
+
+            for slashing in proposer_slashings {
+                let verified_slashing = match slashing.clone().validate(state, &self.spec) {
+                    Ok(verified) => verified,
+                    Err(e) => {
+                        error!(
+                            self.log,
+                            "Proposer slashing from slasher failed verification";
+                            "error" => format!("{:?}", e),
+                            "slashing" => format!("{:?}", slashing),
+                        );
+                        continue;
+                    }
+                };
+                self.import_proposer_slashing(verified_slashing);
             }
         }
     }

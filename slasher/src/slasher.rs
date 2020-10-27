@@ -47,6 +47,10 @@ impl<E: EthSpec> Slasher<E> {
         std::mem::replace(&mut self.attester_slashings.lock(), vec![])
     }
 
+    pub fn get_proposer_slashings(&self) -> Vec<ProposerSlashing> {
+        std::mem::replace(&mut self.proposer_slashings.lock(), vec![])
+    }
+
     pub fn config(&self) -> &Config {
         &self.config
     }
