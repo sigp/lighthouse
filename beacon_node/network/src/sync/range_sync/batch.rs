@@ -370,8 +370,14 @@ impl<T: EthSpec> slog::KV for BatchInfo<T> {
 impl<T: EthSpec> std::fmt::Debug for BatchState<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BatchState::Processing(_) => f.write_str("Processing"),
-            BatchState::AwaitingValidation(_) => f.write_str("AwaitingValidation"),
+            BatchState::Processing(Attempt {
+                ref peer_id,
+                hash: _,
+            }) => write!(f, "Processing({})", peer_id),
+            BatchState::AwaitingValidation(Attempt {
+                ref peer_id,
+                hash: _,
+            }) => write!(f, "AwaitingValidation({})", peer_id),
             BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
             BatchState::Failed => f.write_str("Failed"),
             BatchState::AwaitingProcessing(ref peer, ref blocks) => {
