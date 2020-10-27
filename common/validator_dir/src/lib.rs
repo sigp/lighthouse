@@ -13,7 +13,8 @@ mod manager;
 mod validator_dir;
 
 pub use crate::validator_dir::{
-    unlock_keypair, Error, Eth1DepositData, ValidatorDir, ETH1_DEPOSIT_TX_HASH_FILE,
+    unlock_keypair_from_password_path, Error, Eth1DepositData, ValidatorDir,
+    ETH1_DEPOSIT_TX_HASH_FILE,
 };
 pub use builder::{
     Builder, Error as BuilderError, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,

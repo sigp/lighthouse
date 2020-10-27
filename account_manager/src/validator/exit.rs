@@ -15,6 +15,7 @@ use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
+pub const PASSWORD_FILE_FLAG: &str = "password-file";
 pub const BEACON_SERVER_FLAG: &str = "beacon-node";
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 
@@ -35,6 +36,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
+            Arg::with_name(PASSWORD_FILE_FLAG)
+                .long(PASSWORD_FILE_FLAG)
+                .value_name("PASSWORD_FILE_PATH")
+                .help("The path to the password file which unlocks the validator voting keystore")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name(BEACON_SERVER_FLAG)
                 .long(BEACON_SERVER_FLAG)
                 .value_name("NETWORK_ADDRESS")
@@ -51,6 +59,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn cli_run<E: EthSpec>(matches: &ArgMatches, mut env: Environment<E>) -> Result<(), String> {
     let keystore_path: PathBuf = clap_utils::parse_required(matches, KEYSTORE_FLAG)?;
+    let password_file_path: Option<PathBuf> =
+        clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
     let spec = env.eth2_config().spec.clone();
@@ -67,6 +77,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, mut env: Environment<E>) -> Res
 
     env.runtime().block_on(publish_voluntary_exit::<E>(
         &keystore_path,
+        password_file_path.as_ref(),
         &client,
         &spec,
         stdin_inputs,
@@ -79,6 +90,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, mut env: Environment<E>) -> Res
 /// Gets the keypair and validator_index for every validator and calls `publish_voluntary_exit` on it.
 async fn publish_voluntary_exit<E: EthSpec>(
     keystore_path: &PathBuf,
+    password_file_path: Option<&PathBuf>,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
     stdin_inputs: bool,
@@ -104,7 +116,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
 
     let fork = get_beacon_state_fork(client).await?;
 
-    let keypair = load_voting_keypair(keystore_path, stdin_inputs)?;
+    let keypair = load_voting_keypair(keystore_path, password_file_path, stdin_inputs)?;
     let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await?;
 
     let voluntary_exit = VoluntaryExit {
@@ -230,9 +242,11 @@ fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<
 
 /// Load the voting keypair by loading and decrypting the keystore.
 ///
-/// Prompts user for a password to unlock the keystore.
+/// If the `password_file_path` is Some, unlock keystore using password in given file
+/// otherwise, prompts user for a password to unlock the keystore.
 fn load_voting_keypair(
     voting_keystore_path: &PathBuf,
+    password_file_path: Option<&PathBuf>,
     stdin_inputs: bool,
 ) -> Result<Keypair, String> {
     let keystore = eth2_keystore::Keystore::from_json_file(&voting_keystore_path).map_err(|e| {
@@ -242,21 +256,27 @@ fn load_voting_keypair(
         )
     })?;
 
-    // Prompt password from user.
-    eprintln!("");
-    eprintln!(
-        "{} for validator in {:?}: ",
-        PASSWORD_PROMPT, voting_keystore_path
-    );
-    let password = account_utils::read_password_from_user(stdin_inputs)?;
-    match keystore.decrypt_keypair(password.as_ref()) {
-        Ok(keypair) => {
-            eprintln!("Password is correct.");
-            eprintln!("");
-            std::thread::sleep(std::time::Duration::from_secs(1)); // Provides nicer UX.
-            Ok(keypair)
+    // Get password from password file.
+    if let Some(password_file) = password_file_path {
+        validator_dir::unlock_keypair_from_password_path(voting_keystore_path, password_file)
+            .map_err(|e| format!("Error while decrypting keypair: {:?}", e))
+    } else {
+        // Prompt password from user.
+        eprintln!("");
+        eprintln!(
+            "{} for validator in {:?}: ",
+            PASSWORD_PROMPT, voting_keystore_path
+        );
+        let password = account_utils::read_password_from_user(stdin_inputs)?;
+        match keystore.decrypt_keypair(password.as_ref()) {
+            Ok(keypair) => {
+                eprintln!("Password is correct.");
+                eprintln!("");
+                std::thread::sleep(std::time::Duration::from_secs(1)); // Provides nicer UX.
+                Ok(keypair)
+            }
+            Err(eth2_keystore::Error::InvalidPassword) => Err("Invalid password".to_string()),
+            Err(e) => Err(format!("Error while decrypting keypair: {:?}", e)),
         }
-        Err(eth2_keystore::Error::InvalidPassword) => Err("Invalid password".to_string()),
-        Err(e) => Err(format!("Error while decrypting keypair: {:?}", e)),
     }
 }

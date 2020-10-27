@@ -274,3 +274,25 @@ pub fn unlock_keypair<P: AsRef<Path>>(
         .decrypt_keypair(password.as_bytes())
         .map_err(Error::UnableToDecryptKeypair)
 }
+
+/// Attempts to load and decrypt a Keypair given path to the keystore and the password file.
+pub fn unlock_keypair_from_password_path(
+    keystore_path: &PathBuf,
+    password_path: &PathBuf,
+) -> Result<Keypair, Error> {
+    let keystore = Keystore::from_json_reader(
+        &mut OpenOptions::new()
+            .read(true)
+            .create(false)
+            .open(keystore_path)
+            .map_err(Error::UnableToOpenKeystore)?,
+    )
+    .map_err(Error::UnableToReadKeystore)?;
+
+    let password: PlainText = read(password_path)
+        .map_err(|_| Error::UnableToReadPassword(password_path.clone()))?
+        .into();
+    keystore
+        .decrypt_keypair(password.as_bytes())
+        .map_err(Error::UnableToDecryptKeypair)
+}
