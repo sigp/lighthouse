@@ -23,11 +23,14 @@ To understand the phased rollout strategy for Eth2, please visit <https://ethere
 
 In order to initiate an exit, users can use the `lighthouse account validator exit` command.
 
-The `--keystore` flag is used to specify the path to the EIP-2335 voting keystore for the validator.
+- The `--keystore` flag is used to specify the path to the EIP-2335 voting keystore for the validator.
 
-The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Eth2.0 Standard API](https://ethereum.github.io/eth2.0-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
+- The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Eth2.0 Standard API](https://ethereum.github.io/eth2.0-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
 
-The `--testnet` flag is used to specify a particular testnet (default is `medalla`).
+- The `--testnet` flag is used to specify a particular testnet (default is `medalla`).
+
+- The `--password-file` flag is used to specify the path to the file containing the password for the voting keystore. If this flag is not provided, the user will be prompted to enter the password.
+
 
 After validating the password, the user will be prompted to enter a special exit phrase as a final confirmation after which the voluntary exit will be published to the beacon chain.
 

@@ -6,6 +6,7 @@ use eth2::{
     types::{GenesisData, StateId, ValidatorId, ValidatorStatus},
     BeaconNodeHttpClient, Url,
 };
+use eth2_keystore::Keystore;
 use eth2_testnet_config::Eth2TestnetConfig;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
@@ -265,7 +266,7 @@ fn load_voting_keypair(
     password_file_path: Option<&PathBuf>,
     stdin_inputs: bool,
 ) -> Result<Keypair, String> {
-    let keystore = eth2_keystore::Keystore::from_json_file(&voting_keystore_path).map_err(|e| {
+    let keystore = Keystore::from_json_file(&voting_keystore_path).map_err(|e| {
         format!(
             "Unable to read keystore JSON {:?}: {:?}",
             voting_keystore_path, e
@@ -294,5 +295,53 @@ fn load_voting_keypair(
             Err(eth2_keystore::Error::InvalidPassword) => Err("Invalid password".to_string()),
             Err(e) => Err(format!("Error while decrypting keypair: {:?}", e)),
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(debug_assertions))]
+mod tests {
+    use super::*;
+    use eth2_keystore::KeystoreBuilder;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::{tempdir, TempDir};
+
+    const PASSWORD: &str = "cats";
+    const KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0_0-1595406747.json";
+    const PASSWORD_FILE: &str = "password.pass";
+
+    fn create_and_save_keystore(dir: &TempDir, save_password: bool) -> PublicKey {
+        let keypair = Keypair::random();
+        let keystore = KeystoreBuilder::new(&keypair, PASSWORD.as_bytes(), "".into())
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Create a keystore.
+        File::create(dir.path().join(KEYSTORE_NAME))
+            .map(|mut file| keystore.to_json_writer(&mut file).unwrap())
+            .unwrap();
+        if save_password {
+            File::create(dir.path().join(PASSWORD_FILE))
+                .map(|mut file| file.write_all(PASSWORD.as_bytes()).unwrap())
+                .unwrap();
+        }
+        keystore.public_key().unwrap()
+    }
+
+    #[test]
+    fn test_load_keypair_password_file() {
+        let dir = tempdir().unwrap();
+        let expected_pk = create_and_save_keystore(&dir, true);
+
+        let kp = load_voting_keypair(
+            &dir.path().join(KEYSTORE_NAME),
+            Some(&dir.path().join(PASSWORD_FILE)),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(expected_pk, kp.pk.into());
     }
 }

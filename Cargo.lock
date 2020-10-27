@@ -30,6 +30,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "slot_clock",
+ "tempfile",
  "tokio 0.2.22",
  "types",
  "validator_dir",
