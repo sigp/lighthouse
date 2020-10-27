@@ -33,7 +33,7 @@ use state_id::StateId;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
 use std::convert::TryInto;
-use std::future::Future;
+use std::future::{ready, Future};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -376,7 +376,11 @@ pub fn serve<T: BeaconChainTypes>(
     let beacon_states_path = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("states"))
-        .and(warp::path::param::<StateId>())
+        .and(warp::path::param::<StateId>().or_else(|_| {
+            ready(Err(warp_utils::reject::custom_bad_request(
+                "test bead request".to_string(),
+            )))
+        }))
         .and(chain_filter.clone());
 
     // GET beacon/states/{state_id}/root
@@ -1846,9 +1850,10 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // Define the ultimate set of routes that will be provided to the server.
-    let routes = warp::get()
+    let get_routes = warp::get()
         .and(
             get_beacon_genesis
+                .boxed()
                 .or(get_beacon_state_root.boxed())
                 .or(get_beacon_state_fork.boxed())
                 .or(get_beacon_state_finality_checkpoints.boxed())
@@ -1888,22 +1893,27 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_proto_array.boxed())
                 .or(get_lighthouse_validator_inclusion_global.boxed())
                 .or(get_lighthouse_validator_inclusion.boxed())
-                .or(get_lighthouse_beacon_states_ssz.boxed())
-                .boxed(),
+                .or(get_lighthouse_beacon_states_ssz.boxed()),
         )
-        .or(warp::post()
-            .and(
-                post_beacon_blocks
-                    .or(post_beacon_pool_attestations.boxed())
-                    .or(post_beacon_pool_attester_slashings.boxed())
-                    .or(post_beacon_pool_proposer_slashings.boxed())
-                    .or(post_beacon_pool_voluntary_exits.boxed())
-                    .or(post_validator_aggregate_and_proofs.boxed())
-                    .or(post_validator_beacon_committee_subscriptions.boxed())
-                    .boxed(),
-            )
-            .boxed())
-        .boxed()
+        // Maps errors into HTTP responses.
+        .recover(warp_utils::reject::handle_rejection)
+        .with(slog_logging(log.clone()))
+        .with(prometheus_metrics())
+        // Add a `Server` header.
+        .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
+        .with(cors_builder.clone().build());
+
+    let post_routes = warp::post()
+        .and(
+            post_beacon_blocks
+                .boxed()
+                .or(post_beacon_pool_attestations.boxed())
+                .or(post_beacon_pool_attester_slashings.boxed())
+                .or(post_beacon_pool_proposer_slashings.boxed())
+                .or(post_beacon_pool_voluntary_exits.boxed())
+                .or(post_validator_aggregate_and_proofs.boxed())
+                .or(post_validator_beacon_committee_subscriptions.boxed()),
+        )
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
@@ -1911,6 +1921,8 @@ pub fn serve<T: BeaconChainTypes>(
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         .with(cors_builder.build());
+
+    let routes = get_routes.or(post_routes);
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
         SocketAddrV4::new(config.listen_addr, config.listen_port),
