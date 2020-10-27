@@ -111,14 +111,19 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 .to_string(),
         );
     }
-    let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
-        .ok_or_else(|| "Failed to get current epoch. Please check your system time".to_string())?;
 
-    let fork = get_beacon_state_fork(client).await?;
+    // Return immediately if beacon node is not synced
+    if !is_syncing(client).await? {
+        return Err("Beacon node is still syncing".to_string());
+    }
 
     let keypair = load_voting_keypair(keystore_path, password_file_path, stdin_inputs)?;
+
+    let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
+        .ok_or_else(|| "Failed to get current epoch. Please check your system time".to_string())?;
     let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await?;
 
+    let fork = get_beacon_state_fork(client).await?;
     let voluntary_exit = VoluntaryExit {
         epoch,
         validator_index,
@@ -165,6 +170,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
 }
 
 /// Get the validator index of a given the validator public key by querying the beacon node endpoint.
+///
 /// Returns an error if the beacon endpoint returns an error or given validator is not eligible for an exit.
 async fn get_validator_index_for_exit(
     client: &BeaconNodeHttpClient,
@@ -218,6 +224,16 @@ async fn get_geneisis_data(client: &BeaconNodeHttpClient) -> Result<GenesisData,
         .await
         .map_err(|e| format!("Failed to get beacon genesis: {}", e))?
         .data)
+}
+
+/// Gets syncing status from beacon node client and returns true if syncing and false otherwise.
+async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
+    Ok(client
+        .get_node_syncing()
+        .await
+        .map_err(|e| format!("Failed to get sync status: {:?}", e))?
+        .data
+        .is_syncing)
 }
 
 /// Get fork object for the current state by querying the beacon node client.
