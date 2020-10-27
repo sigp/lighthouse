@@ -16,7 +16,7 @@ const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
 /// Error type of a batch in a wrong state.
 // Such errors should never be encountered.
-pub struct WrongState(String);
+pub struct WrongState(pub(super) String);
 
 /// Auxiliary type alias for readability.
 type IsFailed = bool;
@@ -259,10 +259,10 @@ impl<T: EthSpec> BatchInfo<T> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(format!(
+                Err(WrongState(format!(
                     "Starting download for batch in wrong state {:?}",
                     self.state
-                ))
+                )))
             }
         }
     }
@@ -276,10 +276,10 @@ impl<T: EthSpec> BatchInfo<T> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(format!(
+                Err(WrongState(format!(
                     "Starting procesing batch in wrong state {:?}",
-                    other
-                ))
+                    self.state
+                )))
             }
         }
     }
@@ -308,10 +308,10 @@ impl<T: EthSpec> BatchInfo<T> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(format!(
+                Err(WrongState(format!(
                     "Procesing completed for batch in wrong state: {:?}",
-                    other
-                ))
+                    self.state
+                )))
             }
         }
     }
@@ -335,10 +335,10 @@ impl<T: EthSpec> BatchInfo<T> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(format!(
+                Err(WrongState(format!(
                     "Validation failed for batch in wrong state: {:?}",
-                    other
-                ))
+                    self.state
+                )))
             }
         }
     }

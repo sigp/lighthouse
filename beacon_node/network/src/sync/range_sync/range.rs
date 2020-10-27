@@ -275,11 +275,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T::EthSpec>, peer_id: &PeerId) {
-        for (removed_chain, sync_type) in self
+        for (removed_chain, sync_type, remove_reason) in self
             .chains
             .call_all(|chain| chain.remove_peer(peer_id, network))
         {
-            debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
+            debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
             // update the state of the collection
         }
         self.chains.update(
@@ -306,8 +306,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 chain.inject_error(network, batch_id, &peer_id, request_id)
             }) {
                 Ok((removed_chain, sync_type)) => {
-                    if let Some(removed_chain) = removed_chain {
-                        debug!(self.log, "Chain removed on rpc error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id());
+                    if let Some((removed_chain, remove_reason)) = removed_chain {
+                        debug!(self.log, "Chain removed on rpc error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
                         // update the state of the collection
                         self.chains.update(
                             network,
