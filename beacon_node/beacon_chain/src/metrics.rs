@@ -1,4 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};

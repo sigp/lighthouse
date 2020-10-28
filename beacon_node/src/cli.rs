@@ -5,6 +5,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .visible_aliases(&["b", "bn", "beacon"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
+        .setting(clap::AppSettings::ColoredHelp)
         .about("The primary component which connects to the Ethereum 2.0 P2P network and \
                 downloads, verifies and stores blocks. Provides a HTTP API for querying \
                 the beacon chain and publishing messages to the network.")
@@ -171,8 +172,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
-                .default_value("")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5052).")
                 .takes_value(true),
         )
         /* Prometheus metrics HTTP server related arguments */
@@ -202,9 +205,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("metrics-allow-origin")
                 .long("metrics-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header for the Prometheus metrics HTTP server. \
-                    Use * to allow any origin (not recommended in production)")
-                .default_value("")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
         )
         /* Websocket related arguments */
@@ -312,13 +316,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("max-skip-slots")
                 .help(
                     "Refuse to skip more than this many slots when processing a block or attestation. \
-                    This prevents nodes on minority forks from wasting our time and RAM, \
-                    but might need to be raised or set to 'none' in times of extreme network \
-                    outage."
+                    This prevents nodes on minority forks from wasting our time and disk space, \
+                    but could also cause unnecessary consensus failures, so is disabled by default."
                 )
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
-                .default_value("700")
         )
         .arg(
             Arg::with_name("wss-checkpoint")

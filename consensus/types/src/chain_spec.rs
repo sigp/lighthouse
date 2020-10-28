@@ -108,6 +108,8 @@ pub struct ChainSpec {
      */
     pub eth1_follow_distance: u64,
     pub seconds_per_eth1_block: u64,
+    pub deposit_chain_id: u64,
+    pub deposit_network_id: u64,
     pub deposit_contract_address: Address,
 
     /*
@@ -320,6 +322,8 @@ impl ChainSpec {
              */
             eth1_follow_distance: 1_024,
             seconds_per_eth1_block: 14,
+            deposit_chain_id: 1,
+            deposit_network_id: 1,
             deposit_contract_address: "1234567890123456789012345678901234567890"
                 .parse()
                 .expect("chain spec deposit contract address"),
@@ -357,6 +361,8 @@ impl ChainSpec {
             milliseconds_per_slot: 6_000,
             safe_slots_to_update_justified: 2,
             network_id: 2, // lighthouse testnet network id
+            deposit_chain_id: 5,
+            deposit_network_id: 5,
             boot_nodes,
             ..ChainSpec::mainnet()
         }
@@ -440,7 +446,7 @@ mod tests {
 ///
 /// Spec v0.12.3
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "UPPERCASE", deny_unknown_fields)]
 pub struct YamlConfig {
     #[serde(default)]
     config_name: String,
@@ -562,11 +568,11 @@ pub struct YamlConfig {
     epochs_per_random_subnet_subscription: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
-    deposit_contract_address: Address,
-    /* TODO: incorporate these into ChainSpec and turn on `serde(deny_unknown_fields)`
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
-    */
+    deposit_contract_address: Address,
 }
 
 // Compatibility shim for proportional slashing multpilier on Altona and Medalla.
@@ -581,9 +587,13 @@ impl Default for YamlConfig {
     }
 }
 
+#[allow(clippy::integer_arithmetic)] // Arith cannot overflow or panic.
+fn milliseconds_to_seconds(millis: u64) -> u64 {
+    millis / 1000
+}
+
 /// Spec v0.12.1
 impl YamlConfig {
-    #[allow(clippy::integer_arithmetic)]
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: T::spec_name().to_string(),
@@ -605,7 +615,7 @@ impl YamlConfig {
             hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
             proportional_slashing_multiplier: spec.proportional_slashing_multiplier,
             bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
-            seconds_per_slot: spec.milliseconds_per_slot / 1000,
+            seconds_per_slot: milliseconds_to_seconds(spec.milliseconds_per_slot),
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
             min_seed_lookahead: spec.min_seed_lookahead.into(),
             max_seed_lookahead: spec.max_seed_lookahead.into(),
@@ -648,6 +658,8 @@ impl YamlConfig {
             random_subnets_per_validator: spec.random_subnets_per_validator,
             epochs_per_random_subnet_subscription: spec.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
+            deposit_chain_id: spec.deposit_chain_id,
+            deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
         }
     }
@@ -706,6 +718,8 @@ impl YamlConfig {
             random_subnets_per_validator: self.random_subnets_per_validator,
             epochs_per_random_subnet_subscription: self.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: self.seconds_per_eth1_block,
+            deposit_chain_id: self.deposit_chain_id,
+            deposit_network_id: self.deposit_network_id,
             deposit_contract_address: self.deposit_contract_address,
             /*
              * Gwei values
@@ -832,6 +846,8 @@ mod yaml_tests {
 
         // modifying the original spec
         spec.max_committees_per_slot += 1;
+        spec.deposit_chain_id += 1;
+        spec.deposit_network_id += 1;
         // Applying a yaml config with incorrect EthSpec should fail
         let res = yamlconfig.apply_to_chain_spec::<MainnetEthSpec>(&spec);
         assert_eq!(res, None);

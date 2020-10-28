@@ -7,6 +7,7 @@
 //! The scoring algorithms are currently experimental.
 use serde::Serialize;
 use std::time::Instant;
+use tokio::time::Duration;
 
 lazy_static! {
     static ref HALFLIFE_DECAY: f64 = -(2.0f64.ln()) / SCORE_HALFLIFE;
@@ -25,7 +26,7 @@ const MIN_SCORE: f64 = -100.0;
 /// The halflife of a peer's score. I.e the number of seconds it takes for the score to decay to half its value.
 const SCORE_HALFLIFE: f64 = 600.0;
 /// The number of seconds we ban a peer for before their score begins to decay.
-const BANNED_BEFORE_DECAY: u64 = 1800;
+const BANNED_BEFORE_DECAY: Duration = Duration::from_secs(1800);
 
 const GOSSIPSUB_NEGATIVE_SCORE_WEIGHT: f64 = 1.0;
 const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = 1.0;
@@ -51,7 +52,7 @@ pub enum PeerAction {
     /// An error occurred with this peer but it is not necessarily malicious.
     /// We have high tolerance for this actions: several occurrences are needed for a peer to get
     /// kicked.
-    /// NOTE: ~15 occurrences will get the peer banned
+    /// NOTE: ~50 occurrences will get the peer banned
     HighToleranceError,
     /// Received an expected message.
     _ValidMessage,
@@ -102,6 +103,7 @@ pub struct RealScore {
     // lighthouse.
     lighthouse_score: f64,
     gossipsub_score: f64,
+    score: f64,
     /// The time the score was last updated to perform time-based adjustments such as score-decay.
     #[serde(skip)]
     last_updated: Instant,
@@ -112,6 +114,7 @@ impl Default for RealScore {
         RealScore {
             lighthouse_score: DEFAULT_SCORE,
             gossipsub_score: DEFAULT_SCORE,
+            score: DEFAULT_SCORE,
             last_updated: Instant::now(),
         }
     }
@@ -119,12 +122,16 @@ impl Default for RealScore {
 
 impl RealScore {
     /// Access to the underlying score.
-    pub fn score(&self) -> f64 {
-        self.lighthouse_score + self.gossipsub_score * if self.gossipsub_score > 0.0 {
+    fn recompuete_score(&mut self) {
+        self.score = self.lighthouse_score + self.gossipsub_score * if self.gossipsub_score > 0.0 {
             GOSSIPSUB_POSITIVE_SCORE_WEIGHT
         } else {
             GOSSIPSUB_NEGATIVE_SCORE_WEIGHT
-        }
+        };
+    }
+
+    fn score(&self) -> f64 {
+        self.score
     }
 
     /// Modifies the score based on a peer's action.
@@ -139,7 +146,7 @@ impl RealScore {
     }
 
     /// Add an f64 to the score abiding by the limits.
-    pub fn add(&mut self, score: f64) {
+    fn add(&mut self, score: f64) {
         let mut new_score = self.lighthouse_score + score;
         if new_score > MAX_SCORE {
             new_score = MAX_SCORE;
@@ -149,31 +156,46 @@ impl RealScore {
         }
 
         self.lighthouse_score = new_score;
+        self.update_state();
+    }
+
+    fn update_state(&mut self) {
+        let was_not_banned = self.score > MIN_SCORE_BEFORE_BAN;
+        self.recompuete_score();
+        if was_not_banned && self.score <= MIN_SCORE_BEFORE_BAN {
+            //we ban this peer for at least BANNED_BEFORE_DECAY seconds
+            self.last_updated += BANNED_BEFORE_DECAY;
+        }
+    }
+
+    /// Add an f64 to the score abiding by the limits.
+    #[cfg(test)]
+    pub fn test_add(&mut self, score: f64) {
+        self.add(score);
+    }
+
+    #[cfg(test)]
+    // reset the score
+    pub fn test_reset(&mut self) {
+        self.score = 0f64;
+        self.update_state();
     }
 
     /// Applies time-based logic such as decay rates to the score.
     /// This function should be called periodically.
     pub fn update(&mut self) {
-        // Apply decay logic
-        //
-        // There is two distinct decay processes. One for banned peers and one for all others. If
-        // the score is below the banning threshold and the duration since it was last update is
-        // shorter than the banning threshold, we do nothing.
-        let now = Instant::now();
-        if self.lighthouse_score <= MIN_SCORE_BEFORE_BAN
-            && now
-                .checked_duration_since(self.last_updated)
-                .map(|d| d.as_secs())
-                <= Some(BANNED_BEFORE_DECAY)
-        {
-            // The peer is banned and still within the ban timeout. Do not update it's score.
-            // Update last_updated so that the decay begins correctly when ready.
-            self.last_updated = now;
-            return;
-        }
+        self.update_at(Instant::now())
+    }
 
+    /// Applies time-based logic such as decay rates to the score with the given now value.
+    /// This private sub function is mainly used for testing.
+    fn update_at(&mut self, now: Instant) {
         // Decay the current score
         // Using exponential decay based on a constant half life.
+
+        // It is important that we use here `checked_duration_since` instead of elapsed, since
+        // we set last_updated to the future when banning peers. Therefore `checked_duration_since`
+        // will return None in this case and the score does not get decayed.
         if let Some(secs_since_update) = now
             .checked_duration_since(self.last_updated)
             .map(|d| d.as_secs())
@@ -182,12 +204,17 @@ impl RealScore {
             let decay_factor = (*HALFLIFE_DECAY * secs_since_update as f64).exp();
             self.lighthouse_score *= decay_factor;
             self.last_updated = now;
+            self.update_state();
         }
     }
 
     pub fn update_gossipsub_score(&mut self, new_score: f64) {
-        //TODO: only update gossipsub score if peer is not banned or after BANNED_BEFORE_DECAY
-        self.gossipsub_score = new_score;
+        // we only update gossipsub if last_updated is in the past which means either the peer is
+        // not banned or the BANNED_BEFORE_DECAY time is over.
+        if self.last_updated <= Instant::now() {
+            self.gossipsub_score = new_score;
+            self.update_state();
+        }
     }
 }
 
@@ -240,6 +267,24 @@ impl Score {
             x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Banned,
             x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnected,
             _ => ScoreState::Healthy,
+        }
+    }
+
+    /// Add an f64 to the score abiding by the limits.
+    #[cfg(test)]
+    pub fn test_add(&mut self, score: f64) {
+        match self {
+            Self::Max => (),
+            Self::Real(s) => s.test_add(score)
+        }
+    }
+
+    #[cfg(test)]
+    // reset the score
+    pub fn test_reset(&mut self) {
+        match self {
+            Self::Max => (),
+            Self::Real(s) => s.test_reset()
         }
     }
 }
@@ -297,5 +342,21 @@ mod tests {
         let change = 1.32;
         score.add(change);
         assert_eq!(score.score(), DEFAULT_SCORE + change);
+    }
+
+    #[test]
+    fn test_ban_time() {
+        let mut score = RealScore::default();
+        let now = Instant::now();
+
+        let change = MIN_SCORE_BEFORE_BAN;
+        score.add(change);
+        assert_eq!(score.score(), MIN_SCORE_BEFORE_BAN);
+
+        score.update_at(now + BANNED_BEFORE_DECAY);
+        assert_eq!(score.score(), MIN_SCORE_BEFORE_BAN);
+
+        score.update_at(now + BANNED_BEFORE_DECAY + Duration::from_secs(1));
+        assert!(score.score() > MIN_SCORE_BEFORE_BAN);
     }
 }
