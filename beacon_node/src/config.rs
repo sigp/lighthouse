@@ -5,8 +5,7 @@ use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, warn, Logger};
-use ssz::Encode;
+use slog::{info, warn, Logger};
 use std::cmp;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
@@ -23,7 +22,6 @@ use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 /// response of some remote server.
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    spec_constants: &str,
     spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
@@ -66,8 +64,6 @@ pub fn get_config<E: EthSpec>(
     // remove /beacon from the end
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
-
-    client_config.spec_constants = spec_constants.into();
 
     /*
      * Networking
@@ -222,14 +218,6 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
-    if spec_constants != client_config.spec_constants {
-        crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants,
-              "eth2_config" => spec_constants
-        );
-        return Err("Specification constant mismatch".into());
-    }
-
     /*
      * Zero-ports
      *
@@ -255,7 +243,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 testnet dir to obtain some additional config values.
      */
-    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&cli_args)?;
+    let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
@@ -275,12 +263,12 @@ pub fn get_config<E: EthSpec>(
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state) = eth2_testnet_config.genesis_state {
+    if let Some(genesis_state_bytes) = eth2_testnet_config.genesis_state_bytes {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.
         client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes: genesis_state.as_ssz_bytes(),
+            genesis_state_bytes,
         };
     } else {
         client_config.genesis = ClientGenesis::DepositContract;
@@ -545,9 +533,7 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_testnet_config<E: EthSpec>(
-    cli_args: &ArgMatches,
-) -> Result<Eth2TestnetConfig<E>, String> {
+pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
     let optional_testnet_config = if cli_args.is_present("testnet") {
         clap_utils::parse_hardcoded_network(cli_args, "testnet")?
     } else if cli_args.is_present("testnet-dir") {

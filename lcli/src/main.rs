@@ -20,9 +20,12 @@ use parse_hex::run_parse_hex;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
-use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{
+    test_utils::TestingBeaconStateBuilder, EthSpec, EthSpecId, MainnetEthSpec, MinimalEthSpec,
+};
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -482,25 +485,21 @@ fn main() {
         )
         .get_matches();
 
-    macro_rules! run_with_spec {
-        ($env_builder: expr) => {
-            match run($env_builder, &matches) {
-                Ok(()) => process::exit(0),
-                Err(e) => {
-                    println!("Failed to run lcli: {}", e);
-                    process::exit(1)
-                }
-            }
-        };
-    }
+    let result = matches
+        .value_of("spec")
+        .ok_or_else(|| "Missing --spec flag".to_string())
+        .and_then(FromStr::from_str)
+        .and_then(|eth_spec_id| match eth_spec_id {
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
+            EthSpecId::V012Legacy => run(EnvironmentBuilder::v012_legacy(), &matches),
+        });
 
-    match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
-        spec => {
-            // This path should be unreachable due to slog having a `default_value`
-            unreachable!("Unknown spec configuration: {:?}", spec);
+    match result {
+        Ok(()) => process::exit(0),
+        Err(e) => {
+            println!("Failed to run lcli: {}", e);
+            process::exit(1)
         }
     }
 }

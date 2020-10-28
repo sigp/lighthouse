@@ -14,7 +14,7 @@ pub struct BlsSignInput {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsSign {
     pub input: BlsSignInput,
-    pub output: String,
+    pub output: Option<String>,
 }
 
 impl BlsCase for BlsSign {}
@@ -27,16 +27,25 @@ impl Case for BlsSign {
 
         assert_eq!(sk.len(), 32);
 
-        let sk = SecretKey::deserialize(&sk).unwrap();
+        let sk = match SecretKey::deserialize(&sk) {
+            Ok(sk) => sk,
+            Err(_) if self.output.is_none() => {
+                return Ok(());
+            }
+            Err(e) => return Err(Error::FailedToParseTest(format!("{:?}", e))),
+        };
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
         let signature = sk.sign(Hash256::from_slice(&msg));
 
-        // Convert the output to one set of bytes
-        let decoded = hex::decode(&self.output[2..])
+        let decoded = self
+            .output
+            .as_ref()
+            .map(|output| hex::decode(&output[2..]))
+            .transpose()
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.serialize().to_vec()), &Some(decoded))
+        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.serialize().to_vec()), &decoded)
     }
 }
