@@ -492,7 +492,7 @@ fn main() {
         .and_then(|eth_spec_id| match eth_spec_id {
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
-            EthSpecId::Legacy => run(EnvironmentBuilder::v012_legacy(), &matches),
+            EthSpecId::V012Legacy => run(EnvironmentBuilder::v012_legacy(), &matches),
         });
 
     match result {

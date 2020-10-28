@@ -51,7 +51,7 @@ pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String
     if let Err(e) = match eth_spec_id {
         EthSpecId::Minimal => main::<types::MinimalEthSpec>(matches, log),
         EthSpecId::Mainnet => main::<types::MainnetEthSpec>(matches, log),
-        EthSpecId::Legacy => main::<types::V012LegacyEthSpec>(matches, log),
+        EthSpecId::V012Legacy => main::<types::V012LegacyEthSpec>(matches, log),
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }

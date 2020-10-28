@@ -605,10 +605,10 @@ impl YamlConfig {
         Some(match self.config_name.as_str() {
             "mainnet" => EthSpecId::Mainnet,
             "minimal" => EthSpecId::Minimal,
-            "zinken" => EthSpecId::Legacy,
-            "spadina" => EthSpecId::Legacy,
-            "medalla" => EthSpecId::Legacy,
-            "altona" => EthSpecId::Legacy,
+            "zinken" => EthSpecId::V012Legacy,
+            "spadina" => EthSpecId::V012Legacy,
+            "medalla" => EthSpecId::V012Legacy,
+            "altona" => EthSpecId::V012Legacy,
             _ => return None,
         })
     }

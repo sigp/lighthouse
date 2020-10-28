@@ -19,7 +19,7 @@ const LEGACY: &str = "v0.12-legacy";
 pub enum EthSpecId {
     Mainnet,
     Minimal,
-    Legacy,
+    V012Legacy,
 }
 
 impl FromStr for EthSpecId {
@@ -29,7 +29,7 @@ impl FromStr for EthSpecId {
         match s {
             MAINNET => Ok(EthSpecId::Mainnet),
             MINIMAL => Ok(EthSpecId::Minimal),
-            LEGACY => Ok(EthSpecId::Legacy),
+            LEGACY => Ok(EthSpecId::V012Legacy),
             _ => Err(format!("Unknown eth spec: {}", s)),
         }
     }
@@ -40,7 +40,7 @@ impl fmt::Display for EthSpecId {
         let s = match self {
             EthSpecId::Mainnet => MAINNET,
             EthSpecId::Minimal => MINIMAL,
-            EthSpecId::Legacy => LEGACY,
+            EthSpecId::V012Legacy => LEGACY,
         };
         write!(f, "{}", s)
     }
@@ -285,7 +285,7 @@ impl EthSpec for V012LegacyEthSpec {
     }
 
     fn spec_name() -> EthSpecId {
-        EthSpecId::Legacy
+        EthSpecId::V012Legacy
     }
 }
 

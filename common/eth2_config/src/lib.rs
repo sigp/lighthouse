@@ -49,7 +49,7 @@ impl Eth2Config {
 
     pub fn v012_legacy() -> Self {
         Self {
-            eth_spec_id: EthSpecId::Legacy,
+            eth_spec_id: EthSpecId::V012Legacy,
             spec: ChainSpec::v012_legacy(),
         }
     }

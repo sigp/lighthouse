@@ -157,7 +157,7 @@ fn main() {
         match eth_spec_id {
             EthSpecId::Minimal => run_with_spec!(EnvironmentBuilder::minimal()),
             EthSpecId::Mainnet => run_with_spec!(EnvironmentBuilder::mainnet()),
-            EthSpecId::Legacy => run_with_spec!(EnvironmentBuilder::v012_legacy()),
+            EthSpecId::V012Legacy => run_with_spec!(EnvironmentBuilder::v012_legacy()),
         }
     });
 
