@@ -173,7 +173,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.retry_batch_download(network, id)?;
                 } else {
                     debug!(self.log, "Batch not found while removing peer";
-                        "peer" => %peer_id, "batch" => "id")
+                        "peer" => %peer_id, "batch" => id)
                 }
             }
         }
@@ -231,8 +231,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // Remove the request from the peer's active batches
             self.peers
                 .get_mut(peer_id)
-                .unwrap_or_else(|| panic!("Batch is registered for the peer"))
-                .remove(&batch_id);
+                .map(|active_requests| active_requests.remove(&batch_id));
 
             match batch.download_completed() {
                 Ok(received) => {
@@ -276,7 +275,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch = match self.batches.get_mut(&batch_id) {
             Some(batch) => batch,
             None => {
-                debug!(self.log, "Processing unknown batch"; "batch" => %batch_id);
                 return Err(RemoveChain::WrongChainState(format!(
                     "Trying to process a batch that does not exist: {}",
                     batch_id
@@ -352,14 +350,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         )));
                     }
                     BatchState::AwaitingValidation(_) => {
-                        // This is possible due to race conditions, and tho it would be considered
-                        // an inconsistent state, the chain can continue.  If an optimistic batch
-                        // is successfully processed it is no longer considered an optimistic
-                        // candidate. If the batch was empty the chain rejects it; if it was non
-                        // empty the chain is advanced to this point (so that the old optimistic
-                        // batch is now the processing target)
-                        debug!(self.log, "Optimistic batch should never be Awaiting Validation"; "batch" => epoch);
-                        // TODO check this
+                        // If an optimistic start is given to the chain after the corresponding
+                        // batch has been requested and processed we can land here. We drop the
+                        // optimistic candidate since we can't conclude whether the batch included
+                        // blocks or not at this point
+                        debug!(self.log, "Dropping optimistic candidate"; "batch" => epoch);
+                        self.optimistic_start = None;
                     }
                 }
             }
@@ -376,21 +372,28 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed
-                | BatchState::AwaitingDownload
-                | BatchState::AwaitingValidation(_)
-                | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have beee removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
                     //   re-requested.
-                    // - AwaitingValidation -> self.processing_target should have been moved
-                    //   forward
                     // - Processing -> `self.current_processing_batch` is None
                     return Err(RemoveChain::WrongChainState(format!(
                         "Robust target batch indicates inconsistent chain state: {:?}",
                         state
                     )));
+                }
+                BatchState::AwaitingValidation(_) => {
+                    // we can land here if an empty optimistic batch succeeds processing and is
+                    // inside the download buffer (between `self.processing_target` and
+                    // `self.to_be_downloaded`). In this case, eventually the chain advances to the
+                    // batch (`self.processing_target` reaches this point).
+                    debug!(self.log, "Chain encountered a robust batch awaiting validation"; "batch" => self.processing_target);
+
+                    self.processing_target += EPOCHS_PER_BATCH;
+                    if self.to_be_downloaded <= self.processing_target {
+                        self.to_be_downloaded = self.processing_target + EPOCHS_PER_BATCH;
+                    }
                 }
             }
         } else {
