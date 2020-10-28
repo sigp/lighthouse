@@ -94,7 +94,7 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     ctx: Arc<Context<T, E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
@@ -354,19 +354,19 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
                     let voting_password = body.password.clone();
 
-                    let validator_def =
-                        tokio::task::spawn_blocking(validator_store.add_validator_keystore(
+                    let validator_def = tokio::task::block_in_place(|| {
+                        validator_store.add_validator_keystore(
                             validator_dir.voting_keystore_path(),
                             voting_password,
                             body.enable,
+                        )
+                    })
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to initialize validator: {:?}",
+                            e
                         ))
-                        .await
-                        .map_err(|e| {
-                            warp_utils::reject::custom_server_error(format!(
-                                "failed to initialize validator: {:?}",
-                                e
-                            ))
-                        })?;
+                    })?;
 
                     Ok(api_types::GenericResponse::from(api_types::ValidatorData {
                         enabled: body.enable,
@@ -389,8 +389,9 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
              validator_store: ValidatorStore<T, E>,
+
              signer| {
-                blocking_signed_json_task(signer, move || {
+                blocking_signed_json_task(signer, move || async {
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
 
@@ -401,11 +402,10 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
-                            tokio::task::spawn_blocking(|| {
+                            tokio::task::block_in_place(|| {
                                 initialized_validators
                                     .set_validator_status(&validator_pubkey, body.enabled)
                             })
-                            .await
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "unable to set validator status: {:?}",
@@ -469,8 +469,8 @@ pub async fn blocking_signed_json_task<S, F, T>(
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     S: Fn(&[u8]) -> String,
-    F: Fn() -> Result<T, warp::Rejection>,
-    T: Serialize,
+    F: Fn() -> Result<T, warp::Rejection> + Send + 'static,
+    T: Serialize + Send + 'static,
 {
     warp_utils::task::blocking_task(func)
         .await

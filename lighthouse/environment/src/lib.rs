@@ -94,20 +94,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Specifies that a single-threaded tokio runtime should be used. Ideal for testing purposes
-    /// where tests are already multi-threaded.
-    ///
-    /// This can solve problems if "too many open files" errors are thrown during tests.
-    pub fn single_thread_tokio_runtime(mut self) -> Result<Self, String> {
-        self.runtime = Some(Arc::new(
-            RuntimeBuilder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
-        ));
-        Ok(self)
-    }
-
     /// Specifies that all logs should be sent to `null` (i.e., ignored).
     pub fn null_logger(mut self) -> Result<Self, String> {
         self.log = Some(null_logger()?);
