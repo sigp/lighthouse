@@ -14,7 +14,8 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+use tokio::runtime::Runtime;
 use types::{ChainSpec, EthSpec, YamlConfig};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
@@ -50,6 +51,7 @@ impl From<String> for Error {
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: Clone, E: EthSpec> {
+    pub runtime: Weak<Runtime>,
     pub api_secret: ApiSecret,
     pub validator_store: Option<ValidatorStore<T, E>>,
     pub validator_dir: Option<PathBuf>,
@@ -137,6 +139,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )
             })
         });
+
+    let inner_runtime = ctx.runtime.clone();
+    let runtime_filter = warp::any().map(move || inner_runtime.clone());
 
     let inner_validator_dir = ctx.validator_dir.clone();
     let validator_dir_filter = warp::any()
@@ -324,11 +329,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_dir_filter)
         .and(validator_store_filter.clone())
         .and(signer.clone())
+        .and(runtime_filter.clone())
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              validator_dir: PathBuf,
              validator_store: ValidatorStore<T, E>,
-             signer| {
+             signer,
+             runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
                     // Check to ensure the password is correct.
                     let keypair = body
@@ -354,19 +361,26 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
                     let voting_password = body.password.clone();
 
-                    let validator_def = tokio::task::block_in_place(|| {
-                        validator_store.add_validator_keystore(
-                            validator_dir.voting_keystore_path(),
-                            voting_password,
-                            body.enable,
-                        )
-                    })
-                    .map_err(|e| {
-                        warp_utils::reject::custom_server_error(format!(
-                            "failed to initialize validator: {:?}",
-                            e
-                        ))
-                    })?;
+                    let validator_def = {
+                        if let Some(runtime) = runtime.upgrade() {
+                            runtime
+                                .block_on(validator_store.add_validator_keystore(
+                                    validator_dir.voting_keystore_path(),
+                                    voting_password,
+                                    body.enable,
+                                ))
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to initialize validator: {:?}",
+                                        e
+                                    ))
+                                })?
+                        } else {
+                            return Err(warp_utils::reject::custom_server_error(
+                                "Runtime shutdown".into(),
+                            ));
+                        }
+                    };
 
                     Ok(api_types::GenericResponse::from(api_types::ValidatorData {
                         enabled: body.enable,
@@ -385,13 +399,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter)
         .and(signer)
+        .and(runtime_filter)
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
              validator_store: ValidatorStore<T, E>,
-
-             signer| {
-                blocking_signed_json_task(signer, move || async {
+             signer,
+             runtime: Weak<Runtime>| {
+                blocking_signed_json_task(signer, move || {
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
 
@@ -402,18 +417,24 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
-                            tokio::task::block_in_place(|| {
-                                initialized_validators
-                                    .set_validator_status(&validator_pubkey, body.enabled)
-                            })
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "unable to set validator status: {:?}",
-                                    e
-                                ))
-                            })?;
-
-                            Ok(())
+                            if let Some(runtime) = runtime.upgrade() {
+                                runtime
+                                    .block_on(
+                                        initialized_validators
+                                            .set_validator_status(&validator_pubkey, body.enabled),
+                                    )
+                                    .map_err(|e| {
+                                        warp_utils::reject::custom_server_error(format!(
+                                            "unable to set validator status: {:?}",
+                                            e
+                                        ))
+                                    })?;
+                                Ok(())
+                            } else {
+                                return Err(warp_utils::reject::custom_server_error(
+                                    "Runtime shutdown".into(),
+                                ));
+                            }
                         }
                     }
                 })

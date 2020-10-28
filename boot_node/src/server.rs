@@ -52,7 +52,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     }
 
     // start the server
-    if let Err(e) = discv5.start(config.listen_socket) {
+    if let Err(e) = discv5.start(config.listen_socket).await {
         slog::crit!(log, "Could not start discv5 server"; "error" => e.to_string());
         return;
     }
