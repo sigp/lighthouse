@@ -144,6 +144,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// If the function returns `ProcessingResult::RemoveChain`, the chain is removed and returned.
     /// If the chain is found, its syncing type is returned, or an error otherwise.
     /// NOTE: `func` should not change the sync state of a chain.
+    #[allow(clippy::type_complexity)]
     pub fn call_by_id<F>(
         &mut self,
         id: ChainId,
