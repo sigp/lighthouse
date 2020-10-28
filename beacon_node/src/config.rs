@@ -6,7 +6,6 @@ use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{info, warn, Logger};
-use ssz::Encode;
 use std::cmp;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
@@ -264,12 +263,12 @@ pub fn get_config<E: EthSpec>(
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state) = eth2_testnet_config.genesis_state {
+    if let Some(genesis_state_bytes) = eth2_testnet_config.genesis_state_bytes {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.
         client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes: genesis_state.as_ssz_bytes(),
+            genesis_state_bytes,
         };
     } else {
         client_config.genesis = ClientGenesis::DepositContract;

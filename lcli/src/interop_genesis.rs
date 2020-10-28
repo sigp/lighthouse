@@ -57,7 +57,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let keypairs = generate_deterministic_keypairs(validator_count);
     let genesis_state = interop_genesis_state::<T>(&keypairs, genesis_time, &spec)?;
 
-    eth2_testnet_config.genesis_state = Some(genesis_state.as_ssz_bytes());
+    eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
     eth2_testnet_config.force_write_to_file(testnet_dir)?;
 
     Ok(())

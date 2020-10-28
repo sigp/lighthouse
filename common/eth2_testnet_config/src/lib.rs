@@ -13,7 +13,7 @@ use eth2_config::{
 };
 
 use enr::{CombinedKey, Enr};
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -33,7 +33,7 @@ pub struct HardcodedNet {
     pub deploy_block: &'static [u8],
     pub boot_enr: &'static [u8],
     pub deposit_contract_address: &'static [u8],
-    pub genesis_state: &'static [u8],
+    pub genesis_state_bytes: &'static [u8],
 }
 
 macro_rules! define_net {
@@ -47,7 +47,7 @@ macro_rules! define_net {
             deploy_block: $include_file!("../", "deploy_block.txt"),
             boot_enr: $include_file!("../", "boot_enr.yaml"),
             deposit_contract_address: $include_file!("../", "deposit_contract.txt"),
-            genesis_state: $include_file!("../", "genesis.ssz"),
+            genesis_state_bytes: $include_file!("../", "genesis.ssz"),
         }
     }};
 }
@@ -68,7 +68,7 @@ pub struct Eth2TestnetConfig {
     pub deposit_contract_address: String,
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
-    pub genesis_state: Option<Vec<u8>>,
+    pub genesis_state_bytes: Option<Vec<u8>>,
     pub yaml_config: Option<YamlConfig>,
 }
 
@@ -98,7 +98,8 @@ impl Eth2TestnetConfig {
                 serde_yaml::from_reader(net.boot_enr)
                     .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
             ),
-            genesis_state: Some(net.genesis_state.to_vec()).filter(|bytes| !bytes.is_empty()),
+            genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
+                .filter(|bytes| !bytes.is_empty()),
             yaml_config: Some(
                 serde_yaml::from_reader(net.yaml_config)
                     .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
@@ -123,17 +124,19 @@ impl Eth2TestnetConfig {
             })
     }
 
+    /// Returns `true` if this configuration contains a `BeaconState`.
     pub fn beacon_state_is_known(&self) -> bool {
-        self.genesis_state.is_some()
+        self.genesis_state_bytes.is_some()
     }
 
+    /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.
     pub fn beacon_state<E: EthSpec>(&self) -> Result<BeaconState<E>, String> {
-        let genesis_state = self
-            .genesis_state
+        let genesis_state_bytes = self
+            .genesis_state_bytes
             .as_ref()
             .ok_or_else(|| "Genesis state is unknown".to_string())?;
 
-        BeaconState::from_ssz_bytes(genesis_state).map_err(|e| {
+        BeaconState::from_ssz_bytes(genesis_state_bytes).map_err(|e| {
             format!(
                 "Genesis state SSZ
                 bytes are invalid: {:?}",
@@ -142,9 +145,9 @@ impl Eth2TestnetConfig {
         })
     }
 
-    // Write the files to the directory.
-    //
-    // Overwrites files if specified to do so.
+    /// Write the files to the directory.
+    ///
+    /// Overwrites files if specified to do so.
     pub fn write_to_file(&self, base_dir: PathBuf, overwrite: bool) -> Result<(), String> {
         if base_dir.exists() && !overwrite {
             return Err("Testnet directory already exists".to_string());
@@ -153,7 +156,7 @@ impl Eth2TestnetConfig {
         self.force_write_to_file(base_dir)
     }
 
-    // Write the files to the directory, even if the directory already exists.
+    /// Write the files to the directory, even if the directory already exists.
     pub fn force_write_to_file(&self, base_dir: PathBuf) -> Result<(), String> {
         create_dir_all(&base_dir)
             .map_err(|e| format!("Unable to create testnet directory: {:?}", e))?;
@@ -194,13 +197,13 @@ impl Eth2TestnetConfig {
         }
 
         // The genesis state is a special case because it uses SSZ, not YAML.
-        if let Some(genesis_state) = &self.genesis_state {
+        if let Some(genesis_state_bytes) = &self.genesis_state_bytes {
             let file = base_dir.join(GENESIS_STATE_FILE);
 
             File::create(&file)
                 .map_err(|e| format!("Unable to create {:?}: {:?}", file, e))
                 .and_then(|mut file| {
-                    file.write_all(&genesis_state.as_ssz_bytes())
+                    file.write_all(genesis_state_bytes)
                         .map_err(|e| format!("Unable to write {:?}: {:?}", file, e))
                 })?;
         }
@@ -254,7 +257,7 @@ impl Eth2TestnetConfig {
             deposit_contract_address,
             deposit_contract_deploy_block,
             boot_enr,
-            genesis_state: genesis_state_bytes,
+            genesis_state_bytes,
             yaml_config,
         })
     }
@@ -273,6 +276,7 @@ impl Eth2TestnetConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ssz::Encode;
     use tempdir::TempDir;
     use types::{Eth1Data, Hash256, V012LegacyEthSpec, YamlConfig};
 
@@ -293,7 +297,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                config.genesis_state.is_some(),
+                config.genesis_state_bytes.is_some(),
                 net.genesis_is_known,
                 "{:?}",
                 net.name
@@ -334,7 +338,7 @@ mod tests {
             deposit_contract_address,
             deposit_contract_deploy_block,
             boot_enr,
-            genesis_state: genesis_state.as_ref().map(Encode::as_ssz_bytes),
+            genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
             yaml_config,
         };
 

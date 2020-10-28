@@ -54,7 +54,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
             .wait_for_genesis_state::<T>(ETH1_GENESIS_UPDATE_INTERVAL, spec)
             .await
             .map(move |genesis_state| {
-                eth2_testnet_config.genesis_state = Some(genesis_state.as_ssz_bytes());
+                eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
                 eth2_testnet_config.force_write_to_file(testnet_dir)
             })
             .map_err(|e| format!("Failed to find genesis: {}", e))?;

@@ -9,6 +9,10 @@ use ssz_types::typenum::{
 use std::fmt::{self, Debug};
 use std::str::FromStr;
 
+const MAINNET: &str = "mainnet";
+const MINIMAL: &str = "minimal";
+const LEGACY: &str = "v0.12-legacy";
+
 /// Used to identify one of the `EthSpec` instances defined here.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -23,9 +27,9 @@ impl FromStr for EthSpecId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "mainnet" => Ok(EthSpecId::Mainnet),
-            "minimal" => Ok(EthSpecId::Minimal),
-            "legacy" => Ok(EthSpecId::Legacy),
+            MAINNET => Ok(EthSpecId::Mainnet),
+            MINIMAL => Ok(EthSpecId::Minimal),
+            LEGACY => Ok(EthSpecId::Legacy),
             _ => Err(format!("Unknown eth spec: {}", s)),
         }
     }
@@ -34,9 +38,9 @@ impl FromStr for EthSpecId {
 impl fmt::Display for EthSpecId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            EthSpecId::Mainnet => "mainnet",
-            EthSpecId::Minimal => "minimal",
-            EthSpecId::Legacy => "legacy",
+            EthSpecId::Mainnet => MAINNET,
+            EthSpecId::Minimal => MINIMAL,
+            EthSpecId::Legacy => LEGACY,
         };
         write!(f, "{}", s)
     }
