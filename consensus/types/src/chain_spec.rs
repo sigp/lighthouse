@@ -453,8 +453,7 @@ mod tests {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE", deny_unknown_fields)]
 pub struct YamlConfig {
-    #[serde(default)]
-    config_name: String,
+    pub config_name: String,
     // ChainSpec
     #[serde(with = "serde_utils::quoted_u64")]
     max_committees_per_slot: u64,

@@ -106,6 +106,12 @@ impl Eth2TestnetConfig {
         })
     }
 
+    pub fn config_name(&self) -> Option<&str> {
+        self.yaml_config
+            .as_ref()
+            .map(|config| config.config_name.as_str())
+    }
+
     pub fn beacon_state_is_known(&self) -> bool {
         self.genesis_state.is_some()
     }

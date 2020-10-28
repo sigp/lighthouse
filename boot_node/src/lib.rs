@@ -13,7 +13,7 @@ use types::{EthSpec, SPEC_LEGACY, SPEC_MAINNET, SPEC_MINIMAL};
 const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
-pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
+pub fn run(matches: &ArgMatches<'_>, spec_config_name: &str, debug_level: String) {
     let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
         "debug" => log::Level::Debug,
@@ -48,11 +48,11 @@ pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
 
     let log = slog_scope::logger();
     // Run the main function emitting any errors
-    if let Err(e) = match matches.value_of("spec") {
-        Some(SPEC_MINIMAL) => main::<types::MinimalEthSpec>(matches, log),
-        Some(SPEC_MAINNET) => main::<types::MainnetEthSpec>(matches, log),
-        Some(SPEC_LEGACY) => main::<types::V012LegacyEthSpec>(matches, log),
-        spec => unreachable!("Unknown spec configuration: {:?}", spec),
+    if let Err(e) = match spec_config_name {
+        SPEC_MINIMAL => main::<types::MinimalEthSpec>(matches, log),
+        SPEC_MAINNET => main::<types::MainnetEthSpec>(matches, log),
+        SPEC_LEGACY => main::<types::V012LegacyEthSpec>(matches, log),
+        spec => Err(format!("Unknown spec CONFIG_NAME: {:?}", spec)),
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }

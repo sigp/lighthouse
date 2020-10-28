@@ -45,12 +45,11 @@ fn main() {
             Arg::with_name("spec")
                 .short("s")
                 .long("spec")
-                .value_name("TITLE")
-                .help("Specifies the default eth2 spec type.")
+                .value_name("DEPRECATED")
+                .help("This flag is deprecated, it will be disallowed in a future release. This
+                    value is now derived from the --testnet or --testnet-dir flags.")
                 .takes_value(true)
-                .possible_values(&[SPEC_MAINNET, SPEC_MINIMAL, SPEC_LEGACY])
                 .global(true)
-                .default_value(SPEC_LEGACY),
         )
         .arg(
             Arg::with_name("env_log")
@@ -128,37 +127,42 @@ fn main() {
         .subcommand(account_manager::cli_app())
         .get_matches();
 
-    // boot node subcommand circumvents the environment
-    if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
-        // The bootnode uses the main debug-level flag
-        let debug_info = matches
-            .value_of("debug-level")
-            .expect("Debug-level must be present")
-            .into();
-        boot_node::run(bootnode_matches, debug_info);
-        return;
-    }
-
     // Debugging output for libp2p and external crates.
     if matches.is_present("env_log") {
         Builder::from_env(Env::default()).init();
     }
 
-    macro_rules! run_with_spec {
-        ($env_builder: expr) => {
-            run($env_builder, &matches)
-        };
-    }
+    let result = load_testnet_config(&matches).and_then(|testnet_config| {
+        let config_name = testnet_config
+            .config_name()
+            .ok_or_else(|| "Eth2 YAML configuration file is missing")?;
 
-    let result = match matches.value_of("spec") {
-        Some(SPEC_MINIMAL) => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some(SPEC_MAINNET) => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some(SPEC_LEGACY) => run_with_spec!(EnvironmentBuilder::v012_legacy()),
-        spec => {
-            // This path should be unreachable due to slog having a `default_value`
-            unreachable!("Unknown spec configuration: {:?}", spec);
+        // boot node subcommand circumvents the environment
+        if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
+            // The bootnode uses the main debug-level flag
+            let debug_info = matches
+                .value_of("debug-level")
+                .expect("Debug-level must be present")
+                .into();
+
+            boot_node::run(bootnode_matches, config_name, debug_info);
+
+            return Ok(());
         }
-    };
+
+        macro_rules! run_with_spec {
+            ($env_builder: expr) => {
+                run($env_builder, &matches, testnet_config)
+            };
+        }
+
+        match config_name {
+            SPEC_MINIMAL => run_with_spec!(EnvironmentBuilder::minimal()),
+            SPEC_MAINNET => run_with_spec!(EnvironmentBuilder::mainnet()),
+            SPEC_LEGACY => run_with_spec!(EnvironmentBuilder::v012_legacy()),
+            spec => Err(format!("Unknown spec CONFIG_NAME: {:?}", spec)),
+        }
+    });
 
     // `std::process::exit` does not run destructors so we drop manually.
     drop(matches);
@@ -174,9 +178,23 @@ fn main() {
     }
 }
 
+fn load_testnet_config(matches: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
+    if matches.is_present("testnet-dir") {
+        clap_utils::parse_testnet_dir(matches, "testnet-dir")?
+            .ok_or_else(|| "Unable to load testnet dir".to_string())
+    } else if matches.is_present("testnet") {
+        clap_utils::parse_hardcoded_network(matches, "testnet")?
+            .ok_or_else(|| "Unable to load hard coded network config".to_string())
+    } else {
+        Eth2TestnetConfig::hard_coded_default()?
+            .ok_or_else(|| "Unable to load default network config".to_string())
+    }
+}
+
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
+    testnet_config: Eth2TestnetConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -198,19 +216,6 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
-    // else, use the default
-    let mut optional_testnet_config = None;
-    if matches.is_present("testnet") {
-        optional_testnet_config = clap_utils::parse_hardcoded_network(matches, "testnet")?;
-    };
-    if matches.is_present("testnet-dir") {
-        optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
-    };
-    if optional_testnet_config.is_none() {
-        optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
-    }
-
     let builder = if let Some(log_path) = matches.value_of("logfile") {
         let path = log_path
             .parse::<PathBuf>()
@@ -222,7 +227,7 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_testnet_config(optional_testnet_config)?
+        .optional_eth2_testnet_config(Some(testnet_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
