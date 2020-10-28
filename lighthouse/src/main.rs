@@ -133,9 +133,7 @@ fn main() {
     }
 
     let result = load_testnet_config(&matches).and_then(|testnet_config| {
-        let config_name = testnet_config
-            .config_name()
-            .ok_or_else(|| "Eth2 YAML configuration file is missing")?;
+        let spec_constants = testnet_config.spec_constants()?;
 
         // boot node subcommand circumvents the environment
         if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
@@ -145,7 +143,7 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(bootnode_matches, config_name, debug_info);
+            boot_node::run(bootnode_matches, spec_constants, debug_info);
 
             return Ok(());
         }
@@ -156,7 +154,7 @@ fn main() {
             };
         }
 
-        match config_name {
+        match spec_constants {
             SPEC_MINIMAL => run_with_spec!(EnvironmentBuilder::minimal()),
             SPEC_MAINNET => run_with_spec!(EnvironmentBuilder::mainnet()),
             SPEC_LEGACY => run_with_spec!(EnvironmentBuilder::v012_legacy()),

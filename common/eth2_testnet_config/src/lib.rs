@@ -106,10 +106,21 @@ impl Eth2TestnetConfig {
         })
     }
 
-    pub fn config_name(&self) -> Option<&str> {
+    /// Returns an identifier that should be used for selecting an `EthSpec` instance for this
+    /// testnet.
+    pub fn spec_constants(&self) -> Result<&'static str, String> {
         self.yaml_config
             .as_ref()
-            .map(|config| config.config_name.as_str())
+            .ok_or_else(|| "YAML specification file missing".to_string())
+            .and_then(|config| {
+                config.spec_constants().ok_or_else(|| {
+                    format!(
+                        "Unknown CONFIG_NAME:
+                        {}",
+                        config.config_name
+                    )
+                })
+            })
     }
 
     pub fn beacon_state_is_known(&self) -> bool {

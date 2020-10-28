@@ -598,6 +598,21 @@ fn milliseconds_to_seconds(millis: u64) -> u64 {
 
 /// Spec v0.12.1
 impl YamlConfig {
+    /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
+    ///
+    /// Returns `None` if there is no match.
+    pub fn spec_constants(&self) -> Option<&'static str> {
+        Some(match self.config_name.as_str() {
+            "mainnet" => SPEC_MAINNET,
+            "minima" => SPEC_MINIMAL,
+            "zinken" => SPEC_LEGACY,
+            "spadina" => SPEC_LEGACY,
+            "medalla" => SPEC_LEGACY,
+            "altona" => SPEC_LEGACY,
+            _ => return None,
+        })
+    }
+
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: T::spec_name().to_string(),
