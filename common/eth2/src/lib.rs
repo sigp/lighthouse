@@ -225,7 +225,7 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("states")
             .push(&state_id.to_string())
-            .push("validators");
+            .push("validator_balances");
 
         if let Some(ids) = ids {
             let id_string = ids

@@ -443,7 +443,6 @@ impl ApiTester {
                     .await
                     .unwrap()
                     .map(|res| res.data);
-
                 let result_pubkey_ids = self
                     .client
                     .get_beacon_states_validator_balances(
@@ -455,28 +454,15 @@ impl ApiTester {
                     .map(|res| res.data);
 
                 let expected = state_opt.map(|state| {
-                    let epoch = state.current_epoch();
-                    let finalized_epoch = state.finalized_checkpoint.epoch;
-                    let far_future_epoch = self.chain.spec.far_future_epoch;
-
                     let mut validators = Vec::with_capacity(validator_indices.len());
 
                     for i in validator_indices {
-                        if i >= state.validators.len() as u64 {
-                            continue;
+                        if i < state.balances.len() as u64 {
+                            validators.push(ValidatorBalanceData {
+                                index: i as u64,
+                                balance: state.balances[i as usize],
+                            });
                         }
-                        let validator = state.validators[i as usize].clone();
-                        validators.push(ValidatorData {
-                            index: i as u64,
-                            balance: state.balances[i as usize],
-                            status: ValidatorStatus::from_validator(
-                                Some(&validator),
-                                epoch,
-                                finalized_epoch,
-                                far_future_epoch,
-                            ),
-                            validator,
-                        });
                     }
 
                     validators
@@ -1700,7 +1686,7 @@ async fn beacon_states_finality_checkpoints() {
 #[tokio::test(core_threads = 2)]
 async fn beacon_states_validators() {
     ApiTester::new()
-        .test_beacon_states_validator_balances
+        .test_beacon_states_validator_balances()
         .await
         .test_beacon_states_validators()
         .await;
