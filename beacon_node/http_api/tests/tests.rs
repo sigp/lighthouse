@@ -1243,7 +1243,7 @@ impl ApiTester {
 
                 let results = self
                     .client
-                    .post_validator_duties_attester(epoch, indices)
+                    .post_validator_duties_attester(epoch, indices.clone())
                     .await
                     .unwrap()
                     .data;
