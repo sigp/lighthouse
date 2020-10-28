@@ -1,6 +1,7 @@
 use crate::SmallVec8;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::Range;
 
@@ -89,7 +90,6 @@ impl<T: Encode + Decode> CacheArena<T> {
     /// To reiterate, the given `range` should be relative to the given `alloc_id`, not
     /// `self.backing`. E.g., if the allocation has an offset of `20` and the range is `0..1`, then
     /// the splice will translate to `self.backing[20..21]`.
-    #[allow(clippy::comparison_chain)]
     fn splice_forgetful<I: IntoIterator<Item = T>>(
         &mut self,
         alloc_id: usize,
@@ -113,10 +113,10 @@ impl<T: Encode + Decode> CacheArena<T> {
 
         self.backing.splice(start..end, replace_with);
 
-        if prev_len < self.backing.len() {
-            self.grow(alloc_id, self.backing.len() - prev_len)?;
-        } else if prev_len > self.backing.len() {
-            self.shrink(alloc_id, prev_len - self.backing.len())?;
+        match prev_len.cmp(&self.backing.len()) {
+            Ordering::Greater => self.shrink(alloc_id, prev_len - self.backing.len())?,
+            Ordering::Less => self.grow(alloc_id, self.backing.len() - prev_len)?,
+            Ordering::Equal => {}
         }
 
         Ok(())
