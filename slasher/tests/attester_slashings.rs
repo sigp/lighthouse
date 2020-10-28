@@ -1,48 +1,11 @@
 use rayon::prelude::*;
-use slasher::{config::DEFAULT_CHUNK_SIZE, Config, Slasher};
-use slog::{o, Drain, Logger};
-use tempdir::TempDir;
-use types::{
-    AggregateSignature, AttestationData, AttesterSlashing, Checkpoint, Epoch, Hash256,
-    IndexedAttestation, MainnetEthSpec, Slot,
+use slasher::{
+    config::DEFAULT_CHUNK_SIZE,
+    test_utils::{att_slashing, indexed_att, logger, E},
+    Config, Slasher,
 };
-
-type E = MainnetEthSpec;
-
-fn indexed_att(
-    attesting_indices: impl AsRef<[u64]>,
-    source_epoch: u64,
-    target_epoch: u64,
-    target_root: u64,
-) -> IndexedAttestation<E> {
-    IndexedAttestation {
-        attesting_indices: attesting_indices.as_ref().to_vec().into(),
-        data: AttestationData {
-            slot: Slot::new(0),
-            index: 0,
-            beacon_block_root: Hash256::zero(),
-            source: Checkpoint {
-                epoch: Epoch::new(source_epoch),
-                root: Hash256::from_low_u64_be(0),
-            },
-            target: Checkpoint {
-                epoch: Epoch::new(target_epoch),
-                root: Hash256::from_low_u64_be(target_root),
-            },
-        },
-        signature: AggregateSignature::empty(),
-    }
-}
-
-fn att_slashing(
-    attestation_1: &IndexedAttestation<E>,
-    attestation_2: &IndexedAttestation<E>,
-) -> AttesterSlashing<E> {
-    AttesterSlashing {
-        attestation_1: attestation_1.clone(),
-        attestation_2: attestation_2.clone(),
-    }
-}
+use tempdir::TempDir;
+use types::{AttesterSlashing, Epoch, IndexedAttestation};
 
 #[test]
 fn double_vote_single_val() {
@@ -220,13 +183,6 @@ fn slasher_test_batch(
     slasher_test(attestations, expected, current_epoch, |_| false);
 }
 
-// FIXME(sproul): move this somewhere else
-fn logger() -> Logger {
-    let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
-    let drain = slog_term::FullFormat::new(decorator).build();
-    Logger::root(Box::new(std::sync::Mutex::new(drain)).fuse(), o!())
-}
-
 fn slasher_test(
     attestations: &[IndexedAttestation<E>],
     expected: &[AttesterSlashing<E>],
@@ -242,10 +198,10 @@ fn slasher_test(
         slasher.accept_attestation(attestation.clone());
 
         if should_process_after(i) {
-            slasher.process_attestations(current_epoch).unwrap();
+            slasher.process_queued(current_epoch).unwrap();
         }
     }
-    slasher.process_attestations(current_epoch).unwrap();
+    slasher.process_queued(current_epoch).unwrap();
 
     let slashings = slasher.get_attester_slashings();
 
@@ -254,6 +210,9 @@ fn slasher_test(
     }
 
     assert_eq!(expected, &slashings[..]);
+
+    // Pruning should not error.
+    slasher.prune_database(current_epoch).unwrap();
 }
 
 fn parallel_slasher_test(
@@ -271,7 +230,7 @@ fn parallel_slasher_test(
         .into_par_iter()
         .try_for_each(|attestation| {
             slasher.accept_attestation(attestation.clone());
-            slasher.process_attestations(current_epoch)
+            slasher.process_queued(current_epoch)
         })
         .expect("parallel processing shouldn't race");
 }

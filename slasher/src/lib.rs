@@ -9,6 +9,8 @@ mod database;
 mod error;
 mod slasher;
 mod slasher_server;
+pub mod test_utils;
+mod utils;
 
 pub use crate::slasher::Slasher;
 pub use attestation_queue::AttestationQueue;

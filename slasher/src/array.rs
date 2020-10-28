@@ -57,6 +57,17 @@ impl Chunk {
         target_epoch: Epoch,
         config: &Config,
     ) -> Result<(), Error> {
+        let distance = Self::epoch_distance(target_epoch, epoch)?;
+        self.set_raw_distance(validator_index, epoch, distance, config)
+    }
+
+    pub fn set_raw_distance(
+        &mut self,
+        validator_index: u64,
+        epoch: Epoch,
+        target_distance: u16,
+        config: &Config,
+    ) -> Result<(), Error> {
         let validator_offset = config.validator_offset(validator_index);
         let chunk_offset = config.chunk_offset(epoch);
         let cell_index = config.cell_index(validator_offset, chunk_offset);
@@ -65,8 +76,7 @@ impl Chunk {
             .data
             .get_mut(cell_index)
             .ok_or_else(|| Error::ChunkIndexOutOfBounds(cell_index))?;
-
-        *cell = Self::epoch_distance(target_epoch, epoch)?;
+        *cell = target_distance;
         Ok(())
     }
 
@@ -102,6 +112,10 @@ pub struct MaxTargetChunk {
 
 pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwned {
     fn empty(config: &Config) -> Self;
+
+    fn chunk(&mut self) -> &mut Chunk;
+
+    fn neutral_element() -> u16;
 
     fn check_slashable<E: EthSpec>(
         &self,
@@ -179,9 +193,20 @@ impl TargetArrayChunk for MinTargetChunk {
     fn empty(config: &Config) -> Self {
         MinTargetChunk {
             chunk: Chunk {
-                data: vec![MAX_DISTANCE; config.chunk_size * config.validator_chunk_size],
+                data: vec![
+                    Self::neutral_element();
+                    config.chunk_size * config.validator_chunk_size
+                ],
             },
         }
+    }
+
+    fn neutral_element() -> u16 {
+        MAX_DISTANCE
+    }
+
+    fn chunk(&mut self) -> &mut Chunk {
+        &mut self.chunk
     }
 
     fn check_slashable<E: EthSpec>(
@@ -270,9 +295,20 @@ impl TargetArrayChunk for MaxTargetChunk {
     fn empty(config: &Config) -> Self {
         MaxTargetChunk {
             chunk: Chunk {
-                data: vec![0; config.chunk_size * config.validator_chunk_size],
+                data: vec![
+                    Self::neutral_element();
+                    config.chunk_size * config.validator_chunk_size
+                ],
             },
         }
+    }
+
+    fn neutral_element() -> u16 {
+        0
+    }
+
+    fn chunk(&mut self) -> &mut Chunk {
+        &mut self.chunk
     }
 
     fn check_slashable<E: EthSpec>(
@@ -317,13 +353,11 @@ impl TargetArrayChunk for MaxTargetChunk {
                 // We can stop.
                 return Ok(false);
             }
-            if epoch == current_epoch {
-                return Ok(false);
-            }
             epoch += 1;
         }
-        // Continue to the next chunk.
-        Ok(true)
+        // If the epoch to update now lies beyond the current chunk and is less than
+        // or equal to the current epoch, then continue to the next chunk to update it.
+        Ok(epoch <= current_epoch)
     }
 
     fn first_start_epoch(source_epoch: Epoch, current_epoch: Epoch) -> Option<Epoch> {
@@ -481,6 +515,48 @@ pub fn update<E: EthSpec>(
     Ok(slashings)
 }
 
+pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
+    db: &SlasherDB<E>,
+    txn: &mut RwTransaction<'_>,
+    updated_chunks: &mut BTreeMap<usize, T>,
+    validator_chunk_index: usize,
+    validator_index: u64,
+    current_epoch: Epoch,
+    config: &Config,
+) -> Result<(), Error> {
+    let previous_current_epoch = if let Some(epoch) = db.get_stored_current_epoch(txn)? {
+        epoch
+    } else {
+        return Ok(());
+    };
+
+    let mut chunk_index = config.chunk_index(previous_current_epoch);
+    let mut epoch = previous_current_epoch;
+
+    while epoch <= current_epoch {
+        let current_chunk = get_chunk_for_update(
+            db,
+            txn,
+            updated_chunks,
+            validator_chunk_index,
+            chunk_index,
+            config,
+        )?;
+        while config.chunk_index(epoch) == chunk_index && epoch <= current_epoch {
+            current_chunk.chunk().set_raw_distance(
+                validator_index,
+                epoch,
+                T::neutral_element(),
+                config,
+            )?;
+            epoch += 1;
+        }
+        chunk_index += 1;
+    }
+
+    Ok(())
+}
+
 pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     db: &SlasherDB<E>,
     txn: &mut RwTransaction<'_>,
@@ -498,6 +574,15 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
             for validator_index in
                 config.attesting_validators_for_chunk(&attestation.0, validator_chunk_index)
             {
+                epoch_update_for_validator(
+                    db,
+                    txn,
+                    &mut updated_chunks,
+                    validator_chunk_index,
+                    validator_index,
+                    current_epoch,
+                    config,
+                )?;
                 let slashing_status = apply_attestation_for_validator::<E, T>(
                     db,
                     txn,

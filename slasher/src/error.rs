@@ -23,9 +23,17 @@ pub enum Error {
     AttesterRecordCorrupt {
         length: usize,
     },
+    AttesterKeyCorrupt {
+        length: usize,
+    },
+    ProposerKeyCorrupt {
+        length: usize,
+    },
     MissingIndexedAttestation {
         root: Hash256,
     },
+    MissingAttesterKey,
+    MissingProposerKey,
 }
 
 impl From<lmdb::Error> for Error {

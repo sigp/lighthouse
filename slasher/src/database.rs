@@ -1,23 +1,29 @@
-use crate::{AttesterRecord, Config, Error, ProposerSlashingStatus, SlashingStatus};
-use lmdb::{Database, DatabaseFlags, Environment, RwTransaction, Transaction, WriteFlags};
+use crate::{
+    utils::TxnOptional, AttesterRecord, Config, Error, ProposerSlashingStatus, SlashingStatus,
+};
+use byteorder::{BigEndian, ByteOrder};
+use lmdb::{Cursor, Database, DatabaseFlags, Environment, RwTransaction, Transaction, WriteFlags};
 use ssz::{Decode, Encode};
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
     Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader, Slot,
 };
 
-/// Map from `(validator_index, target_epoch)` to `AttesterRecord`.
-const ATTESTER_DB: &str = "attester";
+/// Map from `(target_epoch, validator_index)` to `AttesterRecord`.
+const ATTESTER_DB: &str = "attesters";
 /// Map from `indexed_attestation_hash` to `IndexedAttestation`.
 const INDEXED_ATTESTATION_DB: &str = "indexed_attestations";
 const MIN_TARGETS_DB: &str = "min_targets";
 const MAX_TARGETS_DB: &str = "max_targets";
-/// Map from `(validator_index, slot)` to `SignedBeaconBlockHeader`.
-const PROPOSER_DB: &str = "proposer";
+/// Map from `(slot, validator_index)` to `SignedBeaconBlockHeader`.
+const PROPOSER_DB: &str = "proposers";
+/// Metadata about the slashing database itself.
+const METADATA_DB: &str = "metadata";
 
 /// The number of DBs for LMDB to use (equal to the number of DBs defined above).
-const LMDB_MAX_DBS: u32 = 5;
+const LMDB_MAX_DBS: u32 = 6;
 /// The size of the in-memory map for LMDB (larger than the maximum size of the database).
 // FIXME(sproul): make this user configurable
 const LMDB_MAP_SIZE: usize = 256 * (1 << 30); // 256GiB
@@ -25,30 +31,46 @@ const LMDB_MAP_SIZE: usize = 256 * (1 << 30); // 256GiB
 const ATTESTER_KEY_SIZE: usize = 16;
 const PROPOSER_KEY_SIZE: usize = 16;
 
+const METADATA_CURRENT_EPOCH_KEY: &'static [u8] = &[0];
+
 #[derive(Debug)]
 pub struct SlasherDB<E: EthSpec> {
     pub(crate) env: Environment,
     pub(crate) indexed_attestation_db: Database,
-    pub(crate) attester_db: Database,
+    pub(crate) attesters_db: Database,
     pub(crate) min_targets_db: Database,
     pub(crate) max_targets_db: Database,
-    pub(crate) proposer_db: Database,
+    pub(crate) proposers_db: Database,
+    pub(crate) metadata_db: Database,
     config: Arc<Config>,
     _phantom: PhantomData<E>,
 }
 
+/// Database key for the `attesters` database.
+///
+/// Stored as big-endian `(target_epoch, validator_index)` to enable efficient iteration
+/// while pruning.
 #[derive(Debug)]
 pub struct AttesterKey {
     data: [u8; ATTESTER_KEY_SIZE],
 }
 
 impl AttesterKey {
-    pub fn new(validator_index: u64, target_epoch: Epoch, config: &Config) -> Self {
+    pub fn new(validator_index: u64, target_epoch: Epoch) -> Self {
         let mut data = [0; ATTESTER_KEY_SIZE];
-        let epoch_offset = target_epoch.as_usize() % config.history_length;
-        data[0..8].copy_from_slice(&validator_index.to_be_bytes());
-        data[8..ATTESTER_KEY_SIZE].copy_from_slice(&epoch_offset.to_be_bytes());
+        data[0..8].copy_from_slice(&target_epoch.as_u64().to_be_bytes());
+        data[8..ATTESTER_KEY_SIZE].copy_from_slice(&validator_index.to_be_bytes());
         AttesterKey { data }
+    }
+
+    pub fn parse(data: &[u8]) -> Result<(Epoch, u64), Error> {
+        if data.len() == ATTESTER_KEY_SIZE {
+            let target_epoch = Epoch::new(BigEndian::read_u64(&data[..8]));
+            let validator_index = BigEndian::read_u64(&data[8..]);
+            Ok((target_epoch, validator_index))
+        } else {
+            Err(Error::AttesterKeyCorrupt { length: data.len() })
+        }
     }
 }
 
@@ -58,6 +80,10 @@ impl AsRef<[u8]> for AttesterKey {
     }
 }
 
+/// Database key for the `proposers` database.
+///
+/// Stored as big-endian `(slot, validator_index)` to enable efficient iteration
+/// while pruning.
 #[derive(Debug)]
 pub struct ProposerKey {
     data: [u8; PROPOSER_KEY_SIZE],
@@ -66,9 +92,19 @@ pub struct ProposerKey {
 impl ProposerKey {
     pub fn new(validator_index: u64, slot: Slot) -> Self {
         let mut data = [0; PROPOSER_KEY_SIZE];
-        data[0..8].copy_from_slice(&validator_index.to_be_bytes());
-        data[8..ATTESTER_KEY_SIZE].copy_from_slice(&slot.as_u64().to_be_bytes());
+        data[0..8].copy_from_slice(&slot.as_u64().to_be_bytes());
+        data[8..PROPOSER_KEY_SIZE].copy_from_slice(&validator_index.to_be_bytes());
         ProposerKey { data }
+    }
+
+    pub fn parse(data: &[u8]) -> Result<(Slot, u64), Error> {
+        if data.len() == PROPOSER_KEY_SIZE {
+            let slot = Slot::new(BigEndian::read_u64(&data[..8]));
+            let validator_index = BigEndian::read_u64(&data[8..]);
+            Ok((slot, validator_index))
+        } else {
+            Err(Error::ProposerKeyCorrupt { length: data.len() })
+        }
     }
 }
 
@@ -88,17 +124,19 @@ impl<E: EthSpec> SlasherDB<E> {
             .open(&config.database_path)?;
         let indexed_attestation_db =
             env.create_db(Some(INDEXED_ATTESTATION_DB), Self::db_flags())?;
-        let attester_db = env.create_db(Some(ATTESTER_DB), Self::db_flags())?;
+        let attesters_db = env.create_db(Some(ATTESTER_DB), Self::db_flags())?;
         let min_targets_db = env.create_db(Some(MIN_TARGETS_DB), Self::db_flags())?;
         let max_targets_db = env.create_db(Some(MAX_TARGETS_DB), Self::db_flags())?;
-        let proposer_db = env.create_db(Some(PROPOSER_DB), Self::db_flags())?;
+        let proposers_db = env.create_db(Some(PROPOSER_DB), Self::db_flags())?;
+        let metadata_db = env.create_db(Some(METADATA_DB), Self::db_flags())?;
         Ok(Self {
             env,
             indexed_attestation_db,
-            attester_db,
+            attesters_db,
             min_targets_db,
             max_targets_db,
-            proposer_db,
+            proposers_db,
+            metadata_db,
             config,
             _phantom: PhantomData,
         })
@@ -114,6 +152,32 @@ impl<E: EthSpec> SlasherDB<E> {
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
         Ok(self.env.begin_rw_txn()?)
+    }
+
+    // FIXME(sproul): rename
+    pub fn get_stored_current_epoch(
+        &self,
+        txn: &mut RwTransaction<'_>,
+    ) -> Result<Option<Epoch>, Error> {
+        Ok(txn
+            .get(self.metadata_db, &METADATA_CURRENT_EPOCH_KEY)
+            .optional()?
+            .map(Epoch::from_ssz_bytes)
+            .transpose()?)
+    }
+
+    pub fn update_current_epoch(
+        &self,
+        current_epoch: Epoch,
+        txn: &mut RwTransaction<'_>,
+    ) -> Result<(), Error> {
+        txn.put(
+            self.metadata_db,
+            &METADATA_CURRENT_EPOCH_KEY,
+            &current_epoch.as_ssz_bytes(),
+            Self::write_flags(),
+        )?;
+        Ok(())
     }
 
     pub fn store_indexed_attestation(
@@ -138,13 +202,13 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
         indexed_attestation_hash: Hash256,
     ) -> Result<IndexedAttestation<E>, Error> {
-        match txn.get(self.indexed_attestation_db, &indexed_attestation_hash) {
-            Ok(bytes) => Ok(IndexedAttestation::from_ssz_bytes(bytes)?),
-            Err(lmdb::Error::NotFound) => Err(Error::MissingIndexedAttestation {
+        let bytes = txn
+            .get(self.indexed_attestation_db, &indexed_attestation_hash)
+            .optional()?
+            .ok_or_else(|| Error::MissingIndexedAttestation {
                 root: indexed_attestation_hash,
-            }),
-            Err(e) => Err(e.into()),
-        }
+            })?;
+        Ok(IndexedAttestation::from_ssz_bytes(bytes)?)
     }
 
     pub fn check_and_update_attester_record(
@@ -177,8 +241,8 @@ impl<E: EthSpec> SlasherDB<E> {
         // If no attestation exists, insert a record for this validator.
         else {
             txn.put(
-                self.attester_db,
-                &AttesterKey::new(validator_index, attestation.data.target.epoch, &self.config),
+                self.attesters_db,
+                &AttesterKey::new(validator_index, attestation.data.target.epoch),
                 &record.as_ssz_bytes(),
                 Self::write_flags(),
             )?;
@@ -208,12 +272,12 @@ impl<E: EthSpec> SlasherDB<E> {
         validator_index: u64,
         target: Epoch,
     ) -> Result<Option<AttesterRecord>, Error> {
-        let attester_key = AttesterKey::new(validator_index, target, &self.config);
-        match txn.get(self.attester_db, &attester_key) {
-            Ok(bytes) => Ok(Some(AttesterRecord::from_ssz_bytes(bytes)?)),
-            Err(lmdb::Error::NotFound) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        let attester_key = AttesterKey::new(validator_index, target);
+        Ok(txn
+            .get(self.attesters_db, &attester_key)
+            .optional()?
+            .map(AttesterRecord::from_ssz_bytes)
+            .transpose()?)
     }
 
     pub fn get_block_proposal(
@@ -223,11 +287,11 @@ impl<E: EthSpec> SlasherDB<E> {
         slot: Slot,
     ) -> Result<Option<SignedBeaconBlockHeader>, Error> {
         let proposer_key = ProposerKey::new(proposer_index, slot);
-        match txn.get(self.proposer_db, &proposer_key) {
-            Ok(bytes) => Ok(Some(SignedBeaconBlockHeader::from_ssz_bytes(bytes)?)),
-            Err(lmdb::Error::NotFound) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        Ok(txn
+            .get(self.proposers_db, &proposer_key)
+            .optional()?
+            .map(SignedBeaconBlockHeader::from_ssz_bytes)
+            .transpose()?)
     }
 
     pub fn check_or_insert_block_proposal(
@@ -251,13 +315,120 @@ impl<E: EthSpec> SlasherDB<E> {
             }
         } else {
             txn.put(
-                self.proposer_db,
+                self.proposers_db,
                 &ProposerKey::new(proposer_index, slot),
                 &block_header.as_ssz_bytes(),
                 Self::write_flags(),
             )?;
             Ok(ProposerSlashingStatus::NotSlashable)
         }
+    }
+
+    pub fn prune(&self, current_epoch: Epoch) -> Result<(), Error> {
+        let mut txn = self.begin_rw_txn()?;
+        self.prune_proposers(current_epoch, &mut txn)?;
+        self.prune_attesters(current_epoch, &mut txn)?;
+        txn.commit()?;
+        Ok(())
+    }
+
+    fn prune_proposers(
+        &self,
+        current_epoch: Epoch,
+        txn: &mut RwTransaction<'_>,
+    ) -> Result<(), Error> {
+        let min_slot = current_epoch
+            .saturating_add(1u64)
+            .saturating_sub(self.config.history_length)
+            .start_slot(E::slots_per_epoch());
+
+        let mut cursor = txn.open_rw_cursor(self.proposers_db)?;
+
+        // Position cursor at first key, bailing out if the database is empty.
+        match cursor.get(None, None, lmdb_sys::MDB_FIRST) {
+            Ok(_) => (),
+            Err(lmdb::Error::NotFound) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        }
+
+        loop {
+            let key_bytes = cursor
+                .get(None, None, lmdb_sys::MDB_GET_CURRENT)?
+                .0
+                .ok_or_else(|| Error::MissingProposerKey)?;
+
+            let (slot, _) = ProposerKey::parse(key_bytes)?;
+            if slot < min_slot {
+                cursor.del(Self::write_flags())?;
+                cursor.get(None, None, lmdb_sys::MDB_NEXT)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn prune_attesters(
+        &self,
+        current_epoch: Epoch,
+        txn: &mut RwTransaction<'_>,
+    ) -> Result<(), Error> {
+        let min_epoch = current_epoch
+            .saturating_add(1u64)
+            .saturating_sub(self.config.history_length as u64);
+
+        let mut cursor = txn.open_rw_cursor(self.attesters_db)?;
+
+        // Position cursor at first key, bailing out if the database is empty.
+        match cursor.get(None, None, lmdb_sys::MDB_FIRST) {
+            Ok(_) => (),
+            Err(lmdb::Error::NotFound) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        }
+
+        let mut indexed_attestations_to_delete = HashSet::new();
+
+        loop {
+            println!("Iterating...");
+            let (optional_key, value) = cursor.get(None, None, lmdb_sys::MDB_GET_CURRENT).unwrap();
+            let key_bytes = optional_key.ok_or_else(|| Error::MissingAttesterKey)?;
+
+            let (target_epoch, validator_index) = AttesterKey::parse(key_bytes)?;
+
+            if target_epoch < min_epoch {
+                // Stage the indexed attestation for deletion and delete the record itself.
+                let attester_record = AttesterRecord::from_ssz_bytes(value)?;
+                indexed_attestations_to_delete.insert(attester_record.indexed_attestation_hash);
+
+                println!(
+                    "Deleting attestation for epoch {} from {}",
+                    target_epoch, validator_index
+                );
+
+                cursor.del(Self::write_flags()).unwrap();
+                // FIXME(sproul): abstract this pattern
+                match cursor.get(None, None, lmdb_sys::MDB_NEXT) {
+                    Ok(_) => (),
+                    Err(lmdb::Error::NotFound) => break,
+                    Err(e) => return Err(e.into()),
+                }
+            } else {
+                break;
+            }
+        }
+        drop(cursor);
+
+        for indexed_attestation_hash in indexed_attestations_to_delete {
+            println!(
+                "Deleting indexed attestation {:?}",
+                indexed_attestation_hash
+            );
+            txn.del(self.indexed_attestation_db, &indexed_attestation_hash, None)
+                .expect("HELLO");
+        }
+
+        Ok(())
     }
 }
 

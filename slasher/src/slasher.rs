@@ -70,6 +70,7 @@ impl<E: EthSpec> Slasher<E> {
         let mut txn = self.db.begin_rw_txn()?;
         self.process_blocks(&mut txn)?;
         self.process_attestations(current_epoch, &mut txn)?;
+        self.db.update_current_epoch(current_epoch, &mut txn)?;
         txn.commit()?;
         Ok(())
     }
@@ -123,7 +124,7 @@ impl<E: EthSpec> Slasher<E> {
 
         // Dequeue attestations in batches and process them.
         for (subqueue_id, subqueue) in snapshot.subqueues.into_iter().enumerate() {
-            self.process_batch(txn, subqueue_id, subqueue.attestations, current_epoch);
+            self.process_batch(txn, subqueue_id, subqueue.attestations, current_epoch)?;
         }
         Ok(())
     }
@@ -135,7 +136,7 @@ impl<E: EthSpec> Slasher<E> {
         subqueue_id: usize,
         batch: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
         current_epoch: Epoch,
-    ) {
+    ) -> Result<(), Error> {
         // First, check for double votes.
         for attestation in &batch {
             match self.check_double_votes(txn, subqueue_id, &attestation.0, attestation.1) {
@@ -155,6 +156,7 @@ impl<E: EthSpec> Slasher<E> {
                         "Error checking for double votes";
                         "error" => format!("{:?}", e)
                     );
+                    return Err(e);
                 }
             }
         }
@@ -184,8 +186,11 @@ impl<E: EthSpec> Slasher<E> {
                     "Error processing array update";
                     "error" => format!("{:?}", e),
                 );
+                return Err(e);
             }
         }
+
+        Ok(())
     }
 
     /// Check for double votes from all validators on `attestation` who match the `subqueue_id`.
@@ -226,5 +231,9 @@ impl<E: EthSpec> Slasher<E> {
         }
 
         Ok(slashings)
+    }
+
+    pub fn prune_database(&self, current_epoch: Epoch) -> Result<(), Error> {
+        self.db.prune(current_epoch)
     }
 }
