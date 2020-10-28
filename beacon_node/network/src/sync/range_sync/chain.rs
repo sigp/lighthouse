@@ -31,7 +31,6 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
 /// Reasons for removing a chain
-#[derive(Debug)]
 pub enum RemoveChain {
     EmptyPeerPool,
     ChainCompleted,
@@ -1033,5 +1032,18 @@ use super::batch::WrongState as WrongBatchState;
 impl From<WrongBatchState> for RemoveChain {
     fn from(err: WrongBatchState) -> Self {
         RemoveChain::WrongBatchState(err.0)
+    }
+}
+
+impl std::fmt::Debug for RemoveChain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // needed to avoid Debuggins Strings
+        match self {
+            RemoveChain::ChainCompleted => f.write_str("ChainCompleted"),
+            RemoveChain::EmptyPeerPool => f.write_str("EmptyPeerPool"),
+            RemoveChain::ChainFailed(batch) => write!(f, "ChainFailed(batch: {} )", batch),
+            RemoveChain::WrongBatchState(reason) => write!(f, "WrongBatchState: {}", reason),
+            RemoveChain::WrongChainState(reason) => write!(f, "WrongChainState: {}", reason),
+        }
     }
 }
