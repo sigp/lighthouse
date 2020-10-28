@@ -232,6 +232,13 @@ fn run<E: EthSpec>(
 
     let log = environment.core_context().log().clone();
 
+    if matches.is_present("spec") {
+        warn!(
+            log,
+            "The --spec flag is deprecated and will be removed in a future release"
+        );
+    }
+
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.
     //
