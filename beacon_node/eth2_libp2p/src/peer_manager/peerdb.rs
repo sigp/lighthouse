@@ -7,7 +7,7 @@ use crate::Enr;
 use crate::PeerId;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, trace, warn};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::net::IpAddr;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
@@ -42,19 +42,19 @@ pub struct BannedPeersCount {
 impl BannedPeersCount {
     /// Removes the peer from the counts if it is banned. Returns true if the peer was banned and
     /// false otherwise.
-    pub fn remove_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
+    pub fn remove_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_sub(1);
         for address in ip_addresses {
-            if let Some(count) = self.banned_peers_per_ip.get_mut(address) {
+            if let Some(count) = self.banned_peers_per_ip.get_mut(&address) {
                 *count = count.saturating_sub(1);
             }
         }
     }
 
-    pub fn add_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
+    pub fn add_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_add(1);
         for address in ip_addresses {
-            *self.banned_peers_per_ip.entry(*address).or_insert(0) += 1;
+            *self.banned_peers_per_ip.entry(address).or_insert(0) += 1;
         }
     }
 
@@ -174,8 +174,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     fn ip_is_banned(&self, peer: &PeerInfo<TSpec>) -> bool {
         peer.seen_addresses()
-            .iter()
-            .any(|addr| self.banned_peers_count.ip_is_banned(addr))
+            .any(|ip| self.banned_peers_count.ip_is_banned(&ip))
     }
 
     /// Returns true if the IP is banned.
