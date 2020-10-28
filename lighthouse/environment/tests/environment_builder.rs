@@ -13,7 +13,7 @@ fn builder() -> EnvironmentBuilder<V012LegacyEthSpec> {
         .expect("should set logger")
 }
 
-fn eth2_testnet_config() -> Option<Eth2TestnetConfig<V012LegacyEthSpec>> {
+fn eth2_testnet_config() -> Option<Eth2TestnetConfig> {
     Eth2TestnetConfig::hard_coded_default().expect("should decode hard_coded params")
 }
 

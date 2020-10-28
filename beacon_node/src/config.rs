@@ -255,7 +255,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 testnet dir to obtain some additional config values.
      */
-    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&cli_args)?;
+    let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
@@ -545,9 +545,7 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_testnet_config<E: EthSpec>(
-    cli_args: &ArgMatches,
-) -> Result<Eth2TestnetConfig<E>, String> {
+pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
     let optional_testnet_config = if cli_args.is_present("testnet") {
         clap_utils::parse_hardcoded_network(cli_args, "testnet")?
     } else if cli_args.is_present("testnet-dir") {

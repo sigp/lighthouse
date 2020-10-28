@@ -37,7 +37,7 @@ pub struct EnvironmentBuilder<E: EthSpec> {
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
-    testnet: Option<Eth2TestnetConfig<E>>,
+    testnet: Option<Eth2TestnetConfig>,
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
@@ -238,7 +238,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Adds a testnet configuration to the environment.
     pub fn eth2_testnet_config(
         mut self,
-        eth2_testnet_config: Eth2TestnetConfig<E>,
+        eth2_testnet_config: Eth2TestnetConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
         self.eth2_config.spec = eth2_testnet_config
@@ -261,7 +261,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Optionally adds a testnet configuration to the environment.
     pub fn optional_eth2_testnet_config(
         self,
-        optional_config: Option<Eth2TestnetConfig<E>>,
+        optional_config: Option<Eth2TestnetConfig>,
     ) -> Result<Self, String> {
         if let Some(config) = optional_config {
             self.eth2_testnet_config(config)
@@ -339,7 +339,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
-    pub testnet: Option<Eth2TestnetConfig<E>>,
+    pub testnet: Option<Eth2TestnetConfig>,
 }
 
 impl<E: EthSpec> Environment<E> {
