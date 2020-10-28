@@ -137,6 +137,26 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// Perform a HTTP POST request, returning a JSON response.
+    async fn post_with_response<T: DeserializeOwned, U: IntoUrl, V: Serialize>(
+        &self,
+        url: U,
+        body: &V,
+    ) -> Result<T, Error> {
+        let response = self
+            .client
+            .post(url)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_error(response)
+            .await?
+            .json()
+            .await
+            .map_err(Error::Reqwest)
+    }
+
     /// `GET beacon/genesis`
     ///
     /// ## Errors
@@ -722,37 +742,6 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET validator/duties/attester/{epoch}?index`
-    ///
-    /// ## Note
-    ///
-    /// The `index` query parameter accepts a list of validator indices.
-    pub async fn get_validator_duties_attester(
-        &self,
-        epoch: Epoch,
-        index: Option<&[u64]>,
-    ) -> Result<GenericResponse<Vec<AttesterData>>, Error> {
-        let mut path = self.eth_path()?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("validator")
-            .push("duties")
-            .push("attester")
-            .push(&epoch.to_string());
-
-        if let Some(index) = index {
-            let string = index
-                .iter()
-                .map(|i| i.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            path.query_pairs_mut().append_pair("index", &string);
-        }
-
-        self.get(path).await
-    }
-
     /// `GET validator/duties/proposer/{epoch}`
     pub async fn get_validator_duties_proposer(
         &self,
@@ -841,6 +830,24 @@ impl BeaconNodeHttpClient {
             );
 
         self.get_opt(path).await
+    }
+
+    /// `POST validator/duties/attester/{epoch}`
+    pub async fn post_validator_duties_attester(
+        &self,
+        epoch: Epoch,
+        indices: &Vec<u64>,
+    ) -> Result<GenericResponse<Vec<AttesterData>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("attester")
+            .push(&epoch.to_string());
+
+        self.post_with_response(path, indices).await
     }
 
     /// `POST validator/aggregate_and_proofs`

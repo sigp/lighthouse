@@ -1231,7 +1231,7 @@ impl ApiTester {
                 if epoch > current_epoch + 1 {
                     assert_eq!(
                         self.client
-                            .get_validator_duties_attester(epoch, Some(&indices))
+                            .post_validator_duties_attester(epoch, &indices)
                             .await
                             .unwrap_err()
                             .status()
@@ -1243,7 +1243,7 @@ impl ApiTester {
 
                 let results = self
                     .client
-                    .get_validator_duties_attester(epoch, Some(&indices))
+                    .post_validator_duties_attester(epoch, &indices)
                     .await
                     .unwrap()
                     .data;
@@ -1473,17 +1473,15 @@ impl ApiTester {
         let fork = head.beacon_state.fork;
         let genesis_validators_root = self.chain.genesis_validators_root;
 
-        let mut duties = vec![];
-        for i in 0..self.validator_keypairs.len() {
-            duties.push(
-                self.client
-                    .get_validator_duties_attester(epoch, Some(&[i as u64]))
-                    .await
-                    .unwrap()
-                    .data[0]
-                    .clone(),
+        let duties = self
+            .client
+            .post_validator_duties_attester(
+                epoch,
+                (0..self.validator_keypairs.len() as u64).collect(),
             )
-        }
+            .await
+            .unwrap()
+            .data;
 
         let (i, kp, duty, proof) = self
             .validator_keypairs

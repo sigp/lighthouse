@@ -1,8 +1,10 @@
+use eth2::types::AttesterData;
 use eth2::{
     types::{BeaconCommitteeSubscription, StateId, ValidatorId},
     BeaconNodeHttpClient,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use types::{CommitteeIndex, Epoch, PublicKey, PublicKeyBytes, Slot};
 
 /// This struct is being used as a shim since we deprecated the `rest_api` in favour of `http_api`.
@@ -53,58 +55,73 @@ impl ValidatorDuty {
         beacon_node: &BeaconNodeHttpClient,
         current_epoch: Epoch,
         request_epoch: Epoch,
-        pubkey: PublicKey,
-    ) -> Result<ValidatorDuty, String> {
-        let pubkey_bytes = PublicKeyBytes::from(&pubkey);
+        pubkeys: &[PublicKey],
+    ) -> Result<Vec<ValidatorDuty>, String> {
+        //TODO: Can we just store validator indices in the validator definitions.yml?
+        let mut duties = Vec::new();
+        let mut validator_indices = Vec::new();
+        let mut validator_id_tuples = Vec::new();
 
-        let validator_index = if let Some(index) = beacon_node
-            .get_beacon_states_validator_id(
-                StateId::Head,
-                &ValidatorId::PublicKey(pubkey_bytes.clone()),
-            )
-            .await
-            .map_err(|e| format!("Failed to get validator index: {}", e))?
-            .map(|body| body.data.index)
-        {
-            index
-        } else {
-            return Ok(Self::no_duties(pubkey));
-        };
+        for pubkey in pubkeys {
+            let pubkey_bytes = PublicKeyBytes::from(pubkey);
+            if let Some(index) = beacon_node
+                .get_beacon_states_validator_id(
+                    StateId::Head,
+                    &ValidatorId::PublicKey(pubkey_bytes.clone()),
+                )
+                .await
+                .map_err(|e| format!("Failed to get validator index: {}", e))?
+                .map(|body| body.data.index)
+            {
+                validator_indices.push(index.clone());
+                validator_id_tuples.push((index, pubkey.clone()));
+            } else {
+                duties.push(Self::no_duties(pubkey.clone()))
+            }
+        }
 
-        if let Some(attester) = beacon_node
-            .get_validator_duties_attester(request_epoch, Some(&[validator_index]))
+        let attester_data: HashMap<u64, AttesterData> = beacon_node
+            .post_validator_duties_attester(request_epoch, &validator_indices)
             .await
             .map_err(|e| format!("Failed to get attester duties: {}", e))?
             .data
-            .first()
-        {
-            let block_proposal_slots = if current_epoch == request_epoch {
-                beacon_node
-                    .get_validator_duties_proposer(current_epoch)
-                    .await
-                    .map_err(|e| format!("Failed to get proposer indices: {}", e))?
-                    .data
-                    .into_iter()
-                    .filter(|data| data.pubkey == pubkey_bytes)
-                    .map(|data| data.slot)
-                    .collect()
-            } else {
-                vec![]
-            };
+            .into_iter()
+            .map(|data| (data.validator_index, data))
+            .collect();
 
-            Ok(ValidatorDuty {
-                validator_pubkey: pubkey,
-                validator_index: Some(attester.validator_index),
-                attestation_slot: Some(attester.slot),
-                attestation_committee_index: Some(attester.committee_index),
-                attestation_committee_position: Some(attester.validator_committee_index as usize),
-                committee_count_at_slot: Some(attester.committees_at_slot),
-                committee_length: Some(attester.committee_length),
-                block_proposal_slots: Some(block_proposal_slots),
-            })
+        //TODO: is it possible to have one validator propose more than once per epoch?
+        let block_proposal_slots: HashMap<u64, Vec<Slot>> = if current_epoch == request_epoch {
+            beacon_node
+                .get_validator_duties_proposer(current_epoch)
+                .await
+                .map_err(|e| format!("Failed to get proposer indices: {}", e))?
+                .data
+                .into_iter()
+                .map(|data| (data.validator_index, vec![data.slot]))
+                .collect()
         } else {
-            Ok(Self::no_duties(pubkey))
+            HashMap::new()
+        };
+
+        for validator_id_tuple in validator_id_tuples {
+            if let Some(attester) = attester_data.get(&validator_id_tuple.0) {
+                duties.push(ValidatorDuty {
+                    validator_pubkey: validator_id_tuple.1,
+                    validator_index: Some(attester.validator_index),
+                    attestation_slot: Some(attester.slot),
+                    attestation_committee_index: Some(attester.committee_index),
+                    attestation_committee_position: Some(
+                        attester.validator_committee_index as usize,
+                    ),
+                    committee_count_at_slot: Some(attester.committees_at_slot),
+                    committee_length: Some(attester.committee_length),
+                    block_proposal_slots: block_proposal_slots.get(&validator_id_tuple.0).cloned(),
+                });
+            } else {
+                duties.push(Self::no_duties(validator_id_tuple.1))
+            }
         }
+        Ok(duties)
     }
 
     /// Return `true` if these validator duties are equal, ignoring their `block_proposal_slots`.

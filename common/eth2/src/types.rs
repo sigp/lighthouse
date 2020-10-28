@@ -377,10 +377,9 @@ pub struct ValidatorBalancesQuery {
     pub id: Option<QueryVec<ValidatorId>>,
 }
 
-#[derive(Clone, Deserialize)]
-pub struct ValidatorDutiesQuery {
-    pub index: Option<QueryVec<u64>>,
-}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ValidatorIndexData(#[serde(with = "serde_utils::quoted_u64_vec")] pub Vec<u64>);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
