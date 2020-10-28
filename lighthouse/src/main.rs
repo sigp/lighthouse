@@ -46,7 +46,7 @@ fn main() {
                 .short("s")
                 .long("spec")
                 .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This
+                .help("This flag is deprecated, it will be disallowed in a future release. This \
                     value is now derived from the --testnet or --testnet-dir flags.")
                 .takes_value(true)
                 .global(true)
@@ -148,16 +148,12 @@ fn main() {
             return Ok(());
         }
 
-        macro_rules! run_with_spec {
-            ($env_builder: expr) => {
-                run($env_builder, &matches, testnet_config)
-            };
-        }
-
         match eth_spec_id {
-            EthSpecId::Minimal => run_with_spec!(EnvironmentBuilder::minimal()),
-            EthSpecId::Mainnet => run_with_spec!(EnvironmentBuilder::mainnet()),
-            EthSpecId::V012Legacy => run_with_spec!(EnvironmentBuilder::v012_legacy()),
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
+            EthSpecId::V012Legacy => {
+                run(EnvironmentBuilder::v012_legacy(), &matches, testnet_config)
+            }
         }
     });
 

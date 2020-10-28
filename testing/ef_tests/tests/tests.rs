@@ -191,6 +191,9 @@ mod ssz_static {
     ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(deposit_message, DepositMessage);
     // FIXME(sproul): move Eth1Block to consensus/types
+    //
+    // Tracked at: https://github.com/sigp/lighthouse/issues/1835
+    //
     // ssz_static_test!(eth1_block, Eth1Block);
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);

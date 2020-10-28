@@ -513,8 +513,6 @@ pub struct YamlConfig {
     inactivity_penalty_quotient: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_slashing_penalty_quotient: u64,
-    // Proportional slashing multiplier defaults to 3 for compatibility with Altona and Medalla.
-    #[serde(default = "default_proportional_slashing_multiplier")]
     #[serde(with = "serde_utils::quoted_u64")]
     proportional_slashing_multiplier: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -577,11 +575,6 @@ pub struct YamlConfig {
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
-}
-
-// Compatibility shim for proportional slashing multpilier on Altona and Medalla.
-fn default_proportional_slashing_multiplier() -> u64 {
-    3
 }
 
 impl Default for YamlConfig {

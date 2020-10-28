@@ -114,13 +114,9 @@ impl Eth2TestnetConfig {
             .as_ref()
             .ok_or_else(|| "YAML specification file missing".to_string())
             .and_then(|config| {
-                config.eth_spec_id().ok_or_else(|| {
-                    format!(
-                        "Unknown CONFIG_NAME:
-                        {}",
-                        config.config_name
-                    )
-                })
+                config
+                    .eth_spec_id()
+                    .ok_or_else(|| format!("Unknown CONFIG_NAME: {}", config.config_name))
             })
     }
 
@@ -136,13 +132,8 @@ impl Eth2TestnetConfig {
             .as_ref()
             .ok_or_else(|| "Genesis state is unknown".to_string())?;
 
-        BeaconState::from_ssz_bytes(genesis_state_bytes).map_err(|e| {
-            format!(
-                "Genesis state SSZ
-                bytes are invalid: {:?}",
-                e
-            )
-        })
+        BeaconState::from_ssz_bytes(genesis_state_bytes)
+            .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
     }
 
     /// Write the files to the directory.

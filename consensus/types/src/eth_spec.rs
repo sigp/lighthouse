@@ -288,5 +288,3 @@ impl EthSpec for V012LegacyEthSpec {
         EthSpecId::V012Legacy
     }
 }
-
-pub type InteropBeaconState = BeaconState<V012LegacyEthSpec>;
