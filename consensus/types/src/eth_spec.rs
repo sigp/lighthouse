@@ -6,11 +6,26 @@ use ssz_types::typenum::{
     Unsigned, U0, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U64,
     U65536, U8, U8192,
 };
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
-pub const SPEC_MAINNET: &str = "mainnet";
-pub const SPEC_MINIMAL: &str = "minimal";
-pub const SPEC_LEGACY: &str = "v0.12-legacy";
+/// Used to identify one of the `EthSpec` instances defined here.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum EthSpecId {
+    Mainnet,
+    Minimal,
+    Legacy,
+}
+
+impl fmt::Display for EthSpecId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            EthSpecId::Mainnet => "mainnet",
+            EthSpecId::Minimal => "minimal",
+            EthSpecId::Legacy => "minimal",
+        };
+        write!(f, "{}", s)
+    }
+}
 
 pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
     /*
@@ -60,7 +75,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
 
     fn default_spec() -> ChainSpec;
 
-    fn spec_name() -> &'static str;
+    fn spec_name() -> EthSpecId;
 
     fn genesis_epoch() -> Epoch {
         Epoch::new(Self::GenesisEpoch::to_u64())
@@ -166,8 +181,8 @@ impl EthSpec for MainnetEthSpec {
         ChainSpec::mainnet()
     }
 
-    fn spec_name() -> &'static str {
-        SPEC_MAINNET
+    fn spec_name() -> EthSpecId {
+        EthSpecId::Mainnet
     }
 }
 
@@ -207,8 +222,8 @@ impl EthSpec for MinimalEthSpec {
         ChainSpec::minimal()
     }
 
-    fn spec_name() -> &'static str {
-        SPEC_MINIMAL
+    fn spec_name() -> EthSpecId {
+        EthSpecId::Minimal
     }
 }
 
@@ -250,8 +265,8 @@ impl EthSpec for V012LegacyEthSpec {
         ChainSpec::v012_legacy()
     }
 
-    fn spec_name() -> &'static str {
-        SPEC_LEGACY
+    fn spec_name() -> EthSpecId {
+        EthSpecId::Legacy
     }
 }
 

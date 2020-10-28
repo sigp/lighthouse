@@ -1,7 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
-use types::{ChainSpec, SPEC_LEGACY, SPEC_MAINNET, SPEC_MINIMAL};
+use types::{ChainSpec, EthSpecId};
 
 // A macro is used to define this constant so it can be used with `include_bytes!`.
 #[macro_export]
@@ -26,7 +26,7 @@ pub struct Eth2Config {
 impl Default for Eth2Config {
     fn default() -> Self {
         Self {
-            spec_constants: SPEC_MINIMAL.to_string(),
+            spec_constants: EthSpecId::Minimal.to_string(),
             spec: ChainSpec::minimal(),
         }
     }
@@ -35,21 +35,21 @@ impl Default for Eth2Config {
 impl Eth2Config {
     pub fn mainnet() -> Self {
         Self {
-            spec_constants: SPEC_MAINNET.to_string(),
+            spec_constants: EthSpecId::Mainnet.to_string(),
             spec: ChainSpec::mainnet(),
         }
     }
 
     pub fn minimal() -> Self {
         Self {
-            spec_constants: SPEC_MINIMAL.to_string(),
+            spec_constants: EthSpecId::Minimal.to_string(),
             spec: ChainSpec::minimal(),
         }
     }
 
     pub fn v012_legacy() -> Self {
         Self {
-            spec_constants: SPEC_LEGACY.to_string(),
+            spec_constants: EthSpecId::Legacy.to_string(),
             spec: ChainSpec::v012_legacy(),
         }
     }

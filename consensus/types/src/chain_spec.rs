@@ -601,14 +601,14 @@ impl YamlConfig {
     /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
     ///
     /// Returns `None` if there is no match.
-    pub fn spec_constants(&self) -> Option<&'static str> {
+    pub fn eth_spec_id(&self) -> Option<EthSpecId> {
         Some(match self.config_name.as_str() {
-            "mainnet" => SPEC_MAINNET,
-            "minima" => SPEC_MINIMAL,
-            "zinken" => SPEC_LEGACY,
-            "spadina" => SPEC_LEGACY,
-            "medalla" => SPEC_LEGACY,
-            "altona" => SPEC_LEGACY,
+            "mainnet" => EthSpecId::Mainnet,
+            "minimal" => EthSpecId::Minimal,
+            "zinken" => EthSpecId::Legacy,
+            "spadina" => EthSpecId::Legacy,
+            "medalla" => EthSpecId::Legacy,
+            "altona" => EthSpecId::Legacy,
             _ => return None,
         })
     }

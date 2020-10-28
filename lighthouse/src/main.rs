@@ -7,7 +7,7 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use types::{EthSpec, SPEC_LEGACY, SPEC_MAINNET, SPEC_MINIMAL};
+use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -133,7 +133,7 @@ fn main() {
     }
 
     let result = load_testnet_config(&matches).and_then(|testnet_config| {
-        let spec_constants = testnet_config.spec_constants()?;
+        let eth_spec_id = testnet_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
         if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
@@ -143,7 +143,7 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(bootnode_matches, spec_constants, debug_info);
+            boot_node::run(bootnode_matches, eth_spec_id, debug_info);
 
             return Ok(());
         }
@@ -154,11 +154,10 @@ fn main() {
             };
         }
 
-        match spec_constants {
-            SPEC_MINIMAL => run_with_spec!(EnvironmentBuilder::minimal()),
-            SPEC_MAINNET => run_with_spec!(EnvironmentBuilder::mainnet()),
-            SPEC_LEGACY => run_with_spec!(EnvironmentBuilder::v012_legacy()),
-            spec => Err(format!("Unknown spec CONFIG_NAME: {:?}", spec)),
+        match eth_spec_id {
+            EthSpecId::Minimal => run_with_spec!(EnvironmentBuilder::minimal()),
+            EthSpecId::Mainnet => run_with_spec!(EnvironmentBuilder::mainnet()),
+            EthSpecId::Legacy => run_with_spec!(EnvironmentBuilder::v012_legacy()),
         }
     });
 

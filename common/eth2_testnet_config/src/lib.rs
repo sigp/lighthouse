@@ -17,7 +17,7 @@ use ssz::{Decode, Encode};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use types::{Address, BeaconState, EthSpec, YamlConfig};
+use types::{Address, BeaconState, EthSpec, EthSpecId, YamlConfig};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
@@ -108,12 +108,12 @@ impl Eth2TestnetConfig {
 
     /// Returns an identifier that should be used for selecting an `EthSpec` instance for this
     /// testnet.
-    pub fn spec_constants(&self) -> Result<&'static str, String> {
+    pub fn eth_spec_id(&self) -> Result<EthSpecId, String> {
         self.yaml_config
             .as_ref()
             .ok_or_else(|| "YAML specification file missing".to_string())
             .and_then(|config| {
-                config.spec_constants().ok_or_else(|| {
+                config.eth_spec_id().ok_or_else(|| {
                     format!(
                         "Unknown CONFIG_NAME:
                         {}",
