@@ -846,7 +846,7 @@ impl BeaconNodeHttpClient {
     /// `POST validator/aggregate_and_proofs`
     pub async fn post_validator_aggregate_and_proof<T: EthSpec>(
         &self,
-        aggregate: &SignedAggregateAndProof<T>,
+        aggregates: &Vec<SignedAggregateAndProof<T>>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path()?;
 
@@ -855,7 +855,7 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("aggregate_and_proofs");
 
-        self.post(path, aggregate).await?;
+        self.post(path, aggregates).await?;
 
         Ok(())
     }

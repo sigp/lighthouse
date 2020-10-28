@@ -1638,49 +1638,63 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             aggregate: SignedAggregateAndProof<T::EthSpec>,
+             aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 blocking_json_task(move || {
-                    let aggregate =
+                    let mut verified_aggregates = Vec::new();
+
+                    // Verify that all messages in the post are valid before processing further
+                    for aggregate in aggregates.as_slice() {
                         match chain.verify_aggregated_attestation_for_gossip(aggregate.clone()) {
-                            Ok(aggregate) => aggregate,
+                            Ok(verified_aggregate) => verified_aggregates.push(verified_aggregate),
                             // If we already know the attestation, don't broadcast it or attempt to
                             // further verify it. Return success.
                             //
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err(AttnError::AttestationAlreadyKnown(_)) => return Ok(()),
+                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
                             Err(e) => {
                                 return Err(warp_utils::reject::object_invalid(format!(
                                     "gossip verification failed: {:?}",
                                     e
                                 )));
                             }
-                        };
+                        }
+                    }
 
-                    publish_pubsub_message(
-                        &network_tx,
-                        PubsubMessage::AggregateAndProofAttestation(Box::new(
-                            aggregate.aggregate().clone(),
-                        )),
-                    )?;
-
-                    chain
-                        .apply_attestation_to_fork_choice(&aggregate)
-                        .map_err(|e| {
-                            warp_utils::reject::broadcast_without_import(format!(
-                                "not applied to fork choice: {:?}",
-                                e
+                    let messages: Vec<PubsubMessage<T::EthSpec>> = verified_aggregates
+                        .iter()
+                        .map(|verified_aggregate| {
+                            PubsubMessage::AggregateAndProofAttestation(Box::new(
+                                verified_aggregate.aggregate().clone(),
                             ))
-                        })?;
+                        })
+                        .collect();
 
-                    chain.add_to_block_inclusion_pool(aggregate).map_err(|e| {
-                        warp_utils::reject::broadcast_without_import(format!(
-                            "not applied to block inclusion pool: {:?}",
-                            e
-                        ))
-                    })?;
+                    if !messages.is_empty() {
+                        publish_network_message(&network_tx, NetworkMessage::Publish { messages })?;
+                    }
+
+                    for verified_aggregate in verified_aggregates {
+                        chain
+                            .apply_attestation_to_fork_choice(&verified_aggregate)
+                            .map_err(|e| {
+                                warp_utils::reject::broadcast_without_import(format!(
+                                    "not applied to fork choice: {:?}",
+                                    e
+                                ))
+                            })?;
+
+                        chain
+                            .add_to_block_inclusion_pool(verified_aggregate)
+                            .map_err(|e| {
+                                warp_utils::reject::broadcast_without_import(format!(
+                                    "not applied to block inclusion pool: {:?}",
+                                    e
+                                ))
+                            })?;
+                    }
 
                     Ok(())
                 })
