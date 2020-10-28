@@ -19,14 +19,14 @@ pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Eth2Config {
-    pub spec_constants: String,
+    pub eth_spec_id: EthSpecId,
     pub spec: ChainSpec,
 }
 
 impl Default for Eth2Config {
     fn default() -> Self {
         Self {
-            spec_constants: EthSpecId::Minimal.to_string(),
+            eth_spec_id: EthSpecId::Minimal,
             spec: ChainSpec::minimal(),
         }
     }
@@ -35,21 +35,21 @@ impl Default for Eth2Config {
 impl Eth2Config {
     pub fn mainnet() -> Self {
         Self {
-            spec_constants: EthSpecId::Mainnet.to_string(),
+            eth_spec_id: EthSpecId::Mainnet,
             spec: ChainSpec::mainnet(),
         }
     }
 
     pub fn minimal() -> Self {
         Self {
-            spec_constants: EthSpecId::Minimal.to_string(),
+            eth_spec_id: EthSpecId::Minimal,
             spec: ChainSpec::minimal(),
         }
     }
 
     pub fn v012_legacy() -> Self {
         Self {
-            spec_constants: EthSpecId::Legacy.to_string(),
+            eth_spec_id: EthSpecId::Legacy,
             spec: ChainSpec::v012_legacy(),
         }
     }

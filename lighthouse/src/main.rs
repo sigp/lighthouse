@@ -282,7 +282,6 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(
                 matches,
-                &context.eth2_config.spec_constants,
                 &context.eth2_config().spec,
                 context.log().clone(),
             )?;

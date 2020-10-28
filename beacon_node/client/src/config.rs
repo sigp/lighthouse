@@ -5,9 +5,6 @@ use std::fs;
 use std::path::PathBuf;
 use types::Graffiti;
 
-/// The number initial validators when starting the `Minimal`.
-const TESTNET_SPEC_CONSTANTS: &str = "minimal";
-
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
@@ -46,7 +43,6 @@ pub struct Config {
     /// Path where the freezer database will be located.
     pub freezer_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
-    pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
     ///
     /// This is the method used for the 2019 client interop in Canada.
@@ -81,7 +77,6 @@ impl Default for Config {
             network: NetworkConfig::default(),
             chain: <_>::default(),
             websocket_server: <_>::default(),
-            spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),

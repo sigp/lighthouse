@@ -53,12 +53,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
-        let client_config = get_config::<E>(
-            &matches,
-            &context.eth2_config.spec_constants,
-            &context.eth2_config().spec,
-            context.log().clone(),
-        )?;
+        let client_config =
+            get_config::<E>(&matches, &context.eth2_config().spec, context.log().clone())?;
         Self::new(context, client_config).await
     }
 

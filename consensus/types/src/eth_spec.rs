@@ -7,13 +7,28 @@ use ssz_types::typenum::{
     U65536, U8, U8192,
 };
 use std::fmt::{self, Debug};
+use std::str::FromStr;
 
 /// Used to identify one of the `EthSpec` instances defined here.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum EthSpecId {
     Mainnet,
     Minimal,
     Legacy,
+}
+
+impl FromStr for EthSpecId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mainnet" => Ok(EthSpecId::Mainnet),
+            "minimal" => Ok(EthSpecId::Minimal),
+            "legacy" => Ok(EthSpecId::Legacy),
+            _ => Err(format!("Unknown eth spec: {}", s)),
+        }
+    }
 }
 
 impl fmt::Display for EthSpecId {
@@ -21,7 +36,7 @@ impl fmt::Display for EthSpecId {
         let s = match self {
             EthSpecId::Mainnet => "mainnet",
             EthSpecId::Minimal => "minimal",
-            EthSpecId::Legacy => "minimal",
+            EthSpecId::Legacy => "legacy",
         };
         write!(f, "{}", s)
     }

@@ -5,7 +5,7 @@ use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, warn, Logger};
+use slog::{info, warn, Logger};
 use ssz::Encode;
 use std::cmp;
 use std::fs;
@@ -23,7 +23,6 @@ use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 /// response of some remote server.
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    spec_constants: &str,
     spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
@@ -66,8 +65,6 @@ pub fn get_config<E: EthSpec>(
     // remove /beacon from the end
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
-
-    client_config.spec_constants = spec_constants.into();
 
     /*
      * Networking
@@ -220,14 +217,6 @@ pub fn get_config<E: EthSpec>(
         client_config.store.block_cache_size = block_cache_size
             .parse()
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
-    }
-
-    if spec_constants != client_config.spec_constants {
-        crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants,
-              "eth2_config" => spec_constants
-        );
-        return Err("Specification constant mismatch".into());
     }
 
     /*

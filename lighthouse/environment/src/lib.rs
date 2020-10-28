@@ -249,7 +249,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .ok_or_else(|| {
                 format!(
                     "The loaded config is not compatible with the {} spec",
-                    &self.eth2_config.spec_constants
+                    &self.eth2_config.eth_spec_id
                 )
             })?;
 

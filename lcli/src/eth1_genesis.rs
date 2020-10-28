@@ -35,7 +35,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
         .ok_or_else(|| {
             format!(
                 "The loaded config is not compatible with the {} spec",
-                &env.core_context().eth2_config.spec_constants
+                &env.core_context().eth2_config.eth_spec_id
             )
         })?;
 
