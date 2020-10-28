@@ -330,15 +330,12 @@ pub struct InitializedValidators {
 
 pub struct LockedData<T> {
     data: T,
-    lock_path: PathBuf
+    lock_path: PathBuf,
 }
 
 impl<T> LockedData<T> {
     fn new(data: T, lock_path: PathBuf) -> Self {
-        Self {
-            data,
-            lock_path
-        }
+        Self { data, lock_path }
     }
 }
 
@@ -573,11 +570,10 @@ impl InitializedValidators {
 
         let mut key_cache = LockedData::new(
             {
-                let cache = KeyCache::open_or_create(&self.validators_dir)
-                    .map_err(|e| {
-                        remove_lock(&cache_lockfile_path);
-                        Error::UnableToOpenKeyCache(e)
-                    })?;
+                let cache = KeyCache::open_or_create(&self.validators_dir).map_err(|e| {
+                    remove_lock(&cache_lockfile_path);
+                    Error::UnableToOpenKeyCache(e)
+                })?;
                 self.decrypt_key_cache(cache, &mut key_stores)
                     .await
                     .map_err(|e| {
