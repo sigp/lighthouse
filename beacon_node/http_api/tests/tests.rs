@@ -1231,7 +1231,7 @@ impl ApiTester {
                 if epoch > current_epoch + 1 {
                     assert_eq!(
                         self.client
-                            .post_validator_duties_attester(epoch, &indices)
+                            .post_validator_duties_attester(epoch, indices)
                             .await
                             .unwrap_err()
                             .status()
@@ -1243,7 +1243,7 @@ impl ApiTester {
 
                 let results = self
                     .client
-                    .post_validator_duties_attester(epoch, &indices)
+                    .post_validator_duties_attester(epoch, indices)
                     .await
                     .unwrap()
                     .data;
@@ -1552,7 +1552,7 @@ impl ApiTester {
         let aggregate = self.get_aggregate().await;
 
         self.client
-            .post_validator_aggregate_and_proof::<E>(&vec![aggregate])
+            .post_validator_aggregate_and_proof::<E>(vec![aggregate])
             .await
             .unwrap();
 
@@ -1567,7 +1567,7 @@ impl ApiTester {
         aggregate.message.aggregate.data.slot += 1;
 
         self.client
-            .post_validator_aggregate_and_proof::<E>(&vec![aggregate])
+            .post_validator_aggregate_and_proof::<E>(vec![aggregate])
             .await
             .unwrap_err();
 

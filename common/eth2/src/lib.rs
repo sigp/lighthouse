@@ -836,7 +836,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_duties_attester(
         &self,
         epoch: Epoch,
-        indices: &Vec<u64>,
+        indices: Vec<u64>,
     ) -> Result<GenericResponse<Vec<AttesterData>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -847,13 +847,13 @@ impl BeaconNodeHttpClient {
             .push("attester")
             .push(&epoch.to_string());
 
-        self.post_with_response(path, indices).await
+        self.post_with_response(path, &indices).await
     }
 
     /// `POST validator/aggregate_and_proofs`
     pub async fn post_validator_aggregate_and_proof<T: EthSpec>(
         &self,
-        aggregates: &Vec<SignedAggregateAndProof<T>>,
+        aggregates: Vec<SignedAggregateAndProof<T>>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path()?;
 
@@ -862,7 +862,7 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("aggregate_and_proofs");
 
-        self.post(path, aggregates).await?;
+        self.post(path, &aggregates).await?;
 
         Ok(())
     }

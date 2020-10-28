@@ -73,7 +73,7 @@ impl ValidatorDuty {
                 .map_err(|e| format!("Failed to get validator index: {}", e))?
                 .map(|body| body.data.index)
             {
-                validator_indices.push(index.clone());
+                validator_indices.push(index);
                 validator_id_tuples.push((index, pubkey.clone()));
             } else {
                 duties.push(Self::no_duties(pubkey.clone()))
@@ -81,7 +81,7 @@ impl ValidatorDuty {
         }
 
         let attester_data: HashMap<u64, AttesterData> = beacon_node
-            .post_validator_duties_attester(request_epoch, &validator_indices)
+            .post_validator_duties_attester(request_epoch, validator_indices)
             .await
             .map_err(|e| format!("Failed to get attester duties: {}", e))?
             .data
