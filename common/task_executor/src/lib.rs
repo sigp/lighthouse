@@ -156,13 +156,62 @@ impl TaskExecutor {
             }
         }
     }
+    /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit` returning an optional
+    /// join handle to the future.
+    /// The task is canceled when the corresponding exit_future `Signal` is fired/dropped.
+    ///
+    /// This function generates prometheus metrics on number of tasks and task duration.
+    pub fn spawn_handle<R: Send + 'static>(
+        &self,
+        task: impl Future<Output = R> + Send + 'static,
+        name: &'static str,
+    ) -> Option<tokio::task::JoinHandle<Option<R>>> {
+        let exit = self.exit.clone();
+        let log = self.log.clone();
+
+        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
+            // Task is shutdown before it completes if `exit` receives
+            let int_gauge_1 = int_gauge.clone();
+            let future = future::select(Box::pin(task), exit).then(move |either| {
+                let result = match either {
+                    future::Either::Left((task, _)) => {
+                        trace!(log, "Async task completed"; "task" => name);
+                        Some(task)
+                    }
+                    future::Either::Right(_) => {
+                        debug!(log, "Async task shutdown, exit received"; "task" => name);
+                        None
+                    }
+                };
+                int_gauge_1.dec();
+                futures::future::ready(result)
+            });
+
+            int_gauge.inc();
+            if let Some(runtime) = self.runtime.upgrade() {
+                Some(runtime.spawn(future))
+            } else {
+                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                None
+            }
+        } else {
+            None
+        }
+    }
 
     /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future returning
-    /// a Join handle to the future.
+    /// a join handle to the future.
+    /// If the runtime doesn't exist, this will return None. If the future is exited before
+    /// completion awaiting the join handle will return None.
     /// This function generates prometheus metrics on number of tasks and task duration.
-    pub fn spawn_blocking<F>(&self, task: F, name: &'static str)
+    pub fn spawn_blocking_handle<F, R>(
+        &self,
+        task: F,
+        name: &'static str,
+    ) -> Option<tokio::task::JoinHandle<Option<R>>>
     where
-        F: FnOnce() + Send + 'static,
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
     {
         let exit = self.exit.clone();
         let log = self.log.clone();
@@ -176,36 +225,44 @@ impl TaskExecutor {
                     runtime.spawn_blocking(task)
                 } else {
                     debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                    return;
+                    return None;
                 };
 
                 let future = future::select(join_handle, exit).then(move |either| {
-                    match either {
-                        future::Either::Left(_) => {
-                            trace!(log, "Blocking task completed"; "task" => name)
+                    let future_result = match either {
+                        future::Either::Left((result, _)) => {
+                            trace!(log, "Blocking task completed"; "task" => name);
+                            match result {
+                                Ok(result) => Some(result),
+                                Err(_) => {
+                                    debug!(log, "Blocking task ended unexpectedly");
+                                    None
+                                }
+                            }
                         }
                         future::Either::Right(_) => {
-                            debug!(log, "Blocking task shutdown, exit received"; "task" => name)
+                            debug!(log, "Blocking task shutdown, exit received"; "task" => name);
+                            None
                         }
-                    }
+                    };
                     timer.observe_duration();
                     int_gauge_1.dec();
-                    futures::future::ready(())
+                    futures::future::ready(future_result)
                 });
 
                 int_gauge.inc();
                 if let Some(runtime) = self.runtime.upgrade() {
-                    runtime.spawn(future);
+                    Some(runtime.spawn(future))
                 } else {
                     debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                    None
                 }
+            } else {
+                None
             }
+        } else {
+            None
         }
-    }
-
-    /// Returns the underlying runtime handle.
-    pub fn runtime_handle(&self) -> Weak<Runtime> {
-        self.runtime.clone()
     }
 
     /// Returns a copy of the `exit_future::Exit`.
