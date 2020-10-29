@@ -110,11 +110,9 @@ impl StateId {
 }
 
 impl FromStr for StateId {
-    type Err = warp::Rejection;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        CoreStateId::from_str(s)
-            .map(Self)
-            .map_err(|_| warp_utils::reject::custom_bad_request(format!("Invalid state ID: {}", s)))
+        CoreStateId::from_str(s).map(Self)
     }
 }
