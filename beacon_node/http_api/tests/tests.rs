@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig,
@@ -1660,59 +1662,42 @@ impl ApiTester {
 }
 
 #[tokio::test(core_threads = 2)]
-async fn beacon_genesis() {
-    ApiTester::new().test_beacon_genesis().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_root() {
-    ApiTester::new().test_beacon_states_root().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_fork() {
-    ApiTester::new().test_beacon_states_fork().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_finality_checkpoints() {
+async fn beacon_get() {
     ApiTester::new()
+        .test_beacon_genesis()
+        .await
+        .test_beacon_states_root()
+        .await
+        .test_beacon_states_fork()
+        .await
         .test_beacon_states_finality_checkpoints()
-        .await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_validators() {
-    ApiTester::new().test_beacon_states_validators().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_committees() {
-    ApiTester::new().test_beacon_states_committees().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_validator_id() {
-    ApiTester::new().test_beacon_states_validator_id().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_headers() {
-    ApiTester::new()
+        .await
+        .test_beacon_states_validators()
+        .await
+        .test_beacon_states_committees()
+        .await
+        .test_beacon_states_validator_id()
+        .await
         .test_beacon_headers_all_slots()
         .await
         .test_beacon_headers_all_parents()
+        .await
+        .test_beacon_headers_block_id()
+        .await
+        .test_beacon_blocks()
+        .await
+        .test_beacon_blocks_attestations()
+        .await
+        .test_beacon_blocks_root()
+        .await
+        .test_get_beacon_pool_attestations()
+        .await
+        .test_get_beacon_pool_attester_slashings()
+        .await
+        .test_get_beacon_pool_proposer_slashings()
+        .await
+        .test_get_beacon_pool_voluntary_exits()
         .await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_headers_block_id() {
-    ApiTester::new().test_beacon_headers_block_id().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_blocks() {
-    ApiTester::new().test_beacon_blocks().await;
 }
 
 #[tokio::test(core_threads = 2)]
@@ -1723,29 +1708,6 @@ async fn post_beacon_blocks_valid() {
 #[tokio::test(core_threads = 2)]
 async fn post_beacon_blocks_invalid() {
     ApiTester::new().test_post_beacon_blocks_invalid().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_blocks_root() {
-    ApiTester::new().test_beacon_blocks_root().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_blocks_attestations() {
-    ApiTester::new().test_beacon_blocks_attestations().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_pools_get() {
-    ApiTester::new()
-        .test_get_beacon_pool_attestations()
-        .await
-        .test_get_beacon_pool_attester_slashings()
-        .await
-        .test_get_beacon_pool_proposer_slashings()
-        .await
-        .test_get_beacon_pool_voluntary_exits()
-        .await;
 }
 
 #[tokio::test(core_threads = 2)]
