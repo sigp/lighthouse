@@ -204,7 +204,7 @@ number and timestamp of the latest block we have in our block cache.
 	beacon node are ready for block production.
 	- This value might be set to
 	`false` whilst `eth1_node_sync_status_percentage == 100.0` if the beacon
-	node is still build its internal cache.
+	node is still building its internal cache.
 	- This value might be set to `true` whilst
 	`eth1_node_sync_status_percentage < 100.0` since the cache only cares
 	about blocks a certain distance behind the head.
