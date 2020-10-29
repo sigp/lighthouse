@@ -114,7 +114,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     }
 
     // Return immediately if beacon node is not synced
-    if !is_syncing(client).await? {
+    if is_syncing(client).await? {
         return Err("Beacon node is still syncing".to_string());
     }
 
@@ -162,7 +162,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
         );
     } else {
         eprintln!(
-            "Did not publish voluntary exit for validator {}. Please check that you entered the correct passphrase.",
+            "Did not publish voluntary exit for validator {}. Please check that you entered the correct exit phrase.",
             keypair.pk
         );
     }
@@ -188,7 +188,8 @@ async fn get_validator_index_for_exit(
         .map_err(|e| format!("Failed to get validator details: {:?}", e))?
         .ok_or_else(|| {
             format!(
-                "Validator {} is not present in the beacon state. Please ensure that your beacon node is synced",
+                "Validator {} is not present in the beacon state. \
+                Please ensure that your beacon node is synced and the validator has been deposited.",
                 validator_pubkey
             )
         })?
