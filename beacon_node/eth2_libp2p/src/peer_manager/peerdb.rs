@@ -1,4 +1,4 @@
-use super::peer_info::{PeerConnectionStatus, PeerInfo};
+use super::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
 use super::score::{Score, ScoreState};
 use crate::multiaddr::{Multiaddr, Protocol};
@@ -7,8 +7,8 @@ use crate::Enr;
 use crate::PeerId;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, trace, warn};
-use std::collections::{HashMap};
-use std::net::IpAddr;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
@@ -369,8 +369,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             });
     }
 
-    /// Sets a peer as connected with an ingoing connection.
-    pub fn connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
+    fn connect(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+        enr: Option<Enr>,
+        direction: ConnectionDirection,
+    ) {
         let info = self.peers.entry(peer_id.clone()).or_default();
         info.enr = enr;
 
@@ -384,39 +389,37 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .remove_banned_peer(info.seen_addresses());
         }
 
-        // Add the seen ip address to the peer's info
-        let ip_addr = multiaddr.iter().find_map(|p| match p {
-            Protocol::Ip4(ip) => Some(ip.into()),
-            Protocol::Ip6(ip) => Some(ip.into()),
+        // Add the seen ip address and port to the peer's info
+        let socket_addr = match multiaddr.iter().fold(
+            (None, None),
+            |(found_ip, found_port), protocol| match protocol {
+                Protocol::Ip4(ip) => (Some(ip.into()), found_port),
+                Protocol::Ip6(ip) => (Some(ip.into()), found_port),
+                Protocol::Tcp(port) => (found_ip, Some(port)),
+                _ => (found_ip, found_port),
+            },
+        ) {
+            (Some(ip), Some(port)) => Some(SocketAddr::new(ip, port)),
+            (Some(_ip), None) => {
+                crit!(self.log, "Connected peer has an IP but no TCP port"; "peer_id" => %peer_id);
+                None
+            }
             _ => None,
-        });
+        };
 
-        info.connect_ingoing(ip_addr);
+        match direction {
+            ConnectionDirection::Incoming => info.connect_ingoing(socket_addr),
+            ConnectionDirection::Outgoing => info.connect_outgoing(socket_addr),
+        }
+    }
+    /// Sets a peer as connected with an ingoing connection.
+    pub fn connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
+        self.connect(peer_id, multiaddr, enr, ConnectionDirection::Incoming)
     }
 
     /// Sets a peer as connected with an outgoing connection.
     pub fn connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
-        info.enr = enr;
-
-        if info.is_disconnected() {
-            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
-        }
-
-        if info.is_banned() {
-            error!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
-            self.banned_peers_count
-                .remove_banned_peer(info.seen_addresses());
-        }
-
-        // Add the seen ip address to the peer's info
-        let ip_addr = multiaddr.iter().find_map(|p| match p {
-            Protocol::Ip4(ip) => Some(ip.into()),
-            Protocol::Ip6(ip) => Some(ip.into()),
-            _ => None,
-        });
-
-        info.connect_outgoing(ip_addr);
+        self.connect(peer_id, multiaddr, enr, ConnectionDirection::Outgoing)
     }
 
     /// Sets the peer as disconnected. A banned peer remains banned

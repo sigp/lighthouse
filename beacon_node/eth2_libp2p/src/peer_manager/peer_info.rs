@@ -92,9 +92,10 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Returns the seen IP addresses of the peer.
-    pub fn seen_addresses<'a>(&'a self) -> impl Iterator<Item = IpAddr> + 'a{
-        self.seen_addresses.iter().map(|socket_addr| socket_addr.ip())
-
+    pub fn seen_addresses<'a>(&'a self) -> impl Iterator<Item = IpAddr> + 'a {
+        self.seen_addresses
+            .iter()
+            .map(|socket_addr| socket_addr.ip())
     }
 
     /// Returns the connection status of the peer.
@@ -264,7 +265,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Connected and increases the number of outgoing
     /// connections by one
-    pub(crate) fn connect_outgoing(&mut self, seen_address: Option<IpAddr>) {
+    pub(crate) fn connect_outgoing(&mut self, seen_address: Option<SocketAddr>) {
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. }
@@ -276,10 +277,9 @@ impl<T: EthSpec> PeerInfo<T> {
                 self.connection_direction = Some(ConnectionDirection::Outgoing);
             }
         }
-        // TODO
-        // if let Some(ip_addr) = seen_address {
-        //     self.seen_addresses.insert(ip_addr);
-        // }
+        if let Some(ip_addr) = seen_address {
+            self.seen_addresses.insert(ip_addr);
+        }
     }
 
     #[cfg(test)]
