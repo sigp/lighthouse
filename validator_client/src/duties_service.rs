@@ -106,6 +106,10 @@ impl DutyAndProof {
     pub fn validator_pubkey(&self) -> &PublicKey {
         &self.duty.validator_pubkey
     }
+
+    pub fn validator_index(&self) -> Option<u64> {
+        self.duty.validator_index
+    }
 }
 
 impl Into<DutyAndProof> for ValidatorDuty {
@@ -227,6 +231,14 @@ impl DutiesStore {
             })
             .cloned()
             .collect()
+    }
+
+    fn get_index(&self, pubkey: &PublicKey, epoch: Epoch) -> Option<u64> {
+        self.store
+            .read()
+            .get(pubkey)?
+            .get(&epoch)?
+            .validator_index()
     }
 
     fn is_aggregator(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<bool> {
@@ -588,12 +600,31 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let mut replaced = 0;
         let mut invalid = 0;
 
+        // Determine which pubkeys we already know the index of by checking the duties store for
+        // the current epoch.
+        let mut unknown_pubkeys = Vec::new();
+        let known_pubkeys = self
+            .validator_store
+            .voting_pubkeys()
+            .into_iter()
+            .filter_map(
+                |pubkey| match self.store.get_index(&pubkey, current_epoch) {
+                    Some(index) => Some((pubkey, index)),
+                    None => {
+                        unknown_pubkeys.push(pubkey);
+                        None
+                    }
+                },
+            )
+            .collect();
+
         let mut validator_subscriptions = vec![];
         let remote_duties: Vec<ValidatorDuty> = match ValidatorDuty::download(
             &self.beacon_node,
             current_epoch,
             request_epoch,
-            self.validator_store.voting_pubkeys().as_slice(),
+            known_pubkeys,
+            unknown_pubkeys.as_slice(),
         )
         .await
         {
