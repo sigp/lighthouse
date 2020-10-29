@@ -822,7 +822,7 @@ async fn download_eth1_block(
     let http_block = get_block(
         &endpoint,
         block_number_opt
-            .map(|n| BlockQuery::Number(n))
+            .map(BlockQuery::Number)
             .unwrap_or_else(|| BlockQuery::Latest),
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
