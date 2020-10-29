@@ -63,25 +63,7 @@ impl PartialEq for PublicKey {
 #[derive(Clone)]
 pub struct AggregatePublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
 
-impl TAggregatePublicKey for AggregatePublicKey {
-    fn infinity() -> Self {
-        Self([0; PUBLIC_KEY_BYTES_LEN])
-    }
-
-    fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
-        let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
-        bytes[..].copy_from_slice(&self.0);
-        bytes
-    }
-
-    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        let mut key = [0; PUBLIC_KEY_BYTES_LEN];
-
-        key[..].copy_from_slice(&bytes);
-
-        Ok(Self(key))
-    }
-}
+impl TAggregatePublicKey for AggregatePublicKey {}
 
 impl Eq for AggregatePublicKey {}
 

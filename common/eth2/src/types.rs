@@ -165,7 +165,7 @@ pub struct FinalityCheckpointsData {
     pub finalized: Checkpoint,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ValidatorId {
     PublicKey(PublicKeyBytes),
     Index(u64),
@@ -211,17 +211,18 @@ pub struct ValidatorData {
 //
 // https://hackmd.io/bQxMDRt1RbS1TLno8K4NPg?view
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ValidatorStatus {
     Unknown,
     WaitingForEligibility,
     WaitingForFinality,
     WaitingInQueue,
-    StandbyForActive(Epoch),
+    StandbyForActive,
     Active,
-    ActiveAwaitingVoluntaryExit(Epoch),
-    ActiveAwaitingSlashedExit(Epoch),
-    ExitedVoluntarily(Epoch),
-    ExitedSlashed(Epoch),
+    ActiveAwaitingVoluntaryExit,
+    ActiveAwaitingSlashedExit,
+    ExitedVoluntarily,
+    ExitedSlashed,
     Withdrawable,
     Withdrawn,
 }
@@ -238,22 +239,22 @@ impl ValidatorStatus {
                 ValidatorStatus::Withdrawable
             } else if validator.is_exited_at(epoch) {
                 if validator.slashed {
-                    ValidatorStatus::ExitedSlashed(validator.withdrawable_epoch)
+                    ValidatorStatus::ExitedSlashed
                 } else {
-                    ValidatorStatus::ExitedVoluntarily(validator.withdrawable_epoch)
+                    ValidatorStatus::ExitedVoluntarily
                 }
             } else if validator.is_active_at(epoch) {
                 if validator.exit_epoch < far_future_epoch {
                     if validator.slashed {
-                        ValidatorStatus::ActiveAwaitingSlashedExit(validator.exit_epoch)
+                        ValidatorStatus::ActiveAwaitingSlashedExit
                     } else {
-                        ValidatorStatus::ActiveAwaitingVoluntaryExit(validator.exit_epoch)
+                        ValidatorStatus::ActiveAwaitingVoluntaryExit
                     }
                 } else {
                     ValidatorStatus::Active
                 }
             } else if validator.activation_epoch < far_future_epoch {
-                ValidatorStatus::StandbyForActive(validator.activation_epoch)
+                ValidatorStatus::StandbyForActive
             } else if validator.activation_eligibility_epoch < far_future_epoch {
                 if finalized_epoch < validator.activation_eligibility_epoch {
                     ValidatorStatus::WaitingForFinality
@@ -269,10 +270,59 @@ impl ValidatorStatus {
     }
 }
 
+impl FromStr for ValidatorStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "unknown" => Ok(ValidatorStatus::Unknown),
+            "waiting_for_eligibility" => Ok(ValidatorStatus::WaitingForEligibility),
+            "waiting_for_finality" => Ok(ValidatorStatus::WaitingForFinality),
+            "waiting_in_queue" => Ok(ValidatorStatus::WaitingInQueue),
+            "standby_for_active" => Ok(ValidatorStatus::StandbyForActive),
+            "active" => Ok(ValidatorStatus::Active),
+            "active_awaiting_voluntary_exit" => Ok(ValidatorStatus::ActiveAwaitingVoluntaryExit),
+            "active_awaiting_slashed_exit" => Ok(ValidatorStatus::ActiveAwaitingSlashedExit),
+            "exited_voluntarily" => Ok(ValidatorStatus::ExitedVoluntarily),
+            "exited_slashed" => Ok(ValidatorStatus::ExitedSlashed),
+            "withdrawable" => Ok(ValidatorStatus::Withdrawable),
+            "withdrawn" => Ok(ValidatorStatus::Withdrawn),
+            _ => Err(format!("{} cannot be parsed as a validator status.", s)),
+        }
+    }
+}
+
+impl fmt::Display for ValidatorStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ValidatorStatus::Unknown => write!(f, "unknown"),
+            ValidatorStatus::WaitingForEligibility => write!(f, "waiting_for_eligibility"),
+            ValidatorStatus::WaitingForFinality => write!(f, "waiting_for_finality"),
+            ValidatorStatus::WaitingInQueue => write!(f, "waiting_in_queue"),
+            ValidatorStatus::StandbyForActive => write!(f, "standby_for_active"),
+            ValidatorStatus::Active => write!(f, "active"),
+            ValidatorStatus::ActiveAwaitingVoluntaryExit => {
+                write!(f, "active_awaiting_voluntary_exit")
+            }
+            ValidatorStatus::ActiveAwaitingSlashedExit => write!(f, "active_awaiting_slashed_exit"),
+            ValidatorStatus::ExitedVoluntarily => write!(f, "exited_voluntarily"),
+            ValidatorStatus::ExitedSlashed => write!(f, "exited_slashed"),
+            ValidatorStatus::Withdrawable => write!(f, "withdrawable"),
+            ValidatorStatus::Withdrawn => write!(f, "withdrawn"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct CommitteesQuery {
     pub slot: Option<Slot>,
     pub index: Option<u64>,
+}
+
+#[derive(Deserialize)]
+pub struct ValidatorsQuery {
+    pub id: Option<QueryVec<ValidatorId>>,
+    pub status: Option<QueryVec<ValidatorStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

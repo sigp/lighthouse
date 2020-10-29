@@ -73,6 +73,7 @@ pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
+pub use crate::eth_spec::EthSpecId;
 pub use crate::fork::Fork;
 pub use crate::fork_data::ForkData;
 pub use crate::free_attestation::FreeAttestation;

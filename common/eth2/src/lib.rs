@@ -210,12 +210,14 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
-    /// `GET beacon/states/{state_id}/validators`
+    /// `GET beacon/states/{state_id}/validators?id,status`
     ///
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_beacon_states_validators(
         &self,
         state_id: StateId,
+        ids: Option<&[ValidatorId]>,
+        statuses: Option<&[ValidatorStatus]>,
     ) -> Result<Option<GenericResponse<Vec<ValidatorData>>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -225,6 +227,24 @@ impl BeaconNodeHttpClient {
             .push("states")
             .push(&state_id.to_string())
             .push("validators");
+
+        if let Some(ids) = ids {
+            let id_string = ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("id", &id_string);
+        }
+
+        if let Some(statuses) = statuses {
+            let status_string = statuses
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("status", &status_string);
+        }
 
         self.get_opt(path).await
     }

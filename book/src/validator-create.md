@@ -43,9 +43,6 @@ OPTIONS:
         --secrets-dir <SECRETS_DIR>
             The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/{testnet}/secrets
 
-    -s, --spec <TITLE>
-            Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, interop]
-
         --testnet <testnet>
             Name of network lighthouse will connect to [possible values: medalla, altona]
 
