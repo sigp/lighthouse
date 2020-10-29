@@ -1,6 +1,6 @@
 use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey},
-    Error, INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN,
+    Error, PUBLIC_KEY_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -32,8 +32,7 @@ where
     ///
     /// May fail if the bytes are invalid.
     pub fn decompress(&self) -> Result<GenericPublicKey<Pub>, Error> {
-        let is_infinity = self.bytes[..] == INFINITY_PUBLIC_KEY[..];
-        Pub::deserialize(&self.bytes).map(|point| GenericPublicKey::from_point(point, is_infinity))
+        GenericPublicKey::deserialize(&self.bytes)
     }
 }
 

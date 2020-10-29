@@ -4,7 +4,7 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY,
+    Error, Hash256, ZeroizeHash,
 };
 pub use milagro_bls as milagro;
 use rand::thread_rng;
@@ -86,21 +86,7 @@ impl TPublicKey for milagro::PublicKey {
     }
 }
 
-impl TAggregatePublicKey for milagro::AggregatePublicKey {
-    fn infinity() -> Self {
-        Self::from_bytes(&INFINITY_PUBLIC_KEY).expect("should decode infinity public key")
-    }
-
-    fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
-        let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
-        bytes[..].copy_from_slice(&self.as_bytes());
-        bytes
-    }
-
-    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
-    }
-}
+impl TAggregatePublicKey for milagro::AggregatePublicKey {}
 
 impl TSignature<milagro::PublicKey> for milagro::Signature {
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {

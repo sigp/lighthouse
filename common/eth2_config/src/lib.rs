@@ -1,7 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
-use types::ChainSpec;
+use types::{ChainSpec, EthSpecId};
 
 // A macro is used to define this constant so it can be used with `include_bytes!`.
 #[macro_export]
@@ -19,14 +19,14 @@ pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Eth2Config {
-    pub spec_constants: String,
+    pub eth_spec_id: EthSpecId,
     pub spec: ChainSpec,
 }
 
 impl Default for Eth2Config {
     fn default() -> Self {
         Self {
-            spec_constants: "minimal".to_string(),
+            eth_spec_id: EthSpecId::Minimal,
             spec: ChainSpec::minimal(),
         }
     }
@@ -35,22 +35,22 @@ impl Default for Eth2Config {
 impl Eth2Config {
     pub fn mainnet() -> Self {
         Self {
-            spec_constants: "mainnet".to_string(),
+            eth_spec_id: EthSpecId::Mainnet,
             spec: ChainSpec::mainnet(),
         }
     }
 
     pub fn minimal() -> Self {
         Self {
-            spec_constants: "minimal".to_string(),
+            eth_spec_id: EthSpecId::Minimal,
             spec: ChainSpec::minimal(),
         }
     }
 
-    pub fn interop() -> Self {
+    pub fn v012_legacy() -> Self {
         Self {
-            spec_constants: "interop".to_string(),
-            spec: ChainSpec::interop(),
+            eth_spec_id: EthSpecId::V012Legacy,
+            spec: ChainSpec::v012_legacy(),
         }
     }
 }

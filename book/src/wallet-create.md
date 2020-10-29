@@ -43,9 +43,6 @@ OPTIONS:
             A path to a file containing the password which will unlock the wallet. If the file does not exist, a random
             password will be generated and saved at that path. To avoid confusion, if the file does not already exist it
             must include a '.pass' suffix.
-    -s, --spec <TITLE>
-            Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, interop]
-
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.

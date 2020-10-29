@@ -2,7 +2,7 @@
 # It is not intended for manual editing.
 [[package]]
 name = "account_manager"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "account_utils",
  "bls",
@@ -19,7 +19,7 @@ dependencies = [
  "eth2_wallet",
  "eth2_wallet_manager",
  "futures 0.3.7",
- "hex 0.4.2",
+ "hex",
  "libc",
  "rand 0.7.3",
  "rayon",
@@ -27,7 +27,7 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
  "validator_dir",
 ]
@@ -98,7 +98,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "884391ef1066acaa41e766ba8f596341b96e93ce34f9a43e7d24bf0a0eaf0561"
 dependencies = [
- "aes-soft 0.6.0",
+ "aes-soft 0.6.2",
  "aesni 0.10.0",
  "cipher",
 ]
@@ -121,7 +121,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7729c3cde54d67063be556aeac75a81330d802f0259500ca40cb52967f975763"
 dependencies = [
- "aes-soft 0.6.0",
+ "aes-soft 0.6.2",
  "aesni 0.10.0",
  "cipher",
  "ctr 0.6.0",
@@ -167,11 +167,10 @@ dependencies = [
 
 [[package]]
 name = "aes-soft"
-version = "0.6.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c5ab1fa47ce0ddf44cbd65b1b4e626e3c03b06fd42005603acdc6fa13526296"
+checksum = "e39964420d0ab27e20c12b348bf901ef3f69e43694dd25ca4dbafe050781a7fe"
 dependencies = [
- "byteorder",
  "cipher",
  "opaque-debug 0.3.0",
 ]
@@ -230,12 +229,8 @@ dependencies = [
 
 [[package]]
 name = "amcl"
-version = "0.2.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
-dependencies = [
- "hex 0.3.2",
- "lazy_static",
-]
+version = "0.3.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.0#45a076a776a6f1d9f8157fd2d574bfefaee2c81a"
 
 [[package]]
 name = "ansi_term"
@@ -415,7 +410,7 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
- "bitvec 0.19.3",
+ "bitvec 0.19.4",
  "bls",
  "bus",
  "derivative",
@@ -459,7 +454,7 @@ dependencies = [
  "store",
  "task_executor",
  "tempfile",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tree_hash",
  "types",
  "websocket_server",
@@ -467,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -484,7 +479,7 @@ dependencies = [
  "exit-future",
  "futures 0.3.7",
  "genesis",
- "hex 0.4.2",
+ "hex",
  "hyper 0.13.8",
  "lighthouse_version",
  "logging",
@@ -496,7 +491,7 @@ dependencies = [
  "slog-term",
  "store",
  "task_executor",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
 ]
 
@@ -545,9 +540,9 @@ dependencies = [
 
 [[package]]
 name = "bitvec"
-version = "0.19.3"
+version = "0.19.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11593270830d9b037fbead730bb0c05ef6fbf6be55537a1e8e5892edef7e1f03"
+checksum = "a7ba35e9565969edb811639dbebfe34edc0368e472c5018474c8eb2543397f81"
 dependencies = [
  "funty",
  "radium 0.5.3",
@@ -557,15 +552,13 @@ dependencies = [
 
 [[package]]
 name = "blake2"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84ce5b6108f8e154604bd4eb76a2f726066c3464d5a552a4229262a18c9bb471"
+checksum = "10a5720225ef5daecf08657f23791354e1685a8c91a4c60c7f3d3b2892f978f4"
 dependencies = [
- "byte-tools",
- "byteorder",
  "crypto-mac 0.8.0",
  "digest 0.9.0",
- "opaque-debug 0.2.3",
+ "opaque-debug 0.3.0",
 ]
 
 [[package]]
@@ -645,7 +638,7 @@ dependencies = [
  "eth2_hashing",
  "eth2_ssz",
  "ethereum-types",
- "hex 0.4.2",
+ "hex",
  "milagro_bls",
  "rand 0.7.3",
  "serde",
@@ -657,8 +650,8 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.1.1"
-source = "git+https://github.com/sigp/blst.git?rev=284f7059642851c760a09fb1708bcb59c7ca323c#284f7059642851c760a09fb1708bcb59c7ca323c"
+version = "0.2.0"
+source = "git+https://github.com/sigp/blst.git?rev=7cf47864627ca479cad06c2a164f30d0cbaf16ce#7cf47864627ca479cad06c2a164f30d0cbaf16ce"
 dependencies = [
  "cc",
  "glob",
@@ -667,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "beacon_node",
  "clap",
@@ -675,7 +668,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_testnet_config",
  "futures 0.3.7",
- "hex 0.4.2",
+ "hex",
  "log 0.4.11",
  "logging",
  "slog",
@@ -684,7 +677,7 @@ dependencies = [
  "slog-stdlog",
  "slog-term",
  "sloggers",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
 ]
 
@@ -912,7 +905,7 @@ dependencies = [
  "dirs 3.0.1",
  "eth2_ssz",
  "eth2_testnet_config",
- "hex 0.4.2",
+ "hex",
  "types",
 ]
 
@@ -951,7 +944,7 @@ dependencies = [
  "task_executor",
  "time 0.2.22",
  "timer",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "toml",
  "tree_hash",
  "types",
@@ -1349,7 +1342,7 @@ version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "ethabi",
- "hex 0.4.2",
+ "hex",
  "reqwest",
  "serde_json",
  "sha2 0.9.1",
@@ -1467,7 +1460,7 @@ dependencies = [
  "enr",
  "fnv",
  "futures 0.3.7",
- "hex 0.4.2",
+ "hex",
  "hkdf",
  "k256",
  "lazy_static",
@@ -1499,7 +1492,7 @@ dependencies = [
  "enr",
  "fnv",
  "futures 0.3.7",
- "hex 0.4.2",
+ "hex",
  "hkdf",
  "k256",
  "lazy_static",
@@ -1511,7 +1504,7 @@ dependencies = [
  "rlp",
  "sha2 0.9.1",
  "smallvec 1.4.2",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tokio-util 0.4.0",
  "tracing",
  "tracing-subscriber",
@@ -1569,7 +1562,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "ethereum-types",
- "hex 0.4.2",
+ "hex",
  "rayon",
  "serde",
  "serde_derive",
@@ -1623,7 +1616,7 @@ dependencies = [
  "base64 0.12.3",
  "bs58",
  "ed25519-dalek",
- "hex 0.4.2",
+ "hex",
  "k256",
  "log 0.4.11",
  "rand 0.7.3",
@@ -1663,7 +1656,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "task_executor",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
 ]
 
@@ -1687,7 +1680,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "futures 0.3.7",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "libflate",
  "lighthouse_metrics",
@@ -1700,7 +1693,7 @@ dependencies = [
  "sloggers",
  "state_processing",
  "task_executor",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "toml",
  "tree_hash",
  "types",
@@ -1714,7 +1707,7 @@ dependencies = [
  "deposit_contract",
  "futures 0.3.7",
  "serde_json",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
  "web3",
 ]
@@ -1728,7 +1721,7 @@ dependencies = [
  "eth2_keystore",
  "eth2_libp2p",
  "eth2_ssz",
- "hex 0.4.2",
+ "hex",
  "libsecp256k1",
  "procinfo",
  "proto_array",
@@ -1770,7 +1763,7 @@ dependencies = [
  "base64 0.13.0",
  "bls",
  "eth2_hashing",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "num-bigint",
  "serde",
@@ -1783,7 +1776,7 @@ name = "eth2_key_derivation"
 version = "0.1.0"
 dependencies = [
  "bls",
- "hex 0.4.2",
+ "hex",
  "num-bigint-dig",
  "ring",
  "sha2 0.9.1",
@@ -1798,7 +1791,7 @@ dependencies = [
  "bls",
  "eth2_key_derivation",
  "eth2_ssz",
- "hex 0.4.2",
+ "hex",
  "hmac 0.9.0",
  "pbkdf2 0.5.0",
  "rand 0.7.3",
@@ -1828,7 +1821,7 @@ dependencies = [
  "fnv",
  "futures 0.3.7",
  "hashset_delay",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "libp2p",
  "lighthouse_metrics",
@@ -1848,7 +1841,7 @@ dependencies = [
  "task_executor",
  "tempdir",
  "tiny-keccak 2.0.2",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tokio-io-timeout",
  "tokio-util 0.4.0",
  "types",
@@ -1907,7 +1900,7 @@ version = "0.1.0"
 dependencies = [
  "eth2_key_derivation",
  "eth2_keystore",
- "hex 0.4.2",
+ "hex",
  "rand 0.7.3",
  "serde",
  "serde_json",
@@ -2087,7 +2080,7 @@ dependencies = [
  "beacon_chain",
  "eth2_ssz",
  "eth2_ssz_derive",
- "hex 0.4.2",
+ "hex",
  "proto_array",
  "slot_clock",
  "state_processing",
@@ -2312,7 +2305,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "state_processing",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tree_hash",
  "types",
 ]
@@ -2481,7 +2474,7 @@ name = "hashset_delay"
 version = "0.2.0"
 dependencies = [
  "futures 0.3.7",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tokio-util 0.4.0",
 ]
 
@@ -2527,12 +2520,6 @@ checksum = "5aca5565f760fb5b220e499d72710ed156fdb74e631659e99377d9ebfbd13ae8"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "hex"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
 
 [[package]]
 name = "hex"
@@ -2654,7 +2641,7 @@ dependencies = [
  "eth2_libp2p",
  "eth2_ssz",
  "fork_choice",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
@@ -2665,7 +2652,7 @@ dependencies = [
  "slot_clock",
  "state_processing",
  "store",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tree_hash",
  "types",
  "warp",
@@ -2689,7 +2676,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "store",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
  "warp",
  "warp_utils",
@@ -2910,7 +2897,7 @@ name = "int_to_bytes"
 version = "0.2.0"
 dependencies = [
  "bytes 0.5.6",
- "hex 0.4.2",
+ "hex",
  "yaml-rust",
 ]
 
@@ -3035,7 +3022,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bls",
  "clap",
@@ -3050,7 +3037,7 @@ dependencies = [
  "eth2_testnet_config",
  "futures 0.3.7",
  "genesis",
- "hex 0.4.2",
+ "hex",
  "lighthouse_version",
  "log 0.4.11",
  "rand 0.7.3",
@@ -3059,7 +3046,7 @@ dependencies = [
  "serde_yaml",
  "simple_logger",
  "state_processing",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tree_hash",
  "types",
  "validator_dir",
@@ -3430,7 +3417,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3452,7 +3439,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "tempfile",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
  "validator_client",
  "validator_dir",
@@ -3599,9 +3586,9 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 
 [[package]]
 name = "memchr"
-version = "2.3.3"
+version = "2.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3728d817d99e5ac407411fa471ff9800a778d88a24685968b36824eaf4bee400"
+checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 
 [[package]]
 name = "memoffset"
@@ -3626,11 +3613,11 @@ dependencies = [
 
 [[package]]
 name = "milagro_bls"
-version = "1.1.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
+version = "1.4.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.0#45a076a776a6f1d9f8157fd2d574bfefaee2c81a"
 dependencies = [
  "amcl",
- "hex 0.4.2",
+ "hex",
  "lazy_static",
  "rand 0.7.3",
  "zeroize",
@@ -3867,7 +3854,7 @@ dependencies = [
  "genesis",
  "get_if_addrs",
  "hashset_delay",
- "hex 0.4.2",
+ "hex",
  "igd",
  "itertools 0.9.0",
  "lazy_static",
@@ -3886,7 +3873,7 @@ dependencies = [
  "store",
  "task_executor",
  "tempfile",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tree_hash",
  "types",
 ]
@@ -4401,9 +4388,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-hack"
-version = "0.5.18"
+version = "0.5.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99c605b9a0adc77b7211c6b1f722dcb613d68d66859a44f3d485a6da332b0598"
+checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
 
 [[package]]
 name = "proc-macro-nested"
@@ -5265,7 +5252,7 @@ dependencies = [
 name = "serde_utils"
 version = "0.1.0"
 dependencies = [
- "hex 0.4.2",
+ "hex",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5406,7 +5393,7 @@ dependencies = [
  "node_test_rig",
  "parking_lot 0.11.0",
  "rayon",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
  "validator_client",
 ]
@@ -5839,7 +5826,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "slog",
- "tokio 0.3.1",
+ "tokio 0.3.2",
 ]
 
 [[package]]
@@ -5999,7 +5986,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "task_executor",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
 ]
 
@@ -6099,9 +6086,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1911a203c5c240fd237e23a42e48846475f3d3b1e1dad3f17e6cc17a775b707c"
+checksum = "71f1b20504fd0aa9dab3ae17e8c4dd9431e5e08fd6921689f9745a4004883a17"
 dependencies = [
  "bytes 0.6.0",
  "fnv",
@@ -6208,14 +6195,14 @@ version = "0.4.0"
 source = "git+https://github.com/sigp/tokio-io-timeout?rev=8371da4499b6da9c9c48a625185f8401eafa76ab#8371da4499b6da9c9c48a625185f8401eafa76ab"
 dependencies = [
  "bytes 0.5.6",
- "tokio 0.3.1",
+ "tokio 0.3.2",
 ]
 
 [[package]]
 name = "tokio-macros"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d48caa7b66c7a6ec943edf78d21a594fbeb24e536c781da67d5c32edec54103f"
+checksum = "21d30fdbb5dc2d8f91049691aa1a9d4d4ae422a21c334ce8936e5886d30c5c45"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6415,7 +6402,7 @@ dependencies = [
  "log 0.4.11",
  "pin-project-lite",
  "slab 0.4.2",
- "tokio 0.3.1",
+ "tokio 0.3.2",
 ]
 
 [[package]]
@@ -6629,7 +6616,7 @@ dependencies = [
  "eth2_ssz_derive",
  "eth2_ssz_types",
  "ethereum-types",
- "hex 0.4.2",
+ "hex",
  "int_to_bytes",
  "log 0.4.11",
  "merkle_proof",
@@ -6812,7 +6799,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "account_utils",
  "bincode",
@@ -6831,7 +6818,7 @@ dependencies = [
  "eth2_ssz_derive",
  "exit-future",
  "futures 0.3.7",
- "hex 0.4.2",
+ "hex",
  "hyper 0.13.8",
  "libc",
  "libsecp256k1",
@@ -6854,7 +6841,7 @@ dependencies = [
  "slot_clock",
  "tempdir",
  "tempfile",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "tree_hash",
  "types",
  "validator_dir",
@@ -6869,7 +6856,7 @@ dependencies = [
  "bls",
  "deposit_contract",
  "eth2_keystore",
- "hex 0.4.2",
+ "hex",
  "rand 0.7.3",
  "rayon",
  "slog",
@@ -6977,7 +6964,7 @@ dependencies = [
  "safe_arith",
  "serde",
  "state_processing",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
  "warp",
 ]
@@ -7194,7 +7181,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "task_executor",
- "tokio 0.3.1",
+ "tokio 0.3.2",
  "types",
  "ws",
 ]
