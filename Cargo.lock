@@ -1797,6 +1797,7 @@ dependencies = [
  "eth2_ssz",
  "serde",
  "serde_derive",
+ "serde_json",
  "serde_utils",
  "tree_hash",
  "tree_hash_derive",
