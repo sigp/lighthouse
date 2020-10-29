@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-tokio = "0.2.22"
+tokio = { version = "0.2.22", features = ["rt-threaded", "macros", "blocking"] }
 slog = "2.5.2"
 futures = "0.3.5"
 exit-future = "0.2.0"

@@ -233,9 +233,23 @@ where
                         }))
                 }
                 Err(RateLimitedErr::TooLarge) => {
-                    // we set the batch sizes, so this is a coding/config err
-                    crit!(self.log, "Batch too large to ever be processed";
-                        "protocol" => format!("{}", req.protocol()));
+                    // we set the batch sizes, so this is a coding/config err for most protocols
+                    let protocol = req.protocol();
+                    if matches!(protocol, Protocol::BlocksByRange) {
+                        debug!(self.log, "Blocks by range request will never be processed"; "request" => %req);
+                    } else {
+                        crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+                    }
+                    // send an error code to the peer.
+                    // the handler upon receiving the error code will send it back to the behaviour
+                    self.send_response(
+                        peer_id,
+                        (conn_id, *id),
+                        RPCCodedResponse::Error(
+                            RPCResponseErrorCode::RateLimited,
+                            "Rate limited. Request too large".into(),
+                        ),
+                    );
                 }
                 Err(RateLimitedErr::TooSoon(wait_time)) => {
                     debug!(self.log, "Request exceeds the rate limit";

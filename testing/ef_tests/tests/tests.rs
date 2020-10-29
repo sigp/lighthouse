@@ -172,6 +172,7 @@ mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler};
     use types::*;
 
+    ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
@@ -188,12 +189,24 @@ mod ssz_static {
     ssz_static_test!(checkpoint, Checkpoint);
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
+    ssz_static_test!(deposit_message, DepositMessage);
+    // FIXME(sproul): move Eth1Block to consensus/types
+    //
+    // Tracked at: https://github.com/sigp/lighthouse/issues/1835
+    //
+    // ssz_static_test!(eth1_block, Eth1Block);
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);
+    ssz_static_test!(fork_data, ForkData);
     ssz_static_test!(historical_batch, HistoricalBatch<_>);
     ssz_static_test!(indexed_attestation, IndexedAttestation<_>);
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
+    ssz_static_test!(signed_aggregate_and_proof, SignedAggregateAndProof<_>);
+    ssz_static_test!(signed_beacon_block, SignedBeaconBlock<_>);
+    ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
+    ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
+    ssz_static_test!(signing_data, SigningData);
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 }
@@ -217,7 +230,7 @@ fn epoch_processing_justification_and_finalization() {
 #[test]
 fn epoch_processing_rewards_and_penalties() {
     EpochProcessingHandler::<MinimalEthSpec, RewardsAndPenalties>::run();
-    // Note: there are no reward and penalty tests for mainnet yet
+    EpochProcessingHandler::<MainnetEthSpec, RewardsAndPenalties>::run();
 }
 
 #[test]

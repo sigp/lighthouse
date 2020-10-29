@@ -5,7 +5,6 @@ use eth2_libp2p::{
     discovery::{create_enr_builder_from_config, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
-use eth2_testnet_config::Eth2TestnetConfig;
 use ssz::Encode;
 use std::convert::TryFrom;
 use std::marker::PhantomData;
@@ -30,7 +29,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         let data_dir = get_data_dir(matches);
 
         // Try and grab testnet config from input CLI params
-        let eth2_testnet_config: Option<Eth2TestnetConfig<T>> = {
+        let eth2_testnet_config = {
             if matches.is_present("testnet") {
                 Some(get_eth2_testnet_config(&matches)?)
             } else {
@@ -95,7 +94,9 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                 .apply_to_chain_spec::<T>(&T::default_spec())
                 .ok_or_else(|| "The loaded config is not compatible with the current spec")?;
 
-            if let Some(genesis_state) = config.genesis_state.as_ref() {
+            if config.beacon_state_is_known() {
+                let genesis_state = config.beacon_state::<T>()?;
+
                 slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
                 let enr_fork = spec.enr_fork_id(
                     types::Slot::from(0u64),

@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -37,7 +37,7 @@ pub struct EnvironmentBuilder<E: EthSpec> {
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
-    testnet: Option<Eth2TestnetConfig<E>>,
+    testnet: Option<Eth2TestnetConfig>,
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
@@ -66,14 +66,14 @@ impl EnvironmentBuilder<MainnetEthSpec> {
     }
 }
 
-impl EnvironmentBuilder<InteropEthSpec> {
-    /// Creates a new builder using the `interop` eth2 specification.
-    pub fn interop() -> Self {
+impl EnvironmentBuilder<V012LegacyEthSpec> {
+    /// Creates a new builder using the v0.12.x eth2 specification.
+    pub fn v012_legacy() -> Self {
         Self {
             runtime: None,
             log: None,
-            eth_spec_instance: InteropEthSpec,
-            eth2_config: Eth2Config::interop(),
+            eth_spec_instance: V012LegacyEthSpec,
+            eth2_config: Eth2Config::v012_legacy(),
             testnet: None,
         }
     }
@@ -238,7 +238,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Adds a testnet configuration to the environment.
     pub fn eth2_testnet_config(
         mut self,
-        eth2_testnet_config: Eth2TestnetConfig<E>,
+        eth2_testnet_config: Eth2TestnetConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
         self.eth2_config.spec = eth2_testnet_config
@@ -249,7 +249,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .ok_or_else(|| {
                 format!(
                     "The loaded config is not compatible with the {} spec",
-                    &self.eth2_config.spec_constants
+                    &self.eth2_config.eth_spec_id
                 )
             })?;
 
@@ -261,7 +261,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Optionally adds a testnet configuration to the environment.
     pub fn optional_eth2_testnet_config(
         self,
-        optional_config: Option<Eth2TestnetConfig<E>>,
+        optional_config: Option<Eth2TestnetConfig>,
     ) -> Result<Self, String> {
         if let Some(config) = optional_config {
             self.eth2_testnet_config(config)
@@ -339,7 +339,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
-    pub testnet: Option<Eth2TestnetConfig<E>>,
+    pub testnet: Option<Eth2TestnetConfig>,
 }
 
 impl<E: EthSpec> Environment<E> {
