@@ -471,40 +471,69 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET beacon/states/{state_id}/validators
+    // GET beacon/states/{state_id}/validators?id,status
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
+        .and(warp::query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
-        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || {
-                state_id
-                    .map_state(&chain, |state| {
-                        let epoch = state.current_epoch();
-                        let finalized_epoch = state.finalized_checkpoint.epoch;
-                        let far_future_epoch = chain.spec.far_future_epoch;
+        .and_then(
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
+                blocking_json_task(move || {
+                    state_id
+                        .map_state(&chain, |state| {
+                            let epoch = state.current_epoch();
+                            let finalized_epoch = state.finalized_checkpoint.epoch;
+                            let far_future_epoch = chain.spec.far_future_epoch;
 
-                        Ok(state
-                            .validators
-                            .iter()
-                            .zip(state.balances.iter())
-                            .enumerate()
-                            .map(|(index, (validator, balance))| api_types::ValidatorData {
-                                index: index as u64,
-                                balance: *balance,
-                                status: api_types::ValidatorStatus::from_validator(
-                                    Some(validator),
-                                    epoch,
-                                    finalized_epoch,
-                                    far_future_epoch,
-                                ),
-                                validator: validator.clone(),
-                            })
-                            .collect::<Vec<_>>())
-                    })
-                    .map(api_types::GenericResponse::from)
-            })
-        });
+                            Ok(state
+                                .validators
+                                .iter()
+                                .zip(state.balances.iter())
+                                .enumerate()
+                                // filter by validator id(s) if provided
+                                .filter(|(index, (validator, _))| {
+                                    query.id.as_ref().map_or(true, |ids| {
+                                        ids.0.iter().any(|id| match id {
+                                            ValidatorId::PublicKey(pubkey) => {
+                                                &validator.pubkey == pubkey
+                                            }
+                                            ValidatorId::Index(param_index) => {
+                                                *param_index == *index as u64
+                                            }
+                                        })
+                                    })
+                                })
+                                // filter by status(es) if provided and map the result
+                                .filter_map(|(index, (validator, balance))| {
+                                    let status = api_types::ValidatorStatus::from_validator(
+                                        Some(validator),
+                                        epoch,
+                                        finalized_epoch,
+                                        far_future_epoch,
+                                    );
+
+                                    if query
+                                        .status
+                                        .as_ref()
+                                        .map_or(true, |statuses| statuses.0.contains(&status))
+                                    {
+                                        Some(api_types::ValidatorData {
+                                            index: index as u64,
+                                            balance: *balance,
+                                            status,
+                                            validator: validator.clone(),
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>())
+                        })
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
 
     // GET beacon/states/{state_id}/validators/{validator_id}
     let get_beacon_state_validators_id = beacon_states_path
