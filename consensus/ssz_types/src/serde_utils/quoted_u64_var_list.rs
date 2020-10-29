@@ -25,19 +25,14 @@ where
         write!(formatter, "a list of quoted or unquoted integers")
     }
 
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
     where
         A: serde::de::SeqAccess<'a>,
     {
-        let mut vec = vec![];
-
-        while let Some(val) = seq.next_element()? {
-            let val: QuotedIntWrapper = val;
-            vec.push(val.int);
-        }
-        let fix: VariableList<u64, N> = VariableList::new(vec)
+        let vec = deserialize_max(seq, N::to_usize())?;
+        let list: VariableList<u64, N> = VariableList::new(vec)
             .map_err(|e| serde::de::Error::custom(format!("VariableList: {:?}", e)))?;
-        Ok(fix)
+        Ok(list)
     }
 }
 
@@ -60,6 +55,30 @@ where
     deserializer.deserialize_any(QuotedIntVarListVisitor {
         _phantom: PhantomData,
     })
+}
+
+/// Returns a `Vec` of no more than `max_items` length.
+pub(crate) fn deserialize_max<'a, A>(mut seq: A, max_items: usize) -> Result<Vec<u64>, A::Error>
+where
+    A: serde::de::SeqAccess<'a>,
+{
+    let mut vec = vec![];
+    let mut counter = 0;
+
+    while let Some(val) = seq.next_element()? {
+        let val: QuotedIntWrapper = val;
+        counter += 1;
+        if counter > max_items {
+            return Err(serde::de::Error::custom(format!(
+                "Deserialization failed. Length cannot be greater than {}.",
+                max_items
+            )));
+        }
+
+        vec.push(val.int);
+    }
+
+    Ok(vec)
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@
 //!
 //! Quotes can be optional during decoding. If `N` does not equal the length deserialization will fail.
 
+use crate::serde_utils::quoted_u64_var_list::deserialize_max;
 use crate::FixedVector;
 use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serializer};
@@ -25,16 +26,11 @@ where
         write!(formatter, "a list of quoted or unquoted integers")
     }
 
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
     where
         A: serde::de::SeqAccess<'a>,
     {
-        let mut vec = vec![];
-
-        while let Some(val) = seq.next_element()? {
-            let val: QuotedIntWrapper = val;
-            vec.push(val.int);
-        }
+        let vec = deserialize_max(seq, N::to_usize())?;
         let fix: FixedVector<u64, N> = FixedVector::new(vec)
             .map_err(|e| serde::de::Error::custom(format!("FixedVector: {:?}", e)))?;
         Ok(fix)
