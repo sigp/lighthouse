@@ -265,6 +265,14 @@ impl TaskExecutor {
         }
     }
 
+    // NOTE:
+    // THIS IS A TEMPORARY WORKAROUND USED ONLY FOR THE VC HTTP API. DO NOT USE THIS FUNCTION.
+    // The VC HTTP API should be refactored to not require direct access to the runtime. It
+    // currently requires it as it has an amalgamation of sync and async functions.
+    pub fn runtime(&self) -> Weak<Runtime> {
+        self.runtime.clone()
+    }
+
     /// Returns a copy of the `exit_future::Exit`.
     pub fn exit(&self) -> exit_future::Exit {
         self.exit.clone()

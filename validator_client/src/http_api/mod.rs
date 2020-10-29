@@ -263,26 +263,34 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(spec_filter.clone())
         .and(signer.clone())
+        .and(runtime_filter.clone())
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
              validator_dir: PathBuf,
              validator_store: ValidatorStore<T, E>,
              spec: Arc<ChainSpec>,
-             signer| {
+             signer,
+             runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
-                    let (validators, mnemonic) = create_validators(
-                        None,
-                        None,
-                        &body,
-                        &validator_dir,
-                        &validator_store,
-                        &spec,
-                    )?;
-                    let response = api_types::PostValidatorsResponseData {
-                        mnemonic: mnemonic.into_phrase().into(),
-                        validators,
-                    };
-                    Ok(api_types::GenericResponse::from(response))
+                    if let Some(runtime) = runtime.upgrade() {
+                        let (validators, mnemonic) = runtime.block_on(create_validators(
+                            None,
+                            None,
+                            &body,
+                            &validator_dir,
+                            &validator_store,
+                            &spec,
+                        ))?;
+                        let response = api_types::PostValidatorsResponseData {
+                            mnemonic: mnemonic.into_phrase().into(),
+                            validators,
+                        };
+                        Ok(api_types::GenericResponse::from(response))
+                    } else {
+                        return Err(warp_utils::reject::custom_server_error(
+                            "Runtime shutdown".into(),
+                        ));
+                    }
                 })
             },
         );
@@ -297,25 +305,37 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(spec_filter)
         .and(signer.clone())
+        .and(runtime_filter.clone())
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
              validator_dir: PathBuf,
              validator_store: ValidatorStore<T, E>,
              spec: Arc<ChainSpec>,
-             signer| {
+             signer,
+             runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
-                    let mnemonic = mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!("invalid mnemonic: {:?}", e))
-                    })?;
-                    let (validators, _mnemonic) = create_validators(
-                        Some(mnemonic),
-                        Some(body.key_derivation_path_offset),
-                        &body.validators,
-                        &validator_dir,
-                        &validator_store,
-                        &spec,
-                    )?;
-                    Ok(api_types::GenericResponse::from(validators))
+                    if let Some(runtime) = runtime.upgrade() {
+                        let mnemonic =
+                            mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid mnemonic: {:?}",
+                                    e
+                                ))
+                            })?;
+                        let (validators, _mnemonic) = runtime.block_on(create_validators(
+                            Some(mnemonic),
+                            Some(body.key_derivation_path_offset),
+                            &body.validators,
+                            &validator_dir,
+                            &validator_store,
+                            &spec,
+                        ))?;
+                        Ok(api_types::GenericResponse::from(validators))
+                    } else {
+                        return Err(warp_utils::reject::custom_server_error(
+                            "Runtime shutdown".into(),
+                        ));
+                    }
                 })
             },
         );

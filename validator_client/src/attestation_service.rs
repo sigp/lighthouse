@@ -4,6 +4,7 @@ use crate::{
 };
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
+use futures::future::FutureExt;
 use futures::StreamExt;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
@@ -210,13 +211,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.executor.runtime_handle().spawn(
-                    self.clone().publish_attestations_and_aggregates(
-                        slot,
-                        committee_index,
-                        validator_duties,
-                        aggregate_production_instant,
-                    ),
+                self.inner.context.executor.spawn(
+                    self.clone()
+                        .publish_attestations_and_aggregates(
+                            slot,
+                            committee_index,
+                            validator_duties,
+                            aggregate_production_instant,
+                        )
+                        .map(|_| ()),
+                    "attestation publish",
                 );
             });
 

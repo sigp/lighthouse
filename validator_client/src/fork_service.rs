@@ -1,5 +1,6 @@
 use environment::RuntimeContext;
 use eth2::{types::StateId, BeaconNodeHttpClient};
+use futures::future::FutureExt;
 use futures::StreamExt;
 use parking_lot::RwLock;
 use slog::Logger;
@@ -143,8 +144,7 @@ impl<T: SlotClock + 'static> ForkService<T> {
         // Run an immediate update before starting the updater service.
         context
             .executor
-            .runtime_handle()
-            .spawn(self.clone().do_update());
+            .spawn(self.clone().do_update().map(|_| ()), "fork service update");
 
         let executor = context.executor.clone();
 

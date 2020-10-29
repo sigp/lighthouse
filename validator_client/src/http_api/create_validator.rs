@@ -21,7 +21,7 @@ use validator_dir::Builder as ValidatorDirBuilder;
 ///
 /// If `key_derivation_path_offset` is supplied then the EIP-2334 validator index will start at
 /// this point.
-pub fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
+pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
     mnemonic_opt: Option<Mnemonic>,
     key_derivation_path_offset: Option<u32>,
     validator_requests: &[api_types::ValidatorRequest],
@@ -125,17 +125,19 @@ pub fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
             )));
         }
 
-        tokio::task::block_in_place(validator_store.add_validator_keystore(
-            validator_dir.voting_keystore_path(),
-            voting_password_string,
-            request.enable,
-        ))
-        .map_err(|e| {
-            warp_utils::reject::custom_server_error(format!(
-                "failed to initialize validator: {:?}",
-                e
-            ))
-        })?;
+        validator_store
+            .add_validator_keystore(
+                validator_dir.voting_keystore_path(),
+                voting_password_string,
+                request.enable,
+            )
+            .await
+            .map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "failed to initialize validator: {:?}",
+                    e
+                ))
+            })?;
 
         validators.push(api_types::CreatedValidator {
             enabled: request.enable,

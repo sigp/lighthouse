@@ -8,7 +8,7 @@ use node_test_rig::{
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::time::{delay_until, Instant};
+use tokio::time::{sleep_until, Instant};
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
@@ -110,7 +110,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * The processes that will run checks on the network as it runs.
          */
         let checks_fut = async {
-            delay_until(genesis_instant).await;
+            sleep_until(genesis_instant).await;
 
             let (finalization, block_prod) = futures::join!(
                 // Check that the chain finalizes at the first given opportunity.
