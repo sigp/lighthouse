@@ -5,6 +5,7 @@
 //! As the logic develops this documentation will advance.
 //!
 //! The scoring algorithms are currently experimental.
+use crate::behaviour::GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
 use std::time::Instant;
 use tokio::time::Duration;
@@ -28,8 +29,11 @@ const SCORE_HALFLIFE: f64 = 600.0;
 /// The number of seconds we ban a peer for before their score begins to decay.
 const BANNED_BEFORE_DECAY: Duration = Duration::from_secs(1800);
 
-const GOSSIPSUB_NEGATIVE_SCORE_WEIGHT: f64 = 1.0;
-const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = 1.0;
+/// We weight negative gossipsub scores in such a way that they never result in a disconnect by
+/// themselves. This "solves" the problem of non-decaying gossipsub scores for disconnected peers.
+const GOSSIPSUB_NEGATIVE_SCORE_WEIGHT: f64 =
+    (MIN_SCORE_BEFORE_DISCONNECT + 1.0) / GOSSIPSUB_GREYLIST_THRESHOLD;
+const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
 
 /// A collection of actions a peer can perform which will adjust its score.
 /// Each variant has an associated score change.
@@ -123,11 +127,13 @@ impl Default for RealScore {
 impl RealScore {
     /// Access to the underlying score.
     fn recompuete_score(&mut self) {
-        self.score = self.lighthouse_score + self.gossipsub_score * if self.gossipsub_score > 0.0 {
-            GOSSIPSUB_POSITIVE_SCORE_WEIGHT
-        } else {
-            GOSSIPSUB_NEGATIVE_SCORE_WEIGHT
-        };
+        self.score = self.lighthouse_score
+            + self.gossipsub_score
+                * if self.gossipsub_score > 0.0 {
+                    GOSSIPSUB_POSITIVE_SCORE_WEIGHT
+                } else {
+                    GOSSIPSUB_NEGATIVE_SCORE_WEIGHT
+                };
     }
 
     fn score(&self) -> f64 {
@@ -177,7 +183,7 @@ impl RealScore {
     #[cfg(test)]
     // reset the score
     pub fn test_reset(&mut self) {
-        self.score = 0f64;
+        self.lighthouse_score = 0f64;
         self.update_state();
     }
 
@@ -221,7 +227,7 @@ impl RealScore {
 #[derive(PartialEq, Clone, Debug, Serialize)]
 pub enum Score {
     Max,
-    Real(RealScore)
+    Real(RealScore),
 }
 
 impl Default for Score {
@@ -248,12 +254,16 @@ apply!(apply_peer_action, peer_action: PeerAction);
 apply!(add, delta: f64);
 apply!(update);
 apply!(update_gossipsub_score, new_score: f64);
+#[cfg(test)]
+apply!(test_add, score: f64);
+#[cfg(test)]
+apply!(test_reset);
 
 impl Score {
     pub fn score(&self) -> f64 {
         match self {
             Self::Max => f64::INFINITY,
-            Self::Real(score) => score.score()
+            Self::Real(score) => score.score(),
         }
     }
 
@@ -269,32 +279,13 @@ impl Score {
             _ => ScoreState::Healthy,
         }
     }
-
-    /// Add an f64 to the score abiding by the limits.
-    #[cfg(test)]
-    pub fn test_add(&mut self, score: f64) {
-        match self {
-            Self::Max => (),
-            Self::Real(s) => s.test_add(score)
-        }
-    }
-
-    #[cfg(test)]
-    // reset the score
-    pub fn test_reset(&mut self) {
-        match self {
-            Self::Max => (),
-            Self::Real(s) => s.test_reset()
-        }
-    }
 }
 
 impl Eq for Score {}
 
 impl PartialOrd for Score {
     fn partial_cmp(&self, other: &Score) -> Option<std::cmp::Ordering> {
-        self.score()
-            .partial_cmp(&other.score())
+        self.score().partial_cmp(&other.score())
     }
 }
 
@@ -358,5 +349,14 @@ mod tests {
 
         score.update_at(now + BANNED_BEFORE_DECAY + Duration::from_secs(1));
         assert!(score.score() > MIN_SCORE_BEFORE_BAN);
+    }
+
+    #[test]
+    fn test_very_negative_gossipsub_score() {
+        let mut score = Score::default();
+        score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD);
+        assert_eq!(score.state(), ScoreState::Healthy);
+        score.add(-1.0001);
+        assert_eq!(score.state(), ScoreState::Disconnected);
     }
 }

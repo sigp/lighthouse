@@ -46,6 +46,7 @@ mod gossipsub_scoring_parameters;
 mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
+pub const GOSSIPSUB_GREYLIST_THRESHOLD: f64 = -16000.0;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -184,7 +185,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let thresholds = PeerScoreThresholds {
             gossip_threshold: -4000.0,
             publish_threshold: -8000.0,
-            graylist_threshold: -16000.0,
+            graylist_threshold: GOSSIPSUB_GREYLIST_THRESHOLD,
             accept_px_threshold: 100.0,
             opportunistic_graft_threshold: 5.0,
         };
@@ -201,14 +202,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         debug!(behaviour_log, "Using peer score params"; "params" => format!("{:?}", params));
 
-        let update_gossipsub_scores = tokio::time::interval(tokio::time::Duration::from(
-            params.decay_interval
-        ));
+        let update_gossipsub_scores =
+            tokio::time::interval(tokio::time::Duration::from(params.decay_interval));
 
         gossipsub
             .with_peer_score(params.clone(), thresholds)
             .expect("Valid score params and thresholds");
-
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
