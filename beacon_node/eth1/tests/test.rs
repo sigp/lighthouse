@@ -538,11 +538,16 @@ mod deposit_tree {
 /// Tests for the base HTTP requests and response handlers.
 mod http {
     use super::*;
+    use eth1::http::BlockQuery;
 
     async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> Block {
-        eth1::http::get_block(&eth1.endpoint(), block_number, timeout())
-            .await
-            .expect("should get block number")
+        eth1::http::get_block(
+            &eth1.endpoint(),
+            BlockQuery::Number(block_number),
+            timeout(),
+        )
+        .await
+        .expect("should get block number")
     }
 
     #[tokio::test]

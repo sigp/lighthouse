@@ -3,7 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
     http::{
-        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, Eth1NetworkId, Log,
+        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, BlockQuery,
+        Eth1NetworkId, Log,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -316,13 +317,7 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
-        let endpoint = &self.config().endpoint.clone();
-        let remote_head_block_number =
-            get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-                .map_err(Error::GetBlockNumberFailed)
-                .map_err(|e| format!("Failed to update Eth1 service: {:?}", e))
-                .await?;
-        let remote_head_block = download_eth1_block(self.inner.clone(), remote_head_block_number)
+        let remote_head_block = download_eth1_block(self.inner.clone(), None)
             .map_err(|e| format!("Failed to update Eth1 service: {:?}", e))
             .await?;
         let remote_head_block_number = Some(remote_head_block.number);
@@ -678,7 +673,7 @@ impl Service {
             |mut block_numbers| async {
                 match block_numbers.next() {
                     Some(block_number) => {
-                        match download_eth1_block(self.inner.clone(), block_number).await {
+                        match download_eth1_block(self.inner.clone(), Some(block_number)).await {
                             Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
                             Err(e) => Err(e),
                         }
@@ -798,26 +793,37 @@ async fn get_new_block_numbers<'a>(
 /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given
 /// `block_number`.
 ///
+/// Set `block_number_opt = None` to get the "latest" eth1 block (i.e., the head).
+///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
-async fn download_eth1_block(cache: Arc<Inner>, block_number: u64) -> Result<Eth1Block, Error> {
+async fn download_eth1_block(
+    cache: Arc<Inner>,
+    block_number_opt: Option<u64>,
+) -> Result<Eth1Block, Error> {
     let endpoint = cache.config.read().endpoint.clone();
 
-    let deposit_root = cache
-        .deposit_cache
-        .read()
-        .cache
-        .get_deposit_root_from_cache(block_number);
+    let deposit_root = block_number_opt.and_then(|block_number| {
+        cache
+            .deposit_cache
+            .read()
+            .cache
+            .get_deposit_root_from_cache(block_number)
+    });
 
-    let deposit_count = cache
-        .deposit_cache
-        .read()
-        .cache
-        .get_deposit_count_from_cache(block_number);
+    let deposit_count = block_number_opt.and_then(|block_number| {
+        cache
+            .deposit_cache
+            .read()
+            .cache
+            .get_deposit_count_from_cache(block_number)
+    });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
     let http_block = get_block(
         &endpoint,
-        block_number,
+        block_number_opt
+            .map(|n| BlockQuery::Number(n))
+            .unwrap_or_else(|| BlockQuery::Latest),
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
     .map_err(Error::BlockDownloadFailed)
