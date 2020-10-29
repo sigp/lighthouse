@@ -198,7 +198,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
     fn into_peer_id(&self) -> PeerId {
         match self {
             Self::Secp256k1(pk) => {
-                let pk_bytes = pk.serialize_compressed();
+                let pk_bytes = pk.to_bytes();
                 let libp2p_pk = libp2p::core::PublicKey::Secp256k1(
                     libp2p::core::identity::secp256k1::PublicKey::decode(&pk_bytes)
                         .expect("valid public key"),
@@ -221,7 +221,7 @@ impl CombinedKeyExt for CombinedKey {
     fn from_libp2p(key: &libp2p::core::identity::Keypair) -> Result<CombinedKey, &'static str> {
         match key {
             Keypair::Secp256k1(key) => {
-                let secret = discv5::enr::secp256k1::SecretKey::parse(&key.secret().to_bytes())
+                let secret = discv5::enr::k256::ecdsa::SigningKey::new(&key.secret().to_bytes())
                     .expect("libp2p key must be valid");
                 Ok(CombinedKey::Secp256k1(secret))
             }
@@ -277,7 +277,7 @@ mod tests {
     fn test_secp256k1_peer_id_conversion() {
         let sk_hex = "df94a73d528434ce2309abb19c16aedb535322797dbd59c157b1e04095900f48";
         let sk_bytes = hex::decode(sk_hex).unwrap();
-        let secret_key = discv5::enr::secp256k1::SecretKey::parse_slice(&sk_bytes).unwrap();
+        let secret_key = discv5::enr::k256::ecdsa::SigningKey::new(&sk_bytes).unwrap();
 
         let libp2p_sk = libp2p::identity::secp256k1::SecretKey::from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();

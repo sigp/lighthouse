@@ -240,7 +240,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         while let Some((result, original_addr)) = fut_coll.next().await {
             match result {
-                Ok(Some(enr)) => {
+                Ok(enr) => {
                     debug!(
                         log,
                         "Adding node to routing table";
@@ -258,9 +258,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             "error" => e.to_string(),
                         )
                     });
-                }
-                Ok(None) => {
-                    error!(log, "No ENR found for MultiAddr"; "addr" => original_addr.to_string())
                 }
                 Err(e) => {
                     error!(log, "Error getting mapping to ENR"; "multiaddr" => original_addr.to_string(), "error" => e.to_string())

@@ -3,6 +3,7 @@ use clap_utils::parse_ssz_optional;
 use environment::Environment;
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::interop_genesis_state;
+use ssz::Encode;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{test_utils::generate_deterministic_keypairs, EthSpec};
@@ -35,8 +36,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .expect("should locate home directory")
         });
 
-    let mut eth2_testnet_config: Eth2TestnetConfig<T> =
-        Eth2TestnetConfig::load(testnet_dir.clone())?;
+    let mut eth2_testnet_config = Eth2TestnetConfig::load(testnet_dir.clone())?;
 
     let mut spec = eth2_testnet_config
         .yaml_config
@@ -46,7 +46,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .ok_or_else(|| {
             format!(
                 "The loaded config is not compatible with the {} spec",
-                &env.core_context().eth2_config.spec_constants
+                &env.core_context().eth2_config.eth_spec_id
             )
         })?;
 
@@ -55,9 +55,9 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     }
 
     let keypairs = generate_deterministic_keypairs(validator_count);
-    let genesis_state = interop_genesis_state(&keypairs, genesis_time, &spec)?;
+    let genesis_state = interop_genesis_state::<T>(&keypairs, genesis_time, &spec)?;
 
-    eth2_testnet_config.genesis_state = Some(genesis_state);
+    eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
     eth2_testnet_config.force_write_to_file(testnet_dir)?;
 
     Ok(())

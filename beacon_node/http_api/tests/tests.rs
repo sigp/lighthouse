@@ -411,40 +411,87 @@ impl ApiTester {
 
     pub async fn test_beacon_states_validators(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let result = self
-                .client
-                .get_beacon_states_validators(state_id)
-                .await
-                .unwrap()
-                .map(|res| res.data);
+            for statuses in self.interesting_validator_statuses() {
+                for validator_indices in self.interesting_validator_indices() {
+                    let state_opt = self.get_state(state_id);
+                    let validators: Vec<Validator> = match state_opt.as_ref() {
+                        Some(state) => state.validators.clone().into(),
+                        None => vec![],
+                    };
+                    let validator_index_ids = validator_indices
+                        .iter()
+                        .cloned()
+                        .map(|i| ValidatorId::Index(i))
+                        .collect::<Vec<ValidatorId>>();
+                    let validator_pubkey_ids = validator_indices
+                        .iter()
+                        .cloned()
+                        .map(|i| {
+                            ValidatorId::PublicKey(
+                                validators
+                                    .get(i as usize)
+                                    .map_or(PublicKeyBytes::empty(), |val| val.pubkey.clone()),
+                            )
+                        })
+                        .collect::<Vec<ValidatorId>>();
 
-            let expected = self.get_state(state_id).map(|state| {
-                let epoch = state.current_epoch();
-                let finalized_epoch = state.finalized_checkpoint.epoch;
-                let far_future_epoch = self.chain.spec.far_future_epoch;
+                    let result_index_ids = self
+                        .client
+                        .get_beacon_states_validators(
+                            state_id,
+                            Some(validator_index_ids.as_slice()),
+                            None,
+                        )
+                        .await
+                        .unwrap()
+                        .map(|res| res.data);
 
-                let mut validators = Vec::with_capacity(state.validators.len());
+                    let result_pubkey_ids = self
+                        .client
+                        .get_beacon_states_validators(
+                            state_id,
+                            Some(validator_pubkey_ids.as_slice()),
+                            None,
+                        )
+                        .await
+                        .unwrap()
+                        .map(|res| res.data);
 
-                for i in 0..state.validators.len() {
-                    let validator = state.validators[i].clone();
+                    let expected = state_opt.map(|state| {
+                        let epoch = state.current_epoch();
+                        let finalized_epoch = state.finalized_checkpoint.epoch;
+                        let far_future_epoch = self.chain.spec.far_future_epoch;
 
-                    validators.push(ValidatorData {
-                        index: i as u64,
-                        balance: state.balances[i],
-                        status: ValidatorStatus::from_validator(
-                            Some(&validator),
-                            epoch,
-                            finalized_epoch,
-                            far_future_epoch,
-                        ),
-                        validator,
-                    })
+                        let mut validators = Vec::with_capacity(validator_indices.len());
+
+                        for i in validator_indices {
+                            if i >= state.validators.len() as u64 {
+                                continue;
+                            }
+                            let validator = state.validators[i as usize].clone();
+                            let status = ValidatorStatus::from_validator(
+                                Some(&validator),
+                                epoch,
+                                finalized_epoch,
+                                far_future_epoch,
+                            );
+                            if statuses.contains(&status) || statuses.is_empty() {
+                                validators.push(ValidatorData {
+                                    index: i as u64,
+                                    balance: state.balances[i as usize],
+                                    status,
+                                    validator,
+                                });
+                            }
+                        }
+
+                        validators
+                    });
+
+                    assert_eq!(result_index_ids, expected, "{:?}", state_id);
+                    assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
                 }
-
-                validators
-            });
-
-            assert_eq!(result, expected, "{:?}", state_id);
+            }
         }
 
         self
@@ -1146,6 +1193,28 @@ impl ApiTester {
 
         interesting.push((0..validator_count).collect());
 
+        interesting
+    }
+
+    fn interesting_validator_statuses(&self) -> Vec<Vec<ValidatorStatus>> {
+        let interesting = vec![
+            vec![],
+            vec![ValidatorStatus::Active],
+            vec![
+                ValidatorStatus::Unknown,
+                ValidatorStatus::WaitingForEligibility,
+                ValidatorStatus::WaitingForFinality,
+                ValidatorStatus::WaitingInQueue,
+                ValidatorStatus::StandbyForActive,
+                ValidatorStatus::Active,
+                ValidatorStatus::ActiveAwaitingVoluntaryExit,
+                ValidatorStatus::ActiveAwaitingSlashedExit,
+                ValidatorStatus::ExitedVoluntarily,
+                ValidatorStatus::ExitedSlashed,
+                ValidatorStatus::Withdrawable,
+                ValidatorStatus::Withdrawn,
+            ],
+        ];
         interesting
     }
 

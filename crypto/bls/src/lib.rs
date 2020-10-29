@@ -56,6 +56,10 @@ pub enum Error {
     InvalidByteLength { got: usize, expected: usize },
     /// The provided secret key bytes were an incorrect length.
     InvalidSecretKeyLength { got: usize, expected: usize },
+    /// The public key represents the point at infinity, which is invalid.
+    InvalidInfinityPublicKey,
+    /// The secret key is all zero bytes, which is invalid.
+    InvalidZeroSecretKey,
 }
 
 impl From<AmclError> for Error {

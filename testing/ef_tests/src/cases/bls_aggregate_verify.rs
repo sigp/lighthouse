@@ -1,13 +1,13 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{AggregateSignature, PublicKey};
+use bls::{AggregateSignature, PublicKeyBytes};
 use serde_derive::Deserialize;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsAggregateVerifyInput {
-    pub pubkeys: Vec<PublicKey>,
+    pub pubkeys: Vec<PublicKeyBytes>,
     pub messages: Vec<String>,
     pub signature: String,
 }
@@ -33,14 +33,29 @@ impl Case for BlsAggregateVerify {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let pubkey_refs = self.input.pubkeys.iter().collect::<Vec<_>>();
+        let pubkeys_result = self
+            .input
+            .pubkeys
+            .iter()
+            .map(|pkb| pkb.decompress())
+            .collect::<Result<Vec<_>, _>>();
+
+        let pubkeys = match pubkeys_result {
+            Ok(pubkeys) => pubkeys,
+            Err(bls::Error::InvalidInfinityPublicKey) if !self.output => {
+                return Ok(());
+            }
+            Err(e) => return Err(Error::FailedToParseTest(format!("{:?}", e))),
+        };
+
+        let pubkey_refs = pubkeys.iter().collect::<Vec<_>>();
 
         let signature_bytes = hex::decode(&self.input.signature[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
         let signature_valid = AggregateSignature::deserialize(&signature_bytes)
             .ok()
-            .map(|signature| signature.aggregate_verify(&messages, &pubkey_refs))
+            .map(|signature| signature.aggregate_verify(&messages, &pubkey_refs[..]))
             .unwrap_or(false);
 
         compare_result::<bool, ()>(&Ok(signature_valid), &Some(self.output))

@@ -3,17 +3,17 @@
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::Eth2TestnetConfig;
 use std::path::PathBuf;
-use types::{MainnetEthSpec, YamlConfig};
+use types::{V012LegacyEthSpec, YamlConfig};
 
-fn builder() -> EnvironmentBuilder<MainnetEthSpec> {
-    EnvironmentBuilder::mainnet()
+fn builder() -> EnvironmentBuilder<V012LegacyEthSpec> {
+    EnvironmentBuilder::v012_legacy()
         .single_thread_tokio_runtime()
         .expect("should set runtime")
         .null_logger()
         .expect("should set logger")
 }
 
-fn eth2_testnet_config() -> Option<Eth2TestnetConfig<MainnetEthSpec>> {
+fn eth2_testnet_config() -> Option<Eth2TestnetConfig> {
     Eth2TestnetConfig::hard_coded_default().expect("should decode hard_coded params")
 }
 

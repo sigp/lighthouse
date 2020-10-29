@@ -1614,6 +1614,44 @@ fn pruning_test(
     check_no_blocks_exist(&harness, stray_blocks.values());
 }
 
+#[test]
+fn garbage_collect_temp_states_from_failed_block() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let slots_per_epoch = E::slots_per_epoch();
+
+    let genesis_state = harness.get_current_state();
+    let block_slot = Slot::new(2 * slots_per_epoch);
+    let (mut block, state) = harness.make_block(genesis_state, block_slot);
+
+    // Mutate the block to make it invalid, and re-sign it.
+    block.message.state_root = Hash256::repeat_byte(0xff);
+    let proposer_index = block.message.proposer_index as usize;
+    let block = block.message.sign(
+        &harness.validator_keypairs[proposer_index].sk,
+        &state.fork,
+        state.genesis_validators_root,
+        &harness.spec,
+    );
+
+    // The block should be rejected, but should store a bunch of temporary states.
+    harness.set_current_slot(block_slot);
+    harness.process_block_result(block).unwrap_err();
+
+    assert_eq!(
+        store.iter_temporary_state_roots().count(),
+        block_slot.as_usize() - 1
+    );
+
+    drop(harness);
+    drop(store);
+
+    // On startup, the store should garbage collect all the temporary states.
+    let store = get_store(&db_path);
+    assert_eq!(store.iter_temporary_state_roots().count(), 0);
+}
+
 /// Check that the head state's slot matches `expected_slot`.
 fn check_slot(harness: &TestHarness, expected_slot: u64) {
     let state = &harness.chain.head().expect("should get head").beacon_state;

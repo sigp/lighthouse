@@ -2,7 +2,6 @@ use ethereum_types::H256;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 
-#[allow(clippy::zero_prefixed_literal)]
 mod round_trip {
     use super::*;
 
