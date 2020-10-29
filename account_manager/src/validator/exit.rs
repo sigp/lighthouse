@@ -95,11 +95,11 @@ async fn publish_voluntary_exit<E: EthSpec>(
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
     stdin_inputs: bool,
-    testnet_config: &Eth2TestnetConfig<E>,
+    testnet_config: &Eth2TestnetConfig,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = testnet_config
-        .genesis_state
+        .beacon_state::<E>()
         .as_ref()
         .expect("network should have valid genesis state")
         .genesis_validators_root;
