@@ -241,6 +241,7 @@ where
         self.network_globals = Some(network_globals);
         self.network_send = Some(network_send);
 
+        dbg!("NETWORK");
         Ok(self)
     }
 
@@ -300,6 +301,7 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
+        dbg!("spawning notifier");
         spawn_notifier(
             context.executor,
             beacon_chain,
@@ -307,6 +309,8 @@ where
             milliseconds_per_slot,
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
+
+        dbg!("spawned notifier");
 
         Ok(self)
     }
@@ -322,6 +326,7 @@ where
         Client<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>,
         String,
     > {
+        dbg!("Building stuff");
         let runtime_context = self
             .runtime_context
             .as_ref()
@@ -329,7 +334,11 @@ where
         let log = runtime_context.log().clone();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
+            dbg!("Building stuff");
+            let weak_runtime = runtime_context.executor.runtime();
+
             let ctx = Arc::new(http_api::Context {
+                weak_runtime,
                 config: self.http_api_config.clone(),
                 chain: self.beacon_chain.clone(),
                 network_tx: self.network_send.clone(),
@@ -353,7 +362,14 @@ where
             None
         };
 
+        dbg!("Building stuff");
         let http_metrics_listen_addr = if self.http_metrics_config.enabled {
+            let _guard = runtime_context
+                .executor
+                .runtime()
+                .upgrade()
+                .ok_or_else(|| "Runtime not available".to_string())?
+                .enter();
             let ctx = Arc::new(http_metrics::Context {
                 config: self.http_metrics_config.clone(),
                 chain: self.beacon_chain.clone(),
@@ -377,6 +393,7 @@ where
             None
         };
 
+        dbg!("Building stuff");
         Ok(Client {
             beacon_chain: self.beacon_chain,
             network_globals: self.network_globals,
@@ -425,6 +442,7 @@ where
         self.beacon_chain_builder = None;
         self.event_handler = None;
 
+        dbg!("NEW");
         // a beacon chain requires a timer
         self.timer()
     }

@@ -1449,39 +1449,6 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "discv5"
-version = "0.1.0-beta.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "595cf0600428cea17ce274cc11bb2fa8247a900a76fde1bbce2b81a39f335c02"
-dependencies = [
- "aes-ctr 0.5.0",
- "aes-gcm 0.7.0",
- "arrayvec",
- "digest 0.9.0",
- "enr",
- "fnv",
- "futures 0.3.7",
- "hex",
- "hkdf",
- "k256",
- "lazy_static",
- "libp2p-core 0.22.1",
- "lru_time_cache",
- "multihash",
- "parking_lot 0.11.0",
- "rand 0.7.3",
- "rlp",
- "sha2 0.9.1",
- "smallvec 1.4.2",
- "socket2",
- "tokio 0.2.22",
- "tracing",
- "tracing-subscriber",
- "uint",
- "zeroize",
-]
-
-[[package]]
-name = "discv5"
 version = "0.1.0-beta.2"
 source = "git+https://github.com/sigp/discv5?rev=f117b3ca56fa3dca2317270434634ff7106d391a#f117b3ca56fa3dca2317270434634ff7106d391a"
 dependencies = [
@@ -1812,7 +1779,7 @@ dependencies = [
  "base64 0.13.0",
  "directory",
  "dirs 3.0.1",
- "discv5 0.1.0-beta.2",
+ "discv5",
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -2634,7 +2601,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "bs58",
- "discv5 0.1.0-beta.1",
+ "discv5",
  "environment",
  "eth1",
  "eth2",
@@ -3130,40 +3097,6 @@ dependencies = [
  "pin-project 0.4.27",
  "smallvec 1.4.2",
  "wasm-timer",
-]
-
-[[package]]
-name = "libp2p-core"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52f13ba8c7df0768af2eb391696d562c7de88cc3a35122531aaa6a7d77754d25"
-dependencies = [
- "asn1_der",
- "bs58",
- "ed25519-dalek",
- "either",
- "fnv",
- "futures 0.3.7",
- "futures-timer",
- "lazy_static",
- "libsecp256k1",
- "log 0.4.11",
- "multihash",
- "multistream-select 0.8.4",
- "parity-multiaddr 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "parking_lot 0.10.2",
- "pin-project 0.4.27",
- "prost",
- "prost-build",
- "rand 0.7.3",
- "ring",
- "rw-stream-sink",
- "sha2 0.8.2",
- "smallvec 1.4.2",
- "thiserror",
- "unsigned-varint 0.4.0",
- "void",
- "zeroize",
 ]
 
 [[package]]
@@ -6075,10 +6008,8 @@ dependencies = [
  "futures-core",
  "iovec",
  "lazy_static",
- "libc",
  "memchr",
  "mio 0.6.22",
- "mio-uds",
  "num_cpus",
  "pin-project-lite",
  "slab 0.4.2",
@@ -6721,12 +6652,6 @@ dependencies = [
  "generic-array 0.14.4",
  "subtle 2.3.0",
 ]
-
-[[package]]
-name = "unsigned-varint"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "669d776983b692a906c881fcd0cfb34271a48e197e4d6cb8df32b05bfc3d3fa5"
 
 [[package]]
 name = "unsigned-varint"

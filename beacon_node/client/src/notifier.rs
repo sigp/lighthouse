@@ -175,8 +175,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         Ok::<(), ()>(())
     };
 
+    dbg!("SPAWNING NOTIFIER");
     // run the notifier on the current executor
     executor.spawn(interval_future.unwrap_or_else(|_| ()), "notifier");
+    dbg!("SPAWNED NOTIFIER");
 
     Ok(())
 }

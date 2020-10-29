@@ -35,7 +35,8 @@ use std::borrow::Cow;
 use std::convert::TryInto;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
@@ -59,6 +60,7 @@ const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: BeaconChainTypes> {
+    pub weak_runtime: Weak<Runtime>,
     pub config: Config,
     pub chain: Option<Arc<BeaconChain<T>>>,
     pub network_tx: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
@@ -225,6 +227,8 @@ pub fn serve<T: BeaconChainTypes>(
             (config.listen_addr, config.listen_port),
         )?
     };
+
+    let weak_runtime = ctx.weak_runtime.clone();
 
     // Sanity check.
     if !config.enabled {
@@ -1867,12 +1871,20 @@ pub fn serve<T: BeaconChainTypes>(
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         .with(cors_builder.build());
 
-    let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddrV4::new(config.listen_addr, config.listen_port),
-        async {
-            shutdown.await;
-        },
-    )?;
+    let (listening_socket, server) = {
+        if let Some(runtime) = weak_runtime.upgrade() {
+            let _guard = runtime.enter();
+            warp::serve(routes).try_bind_with_graceful_shutdown(
+                SocketAddrV4::new(config.listen_addr, config.listen_port),
+                async {
+                    shutdown.await;
+                },
+            )?
+        } else {
+            error!(log, "HTTP failed to start, no runtime");
+            return Err(Error::Other("No runtime".to_string()));
+        }
+    };
 
     info!(
         log,

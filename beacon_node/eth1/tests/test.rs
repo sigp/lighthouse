@@ -25,7 +25,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         // Use a single thread, so that when all tests are run in parallel they don't have so many
         // threads.
-        .single_thread_tokio_runtime()
+        .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
         .null_logger()
         .expect("should start null logger")

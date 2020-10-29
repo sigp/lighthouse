@@ -1590,44 +1590,44 @@ impl ApiTester {
     }
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_genesis() {
     ApiTester::new().test_beacon_genesis().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_states_root() {
     ApiTester::new().test_beacon_states_root().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_states_fork() {
     ApiTester::new().test_beacon_states_fork().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_states_finality_checkpoints() {
     ApiTester::new()
         .test_beacon_states_finality_checkpoints()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_states_validators() {
     ApiTester::new().test_beacon_states_validators().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_states_committees() {
     ApiTester::new().test_beacon_states_committees().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_states_validator_id() {
     ApiTester::new().test_beacon_states_validator_id().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_headers() {
     ApiTester::new()
         .test_beacon_headers_all_slots()
@@ -1636,37 +1636,37 @@ async fn beacon_headers() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_headers_block_id() {
     ApiTester::new().test_beacon_headers_block_id().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_blocks() {
     ApiTester::new().test_beacon_blocks().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_valid() {
     ApiTester::new().test_post_beacon_blocks_valid().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_invalid() {
     ApiTester::new().test_post_beacon_blocks_invalid().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_blocks_root() {
     ApiTester::new().test_beacon_blocks_root().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_blocks_attestations() {
     ApiTester::new().test_beacon_blocks_attestations().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_get() {
     ApiTester::new()
         .test_get_beacon_pool_attestations()
@@ -1679,63 +1679,63 @@ async fn beacon_pools_get() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attestations_valid() {
     ApiTester::new()
         .test_post_beacon_pool_attestations_valid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attestations_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_attestations_invalid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_valid() {
     ApiTester::new()
         .test_post_beacon_pool_attester_slashings_valid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_attester_slashings_invalid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_proposer_slashings_valid() {
     ApiTester::new()
         .test_post_beacon_pool_proposer_slashings_valid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_proposer_slashings_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_proposer_slashings_invalid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_voluntary_exits_valid() {
     ApiTester::new()
         .test_post_beacon_pool_voluntary_exits_valid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_voluntary_exits_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_voluntary_exits_invalid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn config_get() {
     ApiTester::new()
         .test_get_config_fork_schedule()
@@ -1746,7 +1746,7 @@ async fn config_get() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn debug_get() {
     ApiTester::new()
         .test_get_debug_beacon_states()
@@ -1755,7 +1755,7 @@ async fn debug_get() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_get() {
     ApiTester::new()
         .test_get_node_version()
@@ -1772,12 +1772,12 @@ async fn node_get() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_attester() {
     ApiTester::new().test_get_validator_duties_attester().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_attester_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
@@ -1785,12 +1785,12 @@ async fn get_validator_duties_attester_with_skip_slots() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer() {
     ApiTester::new().test_get_validator_duties_proposer().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
@@ -1798,12 +1798,12 @@ async fn get_validator_duties_proposer_with_skip_slots() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production() {
     ApiTester::new().test_block_production().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
@@ -1811,12 +1811,12 @@ async fn block_production_with_skip_slots() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data() {
     ApiTester::new().test_get_validator_attestation_data().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
@@ -1824,14 +1824,14 @@ async fn get_validator_attestation_data_with_skip_slots() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_attestation() {
     ApiTester::new()
         .test_get_validator_aggregate_attestation()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_attestation_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
@@ -1839,14 +1839,14 @@ async fn get_validator_aggregate_attestation_with_skip_slots() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_valid() {
     ApiTester::new()
         .test_get_validator_aggregate_and_proofs_valid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
@@ -1854,14 +1854,14 @@ async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_invalid() {
     ApiTester::new()
         .test_get_validator_aggregate_and_proofs_invalid()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
@@ -1869,14 +1869,14 @@ async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_beacon_committee_subscriptions() {
     ApiTester::new()
         .test_get_validator_beacon_committee_subscriptions()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lighthouse_endpoints() {
     ApiTester::new()
         .test_get_lighthouse_health()

@@ -75,6 +75,7 @@ impl TaskExecutor {
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
+                let _guard = runtime.enter();
                 runtime.spawn(future);
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
@@ -265,10 +266,6 @@ impl TaskExecutor {
         }
     }
 
-    // NOTE:
-    // THIS IS A TEMPORARY WORKAROUND USED ONLY FOR THE VC HTTP API. DO NOT USE THIS FUNCTION.
-    // The VC HTTP API should be refactored to not require direct access to the runtime. It
-    // currently requires it as it has an amalgamation of sync and async functions.
     pub fn runtime(&self) -> Weak<Runtime> {
         self.runtime.clone()
     }

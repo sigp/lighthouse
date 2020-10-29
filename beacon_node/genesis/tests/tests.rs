@@ -13,7 +13,7 @@ use types::{test_utils::generate_deterministic_keypair, Hash256, MinimalEthSpec}
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
-        .single_thread_tokio_runtime()
+        .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
         .null_logger()
         .expect("should start null logger")

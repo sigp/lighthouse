@@ -76,6 +76,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let executor = context.executor.clone();
 
+        let _guard = executor
+            .runtime()
+            .upgrade()
+            .ok_or_else(|| "Runtime not available".to_string())?
+            .enter();
+
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)

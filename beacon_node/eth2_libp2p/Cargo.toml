@@ -17,7 +17,7 @@ eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
-tokio = { version = "0.3.1", features = ["time", "macros"] }
+tokio = { version = "0.3.2", features = ["time", "macros"] }
 futures = "0.3.7"
 error-chain = "0.12.4"
 dirs = "3.0.1"
@@ -47,7 +47,7 @@ default-features = false
 features = ["websocket", "identify", "mplex", "noise", "gossipsub", "dns", "tcp-tokio"]
 
 [dev-dependencies]
-tokio = { version = "0.3.1", features = ["full"] }
+tokio = { version = "0.3.2", features = ["full"] }
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 tempdir = "0.3.7"

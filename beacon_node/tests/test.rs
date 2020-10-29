@@ -14,27 +14,31 @@ fn env_builder() -> EnvironmentBuilder<MinimalEthSpec> {
 
 fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
     let context = env.core_context();
-    env.runtime()
-        .block_on(LocalBeaconNode::production(
-            context,
-            testing_client_config(),
-        ))
+    let runtime = env.runtime();
+    let _guard = runtime.enter();
+    runtime
+        .block_on({
+            dbg!("here!");
+            LocalBeaconNode::production(context, testing_client_config())
+        })
         .expect("should block until node created")
 }
 
 #[test]
 fn http_server_genesis_state() {
     let mut env = env_builder()
-        .null_logger()
+        .async_logger("trace", None)
         .expect("should build env logger")
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
         .build()
         .expect("environment should build");
 
+    dbg!("here");
     let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
+    dbg!("here");
     let api_state = env
         .runtime()
         .block_on(remote_node.get_debug_beacon_states(StateId::Slot(Slot::new(0))))

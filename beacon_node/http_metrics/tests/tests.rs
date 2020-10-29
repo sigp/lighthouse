@@ -9,7 +9,7 @@ use types::MainnetEthSpec;
 
 type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn returns_200_ok() {
     let log = null_logger().unwrap();
 
