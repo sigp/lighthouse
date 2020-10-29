@@ -260,37 +260,6 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/block_cache" -H  "accept: app
 }
 ```
 
-### `/lighthouse/eth1/block_cache`
-
-Returns a list of all the Eth1 blocks in the Eth1 voting cache.
-
-#### Example
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/eth1/block_cache" -H  "accept: application/json" | jq
-```
-
-```json
-{
-  "data": [
-    {
-      "hash": "0x3a17f4b7ae4ee57ef793c49ebc9c06ff85207a5e15a1d0bd37b68c5ef5710d7f",
-      "timestamp": 1603173338,
-      "number": 3606741,
-      "deposit_root": "0xd24920d936e8fb9b67e93fd126ce1d9e14058b6d82dcf7d35aea46879fae6dee",
-      "deposit_count": 88911
-    },
-    {
-      "hash": "0x78852954ea4904e5f81038f175b2adefbede74fbb2338212964405443431c1e7",
-      "timestamp": 1603173353,
-      "number": 3606742,
-      "deposit_root": "0xd24920d936e8fb9b67e93fd126ce1d9e14058b6d82dcf7d35aea46879fae6dee",
-      "deposit_count": 88911
-    }
-  ]
-}
-```
-
 ### `/lighthouse/eth1/deposit_cache`
 
 Returns a list of all cached logs from the deposit contract.

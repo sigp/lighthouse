@@ -22,6 +22,8 @@ type BlockNumber = u64;
 type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
 
 /// We will declare ourself synced with the Eth1 chain, even if we are this many blocks behind.
+///
+/// This number (8) was chosen somewhat arbitrarily.
 const ETH1_SYNC_TOLERANCE: u64 = 8;
 
 #[derive(Debug)]
