@@ -39,7 +39,7 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
-use super::chain::ChainId;
+use super::chain::{ChainId, KeepChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
@@ -162,7 +162,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 }
 
                 // if the peer existed in any other head chain, remove it.
-                self.remove_peer(network, &peer_id);
+                self.remove_peer(
+                    network, &peer_id, true, /* do no remove from syncing chains */
+                );
                 self.awaiting_head_peers.remove(&peer_id);
 
                 // The new peer has the same finalized (earlier filters should prevent a peer with an
@@ -267,18 +269,26 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         self.awaiting_head_peers.remove(peer_id);
 
         // remove the peer from any peer pool, failing its batches
-        self.remove_peer(network, peer_id);
+        self.remove_peer(network, peer_id, false);
     }
 
     /// When a peer gets removed, both the head and finalized chains need to be searched to check
     /// which pool the peer is in. The chain may also have a batch or batches awaiting
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
-    fn remove_peer(&mut self, network: &mut SyncNetworkContext<T::EthSpec>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.remove_peer(peer_id, network))
-        {
+    fn remove_peer(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        peer_id: &PeerId,
+        keep_if_syncing: bool,
+    ) {
+        for (removed_chain, sync_type, remove_reason) in self.chains.call_all(|chain| {
+            if !(chain.is_syncing() && keep_if_syncing) {
+                chain.remove_peer(peer_id, network)
+            } else {
+                Ok(KeepChain)
+            }
+        }) {
             debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
             // update the state of the collection
         }
