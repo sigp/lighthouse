@@ -1,7 +1,6 @@
 use crate::{AttesterRecord, Config, Error, SlasherDB, SlashingStatus};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use lmdb::{RwTransaction, Transaction};
-use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::convert::TryFrom;
@@ -138,11 +137,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn first_start_epoch(source_epoch: Epoch, current_epoch: Epoch) -> Option<Epoch>;
 
-    fn next_chunk_index_and_start_epoch(
-        chunk_index: usize,
-        start_epoch: Epoch,
-        config: &Config,
-    ) -> Result<(usize, Epoch), Error>;
+    fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
     fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> lmdb::Database;
 
@@ -256,14 +251,9 @@ impl TargetArrayChunk for MinTargetChunk {
                 // We can stop.
                 return Ok(false);
             }
-            if epoch == min_epoch {
-                return Ok(false);
-            }
             epoch -= 1;
         }
-        // Continue to the next chunk.
-        assert_ne!(chunk_index, 0);
-        Ok(true)
+        Ok(epoch > min_epoch)
     }
 
     fn first_start_epoch(source_epoch: Epoch, _current_epoch: Epoch) -> Option<Epoch> {
@@ -274,16 +264,10 @@ impl TargetArrayChunk for MinTargetChunk {
         }
     }
 
-    fn next_chunk_index_and_start_epoch(
-        chunk_index: usize,
-        start_epoch: Epoch,
-        config: &Config,
-    ) -> Result<(usize, Epoch), Error> {
+    // Move to last epoch of previous chunk
+    fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch {
         let chunk_size = config.chunk_size as u64;
-        Ok((
-            chunk_index.safe_sub(1)?,
-            start_epoch / chunk_size * chunk_size - 1,
-        ))
+        start_epoch / chunk_size * chunk_size - 1
     }
 
     fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> lmdb::Database {
@@ -368,17 +352,10 @@ impl TargetArrayChunk for MaxTargetChunk {
         }
     }
 
-    // Go to next chunk, and first epoch of that chunk
-    fn next_chunk_index_and_start_epoch(
-        chunk_index: usize,
-        start_epoch: Epoch,
-        config: &Config,
-    ) -> Result<(usize, Epoch), Error> {
+    // Move to first epoch of next chunk
+    fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch {
         let chunk_size = config.chunk_size as u64;
-        Ok((
-            chunk_index.safe_add(1)?,
-            (start_epoch / chunk_size + 1) * chunk_size,
-        ))
+        (start_epoch / chunk_size + 1) * chunk_size
     }
 
     fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> lmdb::Database {
@@ -445,9 +422,9 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
     } else {
         return Ok(slashing_status);
     };
-    chunk_index = config.chunk_index(start_epoch);
 
     loop {
+        chunk_index = config.chunk_index(start_epoch);
         current_chunk = get_chunk_for_update(
             db,
             txn,
@@ -467,11 +444,7 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
         if !keep_going {
             break;
         }
-
-        let (next_chunk_index, next_start_epoch) =
-            T::next_chunk_index_and_start_epoch(chunk_index, start_epoch, config)?;
-        chunk_index = next_chunk_index;
-        start_epoch = next_start_epoch;
+        start_epoch = T::next_start_epoch(start_epoch, config);
     }
 
     Ok(SlashingStatus::NotSlashable)
@@ -551,7 +524,7 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
             )?;
             epoch += 1;
         }
-        chunk_index += 1;
+        chunk_index = config.chunk_index(epoch);
     }
 
     Ok(())

@@ -390,23 +390,18 @@ impl<E: EthSpec> SlasherDB<E> {
         let mut indexed_attestations_to_delete = HashSet::new();
 
         loop {
-            println!("Iterating...");
-            let (optional_key, value) = cursor.get(None, None, lmdb_sys::MDB_GET_CURRENT).unwrap();
+            let (optional_key, value) = cursor.get(None, None, lmdb_sys::MDB_GET_CURRENT)?;
             let key_bytes = optional_key.ok_or_else(|| Error::MissingAttesterKey)?;
 
-            let (target_epoch, validator_index) = AttesterKey::parse(key_bytes)?;
+            let (target_epoch, _validator_index) = AttesterKey::parse(key_bytes)?;
 
             if target_epoch < min_epoch {
                 // Stage the indexed attestation for deletion and delete the record itself.
                 let attester_record = AttesterRecord::from_ssz_bytes(value)?;
                 indexed_attestations_to_delete.insert(attester_record.indexed_attestation_hash);
 
-                println!(
-                    "Deleting attestation for epoch {} from {}",
-                    target_epoch, validator_index
-                );
+                cursor.del(Self::write_flags())?;
 
-                cursor.del(Self::write_flags()).unwrap();
                 // FIXME(sproul): abstract this pattern
                 match cursor.get(None, None, lmdb_sys::MDB_NEXT) {
                     Ok(_) => (),
@@ -420,12 +415,7 @@ impl<E: EthSpec> SlasherDB<E> {
         drop(cursor);
 
         for indexed_attestation_hash in indexed_attestations_to_delete {
-            println!(
-                "Deleting indexed attestation {:?}",
-                indexed_attestation_hash
-            );
-            txn.del(self.indexed_attestation_db, &indexed_attestation_hash, None)
-                .expect("HELLO");
+            txn.del(self.indexed_attestation_db, &indexed_attestation_hash, None)?;
         }
 
         Ok(())
