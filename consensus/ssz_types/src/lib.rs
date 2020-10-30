@@ -40,6 +40,7 @@
 #[macro_use]
 mod bitfield;
 mod fixed_vector;
+pub mod serde_utils;
 mod tree_hash;
 mod variable_list;
 
