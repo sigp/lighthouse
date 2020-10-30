@@ -1,6 +1,6 @@
 use crate::{
-    array, AttestationQueue, AttesterRecord, BlockQueue, Config, Error, ProposerSlashingStatus,
-    SlasherDB,
+    array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
+    ProposerSlashingStatus, SlasherDB,
 };
 use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
@@ -30,7 +30,7 @@ impl<E: EthSpec> Slasher<E> {
         let db = SlasherDB::open(config.clone())?;
         let attester_slashings = Mutex::new(vec![]);
         let proposer_slashings = Mutex::new(vec![]);
-        let attestation_queue = AttestationQueue::new(config.validator_chunk_size);
+        let attestation_queue = AttestationQueue::new();
         let block_queue = BlockQueue::new();
         Ok(Self {
             db,
@@ -106,15 +106,22 @@ impl<E: EthSpec> Slasher<E> {
         current_epoch: Epoch,
         txn: &mut RwTransaction<'_>,
     ) -> Result<(), Error> {
-        let snapshot = self.attestation_queue.get_snapshot();
+        let snapshot = self.attestation_queue.dequeue();
+
+        // Filter attestations for relevance.
+        let (snapshot, deferred, num_dropped) = self.validate(snapshot, current_epoch);
+        let num_deferred = deferred.len();
+        self.attestation_queue.requeue(deferred);
 
         // Insert attestations into database.
         debug!(
             self.log,
-            "Storing {} attestations in slasher DB",
-            snapshot.attestations_to_store.len()
+            "Storing attestations in slasher DB";
+            "num_valid" => snapshot.len(),
+            "num_deferred" => num_deferred,
+            "num_dropped" => num_dropped,
         );
-        for attestation in snapshot.attestations_to_store {
+        for attestation in snapshot.attestations.iter() {
             self.db.store_indexed_attestation(
                 txn,
                 attestation.1.indexed_attestation_hash,
@@ -122,8 +129,9 @@ impl<E: EthSpec> Slasher<E> {
             )?;
         }
 
-        // Dequeue attestations in batches and process them.
-        for (subqueue_id, subqueue) in snapshot.subqueues.into_iter().enumerate() {
+        // Group attestations into batches and process them.
+        let grouped_attestations = snapshot.group_by_validator_index(&self.config);
+        for (subqueue_id, subqueue) in grouped_attestations.subqueues.into_iter().enumerate() {
             self.process_batch(txn, subqueue_id, subqueue.attestations, current_epoch)?;
         }
         Ok(())
@@ -231,6 +239,52 @@ impl<E: EthSpec> Slasher<E> {
         }
 
         Ok(slashings)
+    }
+
+    /// Validate the attestations in `batch` for ingestion during `current_epoch`.
+    ///
+    /// Drop any attestations that are too old to ever be relevant, and return any attestations
+    /// that might be valid in the future.
+    fn validate(
+        &self,
+        batch: AttestationBatch<E>,
+        current_epoch: Epoch,
+    ) -> (AttestationBatch<E>, AttestationBatch<E>, usize) {
+        let mut keep = Vec::with_capacity(batch.len());
+        let mut defer = vec![];
+        let mut drop_count = 0;
+
+        for tuple in batch.attestations.into_iter() {
+            let attestation = &tuple.0;
+            let target_epoch = attestation.data.target.epoch;
+            let source_epoch = attestation.data.source.epoch;
+
+            // Check that the attestation doesn't span a distance greater than or equal to the
+            // history length, else it will cause wrap-around issues for us.
+            if source_epoch > target_epoch
+                || target_epoch - source_epoch >= self.config.history_length as u64
+            {
+                drop_count += 1;
+                continue;
+            }
+
+            // Check that the attestation's target epoch is acceptable, and defer it
+            // if it's not.
+            if target_epoch > current_epoch {
+                defer.push(tuple);
+            } else {
+                // Otherwise the attestation is OK to process.
+                keep.push(tuple);
+            }
+        }
+
+        (
+            AttestationBatch { attestations: keep },
+            AttestationBatch {
+                attestations: defer,
+            },
+            drop_count,
+        )
     }
 
     pub fn prune_database(&self, current_epoch: Epoch) -> Result<(), Error> {

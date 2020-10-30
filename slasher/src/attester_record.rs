@@ -12,7 +12,7 @@ pub struct AttesterRecord {
 }
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
-pub struct IndexedAttestationHeader<T: EthSpec> {
+struct IndexedAttestationHeader<T: EthSpec> {
     pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
     pub data_root: Hash256,
     pub signature: AggregateSignature,
@@ -30,6 +30,28 @@ impl<T: EthSpec> From<IndexedAttestation<T>> for AttesterRecord {
         AttesterRecord {
             attestation_data_hash,
             indexed_attestation_hash,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::indexed_att;
+
+    // Check correctness of fast hashing
+    #[test]
+    fn fast_hash() {
+        let data = vec![
+            indexed_att(vec![], 0, 0, 0),
+            indexed_att(vec![1, 2, 3], 12, 14, 1),
+            indexed_att(vec![4], 0, 5, u64::MAX),
+        ];
+        for att in data {
+            assert_eq!(
+                att.tree_hash_root(),
+                AttesterRecord::from(att).indexed_attestation_hash
+            );
         }
     }
 }
