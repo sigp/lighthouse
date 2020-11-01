@@ -159,6 +159,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.id
     }
 
+    /// Peers currently syncing this chain.
+    pub fn peers(&'a self) -> impl Iterator<Item = PeerId> + 'a {
+        self.peers.keys().cloned()
+    }
+
     /// Progress in epochs made by the chain
     pub fn validated_epochs(&self) -> u64 {
         self.validated_batches as u64 * EPOCHS_PER_BATCH

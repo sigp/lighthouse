@@ -330,7 +330,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )))
                         }
                     }
-                    SyncState::SyncingHead { .. } => Ok(()),
+                    SyncState::SyncingHead { .. } | SyncState::SyncTransition => Ok(()),
                     SyncState::Synced => Ok(()),
                     SyncState::Stalled => Err(warp_utils::reject::not_synced(
                         "sync is stalled".to_string(),
@@ -1231,12 +1231,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_task(move || match *network_globals.sync_state.read() {
-                SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } => {
-                    Ok(warp::reply::with_status(
-                        warp::reply(),
-                        warp::http::StatusCode::PARTIAL_CONTENT,
-                    ))
-                }
+                SyncState::SyncingFinalized { .. }
+                | SyncState::SyncingHead { .. }
+                | SyncState::SyncTransition => Ok(warp::reply::with_status(
+                    warp::reply(),
+                    warp::http::StatusCode::PARTIAL_CONTENT,
+                )),
                 SyncState::Synced => Ok(warp::reply::with_status(
                     warp::reply(),
                     warp::http::StatusCode::OK,

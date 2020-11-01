@@ -39,7 +39,7 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
-use super::chain::ChainId;
+use super::chain::{ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
@@ -209,22 +209,22 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 chain.on_block_response(network, batch_id, &peer_id, request_id, beacon_block)
             }) {
                 Ok((removed_chain, sync_type)) => {
-                    if let Some(_removed_chain) = removed_chain {
-                        debug!(self.log, "Chain removed after block response"; "sync_type" => ?sync_type, "chain_id" => chain_id);
-                        // update the state of the collection
-                        self.chains.update(
+                    if let Some((removed_chain, remove_reason)) = removed_chain {
+                        self.on_chain_removed(
+                            removed_chain,
+                            sync_type,
+                            remove_reason,
                             network,
-                            &mut self.awaiting_head_peers,
-                            &self.beacon_processor_send,
+                            "block response",
                         );
                     }
                 }
                 Err(_) => {
-                    debug!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                    trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
                 }
             }
         } else {
-            debug!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
+            trace!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
         }
     }
 
@@ -242,17 +242,18 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             Ok((None, _sync_type)) => {
                 // Chain was found and not removed
             }
-            Ok((Some(_removed_chain), sync_type)) => {
-                debug!(self.log, "Chain removed after processing result"; "chain" => chain_id, "sync_type" => ?sync_type);
-                self.chains.update(
+            Ok((Some((removed_chain, remove_reason)), sync_type)) => {
+                self.on_chain_removed(
+                    removed_chain,
+                    sync_type,
+                    remove_reason,
                     network,
-                    &mut self.awaiting_head_peers,
-                    &self.beacon_processor_send,
+                    "batch processing result",
                 );
             }
 
             Err(_) => {
-                debug!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
             }
         }
     }
@@ -280,19 +281,16 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .chains
             .call_all(|chain| chain.remove_peer(peer_id, network))
         {
-            if remove_reason.is_critical() {
-                crit!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
-            } else {
-                debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
-            }
+            self.on_chain_removed(
+                removed_chain,
+                sync_type,
+                remove_reason,
+                network,
+                "peer removed",
+            );
 
             // update the state of the collection
         }
-        self.chains.update(
-            network,
-            &mut self.awaiting_head_peers,
-            &self.beacon_processor_send,
-        );
     }
 
     /// An RPC error has occurred.
@@ -313,25 +311,45 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             }) {
                 Ok((removed_chain, sync_type)) => {
                     if let Some((removed_chain, remove_reason)) = removed_chain {
-                        if remove_reason.is_critical() {
-                            crit!(self.log, "Chain removed on RPC error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
-                        } else {
-                            debug!(self.log, "Chain removed on RPC error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
-                        }
-                        // update the state of the collection
-                        self.chains.update(
+                        self.on_chain_removed(
+                            removed_chain,
+                            sync_type,
+                            remove_reason,
                             network,
-                            &mut self.awaiting_head_peers,
-                            &self.beacon_processor_send,
+                            "RPC error",
                         );
                     }
                 }
                 Err(_) => {
-                    debug!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                    trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
                 }
             }
         } else {
-            debug!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
+            trace!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
         }
+    }
+
+    fn on_chain_removed(
+        &mut self,
+        chain: SyncingChain<T>,
+        sync_type: RangeSyncType,
+        remove_reason: RemoveChain,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        op: &'static str,
+    ) {
+        if remove_reason.is_critical() {
+            crit!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+        } else {
+            debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+        }
+
+        network.status_peers(self.beacon_chain.clone(), chain.peers());
+
+        // update the state of the collection
+        self.chains.update(
+            network,
+            &mut self.awaiting_head_peers,
+            &self.beacon_processor_send,
+        );
     }
 }
