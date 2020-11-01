@@ -461,6 +461,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.advance_chain(network, batch_id);
                     // we register so that on chain switching we don't try it again
                     self.attempted_optimistic_starts.insert(batch_id);
+                    self.processing_target += EPOCHS_PER_BATCH;
                 } else if let Some(epoch) = self.optimistic_start {
                     // check if this batch corresponds to an optimistic batch. In this case, we
                     // reject it as an optimistic candidate since the batch was empty
@@ -470,10 +471,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                             false, /* do not re-request */
                             "batch was empty",
                         )?;
+                    } else {
+                        self.processing_target += EPOCHS_PER_BATCH;
                     }
                 }
-
-                self.processing_target += EPOCHS_PER_BATCH;
 
                 // check if the chain has completed syncing
                 if self.current_processed_slot() >= self.target_head_slot {
