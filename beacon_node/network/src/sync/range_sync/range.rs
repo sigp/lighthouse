@@ -49,7 +49,7 @@ use crate::sync::PeerSyncInfo;
 use crate::sync::RequestId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
-use slog::{debug, error, trace};
+use slog::{crit, debug, error, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -280,7 +280,12 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .chains
             .call_all(|chain| chain.remove_peer(peer_id, network))
         {
-            debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
+            if remove_reason.is_critical() {
+                crit!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
+            } else {
+                debug!(self.log, "Chain removed after removing peer"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
+            }
+
             // update the state of the collection
         }
         self.chains.update(
@@ -308,7 +313,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             }) {
                 Ok((removed_chain, sync_type)) => {
                     if let Some((removed_chain, remove_reason)) = removed_chain {
-                        debug!(self.log, "Chain removed on rpc error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
+                        if remove_reason.is_critical() {
+                            crit!(self.log, "Chain removed on RPC error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
+                        } else {
+                            debug!(self.log, "Chain removed on RPC error"; "sync_type" => ?sync_type, "chain" => removed_chain.get_id(), "reason" => ?remove_reason);
+                        }
                         // update the state of the collection
                         self.chains.update(
                             network,
