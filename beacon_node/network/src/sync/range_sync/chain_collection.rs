@@ -334,6 +334,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ) {
         // Include the awaiting head peers
         for (peer_id, peer_sync_info) in awaiting_head_peers.drain() {
+            debug!(self.log, "including head peer");
             self.add_peer_or_create_chain(
                 local_epoch,
                 peer_sync_info.head_root,

@@ -161,6 +161,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     self.awaiting_head_peers.insert(peer_id, remote_info);
                     return;
                 }
+                // check if this peer can be removed
 
                 // if the peer existed in any other head chain, remove it.
                 self.remove_peer(network, &peer_id);
@@ -271,6 +272,18 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // remove the peer from any peer pool, failing its batches
         self.remove_peer(network, peer_id);
     }
+
+    /*
+    /// Remove a peer conditional on our need for syncing.
+    /// We allow peers to be removed if they do no belong to any syncing chain, or if the syncing
+    /// chain they belong to has done some minimal progress.
+    // NOTE: we do this to prevent excesive chain switching.
+    fn check_remove(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        peer_id: &PeerId,
+    ) -> bool {
+    }*/
 
     /// When a peer gets removed, both the head and finalized chains need to be searched to check
     /// which pool the peer is in. The chain may also have a batch or batches awaiting
