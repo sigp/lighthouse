@@ -19,7 +19,7 @@
 //!  need to be downloaded.
 //!
 //!  A few interesting notes about finalized chain syncing:
-//!  - Only one finalized chain can sync at a time.
+//!  - Only one finalized chain can sync at a time
 //!  - The finalized chain with the largest peer pool takes priority.
 //!  - As one finalized chain completes, others are checked to see if we they can be continued,
 //!  otherwise they are removed.
@@ -121,7 +121,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains.
+        // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains. This
+        // is OK since we since only one finalized chain at a time.
 
         // determine which kind of sync to perform and set up the chains
         match RangeSyncType::new(&self.beacon_chain, &local_info, &remote_info) {
