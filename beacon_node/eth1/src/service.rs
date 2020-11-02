@@ -3,10 +3,10 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
     http::{
-        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, Eth1NetworkId, Log,
+        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, BlockQuery,
+        Eth1NetworkId, Log,
     },
     inner::{DepositUpdater, Inner},
-    DepositLog,
 };
 use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -148,6 +148,7 @@ impl Service {
                 deposit_cache: RwLock::new(DepositUpdater::new(
                     config.deposit_contract_deploy_block,
                 )),
+                remote_head_block: RwLock::new(None),
                 config: RwLock::new(config),
                 spec,
             }),
@@ -204,6 +205,21 @@ impl Service {
     /// Returns the timestamp of the latest block in the cache (if any).
     pub fn latest_block_timestamp(&self) -> Option<u64> {
         self.inner.block_cache.read().latest_block_timestamp()
+    }
+
+    /// Returns the latest head block returned from an Eth1 node.
+    ///
+    /// ## Note
+    ///
+    /// This is the simply the head of the Eth1 chain, with no regard to follow distance or the
+    /// voting period start.
+    pub fn head_block(&self) -> Option<Eth1Block> {
+        self.inner.remote_head_block.read().as_ref().cloned()
+    }
+
+    /// Returns the latest cached block.
+    pub fn latest_cached_block(&self) -> Option<Eth1Block> {
+        self.inner.block_cache.read().latest_block().cloned()
     }
 
     /// Returns the lowest block number stored.
@@ -301,9 +317,16 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
+        let remote_head_block = download_eth1_block(self.inner.clone(), None)
+            .map_err(|e| format!("Failed to update Eth1 service: {:?}", e))
+            .await?;
+        let remote_head_block_number = Some(remote_head_block.number);
+
+        *self.inner.remote_head_block.write() = Some(remote_head_block);
+
         let update_deposit_cache = async {
             let outcome = self
-                .update_deposit_cache()
+                .update_deposit_cache(remote_head_block_number)
                 .await
                 .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
@@ -314,12 +337,12 @@ impl Service {
                 "logs_imported" => outcome.logs_imported,
                 "last_processed_eth1_block" => self.inner.deposit_cache.read().last_processed_block,
             );
-            Ok(outcome)
+            Ok::<_, String>(outcome)
         };
 
         let update_block_cache = async {
             let outcome = self
-                .update_block_cache()
+                .update_block_cache(remote_head_block_number)
                 .await
                 .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
@@ -330,10 +353,13 @@ impl Service {
                 "blocks_imported" => outcome.blocks_imported,
                 "head_block" => outcome.head_block_number,
             );
-            Ok(outcome)
+            Ok::<_, String>(outcome)
         };
 
-        futures::try_join!(update_deposit_cache, update_block_cache)
+        let (deposit_outcome, block_outcome) =
+            futures::try_join!(update_deposit_cache, update_block_cache)?;
+
+        Ok((deposit_outcome, block_outcome))
     }
 
     /// A looping future that updates the cache, then waits `config.auto_update_interval` before
@@ -413,13 +439,19 @@ impl Service {
     /// Will process no more than `BLOCKS_PER_LOG_QUERY * MAX_LOG_REQUESTS_PER_UPDATE` blocks in a
     /// single update.
     ///
+    /// If `remote_highest_block_opt` is `Some`, use that value instead of querying `self.endpoint`
+    /// for the head of the eth1 chain.
+    ///
     /// ## Resolves with
     ///
     /// - Ok(_) if the update was successful (the cache may or may not have been modified).
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn update_deposit_cache(&self) -> Result<DepositCacheUpdateOutcome, Error> {
+    pub async fn update_deposit_cache(
+        &self,
+        remote_highest_block_opt: Option<u64>,
+    ) -> Result<DepositCacheUpdateOutcome, Error> {
         let endpoint = self.config().endpoint.clone();
         let follow_distance = self.config().follow_distance;
         let deposit_contract_address = self.config().deposit_contract_address.clone();
@@ -437,7 +469,13 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
 
-        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
+        let range = get_new_block_numbers(
+            &endpoint,
+            remote_highest_block_opt,
+            next_required_block,
+            follow_distance,
+        )
+        .await?;
 
         let block_number_chunks = if let Some(range) = range {
             range
@@ -483,7 +521,7 @@ impl Service {
             log_chunk
                 .iter()
                 .map(|raw_log| {
-                    DepositLog::from_log(&raw_log, self.inner.spec()).map_err(|error| {
+                    raw_log.to_deposit_log(self.inner.spec()).map_err(|error| {
                         Error::FailedToParseDepositLog {
                             block_range: block_range.clone(),
                             error,
@@ -548,13 +586,19 @@ impl Service {
     ///
     /// If configured, prunes the block cache after importing new blocks.
     ///
+    /// If `remote_highest_block_opt` is `Some`, use that value instead of querying `self.endpoint`
+    /// for the head of the eth1 chain.
+    ///
     /// ## Resolves with
     ///
     /// - Ok(_) if the update was successful (the cache may or may not have been modified).
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn update_block_cache(&self) -> Result<BlockCacheUpdateOutcome, Error> {
+    pub async fn update_block_cache(
+        &self,
+        remote_highest_block_opt: Option<u64>,
+    ) -> Result<BlockCacheUpdateOutcome, Error> {
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
             .config()
@@ -572,7 +616,13 @@ impl Service {
         let endpoint = self.config().endpoint.clone();
         let follow_distance = self.config().follow_distance;
 
-        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
+        let range = get_new_block_numbers(
+            &endpoint,
+            remote_highest_block_opt,
+            next_required_block,
+            follow_distance,
+        )
+        .await?;
         // Map the range of required blocks into a Vec.
         //
         // If the required range is larger than the size of the cache, drop the exiting cache
@@ -623,7 +673,7 @@ impl Service {
             |mut block_numbers| async {
                 match block_numbers.next() {
                     Some(block_number) => {
-                        match download_eth1_block(self.inner.clone(), block_number).await {
+                        match download_eth1_block(self.inner.clone(), Some(block_number)).await {
                             Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
                             Err(e) => Err(e),
                         }
@@ -708,13 +758,17 @@ impl Service {
 /// the locally stored best block.
 async fn get_new_block_numbers<'a>(
     endpoint: &str,
+    remote_highest_block_opt: Option<u64>,
     next_required_block: u64,
     follow_distance: u64,
 ) -> Result<Option<RangeInclusive<u64>>, Error> {
-    let remote_highest_block =
+    let remote_highest_block = if let Some(block_number) = remote_highest_block_opt {
+        block_number
+    } else {
         get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
             .map_err(Error::GetBlockNumberFailed)
-            .await?;
+            .await?
+    };
     let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
 
     if next_required_block <= remote_follow_block {
@@ -739,26 +793,37 @@ async fn get_new_block_numbers<'a>(
 /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given
 /// `block_number`.
 ///
+/// Set `block_number_opt = None` to get the "latest" eth1 block (i.e., the head).
+///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
-async fn download_eth1_block(cache: Arc<Inner>, block_number: u64) -> Result<Eth1Block, Error> {
+async fn download_eth1_block(
+    cache: Arc<Inner>,
+    block_number_opt: Option<u64>,
+) -> Result<Eth1Block, Error> {
     let endpoint = cache.config.read().endpoint.clone();
 
-    let deposit_root = cache
-        .deposit_cache
-        .read()
-        .cache
-        .get_deposit_root_from_cache(block_number);
+    let deposit_root = block_number_opt.and_then(|block_number| {
+        cache
+            .deposit_cache
+            .read()
+            .cache
+            .get_deposit_root_from_cache(block_number)
+    });
 
-    let deposit_count = cache
-        .deposit_cache
-        .read()
-        .cache
-        .get_deposit_count_from_cache(block_number);
+    let deposit_count = block_number_opt.and_then(|block_number| {
+        cache
+            .deposit_cache
+            .read()
+            .cache
+            .get_deposit_count_from_cache(block_number)
+    });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
     let http_block = get_block(
         &endpoint,
-        block_number,
+        block_number_opt
+            .map(BlockQuery::Number)
+            .unwrap_or_else(|| BlockQuery::Latest),
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
     .map_err(Error::BlockDownloadFailed)

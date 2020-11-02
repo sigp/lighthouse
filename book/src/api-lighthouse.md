@@ -178,6 +178,127 @@ See [Validator Inclusion APIs](./validator-inclusion.md).
 
 See [Validator Inclusion APIs](./validator-inclusion.md).
 
+### `/lighthouse/eth1/syncing`
+
+Returns information regarding the Eth1 network, as it is required for use in
+Eth2
+
+#### Fields
+
+- `head_block_number`, `head_block_timestamp`: the block number and timestamp
+from the very head of the Eth1 chain. Useful for understanding the immediate
+health of the Eth1 node that the beacon node is connected to.
+- `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
+number and timestamp of the latest block we have in our block cache.
+	- For correct Eth1 voting this timestamp should be later than the
+`voting_period_start_timestamp`.
+- `voting_period_start_timestamp`: the start of the period where block
+	producers must include votes for blocks in the Eth1 chain. Provided for
+	reference.
+- `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
+	Eth1 node is from the head of the Eth1 chain.
+	- `100.0` indicates a fully synced Eth1 node.
+	- `0.0` indicates an Eth1 node that has not verified any blocks past the
+		genesis block.
+- `lighthouse_is_cached_and_ready`: Is set to `true` if the caches in the
+	beacon node are ready for block production.
+	- This value might be set to
+	`false` whilst `eth1_node_sync_status_percentage == 100.0` if the beacon
+	node is still building its internal cache.
+	- This value might be set to `true` whilst
+	`eth1_node_sync_status_percentage < 100.0` since the cache only cares
+	about blocks a certain distance behind the head.
+
+#### Example
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/eth1/syncing" -H  "accept: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "head_block_number": 3611806,
+    "head_block_timestamp": 1603249317,
+    "latest_cached_block_number": 3610758,
+    "latest_cached_block_timestamp": 1603233597,
+    "voting_period_start_timestamp": 1603228632,
+    "eth1_node_sync_status_percentage": 100,
+    "lighthouse_is_cached_and_ready": true
+  }
+}
+```
+
+### `/lighthouse/eth1/block_cache`
+
+Returns a list of all the Eth1 blocks in the Eth1 voting cache.
+
+#### Example
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/eth1/block_cache" -H  "accept: application/json" | jq
+```
+
+```json
+{
+  "data": [
+    {
+      "hash": "0x3a17f4b7ae4ee57ef793c49ebc9c06ff85207a5e15a1d0bd37b68c5ef5710d7f",
+      "timestamp": 1603173338,
+      "number": 3606741,
+      "deposit_root": "0xd24920d936e8fb9b67e93fd126ce1d9e14058b6d82dcf7d35aea46879fae6dee",
+      "deposit_count": 88911
+    },
+    {
+      "hash": "0x78852954ea4904e5f81038f175b2adefbede74fbb2338212964405443431c1e7",
+      "timestamp": 1603173353,
+      "number": 3606742,
+      "deposit_root": "0xd24920d936e8fb9b67e93fd126ce1d9e14058b6d82dcf7d35aea46879fae6dee",
+      "deposit_count": 88911
+    }
+  ]
+}
+```
+
+### `/lighthouse/eth1/deposit_cache`
+
+Returns a list of all cached logs from the deposit contract.
+
+#### Example
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: application/json" | jq
+```
+
+```json
+{
+  "data": [
+    {
+      "deposit_data": {
+        "pubkey": "0xae9e6a550ac71490cdf134533b1688fcbdb16f113d7190eacf4f2e9ca6e013d5bd08c37cb2bde9bbdec8ffb8edbd495b",
+        "withdrawal_credentials": "0x0062a90ebe71c4c01c4e057d7d13b944d9705f524ebfa24290c22477ab0517e4",
+        "amount": "32000000000",
+        "signature": "0xa87a4874d276982c471e981a113f8af74a31ffa7d18898a02df2419de2a7f02084065784aa2f743d9ddf80952986ea0b012190cd866f1f2d9c633a7a33c2725d0b181906d413c82e2c18323154a2f7c7ae6f72686782ed9e423070daa00db05b"
+      },
+      "block_number": 3086571,
+      "index": 0,
+      "signature_is_valid": false
+    },
+    {
+      "deposit_data": {
+        "pubkey": "0xb1d0ec8f907e023ea7b8cb1236be8a74d02ba3f13aba162da4a68e9ffa2e395134658d150ef884bcfaeecdf35c286496",
+        "withdrawal_credentials": "0x00a6aa2a632a6c4847cf87ef96d789058eb65bfaa4cc4e0ebc39237421c22e54",
+        "amount": "32000000000",
+        "signature": "0x8d0f8ec11935010202d6dde9ab437f8d835b9cfd5052c001be5af9304f650ada90c5363022e1f9ef2392dd222cfe55b40dfd52578468d2b2092588d4ad3745775ea4d8199216f3f90e57c9435c501946c030f7bfc8dbd715a55effa6674fd5a4"
+      },
+      "block_number": 3086579,
+      "index": 1,
+      "signature_is_valid": false
+    }
+  ]
+}
+```
+
 ### `/lighthouse/beacon/states/{state_id}/ssz`
 
 Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.

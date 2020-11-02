@@ -169,6 +169,9 @@ impl ApiTester {
 
         *network_globals.sync_state.write() = SyncState::Synced;
 
+        let eth1_service =
+            eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
+
         let context = Arc::new(Context {
             config: Config {
                 enabled: true,
@@ -179,6 +182,7 @@ impl ApiTester {
             chain: Some(chain.clone()),
             network_tx: Some(network_tx),
             network_globals: Some(Arc::new(network_globals)),
+            eth1_service: Some(eth1_service),
             log,
         });
         let ctx = context.clone();
@@ -1643,6 +1647,32 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_lighthouse_eth1_syncing(self) -> Self {
+        self.client.get_lighthouse_eth1_syncing().await.unwrap();
+
+        self
+    }
+
+    pub async fn test_get_lighthouse_eth1_block_cache(self) -> Self {
+        let blocks = self.client.get_lighthouse_eth1_block_cache().await.unwrap();
+
+        assert!(blocks.data.is_empty());
+
+        self
+    }
+
+    pub async fn test_get_lighthouse_eth1_deposit_cache(self) -> Self {
+        let deposits = self
+            .client
+            .get_lighthouse_eth1_deposit_cache()
+            .await
+            .unwrap();
+
+        assert!(deposits.data.is_empty());
+
+        self
+    }
+
     pub async fn test_get_lighthouse_beacon_states_ssz(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let result = self
@@ -1919,6 +1949,12 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_validator_inclusion()
         .await
         .test_get_lighthouse_validator_inclusion_global()
+        .await
+        .test_get_lighthouse_eth1_syncing()
+        .await
+        .test_get_lighthouse_eth1_block_cache()
+        .await
+        .test_get_lighthouse_eth1_deposit_cache()
         .await
         .test_get_lighthouse_beacon_states_ssz()
         .await;
