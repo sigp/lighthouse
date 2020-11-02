@@ -10,6 +10,9 @@ pub enum SyncState {
     /// The node is performing a long-range (batch) sync over one or many head chains.
     /// In this state parent lookups are disabled.
     SyncingHead { start_slot: Slot, target_slot: Slot },
+    /// The node has identified the need for is sync operations and is transitioning to a syncing
+    /// state.
+    SyncTransition,
     /// The node is up to date with all known peers and is connected to at least one
     /// fully synced peer. In this state, parent lookups are enabled.
     Synced,
@@ -25,6 +28,7 @@ impl PartialEq for SyncState {
             (SyncState::SyncingHead { .. }, SyncState::SyncingHead { .. }) => true,
             (SyncState::Synced, SyncState::Synced) => true,
             (SyncState::Stalled, SyncState::Stalled) => true,
+            (SyncState::SyncTransition, SyncState::SyncTransition) => true,
             _ => false,
         }
     }
@@ -36,6 +40,7 @@ impl SyncState {
         match self {
             SyncState::SyncingFinalized { .. } => true,
             SyncState::SyncingHead { .. } => true,
+            SyncState::SyncTransition => true,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -54,6 +59,7 @@ impl std::fmt::Display for SyncState {
             SyncState::SyncingHead { .. } => write!(f, "Syncing Head Chain"),
             SyncState::Synced { .. } => write!(f, "Synced"),
             SyncState::Stalled { .. } => write!(f, "Stalled"),
+            SyncState::SyncTransition => write!(f, "Searching syncing peers"),
         }
     }
 }

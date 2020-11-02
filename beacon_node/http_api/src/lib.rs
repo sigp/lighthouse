@@ -63,6 +63,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub chain: Option<Arc<BeaconChain<T>>>,
     pub network_tx: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
+    pub eth1_service: Option<eth1::Service>,
     pub log: Logger,
 }
 
@@ -300,6 +301,19 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
+    // Create a `warp` filter that provides access to the Eth1 service.
+    let inner_ctx = ctx.clone();
+    let eth1_service_filter = warp::any()
+        .map(move || inner_ctx.eth1_service.clone())
+        .and_then(|eth1_service| async move {
+            match eth1_service {
+                Some(eth1_service) => Ok(eth1_service),
+                None => Err(warp_utils::reject::custom_not_found(
+                    "The Eth1 service is not started. Use --eth1 on the CLI.".to_string(),
+                )),
+            }
+        });
+
     // Create a `warp` filter that rejects request whilst the node is syncing.
     let not_while_syncing_filter = warp::any()
         .and(network_globals.clone())
@@ -330,7 +344,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )))
                         }
                     }
-                    SyncState::SyncingHead { .. } => Ok(()),
+                    SyncState::SyncingHead { .. } | SyncState::SyncTransition => Ok(()),
                     SyncState::Synced => Ok(()),
                     SyncState::Stalled => Err(warp_utils::reject::not_synced(
                         "sync is stalled".to_string(),
@@ -1281,12 +1295,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_task(move || match *network_globals.sync_state.read() {
-                SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } => {
-                    Ok(warp::reply::with_status(
-                        warp::reply(),
-                        warp::http::StatusCode::PARTIAL_CONTENT,
-                    ))
-                }
+                SyncState::SyncingFinalized { .. }
+                | SyncState::SyncingHead { .. }
+                | SyncState::SyncTransition => Ok(warp::reply::with_status(
+                    warp::reply(),
+                    warp::http::StatusCode::PARTIAL_CONTENT,
+                )),
                 SyncState::Synced => Ok(warp::reply::with_status(
                     warp::reply(),
                     warp::http::StatusCode::OK,
@@ -1862,6 +1876,80 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/eth1/syncing
+    let get_lighthouse_eth1_syncing = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("syncing"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let head_info = chain
+                    .head_info()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_slot = chain
+                    .slot()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                chain
+                    .eth1_chain
+                    .as_ref()
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(
+                            "Eth1 sync is disabled. See the --eth1 CLI flag.".to_string(),
+                        )
+                    })
+                    .and_then(|eth1| {
+                        eth1.sync_status(head_info.genesis_time, current_slot, &chain.spec)
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "Unable to determine Eth1 sync status".to_string(),
+                                )
+                            })
+                    })
+                    .map(api_types::GenericResponse::from)
+            })
+        });
+
+    // GET lighthouse/eth1/block_cache
+    let get_lighthouse_eth1_block_cache = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("block_cache"))
+        .and(warp::path::end())
+        .and(eth1_service_filter.clone())
+        .and_then(|eth1_service: eth1::Service| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    eth1_service
+                        .blocks()
+                        .read()
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                ))
+            })
+        });
+
+    // GET lighthouse/eth1/deposit_cache
+    let get_lighthouse_eth1_deposit_cache = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("deposit_cache"))
+        .and(warp::path::end())
+        .and(eth1_service_filter)
+        .and_then(|eth1_service: eth1::Service| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    eth1_service
+                        .deposits()
+                        .read()
+                        .cache
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                ))
+            })
+        });
+
     // GET lighthouse/beacon/states/{state_id}/ssz
     let get_lighthouse_beacon_states_ssz = warp::path("lighthouse")
         .and(warp::path("beacon"))
@@ -1929,6 +2017,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_proto_array.boxed())
                 .or(get_lighthouse_validator_inclusion_global.boxed())
                 .or(get_lighthouse_validator_inclusion.boxed())
+                .or(get_lighthouse_eth1_syncing.boxed())
+                .or(get_lighthouse_eth1_block_cache.boxed())
+                .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed()),
         )
         .or(warp::post().and(

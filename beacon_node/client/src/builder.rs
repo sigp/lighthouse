@@ -334,6 +334,7 @@ where
                 chain: self.beacon_chain.clone(),
                 network_tx: self.network_send.clone(),
                 network_globals: self.network_globals.clone(),
+                eth1_service: self.eth1_service.clone(),
                 log: log.clone(),
             });
 
@@ -590,7 +591,7 @@ where
                 })?
         };
 
-        self.eth1_service = None;
+        self.eth1_service = Some(backend.core.clone());
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
         backend.start(context.executor);
