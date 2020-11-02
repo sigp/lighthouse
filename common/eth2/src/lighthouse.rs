@@ -9,6 +9,7 @@ use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
+use std::path::{Path, PathBuf};
 use sysinfo::{NetworkExt, NetworksExt, System as SystemInfo, SystemExt};
 use systemstat::{Platform, System as SystemStat};
 
@@ -94,6 +95,73 @@ impl System {
             health: Health::observe()?,
             drives: Drive::observe()?,
         })
+    }
+}
+
+/// Contains information about a file system mount.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MountInfo {
+    avail: u64,
+    total: u64,
+    used: u64,
+    used_pct: f64,
+    mounted_on: PathBuf,
+}
+
+impl MountInfo {
+    /// Attempts to find the `MountInfo` for the given `path`.
+    pub fn for_path<P: AsRef<Path>>(path: P) -> Result<Option<Self>, String> {
+        let system = SystemStat::new();
+        let mounts = system
+            .mounts()
+            .map_err(|e| format!("Unable to enumerate mounts: {:?}", e))?;
+
+        let mut mounts = mounts
+            .iter()
+            .filter_map(|drive| {
+                let mount_path = Path::new(&drive.fs_mounted_on);
+                let num_components = mount_path.iter().count();
+
+                Some((drive, mount_path, num_components))
+                    .filter(|_| path.as_ref().starts_with(&mount_path))
+            })
+            .collect::<Vec<_>>();
+
+        // Sort the list of mount points, such that the path with the most components is first.
+        //
+        // For example:
+        //
+        // ```
+        // let mounts = ["/home/paul", "/home", "/"];
+        // ```
+        //
+        // The intention here is to find the "closest" mount-point to `path`, such that
+        // `/home/paul/file` matches `/home/paul`, not `/` or `/home`.
+        mounts.sort_unstable_by(|(_, _, a), (_, _, b)| b.cmp(a));
+
+        let disk_usage = mounts.first().map(|(drive, mount_path, _)| {
+            let avail = drive.avail.as_u64();
+            let total = drive.total.as_u64();
+            let used = total.saturating_sub(avail);
+            let mut used_pct = if total > 0 {
+                used as f64 / total as f64
+            } else {
+                0.0
+            } * 100.0;
+
+            // Round to two decimals.
+            used_pct = (used_pct * 100.00).round() / 100.00;
+
+            Self {
+                avail,
+                total,
+                used,
+                used_pct,
+                mounted_on: mount_path.into(),
+            }
+        });
+
+        Ok(disk_usage)
     }
 }
 
@@ -210,6 +278,10 @@ pub struct Health {
     pub sys_loadavg_15: f64,
     /// Network statistics, totals across all network interfaces.
     pub network: Network,
+    /// Filesystem information.
+    pub chain_database: Option<MountInfo>,
+    /// Filesystem information.
+    pub freezer_database: Option<MountInfo>,
 }
 
 impl Health {
@@ -246,6 +318,10 @@ impl Health {
             sys_loadavg_5: loadavg.five,
             sys_loadavg_15: loadavg.fifteen,
             network: Network::observe()?,
+            chain_database: MountInfo::for_path("/home/paul/.lighthouse/medalla/beacon/chain_db")?,
+            freezer_database: MountInfo::for_path(
+                "/home/paul/.lighthouse/medalla/beacon/freezer_db",
+            )?,
         })
     }
 
