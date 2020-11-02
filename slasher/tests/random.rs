@@ -20,10 +20,13 @@ fn random_test(seed: u64, check_slashings: bool) {
     let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1 << rng.gen_range(1, 4);
 
+    println!("Validator chunk size: {}", config.validator_chunk_size);
+
     let chunk_size_exponent = rng.gen_range(1, 4);
     config.chunk_size = 1 << chunk_size_exponent;
     config.history_length = 1 << rng.gen_range(chunk_size_exponent, chunk_size_exponent + 3);
 
+    eprintln!("Chunk size: {}", config.chunk_size);
     eprintln!("History length: {}", config.history_length);
 
     let slasher = Slasher::<E>::open(config.clone(), logger()).unwrap();
@@ -119,5 +122,10 @@ fn check_slashings() {
 
 #[test]
 fn problem() {
-    random_test(6950630541455174723, false);
+    random_test(2064946994010930548, false);
+}
+
+#[test]
+fn problem2() {
+    random_test(10684284558065464334, false);
 }

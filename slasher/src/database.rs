@@ -12,26 +12,28 @@ use types::{
 };
 
 /// Map from `(target_epoch, validator_index)` to `AttesterRecord`.
+// FIXME(sproul): rename to `attesters_DB`
 const ATTESTER_DB: &str = "attesters";
 /// Map from `indexed_attestation_hash` to `IndexedAttestation`.
 const INDEXED_ATTESTATION_DB: &str = "indexed_attestations";
 const MIN_TARGETS_DB: &str = "min_targets";
 const MAX_TARGETS_DB: &str = "max_targets";
+/// Map from `validator_index` to the `current_epoch` stored for that validator's min and max
+/// target arrays.
+const CURRENT_EPOCHS_DB: &str = "current_epochs";
 /// Map from `(slot, validator_index)` to `SignedBeaconBlockHeader`.
 const PROPOSER_DB: &str = "proposers";
 /// Metadata about the slashing database itself.
 const METADATA_DB: &str = "metadata";
 
 /// The number of DBs for LMDB to use (equal to the number of DBs defined above).
-const LMDB_MAX_DBS: u32 = 6;
+const LMDB_MAX_DBS: u32 = 7;
 /// The size of the in-memory map for LMDB (larger than the maximum size of the database).
 // FIXME(sproul): make this user configurable
 const LMDB_MAP_SIZE: usize = 256 * (1 << 30); // 256GiB
 
 const ATTESTER_KEY_SIZE: usize = 16;
 const PROPOSER_KEY_SIZE: usize = 16;
-
-const METADATA_CURRENT_EPOCH_KEY: &'static [u8] = &[0];
 
 #[derive(Debug)]
 pub struct SlasherDB<E: EthSpec> {
@@ -40,6 +42,7 @@ pub struct SlasherDB<E: EthSpec> {
     pub(crate) attesters_db: Database,
     pub(crate) min_targets_db: Database,
     pub(crate) max_targets_db: Database,
+    pub(crate) current_epochs_db: Database,
     pub(crate) proposers_db: Database,
     pub(crate) metadata_db: Database,
     config: Arc<Config>,
@@ -114,6 +117,25 @@ impl AsRef<[u8]> for ProposerKey {
     }
 }
 
+/// Key containing a validator index
+pub struct CurrentEpochKey {
+    validator_index: [u8; 8],
+}
+
+impl CurrentEpochKey {
+    pub fn new(validator_index: u64) -> Self {
+        Self {
+            validator_index: validator_index.to_be_bytes(),
+        }
+    }
+}
+
+impl AsRef<[u8]> for CurrentEpochKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.validator_index
+    }
+}
+
 impl<E: EthSpec> SlasherDB<E> {
     pub fn open(config: Arc<Config>) -> Result<Self, Error> {
         // TODO: open_with_permissions
@@ -127,6 +149,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let attesters_db = env.create_db(Some(ATTESTER_DB), Self::db_flags())?;
         let min_targets_db = env.create_db(Some(MIN_TARGETS_DB), Self::db_flags())?;
         let max_targets_db = env.create_db(Some(MAX_TARGETS_DB), Self::db_flags())?;
+        let current_epochs_db = env.create_db(Some(CURRENT_EPOCHS_DB), Self::db_flags())?;
         let proposers_db = env.create_db(Some(PROPOSER_DB), Self::db_flags())?;
         let metadata_db = env.create_db(Some(METADATA_DB), Self::db_flags())?;
         Ok(Self {
@@ -135,6 +158,7 @@ impl<E: EthSpec> SlasherDB<E> {
             attesters_db,
             min_targets_db,
             max_targets_db,
+            current_epochs_db,
             proposers_db,
             metadata_db,
             config,
@@ -157,10 +181,14 @@ impl<E: EthSpec> SlasherDB<E> {
     // FIXME(sproul): rename
     pub fn get_stored_current_epoch(
         &self,
+        validator_index: u64,
         txn: &mut RwTransaction<'_>,
     ) -> Result<Option<Epoch>, Error> {
         Ok(txn
-            .get(self.metadata_db, &METADATA_CURRENT_EPOCH_KEY)
+            .get(
+                self.current_epochs_db,
+                &CurrentEpochKey::new(validator_index),
+            )
             .optional()?
             .map(Epoch::from_ssz_bytes)
             .transpose()?)
@@ -168,12 +196,13 @@ impl<E: EthSpec> SlasherDB<E> {
 
     pub fn update_current_epoch(
         &self,
+        validator_index: u64,
         current_epoch: Epoch,
         txn: &mut RwTransaction<'_>,
     ) -> Result<(), Error> {
         txn.put(
-            self.metadata_db,
-            &METADATA_CURRENT_EPOCH_KEY,
+            self.current_epochs_db,
+            &CurrentEpochKey::new(validator_index),
             &current_epoch.as_ssz_bytes(),
             Self::write_flags(),
         )?;

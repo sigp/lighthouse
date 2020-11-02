@@ -135,7 +135,11 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         config: &Config,
     ) -> Result<bool, Error>;
 
-    fn first_start_epoch(source_epoch: Epoch, current_epoch: Epoch) -> Option<Epoch>;
+    fn first_start_epoch(
+        source_epoch: Epoch,
+        current_epoch: Epoch,
+        config: &Config,
+    ) -> Option<Epoch>;
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
@@ -216,6 +220,11 @@ impl TargetArrayChunk for MinTargetChunk {
             self.chunk
                 .get_target(validator_index, attestation.data.source.epoch, config)?;
         if attestation.data.target.epoch > min_target {
+            eprintln!("Min target chunk: {:?}", self);
+            eprintln!(
+                "Attestation: {}=>{}",
+                attestation.data.source.epoch, attestation.data.target.epoch
+            );
             let attestation = db
                 .get_attestation_for_validator(txn, validator_index, min_target)?
                 .ok_or_else(|| Error::MissingAttesterRecord {
@@ -243,8 +252,17 @@ impl TargetArrayChunk for MinTargetChunk {
                 .saturating_sub(config.history_length - 1),
         );
         let mut epoch = start_epoch;
-        while config.chunk_index(epoch) == chunk_index {
+        while config.chunk_index(epoch) == chunk_index && epoch >= min_epoch {
             if new_target_epoch < self.chunk.get_target(validator_index, epoch, config)? {
+                if validator_index == 0
+                    && Chunk::epoch_distance(new_target_epoch, epoch)? == 4
+                    && epoch.as_u64() % 8 == 1
+                {
+                    println!(
+                        "SETTING DISTANCE FOR EPOCH {} TO {} AT {}",
+                        epoch, new_target_epoch, current_epoch
+                    );
+                }
                 self.chunk
                     .set_target(validator_index, epoch, new_target_epoch, config)?;
             } else {
@@ -256,8 +274,14 @@ impl TargetArrayChunk for MinTargetChunk {
         Ok(epoch > min_epoch)
     }
 
-    fn first_start_epoch(source_epoch: Epoch, _current_epoch: Epoch) -> Option<Epoch> {
-        if source_epoch > 0 {
+    // FIXME(sproul): fix modulo behaviour
+    fn first_start_epoch(
+        source_epoch: Epoch,
+        current_epoch: Epoch,
+        config: &Config,
+    ) -> Option<Epoch> {
+        if source_epoch > current_epoch - config.history_length as u64 {
+            assert_ne!(source_epoch, 0);
             Some(source_epoch - 1)
         } else {
             None
@@ -307,6 +331,11 @@ impl TargetArrayChunk for MaxTargetChunk {
             self.chunk
                 .get_target(validator_index, attestation.data.source.epoch, config)?;
         if attestation.data.target.epoch < max_target {
+            eprintln!("Max target chunk: {:?}", self);
+            eprintln!(
+                "Attestation: {}=>{}",
+                attestation.data.source.epoch, attestation.data.target.epoch
+            );
             let attestation = db
                 .get_attestation_for_validator(txn, validator_index, max_target)?
                 .ok_or_else(|| Error::MissingAttesterRecord {
@@ -329,7 +358,7 @@ impl TargetArrayChunk for MaxTargetChunk {
         config: &Config,
     ) -> Result<bool, Error> {
         let mut epoch = start_epoch;
-        while config.chunk_index(epoch) == chunk_index {
+        while config.chunk_index(epoch) == chunk_index && epoch <= current_epoch {
             if new_target_epoch > self.chunk.get_target(validator_index, epoch, config)? {
                 self.chunk
                     .set_target(validator_index, epoch, new_target_epoch, config)?;
@@ -344,7 +373,11 @@ impl TargetArrayChunk for MaxTargetChunk {
         Ok(epoch <= current_epoch)
     }
 
-    fn first_start_epoch(source_epoch: Epoch, current_epoch: Epoch) -> Option<Epoch> {
+    fn first_start_epoch(
+        source_epoch: Epoch,
+        current_epoch: Epoch,
+        _config: &Config,
+    ) -> Option<Epoch> {
         if source_epoch < current_epoch {
             Some(source_epoch + 1)
         } else {
@@ -416,7 +449,7 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
     }
 
     let mut start_epoch = if let Some(start_epoch) =
-        T::first_start_epoch(attestation.data.source.epoch, current_epoch)
+        T::first_start_epoch(attestation.data.source.epoch, current_epoch, config)
     {
         start_epoch
     } else {
@@ -485,6 +518,14 @@ pub fn update<E: EthSpec>(
         current_epoch,
         config,
     )?);
+
+    // Update all current epochs.
+    for validator_index in validator_chunk_index * config.validator_chunk_size
+        ..(validator_chunk_index + 1) * config.validator_chunk_size
+    {
+        db.update_current_epoch(validator_index as u64, current_epoch, txn)?;
+    }
+
     Ok(slashings)
 }
 
@@ -497,16 +538,29 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<(), Error> {
-    let previous_current_epoch = if let Some(epoch) = db.get_stored_current_epoch(txn)? {
-        epoch
-    } else {
-        return Ok(());
-    };
+    let previous_current_epoch =
+        if let Some(epoch) = db.get_stored_current_epoch(validator_index, txn)? {
+            epoch
+        } else {
+            return Ok(());
+        };
 
-    let mut chunk_index = config.chunk_index(previous_current_epoch);
+    let debug_index = 0;
+
+    if validator_index == debug_index {
+        eprintln!(
+            "Doing epoch update for {} at {} from {}",
+            validator_index, current_epoch, previous_current_epoch
+        );
+    }
+
     let mut epoch = previous_current_epoch;
 
     while epoch <= current_epoch {
+        if validator_index == debug_index {
+            eprintln!("Starting iter with epoch {}", epoch);
+        }
+        let chunk_index = config.chunk_index(epoch);
         let current_chunk = get_chunk_for_update(
             db,
             txn,
@@ -516,6 +570,13 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
             config,
         )?;
         while config.chunk_index(epoch) == chunk_index && epoch <= current_epoch {
+            if validator_index == debug_index {
+                eprintln!(
+                    "Setting distance at epoch {} to {}",
+                    epoch,
+                    T::neutral_element()
+                );
+            }
             current_chunk.chunk().set_raw_distance(
                 validator_index,
                 epoch,
@@ -524,7 +585,6 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
             )?;
             epoch += 1;
         }
-        chunk_index = config.chunk_index(epoch);
     }
 
     Ok(())
@@ -542,20 +602,25 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     // Map from chunk index to updated chunk at that index.
     let mut updated_chunks = BTreeMap::new();
 
+    for validator_index in validator_chunk_index * config.validator_chunk_size
+        ..(validator_chunk_index + 1) * config.validator_chunk_size
+    {
+        epoch_update_for_validator(
+            db,
+            txn,
+            &mut updated_chunks,
+            validator_chunk_index,
+            validator_index as u64,
+            current_epoch,
+            config,
+        )?;
+    }
+
     for attestations in chunk_attestations.values() {
         for attestation in attestations {
             for validator_index in
                 config.attesting_validators_for_chunk(&attestation.0, validator_chunk_index)
             {
-                epoch_update_for_validator(
-                    db,
-                    txn,
-                    &mut updated_chunks,
-                    validator_chunk_index,
-                    validator_index,
-                    current_epoch,
-                    config,
-                )?;
                 let slashing_status = apply_attestation_for_validator::<E, T>(
                     db,
                     txn,

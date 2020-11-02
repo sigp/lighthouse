@@ -70,7 +70,6 @@ impl<E: EthSpec> Slasher<E> {
         let mut txn = self.db.begin_rw_txn()?;
         self.process_blocks(&mut txn)?;
         self.process_attestations(current_epoch, &mut txn)?;
-        self.db.update_current_epoch(current_epoch, &mut txn)?;
         txn.commit()?;
         Ok(())
     }
@@ -121,12 +120,14 @@ impl<E: EthSpec> Slasher<E> {
             "num_deferred" => num_deferred,
             "num_dropped" => num_dropped,
         );
+        /*
         eprintln!(
             "valid: {}, deferred: {}, dropped: {}",
             snapshot.len(),
             num_deferred,
             num_dropped
         );
+        */
         for attestation in snapshot.attestations.iter() {
             self.db.store_indexed_attestation(
                 txn,
@@ -266,9 +267,8 @@ impl<E: EthSpec> Slasher<E> {
             let source_epoch = attestation.data.source.epoch;
 
             if source_epoch > target_epoch
-                || source_epoch <= current_epoch - self.config.history_length as u64
+                || source_epoch + self.config.history_length as u64 <= current_epoch
             {
-                eprintln!("dropping {}=>{}", source_epoch, target_epoch);
                 drop_count += 1;
                 continue;
             }
@@ -276,11 +276,9 @@ impl<E: EthSpec> Slasher<E> {
             // Check that the attestation's target epoch is acceptable, and defer it
             // if it's not.
             if target_epoch > current_epoch {
-                eprintln!("deferring {}=>{}", source_epoch, target_epoch);
                 defer.push(tuple);
             } else {
                 // Otherwise the attestation is OK to process.
-                eprintln!("processing {}=>{}", source_epoch, target_epoch);
                 keep.push(tuple);
             }
         }
