@@ -1,6 +1,6 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
-use eth2::lighthouse::Health;
+use eth2::lighthouse::BeaconHealth;
 use lighthouse_metrics::{Encoder, TextEncoder};
 
 pub use lighthouse_metrics::*;
@@ -87,40 +87,53 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
         beacon_chain::scrape_for_metrics(beacon_chain);
     }
 
-    if let (Some(db_path), Some(freezer_db_path)) =
-        (ctx.db_path.as_ref(), ctx.freezer_db_path.as_ref())
-    {
-        store::scrape_for_metrics(db_path, freezer_db_path);
+    if let Some(db_paths) = ctx.db_paths.as_ref() {
+        store::scrape_for_metrics(&db_paths.chain_db, &db_paths.freezer_db);
+
+        // This will silently fail if we are unable to observe the health. This is desired behaviour
+        // since we don't support `BeaconHealth` for all platforms.
+        if let Ok(health) = BeaconHealth::observe(db_paths) {
+            set_gauge(
+                &PROCESS_RES_MEM,
+                health.common.pid_mem_resident_set_size as i64,
+            );
+            set_gauge(
+                &PROCESS_VIRT_MEM,
+                health.common.pid_mem_virtual_memory_size as i64,
+            );
+            set_gauge(
+                &SYSTEM_VIRT_MEM_TOTAL,
+                health.common.sys_virt_mem_total as i64,
+            );
+            set_gauge(
+                &SYSTEM_VIRT_MEM_AVAILABLE,
+                health.common.sys_virt_mem_available as i64,
+            );
+            set_gauge(
+                &SYSTEM_VIRT_MEM_USED,
+                health.common.sys_virt_mem_used as i64,
+            );
+            set_gauge(
+                &SYSTEM_VIRT_MEM_FREE,
+                health.common.sys_virt_mem_free as i64,
+            );
+            set_float_gauge(
+                &SYSTEM_VIRT_MEM_PERCENTAGE,
+                health.common.sys_virt_mem_percent as f64,
+            );
+            set_float_gauge(&SYSTEM_LOADAVG_1, health.common.sys_loadavg_1);
+            set_float_gauge(&SYSTEM_LOADAVG_5, health.common.sys_loadavg_5);
+            set_float_gauge(&SYSTEM_LOADAVG_15, health.common.sys_loadavg_15);
+            set_gauge(&SYSTEM_RX_BYTES, health.network.rx_bytes as i64);
+            set_gauge(&SYSTEM_RX_ERRORS, health.network.rx_errors as i64);
+            set_gauge(&SYSTEM_RX_PACKETS, health.network.rx_packets as i64);
+            set_gauge(&SYSTEM_TX_BYTES, health.network.tx_bytes as i64);
+            set_gauge(&SYSTEM_TX_ERRORS, health.network.tx_errors as i64);
+            set_gauge(&SYSTEM_TX_PACKETS, health.network.tx_packets as i64);
+        }
     }
 
     eth2_libp2p::scrape_discovery_metrics();
-
-    // This will silently fail if we are unable to observe the health. This is desired behaviour
-    // since we don't support `Health` for all platforms.
-    if let Ok(health) = Health::observe() {
-        set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
-        set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
-        set_gauge(&SYSTEM_VIRT_MEM_TOTAL, health.sys_virt_mem_total as i64);
-        set_gauge(
-            &SYSTEM_VIRT_MEM_AVAILABLE,
-            health.sys_virt_mem_available as i64,
-        );
-        set_gauge(&SYSTEM_VIRT_MEM_USED, health.sys_virt_mem_used as i64);
-        set_gauge(&SYSTEM_VIRT_MEM_FREE, health.sys_virt_mem_free as i64);
-        set_float_gauge(
-            &SYSTEM_VIRT_MEM_PERCENTAGE,
-            health.sys_virt_mem_percent as f64,
-        );
-        set_float_gauge(&SYSTEM_LOADAVG_1, health.sys_loadavg_1);
-        set_float_gauge(&SYSTEM_LOADAVG_5, health.sys_loadavg_5);
-        set_float_gauge(&SYSTEM_LOADAVG_15, health.sys_loadavg_15);
-        set_gauge(&SYSTEM_RX_BYTES, health.network.rx_bytes as i64);
-        set_gauge(&SYSTEM_RX_ERRORS, health.network.rx_errors as i64);
-        set_gauge(&SYSTEM_RX_PACKETS, health.network.rx_packets as i64);
-        set_gauge(&SYSTEM_TX_BYTES, health.network.tx_bytes as i64);
-        set_gauge(&SYSTEM_TX_ERRORS, health.network.tx_errors as i64);
-        set_gauge(&SYSTEM_TX_PACKETS, health.network.tx_packets as i64);
-    }
 
     encoder
         .encode(&lighthouse_metrics::gather(), &mut buffer)

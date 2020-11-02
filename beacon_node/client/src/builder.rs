@@ -370,8 +370,7 @@ where
             let ctx = Arc::new(http_metrics::Context {
                 config: self.http_metrics_config.clone(),
                 chain: self.beacon_chain.clone(),
-                db_path: Some(db_paths.chain_db),
-                freezer_db_path: Some(db_paths.freezer_db),
+                db_paths: Some(db_paths),
                 log: log.clone(),
             });
 

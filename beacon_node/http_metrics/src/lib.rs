@@ -8,12 +8,12 @@ extern crate lazy_static;
 mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2::lighthouse::DBPaths;
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
 use std::sync::Arc;
 use warp::{http::Response, Filter};
 
@@ -41,8 +41,7 @@ impl From<String> for Error {
 pub struct Context<T: BeaconChainTypes> {
     pub config: Config,
     pub chain: Option<Arc<BeaconChain<T>>>,
-    pub db_path: Option<PathBuf>,
-    pub freezer_db_path: Option<PathBuf>,
+    pub db_paths: Option<DBPaths>,
     pub log: Logger,
 }
 

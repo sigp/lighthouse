@@ -35,7 +35,6 @@ use std::borrow::Cow;
 use std::convert::TryInto;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
@@ -46,6 +45,8 @@ use types::{
 use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
 
+pub use eth2::lighthouse::DBPaths;
+
 const API_PREFIX: &str = "eth";
 const API_VERSION: &str = "v1";
 
@@ -55,12 +56,6 @@ const API_VERSION: &str = "v1";
 /// This helps prevent attacks where nodes can convince us that we're syncing some non-existent
 /// finalized head.
 const SYNC_TOLERANCE_EPOCHS: u64 = 8;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DBPaths {
-    pub chain_db: PathBuf,
-    pub freezer_db: PathBuf,
-}
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
@@ -304,6 +299,19 @@ pub fn serve<T: BeaconChainTypes>(
                 Some(network_tx) => Ok(network_tx),
                 None => Err(warp_utils::reject::custom_not_found(
                     "The networking stack has not yet started.".to_string(),
+                )),
+            }
+        });
+
+    // Create a `warp` filter that provides access to the database paths.
+    let inner_ctx = ctx.clone();
+    let db_paths_filter = warp::any()
+        .map(move || inner_ctx.db_paths.clone())
+        .and_then(|db_paths| async move {
+            match db_paths {
+                Some(db_paths) => Ok(db_paths),
+                None => Err(warp_utils::reject::custom_not_found(
+                    "The database paths are unknown.".to_string(),
                 )),
             }
         });
@@ -1711,9 +1719,10 @@ pub fn serve<T: BeaconChainTypes>(
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
         .and(warp::path::end())
-        .and_then(|| {
+        .and(db_paths_filter)
+        .and_then(|db_paths| {
             blocking_json_task(move || {
-                eth2::lighthouse::Health::observe()
+                eth2::lighthouse::BeaconHealth::observe(&db_paths)
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })

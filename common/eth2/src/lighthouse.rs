@@ -15,6 +15,13 @@ use systemstat::{Platform, System as SystemStat};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
+/// The two paths to the two core Lighthouse databases.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DBPaths {
+    pub chain_db: PathBuf,
+    pub freezer_db: PathBuf,
+}
+
 /// Information returned by `peers` and `connected_peers`.
 // TODO: this should be deserializable..
 #[derive(Debug, Clone, Serialize)]
@@ -198,7 +205,7 @@ impl Network {
 
 /// Reports on the health of the Lighthouse instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Health {
+pub struct CommonHealth {
     /// The pid of this process.
     pub pid: u32,
     /// The total resident memory used by this pid.
@@ -221,15 +228,9 @@ pub struct Health {
     pub sys_loadavg_5: f64,
     /// System load average over 15 minutes.
     pub sys_loadavg_15: f64,
-    /// Network statistics, totals across all network interfaces.
-    pub network: Network,
-    /// Filesystem information.
-    pub chain_database: Option<MountInfo>,
-    /// Filesystem information.
-    pub freezer_database: Option<MountInfo>,
 }
 
-impl Health {
+impl CommonHealth {
     #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
     pub fn observe() -> Result<Self, String> {
         Err("Health is only available on Linux and MacOS".into())
@@ -262,11 +263,6 @@ impl Health {
             sys_loadavg_1: loadavg.one,
             sys_loadavg_5: loadavg.five,
             sys_loadavg_15: loadavg.fifteen,
-            network: Network::observe()?,
-            chain_database: MountInfo::for_path("/home/paul/.lighthouse/medalla/beacon/chain_db")?,
-            freezer_database: MountInfo::for_path(
-                "/home/paul/.lighthouse/medalla/beacon/freezer_db",
-            )?,
         })
     }
 
@@ -300,11 +296,46 @@ impl Health {
             sys_loadavg_1: loadavg.one as f64,
             sys_loadavg_5: loadavg.five as f64,
             sys_loadavg_15: loadavg.fifteen as f64,
+        })
+    }
+}
+
+/// Reports on the health of the Lighthouse instance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BeaconHealth {
+    #[serde(flatten)]
+    pub common: CommonHealth,
+    /// Network statistics, totals across all network interfaces.
+    pub network: Network,
+    /// Filesystem information.
+    pub chain_database: Option<MountInfo>,
+    /// Filesystem information.
+    pub freezer_database: Option<MountInfo>,
+}
+
+impl BeaconHealth {
+    #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
+    pub fn observe() -> Result<Self, String> {
+        Err("Health is only available on Linux and MacOS".into())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn observe(db_paths: &DBPaths) -> Result<Self, String> {
+        Ok(Self {
+            common: CommonHealth::observe()?,
             network: Network::observe()?,
-            chain_database: MountInfo::for_path("/home/paul/.lighthouse/medalla/beacon/chain_db")?,
-            freezer_database: MountInfo::for_path(
-                "/home/paul/.lighthouse/medalla/beacon/freezer_db",
-            )?,
+            chain_database: MountInfo::for_path(&db_paths.chain_db)?,
+            freezer_database: MountInfo::for_path(&db_paths.freezer_db)?,
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn observe(db_paths: &DBPaths) -> Result<Self, String> {
+        Ok(Self {
+            common: CommonHealth::observe()?,
+            network: Network::observe()?,
+            chain_database: MountInfo::for_path(&db_paths.chain_db)?,
+            freezer_database: MountInfo::for_path(&db_paths.freezer_db)?,
         })
     }
 }
@@ -332,7 +363,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET lighthouse/health`
-    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
+    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<BeaconHealth>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()

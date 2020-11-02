@@ -172,7 +172,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and_then(|signer| {
             blocking_signed_json_task(signer, move || {
-                eth2::lighthouse::Health::observe()
+                api_types::ValidatorHealth::observe()
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })

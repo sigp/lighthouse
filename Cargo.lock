@@ -854,6 +854,7 @@ dependencies = [
  "environment",
  "error-chain",
  "eth1",
+ "eth2",
  "eth2_config",
  "eth2_libp2p",
  "eth2_ssz",
