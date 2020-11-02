@@ -82,22 +82,6 @@ use psutil::process::Process;
 #[cfg(target_os = "linux")]
 use psutil::process::Process;
 
-/// Reports information about the system the Lighthouse instance is running on.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct System {
-    pub health: Health,
-    pub drives: Vec<Drive>,
-}
-
-impl System {
-    pub fn observe() -> Result<Self, String> {
-        Ok(Self {
-            health: Health::observe()?,
-            drives: Drive::observe()?,
-        })
-    }
-}
-
 /// Contains information about a file system mount.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MountInfo {
@@ -162,45 +146,6 @@ impl MountInfo {
         });
 
         Ok(disk_usage)
-    }
-}
-
-/// Reports information about a drive on the system the Lighthouse instance is running on.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Drive {
-    /// The filesystem name.
-    pub filesystem: String,
-    /// The amount of disk space available on the filesystem.
-    pub avail: u64,
-    /// The amount of disk space used on the filesystem. Equivalent to `total-avail`.
-    pub used: u64,
-    /// The percentage of disk space used on the filesystem. Equivalent to `(total-avail) / total`.
-    pub used_pct: u64,
-    /// The total amount of disk space on the filesystem.
-    pub total: u64,
-    /// The filesystem mount point.
-    pub mounted_on: String,
-}
-
-impl Drive {
-    pub fn observe() -> Result<Vec<Self>, String> {
-        let system = SystemStat::new();
-        Ok(system
-            .mounts()
-            .expect("Could not find mounts.")
-            .into_iter()
-            // filter out drives with zero total disk space
-            .filter(|drive| drive.total.as_u64() != 0)
-            .map(|drive| Drive {
-                filesystem: drive.fs_mounted_from,
-                avail: drive.avail.as_u64(),
-                used: drive.total.as_u64() - drive.avail.as_u64(),
-                used_pct: (((drive.total.0 as f64 - drive.avail.0 as f64) / drive.total.0 as f64)
-                    * 100.0) as u64,
-                total: drive.total.as_u64(),
-                mounted_on: drive.fs_mounted_on,
-            })
-            .collect())
     }
 }
 
@@ -382,40 +327,14 @@ impl BeaconNodeHttpClient {
         }
     }
 
-    /// `GET lighthouse/system`
-    pub async fn get_lighthouse_system(&self) -> Result<GenericResponse<System>, Error> {
+    /// `GET lighthouse/health`
+    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
-            .push("system");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/system/health`
-    pub async fn get_lighthouse_system_health(&self) -> Result<GenericResponse<Health>, Error> {
-        let mut path = self.server.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("system")
             .push("health");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/system/drives`
-    pub async fn get_lighthouse_system_drives(&self) -> Result<GenericResponse<Vec<Drive>>, Error> {
-        let mut path = self.server.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("system")
-            .push("drives");
 
         self.get(path).await
     }

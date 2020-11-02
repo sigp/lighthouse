@@ -177,6 +177,7 @@ impl ApiTester {
             chain: Some(chain.clone()),
             network_tx: Some(network_tx),
             network_globals: Some(Arc::new(network_globals)),
+            db_paths: None,
             log,
         });
         let ctx = context.clone();

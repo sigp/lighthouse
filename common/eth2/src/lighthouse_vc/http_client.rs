@@ -10,7 +10,7 @@ use ring::digest::{digest, SHA256};
 use secp256k1::{Message, PublicKey, Signature};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::lighthouse::{Drive, System};
+use crate::lighthouse::Health;
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
 
@@ -198,20 +198,8 @@ impl ValidatorClientHttpClient {
         self.get(path).await
     }
 
-    /// `GET lighthouse/system`
-    pub async fn get_lighthouse_system(&self) -> Result<GenericResponse<System>, Error> {
-        let mut path = self.server.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("system");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/system/health`
-    pub async fn get_lighthouse_system_health(&self) -> Result<GenericResponse<Health>, Error> {
+    /// `GET lighthouse/health`
+    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
@@ -219,19 +207,6 @@ impl ValidatorClientHttpClient {
             .push("lighthouse")
             .push("system")
             .push("health");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/system/drives`
-    pub async fn get_lighthouse_system_drives(&self) -> Result<GenericResponse<Vec<Drive>>, Error> {
-        let mut path = self.server.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("system")
-            .push("drives");
 
         self.get(path).await
     }
