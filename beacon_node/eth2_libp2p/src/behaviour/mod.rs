@@ -26,7 +26,7 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -589,6 +589,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     fn on_rpc_event(&mut self, message: RPCMessage<TSpec>) {
         let peer_id = message.peer_id;
+
+        if !self.peer_manager.is_connected(&peer_id) {
+            //ignore this event
+            info!(
+                self.log,
+                "Ignoring rpc message of disconnected peer";
+                "peer" => peer_id.to_string()
+            );
+            return;
+        }
+
         let handler_id = message.conn_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match message.event {
