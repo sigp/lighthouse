@@ -11,10 +11,10 @@ lazy_static = "1.4.0"
 num-bigint = "0.3.0"
 eth2_hashing = "0.1.0"
 hex = "0.4.2"
-serde_yaml = "0.8.11"
-serde = "1.0.110"
-serde_derive = "1.0.110"
+serde_yaml = "0.8.13"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 bls = { path = "../../crypto/bls" }
 
 [dev-dependencies]
-base64 = "0.12.1"
+base64 = "0.13.0"

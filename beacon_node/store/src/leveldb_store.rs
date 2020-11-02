@@ -5,13 +5,17 @@ use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
+use leveldb::iterator::{Iterable, KeyIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
+use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
 use std::path::Path;
 
 /// A wrapped leveldb database.
 pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
+    /// A mutex to synchronise sensitive read-write transactions.
+    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
@@ -23,9 +27,11 @@ impl<E: EthSpec> LevelDB<E> {
         options.create_if_missing = true;
 
         let db = Database::open(path, options)?;
+        let transaction_mutex = Mutex::new(());
 
         Ok(Self {
             db,
+            transaction_mutex,
             _phantom: PhantomData,
         })
     }
@@ -63,6 +69,10 @@ impl<E: EthSpec> LevelDB<E> {
             .map(|()| {
                 metrics::stop_timer(timer);
             })
+    }
+
+    pub fn keys_iter(&self) -> KeyIterator<BytesKey> {
+        self.db.keys_iter(self.read_options())
     }
 }
 
@@ -138,11 +148,16 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         self.db.write(self.write_options(), &leveldb_batch)?;
         Ok(())
     }
+
+    fn begin_rw_transaction(&self) -> MutexGuard<()> {
+        self.transaction_mutex.lock()
+    }
 }
 
 impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
 /// Used for keying leveldb.
+#[derive(Debug, PartialEq)]
 pub struct BytesKey {
     key: Vec<u8>,
 }
@@ -158,7 +173,23 @@ impl Key for BytesKey {
 }
 
 impl BytesKey {
-    fn from_vec(key: Vec<u8>) -> Self {
+    /// Return `true` iff this `BytesKey` was created with the given `column`.
+    pub fn matches_column(&self, column: DBColumn) -> bool {
+        self.key.starts_with(column.as_bytes())
+    }
+
+    /// Remove the column from a key, returning its `Hash256` portion.
+    pub fn remove_column(&self, column: DBColumn) -> Option<Hash256> {
+        if self.matches_column(column) {
+            let subkey = &self.key[column.as_bytes().len()..];
+            if subkey.len() == 32 {
+                return Some(Hash256::from_slice(subkey));
+            }
+        }
+        None
+    }
+
+    pub fn from_vec(key: Vec<u8>) -> Self {
         Self { key }
     }
 }

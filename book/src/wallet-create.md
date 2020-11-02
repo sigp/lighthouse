@@ -1,10 +1,10 @@
 # Create a wallet
 
 A wallet allows for generating practically unlimited validators from an
-easy-to-remember 12-word string (a mnemonic). As long as that mnemonic is
+easy-to-remember 24-word string (a mnemonic). As long as that mnemonic is
 backed up, all validator keys can be trivially re-generated.
 
-The 12-word string is randomly generated during wallet creation and printed out
+The 24-word string is randomly generated during wallet creation and printed out
 to the terminal. It's important to **make one or more backups of the mnemonic**
 to ensure your ETH is not lost in the case of data loss. It very important to
 **keep your mnemonic private** as it represents the ultimate control of your
@@ -43,9 +43,6 @@ OPTIONS:
             A path to a file containing the password which will unlock the wallet. If the file does not exist, a random
             password will be generated and saved at that path. To avoid confusion, if the file does not already exist it
             must include a '.pass' suffix.
-    -s, --spec <TITLE>
-            Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, interop]
-
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
@@ -57,11 +54,11 @@ OPTIONS:
 
 ## Example
 
-Creates a new wallet named `wally` with a randomly generated password saved
+Creates a new wallet named `wally` and saves it in `~/.lighthouse/medalla/wallets` with a randomly generated password saved
 to `./wallet.pass`:
 
 ```bash
-lighthouse account wallet create --name wally --password-file wally.pass
+lighthouse --testnet medalla account wallet create --name wally --password-file wally.pass
 ```
 
 > Notes:

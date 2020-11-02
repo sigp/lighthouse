@@ -1,9 +1,11 @@
 use super::SECRET_KEY_BYTES_LEN;
+use serde_derive::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 /// Provides a wrapper around a `[u8; SECRET_KEY_BYTES_LEN]` that implements `Zeroize` on `Drop`.
-#[derive(Zeroize)]
+#[derive(Zeroize, Serialize, Deserialize)]
 #[zeroize(drop)]
+#[serde(transparent)]
 pub struct ZeroizeHash([u8; SECRET_KEY_BYTES_LEN]);
 
 impl ZeroizeHash {

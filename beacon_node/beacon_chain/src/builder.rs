@@ -4,7 +4,7 @@ use crate::beacon_chain::{
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
-use crate::migrate::Migrate;
+use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::ShufflingCache;
@@ -18,9 +18,10 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
+use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{info, Logger};
+use slog::{crit, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -36,17 +37,8 @@ pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<
-    TStoreMigrator,
-    TSlotClock,
-    TEth1Backend,
-    TEthSpec,
-    TEventHandler,
-    THotStore,
-    TColdStore,
->(
+pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>(
     PhantomData<(
-        TStoreMigrator,
         TSlotClock,
         TEth1Backend,
         TEthSpec,
@@ -56,21 +48,11 @@ pub struct Witness<
     )>,
 );
 
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    BeaconChainTypes
-    for Witness<
-        TStoreMigrator,
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    >
+impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore> BeaconChainTypes
+    for Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -78,7 +60,6 @@ where
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
-    type StoreMigrator = TStoreMigrator;
     type SlotClock = TSlotClock;
     type Eth1Chain = TEth1Backend;
     type EthSpec = TEthSpec;
@@ -96,9 +77,10 @@ where
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
-    store_migrator: Option<T::StoreMigrator>,
+    store_migrator_config: Option<MigratorConfig>,
     pub genesis_time: Option<u64>,
     genesis_block_root: Option<Hash256>,
+    genesis_state_root: Option<Hash256>,
     #[allow(clippy::type_complexity)]
     fork_choice: Option<
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
@@ -107,6 +89,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
+    shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
     data_dir: Option<PathBuf>,
     pubkey_cache_path: Option<PathBuf>,
@@ -118,22 +101,13 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     graffiti: Graffiti,
 }
 
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
-        Witness<
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
     >
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -146,14 +120,16 @@ where
     pub fn new(_eth_spec_instance: TEthSpec) -> Self {
         Self {
             store: None,
-            store_migrator: None,
+            store_migrator_config: None,
             genesis_time: None,
             genesis_block_root: None,
+            genesis_state_root: None,
             fork_choice: None,
             op_pool: None,
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
+            shutdown_sender: None,
             head_tracker: None,
             pubkey_cache_path: None,
             data_dir: None,
@@ -192,9 +168,9 @@ where
         self
     }
 
-    /// Sets the store migrator.
-    pub fn store_migrator(mut self, store_migrator: TStoreMigrator) -> Self {
-        self.store_migrator = Some(store_migrator);
+    /// Sets the store migrator config (optional).
+    pub fn store_migrator_config(mut self, config: MigratorConfig) -> Self {
+        self.store_migrator_config = Some(config);
         self
     }
 
@@ -317,6 +293,7 @@ where
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
+        self.genesis_state_root = Some(genesis_block.state_root());
         self.head_tracker = Some(
             HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
@@ -346,6 +323,7 @@ where
         let beacon_state_root = beacon_block.message.state_root;
         let beacon_block_root = beacon_block.canonical_root();
 
+        self.genesis_state_root = Some(beacon_state_root);
         self.genesis_block_root = Some(beacon_block_root);
 
         store
@@ -410,6 +388,12 @@ where
         self
     }
 
+    /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
+    pub fn shutdown_sender(mut self, sender: Sender<&'static str>) -> Self {
+        self.shutdown_sender = Some(sender);
+        self
+    }
+
     /// Creates a new, empty operation pool.
     fn empty_op_pool(mut self) -> Self {
         self.op_pool = Some(OperationPool::new());
@@ -439,15 +423,7 @@ where
         self,
     ) -> Result<
         BeaconChain<
-            Witness<
-                TStoreMigrator,
-                TSlotClock,
-                TEth1Backend,
-                TEthSpec,
-                TEventHandler,
-                THotStore,
-                TColdStore,
-            >,
+            Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
         >,
         String,
     > {
@@ -467,6 +443,9 @@ where
         let genesis_block_root = self
             .genesis_block_root
             .ok_or_else(|| "Cannot build without a genesis block root".to_string())?;
+        let genesis_state_root = self
+            .genesis_state_root
+            .ok_or_else(|| "Cannot build without a genesis state root".to_string())?;
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -539,13 +518,19 @@ where
                 .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
         })?;
 
+        let migrator_config = self.store_migrator_config.unwrap_or_default();
+        let store_migrator = BackgroundMigrator::new(
+            store.clone(),
+            migrator_config,
+            genesis_block_root,
+            log.clone(),
+        );
+
         let beacon_chain = BeaconChain {
             spec: self.spec,
             config: self.chain_config,
             store,
-            store_migrator: self
-                .store_migrator
-                .ok_or_else(|| "Cannot build without store migrator".to_string())?,
+            store_migrator,
             slot_clock,
             op_pool: self
                 .op_pool
@@ -566,9 +551,9 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
-            genesis_state_root: canonical_head.beacon_state_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
+            genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
             event_handler: self
                 .event_handler
@@ -581,6 +566,9 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             disabled_forks: self.disabled_forks,
+            shutdown_sender: self
+                .shutdown_sender
+                .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
             log: log.clone(),
             graffiti: self.graffiti,
         };
@@ -588,6 +576,27 @@ where
         let head = beacon_chain
             .head()
             .map_err(|e| format!("Failed to get head: {:?}", e))?;
+
+        // Only perform the check if it was configured.
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
+            if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
+                wss_checkpoint,
+                head.beacon_block_root,
+                &head.beacon_state,
+            ) {
+                crit!(
+                    log,
+                    "Weak subjectivity checkpoint verification failed on startup!";
+                    "head_block_root" => format!("{}", head.beacon_block_root),
+                    "head_slot" => format!("{}", head.beacon_block.slot()),
+                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint.epoch),
+                    "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
+                    "error" => format!("{:?}", e),
+                );
+                crit!(log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                return Err(format!("Weak subjectivity verification failed: {:?}", e));
+            }
+        }
 
         info!(
             log,
@@ -601,10 +610,9 @@ where
     }
 }
 
-impl<TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
-            TStoreMigrator,
             TSlotClock,
             CachingEth1Backend<TEthSpec>,
             TEthSpec,
@@ -616,7 +624,6 @@ impl<TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -642,22 +649,13 @@ where
     }
 }
 
-impl<TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
-        Witness<
-            TStoreMigrator,
-            TestingSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<TestingSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
     >
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -680,10 +678,9 @@ where
     }
 }
 
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
-            TStoreMigrator,
             TSlotClock,
             TEth1Backend,
             TEthSpec,
@@ -695,7 +692,6 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -727,7 +723,6 @@ fn genesis_block<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::migrate::NullMigrator;
     use eth2_hashing::hash;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use sloggers::{null::NullLoggerBuilder, Build};
@@ -767,10 +762,11 @@ mod test {
         )
         .expect("should create interop genesis state");
 
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
-            .store_migrator(NullMigrator)
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
@@ -779,6 +775,7 @@ mod test {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
             .build()
             .expect("should build");
 

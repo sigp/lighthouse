@@ -18,6 +18,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 
+use eth2_libp2p::PeerId;
 pub use reqwest;
 pub use reqwest::{StatusCode, Url};
 
@@ -39,6 +40,8 @@ pub enum Error {
     MissingSignatureHeader,
     /// The server returned an invalid JSON response.
     InvalidJson(serde_json::Error),
+    /// The server returned an invalid SSZ response.
+    InvalidSsz(ssz::DecodeError),
 }
 
 impl Error {
@@ -53,6 +56,7 @@ impl Error {
             Error::InvalidSignatureHeader => None,
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
+            Error::InvalidSsz(_) => None,
         }
     }
 }
@@ -206,12 +210,14 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
-    /// `GET beacon/states/{state_id}/validators`
+    /// `GET beacon/states/{state_id}/validators?id,status`
     ///
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_beacon_states_validators(
         &self,
         state_id: StateId,
+        ids: Option<&[ValidatorId]>,
+        statuses: Option<&[ValidatorStatus]>,
     ) -> Result<Option<GenericResponse<Vec<ValidatorData>>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -221,6 +227,24 @@ impl BeaconNodeHttpClient {
             .push("states")
             .push(&state_id.to_string())
             .push("validators");
+
+        if let Some(ids) = ids {
+            let id_string = ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("id", &id_string);
+        }
+
+        if let Some(statuses) = statuses {
+            let status_string = statuses
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("status", &status_string);
+        }
 
         self.get_opt(path).await
     }
@@ -582,6 +606,18 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `GET node/identity`
+    pub async fn get_node_identity(&self) -> Result<GenericResponse<IdentityData>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("identity");
+
+        self.get(path).await
+    }
+
     /// `GET node/syncing`
     pub async fn get_node_syncing(&self) -> Result<GenericResponse<SyncingData>, Error> {
         let mut path = self.eth_path()?;
@@ -590,6 +626,57 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("syncing");
+
+        self.get(path).await
+    }
+
+    /// `GET node/health`
+    pub async fn get_node_health(&self) -> Result<StatusCode, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("health");
+
+        let status = self
+            .client
+            .get(path)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?
+            .status();
+        if status == StatusCode::OK || status == StatusCode::PARTIAL_CONTENT {
+            Ok(status)
+        } else {
+            Err(Error::StatusCode(status))
+        }
+    }
+
+    /// `GET node/peers/{peer_id}`
+    pub async fn get_node_peers_by_id(
+        &self,
+        peer_id: PeerId,
+    ) -> Result<GenericResponse<PeerData>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("peers")
+            .push(&peer_id.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET node/peers`
+    pub async fn get_node_peers(&self) -> Result<GenericResponse<Vec<PeerData>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("peers");
 
         self.get(path).await
     }

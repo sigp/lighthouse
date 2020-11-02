@@ -5,9 +5,7 @@ extern crate lazy_static;
 
 use beacon_chain::{
     attestation_verification::Error as AttnError,
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
-    },
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use int_to_bytes::int_to_bytes32;
@@ -34,7 +32,7 @@ lazy_static! {
 }
 
 /// Returns a beacon chain harness.
-fn get_harness(validator_count: usize) -> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
+fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_target_aggregators(
         MainnetEthSpec,
         KEYPAIRS[0..validator_count].to_vec(),
@@ -188,7 +186,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
 /// Tests verification of `SignedAggregateAndProof` from the gossip network.
 #[test]
 fn aggregated_gossip_verification() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -276,6 +274,21 @@ fn aggregated_gossip_verification() {
         }
         if attestation_slot == early_slot
             && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
+    );
+
+    /*
+     * This is not in the specification for aggregate attestations (only unaggregates), but we
+     * check it anyway to avoid weird edge cases.
+     */
+    let unknown_root = Hash256::from_low_u64_le(424242);
+    assert_invalid!(
+        "attestation with invalid target root",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.target.root = unknown_root;
+            a
+        },
+        AttnError::InvalidTargetRoot { .. }
     );
 
     /*
@@ -535,7 +548,7 @@ fn aggregated_gossip_verification() {
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
 #[test]
 fn unaggregated_gossip_verification() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -867,7 +880,7 @@ fn unaggregated_gossip_verification() {
 /// This also checks that we can do a state lookup if we don't get a hit from the shuffling cache.
 #[test]
 fn attestation_that_skips_epochs() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(

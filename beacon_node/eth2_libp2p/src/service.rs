@@ -59,7 +59,7 @@ pub struct Service<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> Service<TSpec> {
     pub async fn new(
-        executor: environment::TaskExecutor,
+        executor: task_executor::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
@@ -109,7 +109,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 Behaviour::new(&local_keypair, config, network_globals.clone(), &log).await?;
 
             // use the executor for libp2p
-            struct Executor(environment::TaskExecutor);
+            struct Executor(task_executor::TaskExecutor);
             impl libp2p::core::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
                     self.0.spawn(f, "libp2p");

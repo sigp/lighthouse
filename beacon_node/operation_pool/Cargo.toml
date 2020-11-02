@@ -11,8 +11,8 @@ types = { path = "../../consensus/types" }
 state_processing = { path = "../../consensus/state_processing" }
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
-serde = "1.0.110"
-serde_derive = "1.0.110"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 store = { path = "../store" }
 
 [dev-dependencies]

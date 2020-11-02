@@ -11,7 +11,6 @@ pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;
-use beacon_chain::migrate::BackgroundMigrator;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
@@ -25,7 +24,6 @@ use types::EthSpec;
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
     Witness<
-        BackgroundMigrator<E, LevelDB<E>, LevelDB<E>>,
         SystemTimeSlotClock,
         CachingEth1Backend<E>,
         E,
@@ -55,12 +53,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
-        let client_config = get_config::<E>(
-            &matches,
-            &context.eth2_config.spec_constants,
-            &context.eth2_config().spec,
-            context.log().clone(),
-        )?;
+        let client_config =
+            get_config::<E>(&matches, &context.eth2_config().spec, context.log().clone())?;
         Self::new(context, client_config).await
     }
 
@@ -85,8 +79,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
-            .disk_store(&db_path, &freezer_db_path_res?, store_config)?
-            .background_migrator()?;
+            .disk_store(&db_path, &freezer_db_path_res?, store_config)?;
 
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config_1)
@@ -122,7 +115,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .tee_event_handler(client_config.websocket_server.clone())?;
 
         // Inject the executor into the discv5 network config.
-        client_config.network.discv5_config.executor = Some(Box::new(executor));
+        let discv5_executor = Discv5Executor(executor);
+        client_config.network.discv5_config.executor = Some(Box::new(discv5_executor));
 
         builder
             .build_beacon_chain()?
@@ -151,5 +145,15 @@ impl<E: EthSpec> Deref for ProductionBeaconNode<E> {
 impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+// Implements the Discv5 Executor trait over our global executor
+#[derive(Clone)]
+struct Discv5Executor(task_executor::TaskExecutor);
+
+impl eth2_libp2p::discv5::Executor for Discv5Executor {
+    fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
+        self.0.spawn(future, "discv5")
     }
 }

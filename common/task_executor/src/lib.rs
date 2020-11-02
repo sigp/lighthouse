@@ -1,23 +1,24 @@
-use crate::metrics;
+mod metrics;
+
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use slog::{debug, trace};
+use slog::{debug, o, trace};
 use tokio::runtime::Handle;
 
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
 pub struct TaskExecutor {
     /// The handle to the runtime on which tasks are spawned
-    pub handle: Handle,
+    handle: Handle,
     /// The receiver exit future which on receiving shuts down the task
-    pub(crate) exit: exit_future::Exit,
+    exit: exit_future::Exit,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     ///
     /// The task must provide a reason for shutting down.
-    pub(crate) signal_tx: Sender<&'static str>,
+    signal_tx: Sender<&'static str>,
 
-    pub(crate) log: slog::Logger,
+    log: slog::Logger,
 }
 
 impl TaskExecutor {
@@ -36,6 +37,16 @@ impl TaskExecutor {
             exit,
             signal_tx,
             log,
+        }
+    }
+
+    /// Clones the task executor adding a service name.
+    pub fn clone_with_name(&self, service_name: String) -> Self {
+        TaskExecutor {
+            handle: self.handle.clone(),
+            exit: self.exit.clone(),
+            signal_tx: self.signal_tx.clone(),
+            log: self.log.new(o!("service" => service_name)),
         }
     }
 
@@ -146,11 +157,5 @@ impl TaskExecutor {
     /// Returns a reference to the logger.
     pub fn log(&self) -> &slog::Logger {
         &self.log
-    }
-}
-
-impl discv5::Executor for TaskExecutor {
-    fn spawn(&self, future: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>) {
-        self.spawn(future, "discv5")
     }
 }

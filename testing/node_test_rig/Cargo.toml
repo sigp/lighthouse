@@ -10,9 +10,9 @@ beacon_node = { path = "../../beacon_node" }
 types = { path = "../../consensus/types" }
 eth2_config = { path = "../../common/eth2_config" }
 tempdir = "0.3.7"
-reqwest = { version = "0.10.4", features = ["native-tls-vendored"] }
+reqwest = { version = "0.10.8", features = ["native-tls-vendored"] }
 url = "2.1.1"
-serde = "1.0.110"
+serde = "1.0.116"
 futures = "0.3.5"
 genesis = { path = "../../beacon_node/genesis" }
 eth2 = { path = "../../common/eth2" }

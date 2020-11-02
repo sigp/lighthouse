@@ -74,7 +74,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        executor: environment::TaskExecutor,
+        executor: task_executor::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));

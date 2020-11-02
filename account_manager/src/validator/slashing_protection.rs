@@ -5,7 +5,7 @@ use slashing_protection::{
 };
 use std::fs::File;
 use std::path::PathBuf;
-use types::EthSpec;
+use types::{BeaconState, EthSpec};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -46,18 +46,18 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
 
-    let genesis_validators_root = env
+    let testnet_config = env
         .testnet
-        .and_then(|testnet_config| {
-            Some(
-                testnet_config
-                    .genesis_state
-                    .as_ref()?
-                    .genesis_validators_root,
+        .ok_or_else(|| "Unable to get testnet configuration from the environment".to_string())?;
+
+    let genesis_validators_root = testnet_config
+        .beacon_state::<T>()
+        .map(|state: BeaconState<T>| state.genesis_validators_root)
+        .map_err(|e| {
+            format!(
+                "Unable to get genesis state, has genesis occurred? Detail: {:?}",
+                e
             )
-        })
-        .ok_or_else(|| {
-            "Unable to get genesis validators root from testnet config, has genesis occurred?"
         })?;
 
     match matches.subcommand() {
