@@ -301,6 +301,10 @@ impl Health {
             sys_loadavg_5: loadavg.five as f64,
             sys_loadavg_15: loadavg.fifteen as f64,
             network: Network::observe()?,
+            chain_database: MountInfo::for_path("/home/paul/.lighthouse/medalla/beacon/chain_db")?,
+            freezer_database: MountInfo::for_path(
+                "/home/paul/.lighthouse/medalla/beacon/freezer_db",
+            )?,
         })
     }
 }
