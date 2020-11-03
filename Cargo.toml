@@ -28,6 +28,7 @@ members = [
     "common/eth2_testnet_config",
     "common/eth2_wallet_manager",
     "common/hashset_delay",
+    "common/lighthouse_health",
     "common/lighthouse_metrics",
     "common/lighthouse_version",
     "common/logging",

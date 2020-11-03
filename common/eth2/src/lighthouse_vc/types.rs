@@ -2,8 +2,8 @@ use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
 
-pub use crate::lighthouse::CommonHealth as ValidatorHealth;
 pub use crate::types::{GenericResponse, VersionData};
+pub use lighthouse_health::CommonHealth as ValidatorHealth;
 pub use types::*;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

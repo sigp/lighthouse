@@ -1,0 +1,17 @@
+[package]
+name = "lighthouse_health"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+serde = { version = "1.0.116", features = ["derive"] }
+serde_json = "1.0.58"
+sysinfo = "0.15.2"
+systemstat = "0.1.5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+psutil = { version = "3.1.0" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+psutil = "3.1.0"

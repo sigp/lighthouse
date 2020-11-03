@@ -1655,8 +1655,8 @@ dependencies = [
  "eth2_ssz",
  "hex",
  "libsecp256k1",
+ "lighthouse_health",
  "proto_array",
- "psutil",
  "reqwest",
  "ring",
  "serde",
@@ -3341,6 +3341,17 @@ dependencies = [
  "types",
  "validator_client",
  "validator_dir",
+]
+
+[[package]]
+name = "lighthouse_health"
+version = "0.1.0"
+dependencies = [
+ "psutil",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "systemstat",
 ]
 
 [[package]]
