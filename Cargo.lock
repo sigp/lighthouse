@@ -4746,6 +4746,94 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b181ba2dcf07aaccad5448e8ead58db5b742cf85dfe035e2227f137a539a189"
 
 [[package]]
+name = "remote_signer"
+version = "0.2.0"
+dependencies = [
+ "bls",
+ "clap",
+ "remote_signer_backend",
+ "remote_signer_client",
+ "remote_signer_environment",
+ "remote_signer_test",
+ "remote_signer_version",
+ "serde_json",
+ "slog",
+ "types",
+]
+
+[[package]]
+name = "remote_signer_backend"
+version = "0.2.0"
+dependencies = [
+ "bls",
+ "clap",
+ "hex",
+ "lazy_static",
+ "regex",
+ "remote_signer_test",
+ "slog",
+ "sloggers",
+ "tempdir",
+ "types",
+ "zeroize",
+]
+
+[[package]]
+name = "remote_signer_client"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "futures 0.3.7",
+ "hyper 0.13.8",
+ "lazy_static",
+ "regex",
+ "remote_signer_backend",
+ "remote_signer_environment",
+ "serde",
+ "serde_json",
+ "slog",
+ "types",
+]
+
+[[package]]
+name = "remote_signer_environment"
+version = "0.1.0"
+dependencies = [
+ "ctrlc",
+ "exit-future",
+ "futures 0.3.7",
+ "slog",
+ "slog-async",
+ "slog-json",
+ "slog-term",
+ "sloggers",
+ "tokio 0.2.22",
+ "types",
+]
+
+[[package]]
+name = "remote_signer_test"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "remote_signer_client",
+ "remote_signer_environment",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempdir",
+ "types",
+]
+
+[[package]]
+name = "remote_signer_version"
+version = "0.1.0"
+dependencies = [
+ "git-version",
+ "target_info",
+]
+
+[[package]]
 name = "remove_dir_all"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

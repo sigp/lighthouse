@@ -1,0 +1,17 @@
+[package]
+name = "remote_signer_environment"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+ctrlc = { version = "3.1.6", features = ["termination"] }
+exit-future = "0.2.0"
+futures = "0.3.6"
+slog = { version = "2.5.2", features = ["max_level_trace"] }
+slog-async = "2.5.0"
+slog-json = "2.3.0"
+slog-term = "2.6.0"
+sloggers = "1.0.1"
+tokio = { version = "0.2.22", features = ["macros", "rt-threaded"] }
+types = { path = "../../consensus/types" }
