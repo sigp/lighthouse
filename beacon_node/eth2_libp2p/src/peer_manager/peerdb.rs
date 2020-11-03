@@ -541,7 +541,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .peers
                 .iter()
                 .filter_map(|(id, info)| match info.connection_status() {
-                    &PeerConnectionStatus::Banned { since } => Some((id, info, since)),
+                    PeerConnectionStatus::Banned { since } => Some((id, info, since)),
                     _ => None,
                 })
                 .min_by_key(|(_, _, since)| *since)
@@ -571,7 +571,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .iter()
                 .filter(|(_, info)| info.is_disconnected())
                 .filter_map(|(id, info)| match info.connection_status() {
-                    &PeerConnectionStatus::Disconnected { since } => Some((id, since)),
+                    PeerConnectionStatus::Disconnected { since } => Some((id, since)),
                     _ => None,
                 })
                 .min_by_key(|(_, since)| *since)
