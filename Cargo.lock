@@ -3347,6 +3347,7 @@ dependencies = [
 name = "lighthouse_health"
 version = "0.1.0"
 dependencies = [
+ "num_cpus",
  "psutil",
  "serde",
  "serde_json",

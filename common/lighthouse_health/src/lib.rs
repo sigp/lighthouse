@@ -9,15 +9,27 @@ use psutil::process::Process;
 #[cfg(target_os = "linux")]
 use psutil::process::Process;
 
+const MB: u64 = 1_000_000;
 const GB: u64 = 1_000_000_000;
+const MIN_SAFE_DB_SIZE: u64 = 1 * GB;
 const CHAIN_DB_REQ_SIZE: u64 = 100 * GB;
 const FREEZER_DB_REQ_SIZE: u64 = 20 * GB;
 const TOTAL_REQ_SIZE: u64 = CHAIN_DB_REQ_SIZE + FREEZER_DB_REQ_SIZE;
+
+const LOAD_AVG_PCT_WARN: f64 = 85.0;
+const LOAD_AVG_PCT_ERROR: f64 = 100.0;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Status {
     status: String,
     message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StatusGauge {
+    status: String,
+    message: String,
+    gauge_pct: f64,
 }
 
 impl Status {
@@ -28,9 +40,9 @@ impl Status {
         }
     }
 
-    pub fn warning(message: String) -> Self {
+    pub fn warn(message: String) -> Self {
         Self {
-            status: "warning".to_string(),
+            status: "warn".to_string(),
             message,
         }
     }
@@ -39,6 +51,14 @@ impl Status {
         Self {
             status: "ok".to_string(),
             message,
+        }
+    }
+
+    pub fn gauge(self, gauge_pct: f64) -> StatusGauge {
+        StatusGauge {
+            status: self.status,
+            message: self.message,
+            gauge_pct,
         }
     }
 }
@@ -95,20 +115,17 @@ impl MountInfo {
             let avail = drive.avail.as_u64();
             let total = drive.total.as_u64();
             let used = total.saturating_sub(avail);
-            let mut used_pct = if total > 0 {
+            let used_pct = if total > 0 {
                 used as f64 / total as f64
             } else {
                 0.0
             } * 100.0;
 
-            // Round to two decimals.
-            used_pct = (used_pct * 100.00).round() / 100.00;
-
             Self {
                 avail,
                 total,
                 used,
-                used_pct,
+                used_pct: round(used_pct, 2),
                 mounted_on: mount_path.into(),
             }
         });
@@ -264,12 +281,16 @@ impl CommonHealth {
 /// Reports on the health of the Lighthouse instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BeaconHealth {
+    /// A rough status of the CPU usage.
+    pub cpu_status: StatusGauge,
+    /// RAM usage.
+    pub memory_status: StatusGauge,
+    /// The combined status for the chain and freezer databases.
+    pub database_status: Option<StatusGauge>,
     #[serde(flatten)]
     pub common: CommonHealth,
     /// Network statistics, totals across all network interfaces.
     pub network: Network,
-    /// The combined status for the chain and freezer databases.
-    pub database_status: Option<Status>,
     /// Filesystem information.
     pub chain_database: Option<MountInfo>,
     /// Filesystem information.
@@ -278,6 +299,10 @@ pub struct BeaconHealth {
 
 impl BeaconHealth {
     pub fn observe(db_paths: &DBPaths) -> Result<Self, String> {
+        let common = CommonHealth::observe()?;
+        let cpu_status = cpu_status(&common);
+        let memory_status = memory_status(&common);
+
         let chain_database = MountInfo::for_path(&db_paths.chain_db)?;
         let freezer_database = MountInfo::for_path(&db_paths.freezer_db)?;
 
@@ -287,55 +312,129 @@ impl BeaconHealth {
             .map(|(chain, freezer)| database_status(chain, freezer));
 
         Ok(Self {
+            cpu_status,
+            memory_status,
+            database_status,
             common: CommonHealth::observe()?,
             network: Network::observe()?,
-            database_status,
             chain_database: MountInfo::for_path(&db_paths.chain_db)?,
             freezer_database: MountInfo::for_path(&db_paths.freezer_db)?,
         })
     }
 }
 
-fn database_status(chain: &MountInfo, freezer: &MountInfo) -> Status {
+fn cpu_status(health: &CommonHealth) -> StatusGauge {
+    // Disallow 0 CPUs to avoid a divide-by-zero.
+    //
+    // Note: we're using one library to detect loadavg and another to detect CPU count. I can
+    // imagine this might cause issues on some platforms, but I don't know how to resolve it.
+    let num_cpus = std::cmp::max(1, num_cpus::get()) as f64;
+    let pct = round(health.sys_loadavg_5 as f64 / num_cpus, 2);
+
+    if pct > LOAD_AVG_PCT_ERROR {
+        Status::error("CPU is overloaded.".to_string()).gauge(pct)
+    } else if pct > LOAD_AVG_PCT_WARN {
+        Status::warn("CPU has high load.".to_string()).gauge(pct)
+    } else {
+        Status::ok(format!("CPU below {:0}%", LOAD_AVG_PCT_WARN)).gauge(pct)
+    }
+}
+
+const MEMORY_AVAILABLE_ERROR: u64 = 512 * MB;
+const MEMORY_AVAILABLE_WARN: u64 = 1 * GB;
+const MEMORY_RECOMMENDED_TOTAL: u64 = 8 * GB;
+
+fn memory_status(health: &CommonHealth) -> StatusGauge {
+    let avail = health.sys_virt_mem_available;
+    let total = health.sys_virt_mem_total;
+
+    let status = if avail < MEMORY_AVAILABLE_ERROR {
+        Status::error(format!(
+            "Available system memory critically low: {} MB.",
+            avail / MB
+        ))
+    } else if avail < MEMORY_AVAILABLE_WARN {
+        Status::warn(format!(
+            "Available system memory is low: {} GB.",
+            avail / GB
+        ))
+    } else if total < MEMORY_RECOMMENDED_TOTAL {
+        Status::warn(format!(
+            "Total system memory {} GB is less than the recommended {} GB.",
+            total / GB,
+            MEMORY_RECOMMENDED_TOTAL / GB
+        ))
+    } else {
+        Status::ok(format!("{} GB available memory", avail / GB))
+    };
+
+    status.gauge(round(health.sys_virt_mem_percent as f64, 2))
+}
+
+fn database_status(chain: &MountInfo, freezer: &MountInfo) -> StatusGauge {
     if chain.mounted_on == freezer.mounted_on {
-        status_for_disk(&chain.mounted_on, chain.avail, TOTAL_REQ_SIZE)
+        status_for_disk(&chain.mounted_on, chain.avail, TOTAL_REQ_SIZE).gauge(chain.used_pct)
     } else {
         match (
             chain.avail.cmp(&CHAIN_DB_REQ_SIZE),
             freezer.avail.cmp(&FREEZER_DB_REQ_SIZE),
         ) {
-            (Ordering::Less, Ordering::Less) => Status::error(format!(
-                "Insufficient size for {} and {}; {} and {} additional GB recommended,
+            (Ordering::Less, Ordering::Less) => {
+                // Indicate using the lowest percentage.
+                let pct = if chain.used_pct > freezer.used_pct {
+                    freezer.used_pct
+                } else {
+                    chain.used_pct
+                };
+
+                Status::error(format!(
+                    "Insufficient size for {} and {}; {} and {} additional GB recommended,
                 respectively.",
-                chain.mounted_on.to_string_lossy(),
-                freezer.mounted_on.to_string_lossy(),
-                CHAIN_DB_REQ_SIZE - chain.avail,
-                FREEZER_DB_REQ_SIZE - freezer.avail
-            )),
+                    chain.mounted_on.to_string_lossy(),
+                    freezer.mounted_on.to_string_lossy(),
+                    CHAIN_DB_REQ_SIZE - chain.avail,
+                    FREEZER_DB_REQ_SIZE - freezer.avail
+                ))
+                .gauge(pct)
+            }
             (Ordering::Less, _) => {
                 status_for_disk(&chain.mounted_on, chain.avail, CHAIN_DB_REQ_SIZE)
+                    .gauge(chain.used_pct)
             }
             (_, Ordering::Less) => {
                 status_for_disk(&freezer.mounted_on, freezer.avail, FREEZER_DB_REQ_SIZE)
+                    .gauge(freezer.used_pct)
             }
             _ => Status::ok(format!(
                 "{} and {} exceed the recommended capacity.",
                 chain.mounted_on.to_string_lossy(),
                 freezer.mounted_on.to_string_lossy()
-            )),
+            ))
+            .gauge(100.0),
         }
     }
 }
 
-fn status_for_disk(mount: &PathBuf, avail: u64, req: u64) -> Status {
-    if req > avail {
+fn status_for_disk(mount: &PathBuf, avail: u64, recommended: u64) -> Status {
+    if avail < MIN_SAFE_DB_SIZE {
         Status::error(format!(
-            "Insufficient size for {}; {} GB recommended but {} GB available.",
+            "Critically low disk space on {}; {} MB available.",
             mount.to_string_lossy(),
-            req / GB,
+            avail / MB
+        ))
+    } else if recommended > avail {
+        Status::warn(format!(
+            "Low disk space on {}; {} GB recommended but {} GB available.",
+            mount.to_string_lossy(),
+            recommended / GB,
             avail / GB
         ))
     } else {
         Status::ok(format!("{:?} has sufficient capacity.", mount))
     }
+}
+
+fn round(x: f64, decimals: i32) -> f64 {
+    let precision = 10.0_f64.powi(decimals);
+    (x * precision).round() / precision
 }
