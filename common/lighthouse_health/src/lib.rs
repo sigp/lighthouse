@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use sysinfo::{NetworkExt, NetworksExt, System as SystemInfo, SystemExt};
 use systemstat::{Platform, System as SystemStat};
@@ -7,6 +8,40 @@ use systemstat::{Platform, System as SystemStat};
 use psutil::process::Process;
 #[cfg(target_os = "linux")]
 use psutil::process::Process;
+
+const GB: u64 = 1_000_000_000;
+const CHAIN_DB_REQ_SIZE: u64 = 100 * GB;
+const FREEZER_DB_REQ_SIZE: u64 = 20 * GB;
+const TOTAL_REQ_SIZE: u64 = CHAIN_DB_REQ_SIZE + FREEZER_DB_REQ_SIZE;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Status {
+    status: String,
+    message: String,
+}
+
+impl Status {
+    pub fn error(message: String) -> Self {
+        Self {
+            status: "error".to_string(),
+            message,
+        }
+    }
+
+    pub fn warning(message: String) -> Self {
+        Self {
+            status: "warning".to_string(),
+            message,
+        }
+    }
+
+    pub fn ok(message: String) -> Self {
+        Self {
+            status: "ok".to_string(),
+            message,
+        }
+    }
+}
 
 /// The two paths to the two core Lighthouse databases.
 #[derive(Debug, Clone, PartialEq)]
@@ -233,6 +268,8 @@ pub struct BeaconHealth {
     pub common: CommonHealth,
     /// Network statistics, totals across all network interfaces.
     pub network: Network,
+    /// The combined status for the chain and freezer databases.
+    pub database_status: Option<Status>,
     /// Filesystem information.
     pub chain_database: Option<MountInfo>,
     /// Filesystem information.
@@ -240,28 +277,65 @@ pub struct BeaconHealth {
 }
 
 impl BeaconHealth {
-    #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
-    pub fn observe() -> Result<Self, String> {
-        Err("Health is only available on Linux and MacOS".into())
-    }
-
-    #[cfg(target_os = "linux")]
     pub fn observe(db_paths: &DBPaths) -> Result<Self, String> {
+        let chain_database = MountInfo::for_path(&db_paths.chain_db)?;
+        let freezer_database = MountInfo::for_path(&db_paths.freezer_db)?;
+
+        let database_status = chain_database
+            .as_ref()
+            .and_then(|chain| Some((chain, freezer_database.as_ref()?)))
+            .map(|(chain, freezer)| database_status(chain, freezer));
+
         Ok(Self {
             common: CommonHealth::observe()?,
             network: Network::observe()?,
+            database_status,
             chain_database: MountInfo::for_path(&db_paths.chain_db)?,
             freezer_database: MountInfo::for_path(&db_paths.freezer_db)?,
         })
     }
+}
 
-    #[cfg(target_os = "macos")]
-    pub fn observe(db_paths: &DBPaths) -> Result<Self, String> {
-        Ok(Self {
-            common: CommonHealth::observe()?,
-            network: Network::observe()?,
-            chain_database: MountInfo::for_path(&db_paths.chain_db)?,
-            freezer_database: MountInfo::for_path(&db_paths.freezer_db)?,
-        })
+fn database_status(chain: &MountInfo, freezer: &MountInfo) -> Status {
+    if chain.mounted_on == freezer.mounted_on {
+        status_for_disk(&chain.mounted_on, chain.avail, TOTAL_REQ_SIZE)
+    } else {
+        match (
+            chain.avail.cmp(&CHAIN_DB_REQ_SIZE),
+            freezer.avail.cmp(&FREEZER_DB_REQ_SIZE),
+        ) {
+            (Ordering::Less, Ordering::Less) => Status::error(format!(
+                "Insufficient size for {} and {}; {} and {} additional GB recommended,
+                respectively.",
+                chain.mounted_on.to_string_lossy(),
+                freezer.mounted_on.to_string_lossy(),
+                CHAIN_DB_REQ_SIZE - chain.avail,
+                FREEZER_DB_REQ_SIZE - freezer.avail
+            )),
+            (Ordering::Less, _) => {
+                status_for_disk(&chain.mounted_on, chain.avail, CHAIN_DB_REQ_SIZE)
+            }
+            (_, Ordering::Less) => {
+                status_for_disk(&freezer.mounted_on, freezer.avail, FREEZER_DB_REQ_SIZE)
+            }
+            _ => Status::ok(format!(
+                "{} and {} exceed the recommended capacity.",
+                chain.mounted_on.to_string_lossy(),
+                freezer.mounted_on.to_string_lossy()
+            )),
+        }
+    }
+}
+
+fn status_for_disk(mount: &PathBuf, avail: u64, req: u64) -> Status {
+    if req > avail {
+        Status::error(format!(
+            "Insufficient size for {}; {} GB recommended but {} GB available.",
+            mount.to_string_lossy(),
+            req / GB,
+            avail / GB
+        ))
+    } else {
+        Status::ok(format!("{:?} has sufficient capacity.", mount))
     }
 }
