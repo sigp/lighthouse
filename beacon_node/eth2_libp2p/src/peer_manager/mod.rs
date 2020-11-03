@@ -316,6 +316,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.network_globals.peers.read().is_banned(peer_id)
     }
 
+    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
+        self.network_globals.peers.read().is_connected(peer_id)
+    }
+
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
     pub fn peer_limit_reached(&self) -> bool {
