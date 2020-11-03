@@ -39,7 +39,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
-    Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
+    Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
 use warp::{http::Response, Filter};
@@ -1422,10 +1422,51 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>| {
                 blocking_json_task(move || {
-                    beacon_proposer_cache
-                        .lock()
-                        .get_proposers(&chain, epoch)
-                        .map(api_types::GenericResponse::from)
+
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    if epoch > current_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is ahead of the current epoch {}",
+                            epoch, current_epoch
+                        )));
+                    }
+
+                    // The idea is to stop historical requests from washing out the cache on the
+                    // beacon chain, whilst allowing a VC to request duties quickly.
+                    if epoch == current_epoch {
+                        beacon_proposer_cache
+                            .lock()
+                            .get_proposers(&chain, epoch)
+                            .map(api_types::GenericResponse::from)
+                    } else {
+                        let state =
+                            StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                                .state(&chain)?;
+
+                        epoch
+                            .slot_iter(T::EthSpec::slots_per_epoch())
+                            .map(|slot| {
+                                state
+                                    .get_beacon_proposer_index(slot, &chain.spec)
+                                    .map_err(warp_utils::reject::beacon_state_error)
+                                    .and_then(|i| {
+                                        let pubkey =
+                                            chain.validator_pubkey(i).map_err(warp_utils::reject::beacon_chain_error)?
+                                                .ok_or_else(|| warp_utils::reject::beacon_chain_error(BeaconChainError::ValidatorPubkeyCacheIncomplete(i)) )?;
+
+                                        Ok(api_types::ProposerData {
+                                            pubkey: PublicKeyBytes::from(pubkey),
+                                            validator_index: i as u64,
+                                            slot,
+                                        })
+                                    })
+                            })
+                            .collect::<Result<Vec<api_types::ProposerData>, _>>()
+                            .and_then(|proposer_data|Ok(api_types::GenericResponse::from(proposer_data)))
+                    }
                 })
             },
         );
