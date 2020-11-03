@@ -1434,8 +1434,6 @@ pub fn serve<T: BeaconChainTypes>(
                         )));
                     }
 
-                    // The idea is to stop historical requests from washing out the cache on the
-                    // beacon chain, whilst allowing a VC to request duties quickly.
                     if epoch == current_epoch {
                         beacon_proposer_cache
                             .lock()
