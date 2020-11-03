@@ -26,7 +26,7 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, info, o, trace, warn};
+use slog::{crit, debug, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -592,7 +592,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         if !self.peer_manager.is_connected(&peer_id) {
             //ignore this event
-            info!(
+            debug!(
                 self.log,
                 "Ignoring rpc message of disconnected peer";
                 "peer" => peer_id.to_string()
