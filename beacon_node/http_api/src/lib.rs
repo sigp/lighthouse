@@ -1463,7 +1463,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     })
                             })
                             .collect::<Result<Vec<api_types::ProposerData>, _>>()
-                            .and_then(|proposer_data|Ok(api_types::GenericResponse::from(proposer_data)))
+                            .map(api_types::GenericResponse::from)
                     }
                 })
             },
