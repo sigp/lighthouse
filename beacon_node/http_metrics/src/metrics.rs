@@ -92,7 +92,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
 
         // This will silently fail if we are unable to observe the health. This is desired behaviour
         // since we don't support `BeaconHealth` for all platforms.
-        if let Ok(health) = BeaconHealth::observe(db_paths) {
+        if let Ok(health) = BeaconHealth::observe(db_paths, None) {
             set_gauge(
                 &PROCESS_RES_MEM,
                 health.common.pid_mem_resident_set_size as i64,

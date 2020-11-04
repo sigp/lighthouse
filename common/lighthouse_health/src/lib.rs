@@ -298,7 +298,7 @@ pub struct BeaconHealth {
 }
 
 impl BeaconHealth {
-    pub fn observe(db_paths: &DBPaths) -> Result<Self, String> {
+    pub fn observe(db_paths: &DBPaths, peer_count_opt: Option<usize>) -> Result<Self, String> {
         let common = CommonHealth::observe()?;
         let cpu_status = cpu_status(&common);
         let memory_status = memory_status(&common);
@@ -365,7 +365,7 @@ fn memory_status(health: &CommonHealth) -> StatusGauge {
             MEMORY_RECOMMENDED_TOTAL / GB
         ))
     } else {
-        Status::ok(format!("{} GB available memory", avail / GB))
+        Status::ok(format!("{} GB available memory", avail))
     };
 
     status.gauge(round(health.sys_virt_mem_percent as f64, 2))

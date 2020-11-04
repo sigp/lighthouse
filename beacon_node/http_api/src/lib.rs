@@ -276,6 +276,10 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
+    // Create a `warp` filter that provides optional access to the network globals.
+    let inner_network_globals = ctx.network_globals.clone();
+    let network_globals_opt = warp::any().map(move || inner_network_globals.clone());
+
     // Create a `warp` filter that provides access to the beacon chain.
     let inner_ctx = ctx.clone();
     let chain_filter =
@@ -1720,13 +1724,17 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(db_paths_filter)
-        .and_then(|db_paths| {
-            blocking_json_task(move || {
-                eth2::lighthouse::BeaconHealth::observe(&db_paths)
-                    .map(api_types::GenericResponse::from)
-                    .map_err(warp_utils::reject::custom_bad_request)
-            })
-        });
+        .and(network_globals_opt)
+        .and_then(
+            |db_paths, network_globals_opt: Option<Arc<NetworkGlobals<T::EthSpec>>>| {
+                blocking_json_task(move || {
+                    let connected_peers = network_globals_opt.as_ref().map(|g| g.connected_peers());
+                    eth2::lighthouse::BeaconHealth::observe(&db_paths, connected_peers)
+                        .map(api_types::GenericResponse::from)
+                        .map_err(warp_utils::reject::custom_bad_request)
+                })
+            },
+        );
 
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
