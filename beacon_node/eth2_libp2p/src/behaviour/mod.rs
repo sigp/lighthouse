@@ -6,7 +6,7 @@ use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetD
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
-use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
+use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};f
 use libp2p::gossipsub::subscription_filter::{
     MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
 };
@@ -233,7 +233,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipTopic::new(kind, GossipEncoding::default(), fork_digest).into()
         };
 
-        info!(self.log, "Updating gossipsub scores";
+        debug!(self.log, "Updating gossipsub scores";
             "active_validators" => active_validators,
             "beacon_block_params" => format!("{:?}", beacon_block_params),
             "beacon_aggregate_proof_params" => format!("{:?}", beacon_aggregate_proof_params),
