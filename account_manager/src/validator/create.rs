@@ -229,6 +229,11 @@ pub fn cli_run<T: EthSpec>(
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
         println!("{}/{}\t{}", i + 1, n, voting_pubkey.to_hex_string());
+
+        println!(
+            "\n This is *not* a mainnet validator! Submitting a mainnet deposit for this \
+        validator will result in lost ETH."
+        );
     }
 
     Ok(())
