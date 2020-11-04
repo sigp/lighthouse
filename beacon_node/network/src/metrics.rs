@@ -36,13 +36,13 @@ lazy_static! {
         &["subnet"]
     );
 
-    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC: Result<GaugeVec> = try_create_float_gauge_vec(
         "gossipsub_avg_peer_score_per_topic",
         "Average peer's score per topic",
         &["topic_hash"]
     );
 
-    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC: Result<GaugeVec> = try_create_float_gauge_vec(
         "gossipsub_avg_peer_score_per_subnet_topic",
         "Average peer's score per subnet topic",
         &["subnet"]

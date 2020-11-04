@@ -676,22 +676,22 @@ fn update_gossip_metrics<T: EthSpec>(
 
                         // average peer scores
                         if let Some(score) = gossipsub.peer_score(peer_id) {
-                            if let Some(v) = metrics::get_int_gauge(
+                            if let Some(v) = metrics::get_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
                                 &[&subnet_id.to_string()],
                             ) {
-                                v.add(score as i64)
+                                v.add(score)
                             };
                         }
                     }
                     kind => {
                         // main topics
                         if let Some(score) = gossipsub.peer_score(peer_id) {
-                            if let Some(v) = metrics::get_int_gauge(
+                            if let Some(v) = metrics::get_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
                                 &[&format!("{:?}", kind)],
                             ) {
-                                v.add(score as i64)
+                                v.add(score)
                             };
                         }
                     }
@@ -705,20 +705,20 @@ fn update_gossip_metrics<T: EthSpec>(
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
                     // average peer scores
-                    if let Some(v) = metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
                         &[&subnet_id.to_string()],
                     ) {
-                        v.set(v.get() / (*peers as i64))
+                        v.set(v.get() / (*peers as f64))
                     };
                 }
                 kind => {
                     // main topics
-                    if let Some(v) = metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
                         &[&format!("{:?}", kind)],
                     ) {
-                        v.set(v.get() / (*peers as i64))
+                        v.set(v.get() / (*peers as f64))
                     };
                 }
             }
