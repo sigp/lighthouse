@@ -142,6 +142,7 @@ impl Default for Config {
             .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
             .fast_message_id_fn(fast_gossip_message_id)
+            .allow_self_origin(true)
             .build()
             .expect("valid gossipsub configuration");
 

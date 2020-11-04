@@ -232,9 +232,9 @@ impl<T: BeaconChainTypes> Processor<T> {
             // because they are using a different genesis time, or that theirs or our system
             // clock is incorrect.
             debug!(
-            self.log, "Handshake Failure";
-            "peer" => peer_id.to_string(),
-            "reason" => "different system clocks or genesis time"
+                self.log, "Handshake Failure";
+                "peer" => peer_id.to_string(),
+                "reason" => "different system clocks or genesis time"
             );
             self.network
                 .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);

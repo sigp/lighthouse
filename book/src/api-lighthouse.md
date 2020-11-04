@@ -177,3 +177,17 @@ See [Validator Inclusion APIs](./validator-inclusion.md).
 ### `/lighthouse/validator_inclusion/{epoch}/global`
 
 See [Validator Inclusion APIs](./validator-inclusion.md).
+
+### `/lighthouse/beacon/states/{state_id}/ssz`
+
+Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.
+
+The `state_id` parameter is identical to that used in the [Standard Eth2.0 API
+`beacon/state`
+routes](https://ethereum.github.io/eth2.0-APIs/#/Beacon/getStateRoot).
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
+```
+
+*Example omitted for brevity, the body simply contains SSZ bytes.*

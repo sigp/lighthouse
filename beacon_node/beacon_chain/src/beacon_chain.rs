@@ -12,13 +12,13 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
 use crate::head_tracker::HeadTracker;
-use crate::migrate::Migrate;
+use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
 use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
 use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
-use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
@@ -47,7 +47,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
-use store::{Error as DBError, HotColdDB, StoreOp};
+use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -153,7 +153,6 @@ pub struct HeadInfo {
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type HotStore: store::ItemStore<Self::EthSpec>;
     type ColdStore: store::ItemStore<Self::EthSpec>;
-    type StoreMigrator: Migrate<Self::EthSpec, Self::HotStore, Self::ColdStore>;
     type SlotClock: slot_clock::SlotClock;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
     type EthSpec: types::EthSpec;
@@ -169,7 +168,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// Database migrator for running background maintenance on the store.
-    pub store_migrator: T::StoreMigrator,
+    pub store_migrator: BackgroundMigrator<T::EthSpec, T::HotStore, T::ColdStore>,
     /// Reports the current slot, typically based upon the system clock.
     pub slot_clock: T::SlotClock,
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
@@ -237,51 +236,47 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Persists the core `BeaconChain` components (including the head block) and the fork choice.
+    /// Persists the head tracker and fork choice.
     ///
-    /// ## Notes:
-    ///
-    /// In this function we first obtain the head, persist fork choice, then persist the head. We
-    /// do it in this order to ensure that the persisted head is always from a time prior to fork
-    /// choice.
-    ///
-    /// We want to ensure that the head never out dates the fork choice to avoid having references
-    /// to blocks that do not exist in fork choice.
+    /// We do it atomically even though no guarantees need to be made about blocks from
+    /// the head tracker also being present in fork choice.
     pub fn persist_head_and_fork_choice(&self) -> Result<(), Error> {
-        let canonical_head_block_root = self
-            .canonical_head
-            .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
-            .beacon_block_root;
+        let mut batch = vec![];
 
-        let persisted_head = PersistedBeaconChain {
-            canonical_head_block_root,
-            genesis_block_root: self.genesis_block_root,
-            ssz_head_tracker: self.head_tracker.to_ssz_container(),
-        };
+        let _head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
+        batch.push(self.persist_head_in_batch());
 
-        let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+        let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+        batch.push(self.persist_fork_choice_in_batch());
 
-        let fork_choice = self.fork_choice.read();
-
-        self.store.put_item(
-            &FORK_CHOICE_DB_KEY,
-            &PersistedForkChoice {
-                fork_choice: fork_choice.to_persisted(),
-                fork_choice_store: fork_choice.fc_store().to_persisted(),
-            },
-        )?;
-
-        drop(fork_choice);
-
-        metrics::stop_timer(fork_choice_timer);
-        let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
-
-        self.store.put_item(&BEACON_CHAIN_DB_KEY, &persisted_head)?;
-
-        metrics::stop_timer(head_timer);
+        self.store.hot_db.do_atomically(batch)?;
 
         Ok(())
+    }
+
+    /// Return a `PersistedBeaconChain` representing the current head.
+    pub fn make_persisted_head(&self) -> PersistedBeaconChain {
+        PersistedBeaconChain {
+            _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
+            genesis_block_root: self.genesis_block_root,
+            ssz_head_tracker: self.head_tracker.to_ssz_container(),
+        }
+    }
+
+    /// Return a database operation for writing the beacon chain head to disk.
+    pub fn persist_head_in_batch(&self) -> KeyValueStoreOp {
+        self.make_persisted_head()
+            .as_kv_store_op(BEACON_CHAIN_DB_KEY)
+    }
+
+    /// Return a database operation for writing fork choice to disk.
+    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
+        let fork_choice = self.fork_choice.read();
+        let persisted_fork_choice = PersistedForkChoice {
+            fork_choice: fork_choice.to_persisted(),
+            fork_choice_store: fork_choice.fc_store().to_persisted(),
+        };
+        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)
     }
 
     /// Persists `self.op_pool` to disk.
@@ -1503,7 +1498,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = fully_verified_block.block_root;
         let mut state = fully_verified_block.state;
         let current_slot = self.slot()?;
-        let mut ops = fully_verified_block.intermediate_states;
+        let mut ops = fully_verified_block.confirmation_db_batch;
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
@@ -1628,13 +1623,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
-        // Store all the states between the parent block state and this block's slot, the block and state.
-        ops.push(StoreOp::PutBlock(block_root.into(), signed_block.clone()));
-        ops.push(StoreOp::PutState(
-            block.state_root.into(),
-            Cow::Borrowed(&state),
+        // Store the block and its state, and execute the confirmation batch for the intermediate
+        // states, which will delete their temporary flags.
+        ops.push(StoreOp::PutBlock(
+            block_root,
+            Box::new(signed_block.clone()),
         ));
+        ops.push(StoreOp::PutState(block.state_root, &state));
+        let txn_lock = self.store.hot_db.begin_rw_transaction();
         self.store.do_atomically(ops)?;
+        drop(txn_lock);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
@@ -1730,7 +1728,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
-        let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
+        let (proposer_slashings, attester_slashings) =
+            self.op_pool.get_slashings(&state, &self.spec);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain
@@ -1963,6 +1962,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             || is_reorg
         {
             self.persist_head_and_fork_choice()?;
+            self.op_pool.prune_attestations(self.epoch()?);
         }
 
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
@@ -1991,11 +1991,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
-            self.after_finalization(
-                old_finalized_checkpoint,
-                new_finalized_checkpoint,
-                new_finalized_state_root,
-            )?;
+            self.after_finalization(new_finalized_checkpoint, new_finalized_state_root)?;
         }
 
         let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
@@ -2076,7 +2072,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Performs pruning and finality-based optimizations.
     fn after_finalization(
         &self,
-        old_finalized_checkpoint: Checkpoint,
         new_finalized_checkpoint: Checkpoint,
         new_finalized_state_root: Hash256,
     ) -> Result<(), Error> {
@@ -2106,15 +2101,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_state(&new_finalized_state_root, None)?
             .ok_or_else(|| Error::MissingBeaconState(new_finalized_state_root))?;
 
-        self.op_pool
-            .prune_all(&finalized_state, self.head_info()?.fork);
+        self.op_pool.prune_all(
+            &finalized_state,
+            self.epoch()?,
+            self.head_info()?.fork,
+            &self.spec,
+        );
 
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),
             finalized_state,
-            self.head_tracker.clone(),
-            old_finalized_checkpoint,
             new_finalized_checkpoint,
+            self.head_tracker.clone(),
         )?;
 
         let _ = self.event_handler.register(EventKind::BeaconFinalization {
@@ -2429,11 +2427,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn dump_dot_file(&self, file_name: &str) {
         let mut file = std::fs::File::create(file_name).unwrap();
         self.dump_as_dot(&mut file);
-    }
-
-    // Should be used in tests only
-    pub fn set_graffiti(&mut self, graffiti: Graffiti) {
-        self.graffiti = graffiti;
     }
 }
 

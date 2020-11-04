@@ -53,6 +53,48 @@ lazy_static! {
         "Failed attestation publishes per subnet",
         &["subnet"]
     );
+
+    pub static ref SCORES_BELOW_ZERO_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_zero_per_client",
+        "Relative number of scores below zero per client",
+        &["Client"]
+    );
+    pub static ref SCORES_BELOW_GOSSIP_THRESHOLD_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_gossip_threshold_per_client",
+        "Relative number of scores below gossip threshold per client",
+        &["Client"]
+    );
+    pub static ref SCORES_BELOW_PUBLISH_THRESHOLD_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_publish_threshold_per_client",
+        "Relative number of scores below publish threshold per client",
+        &["Client"]
+    );
+    pub static ref SCORES_BELOW_GREYLIST_THRESHOLD_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_greylist_threshold_per_client",
+        "Relative number of scores below greylist threshold per client",
+        &["Client"]
+    );
+
+    pub static ref MIN_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_min_scores_per_client",
+        "Minimum scores per client",
+        &["Client"]
+    );
+    pub static ref MEDIAN_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_median_scores_per_client",
+        "Median scores per client",
+        &["Client"]
+    );
+    pub static ref MEAN_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_mean_scores_per_client",
+        "Mean scores per client",
+        &["Client"]
+    );
+    pub static ref MAX_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_max_scores_per_client",
+        "Max scores per client",
+        &["Client"]
+    );
 }
 
 lazy_static! {
