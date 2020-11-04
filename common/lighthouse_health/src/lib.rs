@@ -19,6 +19,9 @@ const TOTAL_REQ_SIZE: u64 = CHAIN_DB_REQ_SIZE + FREEZER_DB_REQ_SIZE;
 const LOAD_AVG_PCT_WARN: f64 = 85.0;
 const LOAD_AVG_PCT_ERROR: f64 = 100.0;
 
+const SAFE_PEER_COUNT: usize = 4;
+const EXPECTED_PEER_COUNT: usize = 55; // TODO: get this dynamically.
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Status {
     status: String,
@@ -30,6 +33,11 @@ pub struct StatusGauge {
     status: String,
     message: String,
     gauge_pct: f64,
+}
+
+pub struct Eth1SyncInfo {
+    pub eth1_node_sync_status_percentage: f64,
+    pub lighthouse_is_cached_and_ready: bool,
 }
 
 impl Status {
@@ -285,6 +293,10 @@ pub struct BeaconHealth {
     pub cpu_status: StatusGauge,
     /// RAM usage.
     pub memory_status: StatusGauge,
+    /// Info about the eth1 chain.
+    pub eth1_status: StatusGauge,
+    /// Info about the libp2p network.
+    pub p2p_status: Option<StatusGauge>,
     /// The combined status for the chain and freezer databases.
     pub database_status: Option<StatusGauge>,
     #[serde(flatten)]
@@ -298,10 +310,16 @@ pub struct BeaconHealth {
 }
 
 impl BeaconHealth {
-    pub fn observe(db_paths: &DBPaths, peer_count_opt: Option<usize>) -> Result<Self, String> {
+    pub fn observe(
+        db_paths: &DBPaths,
+        peer_count_opt: Option<usize>,
+        eth1_opt: Option<Eth1SyncInfo>,
+    ) -> Result<Self, String> {
         let common = CommonHealth::observe()?;
         let cpu_status = cpu_status(&common);
         let memory_status = memory_status(&common);
+        let eth1_status = eth1_status(eth1_opt);
+        let p2p_status = peer_count_opt.map(p2p_status);
 
         let chain_database = MountInfo::for_path(&db_paths.chain_db)?;
         let freezer_database = MountInfo::for_path(&db_paths.freezer_db)?;
@@ -314,6 +332,8 @@ impl BeaconHealth {
         Ok(Self {
             cpu_status,
             memory_status,
+            eth1_status,
+            p2p_status,
             database_status,
             common: CommonHealth::observe()?,
             network: Network::observe()?,
@@ -369,6 +389,52 @@ fn memory_status(health: &CommonHealth) -> StatusGauge {
     };
 
     status.gauge(round(health.sys_virt_mem_percent as f64, 2))
+}
+
+fn eth1_status(eth1_opt: Option<Eth1SyncInfo>) -> StatusGauge {
+    if let Some(eth1) = eth1_opt {
+        let ready = eth1.lighthouse_is_cached_and_ready;
+        let pct = round(eth1.eth1_node_sync_status_percentage, 2);
+
+        if ready {
+            if pct == 100.0 {
+                Status::ok("Eth1 is fully synced.".to_string())
+            } else {
+                Status::warn(format!("Eth1 is adequately synced at {}%.", pct))
+            }
+        } else {
+            if pct == 100.0 {
+                Status::warn("Eth1 is fully synced but caches are still being built.".to_string())
+            } else {
+                Status::warn(format!(
+                    "Eth1 is not adequately synced. Estimated progress: {}%.",
+                    pct,
+                ))
+            }
+        }
+        .gauge(pct)
+    } else {
+        Status::error(
+            "Eth1 sync is disabled, use the --eth1 CLI flag to enable. Eth1 is only \
+            required for validators."
+                .to_string(),
+        )
+        .gauge(0.0)
+    }
+}
+
+fn p2p_status(peer_count: usize) -> StatusGauge {
+    let peer_count = std::cmp::min(peer_count, EXPECTED_PEER_COUNT);
+    let pct = round((peer_count as f64 / EXPECTED_PEER_COUNT as f64) * 100.0, 2);
+
+    if peer_count == 0 {
+        Status::error("No connected peers.".to_string())
+    } else if peer_count < SAFE_PEER_COUNT {
+        Status::warn(format!("Low peer count ({}).", peer_count))
+    } else {
+        Status::warn(format!("Peer count sufficient ({}).", peer_count))
+    }
+    .gauge(pct)
 }
 
 fn database_status(chain: &MountInfo, freezer: &MountInfo) -> StatusGauge {
@@ -430,7 +496,10 @@ fn status_for_disk(mount: &PathBuf, avail: u64, recommended: u64) -> Status {
             avail / GB
         ))
     } else {
-        Status::ok(format!("{:?} has sufficient capacity.", mount))
+        Status::ok(format!(
+            "{} has sufficient capacity.",
+            mount.to_string_lossy()
+        ))
     }
 }
 

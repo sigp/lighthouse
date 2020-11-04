@@ -295,6 +295,10 @@ pub fn serve<T: BeaconChainTypes>(
                 }
             });
 
+    // Create a `warp` filter that provides optional access to the beacon chain.
+    let inner_ctx = ctx.clone();
+    let chain_opt_filter = warp::any().map(move || inner_ctx.chain.clone());
+
     // Create a `warp` filter that provides access to the network sender channel.
     let inner_ctx = ctx.clone();
     let network_tx_filter = warp::any()
@@ -1739,11 +1743,41 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(db_paths_filter)
         .and(network_globals_opt)
+        .and(chain_opt_filter)
         .and_then(
-            |db_paths, network_globals_opt: Option<Arc<NetworkGlobals<T::EthSpec>>>| {
+            |db_paths,
+             network_globals_opt: Option<Arc<NetworkGlobals<T::EthSpec>>>,
+             chain: Option<Arc<BeaconChain<T>>>| {
                 blocking_json_task(move || {
+                    let sync_status = chain
+                        .as_ref()
+                        .and_then(|chain| chain.eth1_chain.as_ref().map(|eth1| (chain, eth1)))
+                        .map(|(chain, eth1)| {
+                            let head_info = chain
+                                .head_info()
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                            let current_slot = chain
+                                .slot()
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                            eth1.sync_status(head_info.genesis_time, current_slot, &chain.spec)
+                                .ok_or_else(|| {
+                                    warp_utils::reject::custom_server_error(
+                                        "Unable to determine Eth1 sync status".to_string(),
+                                    )
+                                })
+                        })
+                        .transpose()?
+                        .map(|sync_status| lighthouse_health::Eth1SyncInfo {
+                            eth1_node_sync_status_percentage: sync_status
+                                .eth1_node_sync_status_percentage,
+                            lighthouse_is_cached_and_ready: sync_status
+                                .lighthouse_is_cached_and_ready,
+                        });
+
                     let connected_peers = network_globals_opt.as_ref().map(|g| g.connected_peers());
-                    eth2::lighthouse::BeaconHealth::observe(&db_paths, connected_peers)
+
+                    eth2::lighthouse::BeaconHealth::observe(&db_paths, connected_peers, sync_status)
                         .map(api_types::GenericResponse::from)
                         .map_err(warp_utils::reject::custom_bad_request)
                 })

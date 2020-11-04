@@ -2567,6 +2567,7 @@ dependencies = [
  "fork_choice",
  "hex",
  "lazy_static",
+ "lighthouse_health",
  "lighthouse_metrics",
  "lighthouse_version",
  "network",
