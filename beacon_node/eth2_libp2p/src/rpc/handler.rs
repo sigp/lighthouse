@@ -912,6 +912,8 @@ async fn process_inbound_substream<TSpec: EthSpec>(
                     substream_closed = true;
                 }
             }
+        } else if matches!(item, RPCCodedResponse::StreamTermination(_)) {
+            // The sender closed the stream before us, ignore this.
         } else {
             // we have more items after a closed substream, report those as errors
             errors.push(RPCError::InternalError(

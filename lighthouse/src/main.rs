@@ -196,13 +196,6 @@ fn run<E: EthSpec>(
         ));
     }
 
-    #[cfg(all(feature = "modern", target_arch = "x86_64"))]
-    if !std::is_x86_feature_detected!("adx") {
-        return Err(format!(
-            "CPU incompatible with optimized binary, please try Lighthouse portable build"
-        ));
-    }
-
     let debug_level = matches
         .value_of("debug-level")
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
@@ -229,6 +222,15 @@ fn run<E: EthSpec>(
         warn!(
             log,
             "The --spec flag is deprecated and will be removed in a future release"
+        );
+    }
+
+    #[cfg(all(feature = "modern", target_arch = "x86_64"))]
+    if !std::is_x86_feature_detected!("adx") {
+        warn!(
+            log,
+            "CPU seems incompatible with optimized Lighthouse build";
+            "advice" => "If you get a SIGILL, please try Lighthouse portable build"
         );
     }
 
