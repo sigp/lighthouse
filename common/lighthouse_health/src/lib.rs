@@ -385,7 +385,7 @@ fn memory_status(health: &CommonHealth) -> StatusGauge {
             MEMORY_RECOMMENDED_TOTAL / GB
         ))
     } else {
-        Status::ok(format!("{} GB available memory", avail))
+        Status::ok(format!("{} GB available memory", avail / GB))
     };
 
     status.gauge(round(health.sys_virt_mem_percent as f64, 2))
