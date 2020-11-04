@@ -15,9 +15,9 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 
 ![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
 
-**🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
+**🚨🚨🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
 time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
-DEPOSITS WITH LIGHTHOUSE. 🚨**
+DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
 
 ## Overview
 
