@@ -3,9 +3,9 @@
 Joining an Eth2 testnet is a great way to get familiar with staking in Phase 0.
 All users should experiment with a testnet prior to staking mainnet ETH.
 
-**Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
+**🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
 time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
-DEPOSITS WITH LIGHTHOUSE.**
+DEPOSITS WITH LIGHTHOUSE. 🚨**
 
 ## Supported Testnets
 

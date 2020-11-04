@@ -1,8 +1,8 @@
 # Create a validator
 
-**Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
+**🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
 time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
-DEPOSITS WITH LIGHTHOUSE.**
+DEPOSITS WITH LIGHTHOUSE. 🚨**
 
 Validators are fundamentally represented by a BLS keypair. In Lighthouse, we
 use a [wallet](./wallet-create.md) to generate these keypairs. Once a wallet
