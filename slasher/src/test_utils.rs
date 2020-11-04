@@ -10,7 +10,7 @@ pub type E = MainnetEthSpec;
 pub fn logger() -> Logger {
     if cfg!(feature = "test_logger") {
         sloggers::terminal::TerminalLoggerBuilder::new()
-            .level(sloggers::types::Severity::Debug)
+            .level(sloggers::types::Severity::Trace)
             .build()
             .unwrap()
     } else {

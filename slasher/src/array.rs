@@ -1,4 +1,4 @@
-use crate::{AttesterRecord, Config, Error, SlasherDB, SlashingStatus};
+use crate::{AttesterRecord, AttesterSlashingStatus, Config, Error, SlasherDB};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use lmdb::{RwTransaction, Transaction};
 use serde_derive::{Deserialize, Serialize};
@@ -123,7 +123,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         validator_index: u64,
         attestation: &IndexedAttestation<E>,
         config: &Config,
-    ) -> Result<SlashingStatus<E>, Error>;
+    ) -> Result<AttesterSlashingStatus<E>, Error>;
 
     fn update(
         &mut self,
@@ -215,25 +215,23 @@ impl TargetArrayChunk for MinTargetChunk {
         validator_index: u64,
         attestation: &IndexedAttestation<E>,
         config: &Config,
-    ) -> Result<SlashingStatus<E>, Error> {
+    ) -> Result<AttesterSlashingStatus<E>, Error> {
         let min_target =
             self.chunk
                 .get_target(validator_index, attestation.data.source.epoch, config)?;
         if attestation.data.target.epoch > min_target {
-            eprintln!("Min target chunk: {:?}", self);
-            eprintln!(
-                "Attestation: {}=>{}",
-                attestation.data.source.epoch, attestation.data.target.epoch
-            );
-            let attestation = db
-                .get_attestation_for_validator(txn, validator_index, min_target)?
-                .ok_or_else(|| Error::MissingAttesterRecord {
-                    validator_index,
-                    target_epoch: min_target,
-                })?;
-            Ok(SlashingStatus::SurroundsExisting(Box::new(attestation)))
+            let existing_attestation =
+                db.get_attestation_for_validator(txn, validator_index, min_target)?;
+
+            if attestation.data.source.epoch < existing_attestation.data.source.epoch {
+                Ok(AttesterSlashingStatus::SurroundsExisting(Box::new(
+                    existing_attestation,
+                )))
+            } else {
+                Ok(AttesterSlashingStatus::AlreadyDoubleVoted)
+            }
         } else {
-            Ok(SlashingStatus::NotSlashable)
+            Ok(AttesterSlashingStatus::NotSlashable)
         }
     }
 
@@ -254,15 +252,6 @@ impl TargetArrayChunk for MinTargetChunk {
         let mut epoch = start_epoch;
         while config.chunk_index(epoch) == chunk_index && epoch >= min_epoch {
             if new_target_epoch < self.chunk.get_target(validator_index, epoch, config)? {
-                if validator_index == 0
-                    && Chunk::epoch_distance(new_target_epoch, epoch)? == 4
-                    && epoch.as_u64() % 8 == 1
-                {
-                    println!(
-                        "SETTING DISTANCE FOR EPOCH {} TO {} AT {}",
-                        epoch, new_target_epoch, current_epoch
-                    );
-                }
                 self.chunk
                     .set_target(validator_index, epoch, new_target_epoch, config)?;
             } else {
@@ -271,7 +260,7 @@ impl TargetArrayChunk for MinTargetChunk {
             }
             epoch -= 1;
         }
-        Ok(epoch > min_epoch)
+        Ok(epoch >= min_epoch)
     }
 
     // FIXME(sproul): fix modulo behaviour
@@ -326,25 +315,23 @@ impl TargetArrayChunk for MaxTargetChunk {
         validator_index: u64,
         attestation: &IndexedAttestation<E>,
         config: &Config,
-    ) -> Result<SlashingStatus<E>, Error> {
+    ) -> Result<AttesterSlashingStatus<E>, Error> {
         let max_target =
             self.chunk
                 .get_target(validator_index, attestation.data.source.epoch, config)?;
         if attestation.data.target.epoch < max_target {
-            eprintln!("Max target chunk: {:?}", self);
-            eprintln!(
-                "Attestation: {}=>{}",
-                attestation.data.source.epoch, attestation.data.target.epoch
-            );
-            let attestation = db
-                .get_attestation_for_validator(txn, validator_index, max_target)?
-                .ok_or_else(|| Error::MissingAttesterRecord {
-                    validator_index,
-                    target_epoch: max_target,
-                })?;
-            Ok(SlashingStatus::SurroundedByExisting(Box::new(attestation)))
+            let existing_attestation =
+                db.get_attestation_for_validator(txn, validator_index, max_target)?;
+
+            if existing_attestation.data.source.epoch < attestation.data.source.epoch {
+                Ok(AttesterSlashingStatus::SurroundedByExisting(Box::new(
+                    existing_attestation,
+                )))
+            } else {
+                Ok(AttesterSlashingStatus::AlreadyDoubleVoted)
+            }
         } else {
-            Ok(SlashingStatus::NotSlashable)
+            Ok(AttesterSlashingStatus::NotSlashable)
         }
     }
 
@@ -429,7 +416,7 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
     attestation: &IndexedAttestation<E>,
     current_epoch: Epoch,
     config: &Config,
-) -> Result<SlashingStatus<E>, Error> {
+) -> Result<AttesterSlashingStatus<E>, Error> {
     let mut chunk_index = config.chunk_index(attestation.data.source.epoch);
     let mut current_chunk = get_chunk_for_update(
         db,
@@ -444,7 +431,7 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
         current_chunk.check_slashable(db, txn, validator_index, attestation, config)?;
 
     // TODO: consider removing this early return and updating the array
-    if slashing_status != SlashingStatus::NotSlashable {
+    if slashing_status != AttesterSlashingStatus::NotSlashable {
         return Ok(slashing_status);
     }
 
@@ -480,7 +467,7 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
         start_epoch = T::next_start_epoch(start_epoch, config);
     }
 
-    Ok(SlashingStatus::NotSlashable)
+    Ok(AttesterSlashingStatus::NotSlashable)
 }
 
 pub fn update<E: EthSpec>(
@@ -545,21 +532,9 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
             return Ok(());
         };
 
-    let debug_index = 0;
-
-    if validator_index == debug_index {
-        eprintln!(
-            "Doing epoch update for {} at {} from {}",
-            validator_index, current_epoch, previous_current_epoch
-        );
-    }
-
     let mut epoch = previous_current_epoch;
 
     while epoch <= current_epoch {
-        if validator_index == debug_index {
-            eprintln!("Starting iter with epoch {}", epoch);
-        }
         let chunk_index = config.chunk_index(epoch);
         let current_chunk = get_chunk_for_update(
             db,
@@ -570,13 +545,6 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
             config,
         )?;
         while config.chunk_index(epoch) == chunk_index && epoch <= current_epoch {
-            if validator_index == debug_index {
-                eprintln!(
-                    "Setting distance at epoch {} to {}",
-                    epoch,
-                    T::neutral_element()
-                );
-            }
             current_chunk.chunk().set_raw_distance(
                 validator_index,
                 epoch,

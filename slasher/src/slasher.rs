@@ -113,7 +113,7 @@ impl<E: EthSpec> Slasher<E> {
         self.attestation_queue.requeue(deferred);
 
         // Insert attestations into database.
-        debug!(
+        info!(
             self.log,
             "Storing attestations in slasher DB";
             "num_valid" => snapshot.len(),

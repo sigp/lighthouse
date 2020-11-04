@@ -1,5 +1,6 @@
 use crate::{
-    utils::TxnOptional, AttesterRecord, Config, Error, ProposerSlashingStatus, SlashingStatus,
+    utils::TxnOptional, AttesterRecord, AttesterSlashingStatus, Config, Error,
+    ProposerSlashingStatus,
 };
 use byteorder::{BigEndian, ByteOrder};
 use lmdb::{Cursor, Database, DatabaseFlags, Environment, RwTransaction, Transaction, WriteFlags};
@@ -246,7 +247,7 @@ impl<E: EthSpec> SlasherDB<E> {
         validator_index: u64,
         attestation: &IndexedAttestation<E>,
         record: AttesterRecord,
-    ) -> Result<SlashingStatus<E>, Error> {
+    ) -> Result<AttesterSlashingStatus<E>, Error> {
         // See if there's an existing attestation for this attester.
         if let Some(existing_record) =
             self.get_attester_record(txn, validator_index, attestation.data.target.epoch)?
@@ -254,17 +255,19 @@ impl<E: EthSpec> SlasherDB<E> {
             // If the existing attestation data is identical, then this attestation is not
             // slashable and no update is required.
             if existing_record.attestation_data_hash == record.attestation_data_hash {
-                return Ok(SlashingStatus::NotSlashable);
+                return Ok(AttesterSlashingStatus::NotSlashable);
             }
 
             // Otherwise, load the indexed attestation so we can confirm that it's slashable.
             let existing_attestation =
                 self.get_indexed_attestation(txn, existing_record.indexed_attestation_hash)?;
             if attestation.is_double_vote(&existing_attestation) {
-                Ok(SlashingStatus::DoubleVote(Box::new(existing_attestation)))
+                Ok(AttesterSlashingStatus::DoubleVote(Box::new(
+                    existing_attestation,
+                )))
             } else {
                 // FIXME(sproul): this could be an Err
-                Ok(SlashingStatus::NotSlashable)
+                Ok(AttesterSlashingStatus::NotSlashable)
             }
         }
         // If no attestation exists, insert a record for this validator.
@@ -275,7 +278,7 @@ impl<E: EthSpec> SlasherDB<E> {
                 &record.as_ssz_bytes(),
                 Self::write_flags(),
             )?;
-            Ok(SlashingStatus::NotSlashable)
+            Ok(AttesterSlashingStatus::NotSlashable)
         }
     }
 
@@ -283,16 +286,15 @@ impl<E: EthSpec> SlasherDB<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
-        target: Epoch,
-    ) -> Result<Option<IndexedAttestation<E>>, Error> {
-        if let Some(record) = self.get_attester_record(txn, validator_index, target)? {
-            Ok(Some(self.get_indexed_attestation(
-                txn,
-                record.indexed_attestation_hash,
-            )?))
-        } else {
-            Ok(None)
-        }
+        target_epoch: Epoch,
+    ) -> Result<IndexedAttestation<E>, Error> {
+        let record = self
+            .get_attester_record(txn, validator_index, target_epoch)?
+            .ok_or_else(|| Error::MissingAttesterRecord {
+                validator_index,
+                target_epoch,
+            })?;
+        self.get_indexed_attestation(txn, record.indexed_attestation_hash)
     }
 
     pub fn get_attester_record(

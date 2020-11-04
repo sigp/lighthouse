@@ -23,10 +23,13 @@ pub use slasher_server::SlasherServer;
 
 use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
 
-// FIXME(sproul): rename
 #[derive(Debug, PartialEq)]
-pub enum SlashingStatus<E: EthSpec> {
+pub enum AttesterSlashingStatus<E: EthSpec> {
     NotSlashable,
+    /// A weird outcome that can occur when we go to lookup an attestation by its target
+    /// epoch for a surround slashing, but find a different attestation -- indicating that
+    /// the validator has already been caught double voting.
+    AlreadyDoubleVoted,
     DoubleVote(Box<IndexedAttestation<E>>),
     SurroundsExisting(Box<IndexedAttestation<E>>),
     SurroundedByExisting(Box<IndexedAttestation<E>>),
@@ -38,21 +41,28 @@ pub enum ProposerSlashingStatus {
     DoubleVote(Box<ProposerSlashing>),
 }
 
-impl<E: EthSpec> SlashingStatus<E> {
+impl<E: EthSpec> AttesterSlashingStatus<E> {
     pub fn into_slashing(
         self,
         new_attestation: &IndexedAttestation<E>,
     ) -> Option<AttesterSlashing<E>> {
-        use SlashingStatus::*;
+        use AttesterSlashingStatus::*;
 
+        // The surrounding attestation must be in `attestation_1` to be valid.
         match self {
             NotSlashable => None,
-            DoubleVote(existing) | SurroundsExisting(existing) | SurroundedByExisting(existing) => {
-                Some(AttesterSlashing {
-                    attestation_1: *existing,
-                    attestation_2: new_attestation.clone(),
-                })
+            AlreadyDoubleVoted => {
+                // println!("Already double voted!");
+                None
             }
+            DoubleVote(existing) | SurroundedByExisting(existing) => Some(AttesterSlashing {
+                attestation_1: *existing,
+                attestation_2: new_attestation.clone(),
+            }),
+            SurroundsExisting(existing) => Some(AttesterSlashing {
+                attestation_1: new_attestation.clone(),
+                attestation_2: *existing,
+            }),
         }
     }
 }
