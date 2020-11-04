@@ -9,7 +9,7 @@ use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction};
 use futures::prelude::*;
 use libp2p::core::{
-    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::boxed::Boxed,
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
 use libp2p::{
     core, noise,
@@ -20,7 +20,6 @@ use slog::{crit, debug, info, o, trace, warn};
 use ssz::Decode;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{Error, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -323,9 +322,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
 /// mplex as the multiplexing layer.
-fn build_transport(
-    local_private_key: Keypair,
-) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
+fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
     let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
@@ -338,10 +335,7 @@ fn build_transport(
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
         .multiplex(libp2p::mplex::MplexConfig::new())
-        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
         .timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(10))
-        .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed())
 }
 
