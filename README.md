@@ -34,6 +34,10 @@ Lighthouse is:
 
 Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
 
+The Lighthouse team acknowledges
+[`0x00000000219ab540356cBB839Cbe05303d7705Fa`](https://etherscan.io/address/0x00000000219ab540356cbb839cbe05303d7705fa)
+as the canonical Eth2 deposit contract address.
+
 ## Development Status
 
 Current development overview:
