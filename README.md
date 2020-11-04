@@ -15,6 +15,10 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 
 ![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
 
+**🚨🚨🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
+time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
+DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
+
 ## Overview
 
 Lighthouse is:
@@ -29,6 +33,12 @@ Lighthouse is:
 	Ethereum 2.0 specification.
 
 Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
+
+## Eth2 Deposit Contract
+
+The Lighthouse team acknowledges
+[`0x00000000219ab540356cBB839Cbe05303d7705Fa`](https://etherscan.io/address/0x00000000219ab540356cbb839cbe05303d7705fa)
+as the canonical Eth2 deposit contract address.
 
 ## Development Status
 
