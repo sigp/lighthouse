@@ -28,7 +28,7 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, info, o, trace, warn};
+use slog::{crit, debug, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
