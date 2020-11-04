@@ -5,6 +5,7 @@ use crate::{
 use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
 use slog::{debug, error, info, Logger};
+use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
     AttesterSlashing, Epoch, EthSpec, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader,
@@ -15,9 +16,8 @@ pub struct Slasher<E: EthSpec> {
     db: SlasherDB<E>,
     pub(crate) attestation_queue: AttestationQueue<E>,
     pub(crate) block_queue: BlockQueue,
-    // TODO: consider using a set
-    attester_slashings: Mutex<Vec<AttesterSlashing<E>>>,
-    proposer_slashings: Mutex<Vec<ProposerSlashing>>,
+    attester_slashings: Mutex<HashSet<AttesterSlashing<E>>>,
+    proposer_slashings: Mutex<HashSet<ProposerSlashing>>,
     // TODO: consider removing Arc
     config: Arc<Config>,
     pub(crate) log: Logger,
@@ -28,8 +28,8 @@ impl<E: EthSpec> Slasher<E> {
         config.validate()?;
         let config = Arc::new(config);
         let db = SlasherDB::open(config.clone())?;
-        let attester_slashings = Mutex::new(vec![]);
-        let proposer_slashings = Mutex::new(vec![]);
+        let attester_slashings = Mutex::new(HashSet::new());
+        let proposer_slashings = Mutex::new(HashSet::new());
         let attestation_queue = AttestationQueue::new();
         let block_queue = BlockQueue::new();
         Ok(Self {
@@ -43,12 +43,12 @@ impl<E: EthSpec> Slasher<E> {
         })
     }
 
-    pub fn get_attester_slashings(&self) -> Vec<AttesterSlashing<E>> {
-        std::mem::replace(&mut self.attester_slashings.lock(), vec![])
+    pub fn get_attester_slashings(&self) -> HashSet<AttesterSlashing<E>> {
+        std::mem::replace(&mut self.attester_slashings.lock(), HashSet::new())
     }
 
-    pub fn get_proposer_slashings(&self) -> Vec<ProposerSlashing> {
-        std::mem::replace(&mut self.proposer_slashings.lock(), vec![])
+    pub fn get_proposer_slashings(&self) -> HashSet<ProposerSlashing> {
+        std::mem::replace(&mut self.proposer_slashings.lock(), HashSet::new())
     }
 
     pub fn config(&self) -> &Config {

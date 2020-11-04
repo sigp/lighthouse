@@ -138,7 +138,7 @@ fn hashset_intersection(
         & &HashSet::from_iter(attestation_2_indices.iter().copied())
 }
 
-fn slashed_validators_from_slashings(slashings: &[AttesterSlashing<E>]) -> HashSet<u64> {
+fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>>) -> HashSet<u64> {
     slashings
         .iter()
         .flat_map(|slashing| {
@@ -175,6 +175,7 @@ fn slashed_validators_from_attestations(attestations: &[IndexedAttestation<E>]) 
 }
 
 #[test]
+#[ignore]
 fn no_crash() {
     let mut rng = thread_rng();
     loop {
@@ -183,6 +184,7 @@ fn no_crash() {
 }
 
 #[test]
+#[ignore]
 fn check_slashings() {
     let mut rng = thread_rng();
     loop {

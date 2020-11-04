@@ -44,7 +44,7 @@ pub trait TSignature<GenericPublicKey>: Sized + Clone {
 ///
 /// Provides generic functionality whilst deferring all serious cryptographic operations to the
 /// generics.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GenericSignature<Pub, Sig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<Sig>,

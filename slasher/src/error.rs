@@ -34,6 +34,7 @@ pub enum Error {
     },
     MissingAttesterKey,
     MissingProposerKey,
+    AttesterRecordInconsistentRoot,
 }
 
 impl From<lmdb::Error> for Error {

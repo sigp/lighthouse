@@ -2,9 +2,10 @@ use crate::{AttesterRecord, AttesterSlashingStatus, Config, Error, SlasherDB};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use lmdb::{RwTransaction, Transaction};
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{btree_map::Entry, BTreeMap};
+use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::convert::TryFrom;
 use std::io::Read;
+use std::iter::Extend;
 use std::sync::Arc;
 use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
 
@@ -263,7 +264,6 @@ impl TargetArrayChunk for MinTargetChunk {
         Ok(epoch >= min_epoch)
     }
 
-    // FIXME(sproul): fix modulo behaviour
     fn first_start_epoch(
         source_epoch: Epoch,
         current_epoch: Epoch,
@@ -477,7 +477,7 @@ pub fn update<E: EthSpec>(
     batch: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
     current_epoch: Epoch,
     config: &Config,
-) -> Result<Vec<AttesterSlashing<E>>, Error> {
+) -> Result<HashSet<AttesterSlashing<E>>, Error> {
     // Split the batch up into horizontal segments.
     // Map chunk indexes in the range `0..self.config.chunk_size` to attestations
     // for those chunks.
@@ -507,10 +507,11 @@ pub fn update<E: EthSpec>(
     )?);
 
     // Update all current epochs.
+    // FIXME(sproul): abstract
     for validator_index in validator_chunk_index * config.validator_chunk_size
         ..(validator_chunk_index + 1) * config.validator_chunk_size
     {
-        db.update_current_epoch(validator_index as u64, current_epoch, txn)?;
+        db.update_current_epoch_for_validator(validator_index as u64, current_epoch, txn)?;
     }
 
     Ok(slashings)
@@ -526,7 +527,7 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
     config: &Config,
 ) -> Result<(), Error> {
     let previous_current_epoch =
-        if let Some(epoch) = db.get_stored_current_epoch(validator_index, txn)? {
+        if let Some(epoch) = db.get_current_epoch_for_validator(validator_index, txn)? {
             epoch
         } else {
             return Ok(());
@@ -565,8 +566,8 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     chunk_attestations: &BTreeMap<usize, Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>>,
     current_epoch: Epoch,
     config: &Config,
-) -> Result<Vec<AttesterSlashing<E>>, Error> {
-    let mut slashings = vec![];
+) -> Result<HashSet<AttesterSlashing<E>>, Error> {
+    let mut slashings = HashSet::new();
     // Map from chunk index to updated chunk at that index.
     let mut updated_chunks = BTreeMap::new();
 
@@ -600,7 +601,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
                     config,
                 )?;
                 if let Some(slashing) = slashing_status.into_slashing(&attestation.0) {
-                    slashings.push(slashing);
+                    slashings.insert(slashing);
                 }
             }
         }

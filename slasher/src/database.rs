@@ -13,8 +13,7 @@ use types::{
 };
 
 /// Map from `(target_epoch, validator_index)` to `AttesterRecord`.
-// FIXME(sproul): rename to `attesters_DB`
-const ATTESTER_DB: &str = "attesters";
+const ATTESTERS_DB: &str = "attesters";
 /// Map from `indexed_attestation_hash` to `IndexedAttestation`.
 const INDEXED_ATTESTATION_DB: &str = "indexed_attestations";
 const MIN_TARGETS_DB: &str = "min_targets";
@@ -147,7 +146,7 @@ impl<E: EthSpec> SlasherDB<E> {
             .open(&config.database_path)?;
         let indexed_attestation_db =
             env.create_db(Some(INDEXED_ATTESTATION_DB), Self::db_flags())?;
-        let attesters_db = env.create_db(Some(ATTESTER_DB), Self::db_flags())?;
+        let attesters_db = env.create_db(Some(ATTESTERS_DB), Self::db_flags())?;
         let min_targets_db = env.create_db(Some(MIN_TARGETS_DB), Self::db_flags())?;
         let max_targets_db = env.create_db(Some(MAX_TARGETS_DB), Self::db_flags())?;
         let current_epochs_db = env.create_db(Some(CURRENT_EPOCHS_DB), Self::db_flags())?;
@@ -179,8 +178,7 @@ impl<E: EthSpec> SlasherDB<E> {
         Ok(self.env.begin_rw_txn()?)
     }
 
-    // FIXME(sproul): rename
-    pub fn get_stored_current_epoch(
+    pub fn get_current_epoch_for_validator(
         &self,
         validator_index: u64,
         txn: &mut RwTransaction<'_>,
@@ -195,7 +193,7 @@ impl<E: EthSpec> SlasherDB<E> {
             .transpose()?)
     }
 
-    pub fn update_current_epoch(
+    pub fn update_current_epoch_for_validator(
         &self,
         validator_index: u64,
         current_epoch: Epoch,
@@ -266,8 +264,7 @@ impl<E: EthSpec> SlasherDB<E> {
                     existing_attestation,
                 )))
             } else {
-                // FIXME(sproul): this could be an Err
-                Ok(AttesterSlashingStatus::NotSlashable)
+                Err(Error::AttesterRecordInconsistentRoot)
             }
         }
         // If no attestation exists, insert a record for this validator.
@@ -412,10 +409,12 @@ impl<E: EthSpec> SlasherDB<E> {
         let mut cursor = txn.open_rw_cursor(self.attesters_db)?;
 
         // Position cursor at first key, bailing out if the database is empty.
-        match cursor.get(None, None, lmdb_sys::MDB_FIRST) {
-            Ok(_) => (),
-            Err(lmdb::Error::NotFound) => return Ok(()),
-            Err(e) => return Err(e.into()),
+        if cursor
+            .get(None, None, lmdb_sys::MDB_FIRST)
+            .optional()?
+            .is_none()
+        {
+            return Ok(());
         }
 
         let mut indexed_attestations_to_delete = HashSet::new();
@@ -433,11 +432,13 @@ impl<E: EthSpec> SlasherDB<E> {
 
                 cursor.del(Self::write_flags())?;
 
-                // FIXME(sproul): abstract this pattern
-                match cursor.get(None, None, lmdb_sys::MDB_NEXT) {
-                    Ok(_) => (),
-                    Err(lmdb::Error::NotFound) => break,
-                    Err(e) => return Err(e.into()),
+                // End the loop if there is no next entry.
+                if cursor
+                    .get(None, None, lmdb_sys::MDB_NEXT)
+                    .optional()?
+                    .is_none()
+                {
+                    break;
                 }
             } else {
                 break;
@@ -450,15 +451,5 @@ impl<E: EthSpec> SlasherDB<E> {
         }
 
         Ok(())
-    }
-}
-
-// FIXME(sproul): consider using this to avoid allocations
-#[allow(unused)]
-fn hash256_from_slice(data: &[u8]) -> Result<Hash256, Error> {
-    if data.len() == 32 {
-        Ok(Hash256::from_slice(data))
-    } else {
-        Err(Error::AttesterRecordCorrupt { length: data.len() })
     }
 }
