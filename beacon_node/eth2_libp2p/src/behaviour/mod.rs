@@ -6,7 +6,7 @@ use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetD
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
-use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};f
+use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
 use libp2p::gossipsub::subscription_filter::{
     MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
 };
