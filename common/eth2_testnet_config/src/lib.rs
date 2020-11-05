@@ -8,8 +8,8 @@
 //! https://github.com/sigp/lighthouse/pull/605
 //!
 use eth2_config::{
-    include_altona_file, include_medalla_file, include_spadina_file, include_zinken_file,
-    testnets_dir,
+    include_altona_file, include_mainnet_file, include_medalla_file, include_spadina_file,
+    include_zinken_file, testnets_dir,
 };
 
 use enr::{CombinedKey, Enr};
@@ -56,8 +56,9 @@ const ALTONA: HardcodedNet = define_net!(altona, include_altona_file);
 const MEDALLA: HardcodedNet = define_net!(medalla, include_medalla_file);
 const SPADINA: HardcodedNet = define_net!(spadina, include_spadina_file);
 const ZINKEN: HardcodedNet = define_net!(zinken, include_zinken_file);
+const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
 
-const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, ZINKEN];
+const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, ZINKEN, MAINNET];
 pub const DEFAULT_HARDCODED_TESTNET: &str = "medalla";
 
 /// Specifies an Eth2 testnet.
@@ -239,7 +240,8 @@ impl Eth2TestnetConfig {
                     file.read_to_end(&mut bytes)
                         .map_err(|e| format!("Unable to read {:?}: {:?}", file, e))
                 })?;
-            Some(bytes)
+
+            Some(bytes).filter(|bytes| !bytes.is_empty())
         } else {
             None
         };
