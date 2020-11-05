@@ -206,6 +206,7 @@ where
                 let (exit_tx, exit_rx) = oneshot::channel::<()>();
 
                 let http_listen_opt = if self.http_api_config.enabled {
+                    #[allow(clippy::type_complexity)] // I'm not sure how to elegantly avoid this.
                     let ctx: Arc<
                         http_api::Context<
                             Witness<
@@ -229,7 +230,6 @@ where
                     // Discard the error from the oneshot.
                     let exit_future = async {
                         let _ = exit_rx.await;
-                        ()
                     };
 
                     let (listen_addr, server) = http_api::serve(ctx, exit_future)
