@@ -41,14 +41,9 @@ fn random_test(seed: u64, test_config: TestConfig) {
     let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1 << rng.gen_range(1, 4);
 
-    eprintln!("Validator chunk size: {}", config.validator_chunk_size);
-
     let chunk_size_exponent = rng.gen_range(1, 4);
     config.chunk_size = 1 << chunk_size_exponent;
     config.history_length = 1 << rng.gen_range(chunk_size_exponent, chunk_size_exponent + 3);
-
-    eprintln!("Chunk size: {}", config.chunk_size);
-    eprintln!("History length: {}", config.history_length);
 
     let slasher = Slasher::<E>::open(config.clone(), logger()).unwrap();
 
@@ -85,11 +80,6 @@ fn random_test(seed: u64, test_config: TestConfig) {
         let target_root = rng.gen_range(0, 3);
         let attestation = indexed_att(&attesting_indices, source, target, target_root);
 
-        eprintln!(
-            "Attestation {}=>{} from {:?} for root {}",
-            source, target, attesting_indices, target_root
-        );
-
         if check_slashings {
             attestations.push(attestation.clone());
         }
@@ -99,12 +89,10 @@ fn random_test(seed: u64, test_config: TestConfig) {
 
         // Maybe process
         if rng.gen_bool(0.1) {
-            eprintln!("Processing {}", current_epoch);
             slasher.process_queued(current_epoch).unwrap();
 
             // Maybe prune
             if rng.gen_bool(0.1) {
-                eprintln!("Pruning at epoch {}", current_epoch);
                 slasher.prune_database(current_epoch).unwrap();
             }
         }
