@@ -12,28 +12,37 @@ use types::{
     Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader, Slot,
 };
 
+/// Current database schema version, to check compatibility of on-disk DB with software.
+const CURRENT_SCHEMA_VERSION: u64 = 0;
+
+/// Metadata about the slashing database itself.
+const METADATA_DB: &str = "metadata";
 /// Map from `(target_epoch, validator_index)` to `AttesterRecord`.
 const ATTESTERS_DB: &str = "attesters";
 /// Map from `indexed_attestation_hash` to `IndexedAttestation`.
 const INDEXED_ATTESTATION_DB: &str = "indexed_attestations";
+/// Table of minimum targets for every source epoch within range.
 const MIN_TARGETS_DB: &str = "min_targets";
+/// Table of maximum targets for every source epoch within range.
 const MAX_TARGETS_DB: &str = "max_targets";
-/// Map from `validator_index` to the `current_epoch` stored for that validator's min and max
-/// target arrays.
+/// Map from `validator_index` to the `current_epoch` for that validator.
+///
+/// Used to implement wrap-around semantics for the min and max target arrays.
 const CURRENT_EPOCHS_DB: &str = "current_epochs";
 /// Map from `(slot, validator_index)` to `SignedBeaconBlockHeader`.
-const PROPOSER_DB: &str = "proposers";
-/// Metadata about the slashing database itself.
-const METADATA_DB: &str = "metadata";
+const PROPOSERS_DB: &str = "proposers";
 
 /// The number of DBs for LMDB to use (equal to the number of DBs defined above).
 const LMDB_MAX_DBS: u32 = 7;
-/// The size of the in-memory map for LMDB (larger than the maximum size of the database).
-// FIXME(sproul): make this user configurable
-const LMDB_MAP_SIZE: usize = 256 * (1 << 30); // 256GiB
+
+/// Constant key under which the schema version is stored in the `metadata_db`.
+const METADATA_VERSION_KEY: &[u8] = &[0];
+/// Constant key under which the slasher configuration is stored in the `metadata_db`.
+const METADATA_CONFIG_KEY: &[u8] = &[1];
 
 const ATTESTER_KEY_SIZE: usize = 16;
 const PROPOSER_KEY_SIZE: usize = 16;
+const GIGABYTE: usize = 1 << 30;
 
 #[derive(Debug)]
 pub struct SlasherDB<E: EthSpec> {
@@ -141,7 +150,7 @@ impl<E: EthSpec> SlasherDB<E> {
         std::fs::create_dir_all(&config.database_path)?;
         let env = Environment::new()
             .set_max_dbs(LMDB_MAX_DBS)
-            .set_map_size(LMDB_MAP_SIZE)
+            .set_map_size(config.max_db_size_gbs * GIGABYTE)
             .open_with_permissions(&config.database_path, 0o600)?;
         let indexed_attestation_db =
             env.create_db(Some(INDEXED_ATTESTATION_DB), Self::db_flags())?;
@@ -149,9 +158,10 @@ impl<E: EthSpec> SlasherDB<E> {
         let min_targets_db = env.create_db(Some(MIN_TARGETS_DB), Self::db_flags())?;
         let max_targets_db = env.create_db(Some(MAX_TARGETS_DB), Self::db_flags())?;
         let current_epochs_db = env.create_db(Some(CURRENT_EPOCHS_DB), Self::db_flags())?;
-        let proposers_db = env.create_db(Some(PROPOSER_DB), Self::db_flags())?;
+        let proposers_db = env.create_db(Some(PROPOSERS_DB), Self::db_flags())?;
         let metadata_db = env.create_db(Some(METADATA_DB), Self::db_flags())?;
-        Ok(Self {
+
+        let db = Self {
             env,
             indexed_attestation_db,
             attesters_db,
@@ -162,7 +172,32 @@ impl<E: EthSpec> SlasherDB<E> {
             metadata_db,
             config,
             _phantom: PhantomData,
-        })
+        };
+
+        let mut txn = db.begin_rw_txn()?;
+
+        if let Some(schema_version) = db.load_schema_version(&mut txn)? {
+            if schema_version != CURRENT_SCHEMA_VERSION {
+                return Err(Error::IncompatibleSchemaVersion {
+                    database_schema_version: schema_version,
+                    software_schema_version: CURRENT_SCHEMA_VERSION,
+                });
+            }
+        }
+        db.store_schema_version(&mut txn)?;
+
+        if let Some(on_disk_config) = db.load_config(&mut txn)? {
+            if !db.config.is_compatible(&on_disk_config) {
+                return Err(Error::ConfigIncompatible {
+                    on_disk_config,
+                    config: (*db.config).clone(),
+                });
+            }
+        }
+        db.store_config(&mut txn)?;
+        txn.commit()?;
+
+        Ok(db)
     }
 
     pub fn db_flags() -> DatabaseFlags {
@@ -175,6 +210,42 @@ impl<E: EthSpec> SlasherDB<E> {
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
         Ok(self.env.begin_rw_txn()?)
+    }
+
+    pub fn load_schema_version(&self, txn: &mut RwTransaction<'_>) -> Result<Option<u64>, Error> {
+        Ok(txn
+            .get(self.metadata_db, &METADATA_VERSION_KEY)
+            .optional()?
+            .map(bincode::deserialize)
+            .transpose()?)
+    }
+
+    pub fn store_schema_version(&self, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
+        txn.put(
+            self.metadata_db,
+            &METADATA_VERSION_KEY,
+            &bincode::serialize(&CURRENT_SCHEMA_VERSION)?,
+            Self::write_flags(),
+        )?;
+        Ok(())
+    }
+
+    pub fn load_config(&self, txn: &mut RwTransaction<'_>) -> Result<Option<Config>, Error> {
+        Ok(txn
+            .get(self.metadata_db, &METADATA_CONFIG_KEY)
+            .optional()?
+            .map(bincode::deserialize)
+            .transpose()?)
+    }
+
+    pub fn store_config(&self, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
+        txn.put(
+            self.metadata_db,
+            &METADATA_CONFIG_KEY,
+            &bincode::serialize(self.config.as_ref())?,
+            Self::write_flags(),
+        )?;
+        Ok(())
     }
 
     pub fn get_current_epoch_for_validator(

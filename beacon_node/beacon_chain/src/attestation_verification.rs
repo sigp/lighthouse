@@ -364,7 +364,6 @@ fn process_slash_info<T: BeaconChainTypes>(
                 )
                 .map_err(SlasherVerificationError::SignatureError)
             }) {
-                // FIXME(sproul): differentiate error from invalid sig.
                 debug!(
                     chain.log,
                     "Signature verification for slasher failed";
@@ -511,7 +510,6 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         Ok(())
     }
 
-    // TODO(sproul): naming
     pub fn verify_slashable(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,

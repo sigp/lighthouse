@@ -386,36 +386,6 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
     pub confirmation_db_batch: Vec<StoreOp<'a, T::EthSpec>>,
 }
 
-// FIXME(sproul): put this on the beacon chain?
-fn verify_header_signature<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    header: &SignedBeaconBlockHeader,
-) -> Result<(), BlockError<T::EthSpec>> {
-    let proposer_pubkey = get_validator_pubkey_cache(chain)?
-        .get(header.message.proposer_index as usize)
-        .cloned()
-        .ok_or_else(|| BlockError::UnknownValidator(header.message.proposer_index))?;
-    let (fork, genesis_validators_root) = chain
-        .with_head(|head| {
-            Ok((
-                head.beacon_state.fork,
-                head.beacon_state.genesis_validators_root,
-            ))
-        })
-        .map_err(|e: BlockError<T::EthSpec>| e)?;
-
-    if header.verify_signature::<T::EthSpec>(
-        &proposer_pubkey,
-        &fork,
-        genesis_validators_root,
-        &chain.spec,
-    ) {
-        Ok(())
-    } else {
-        Err(BlockError::ProposalSignatureInvalid)
-    }
-}
-
 /// Implemented on types that can be converted into a `FullyVerifiedBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
@@ -1230,6 +1200,38 @@ fn get_signature_verifier<'a, E: EthSpec>(
         },
         spec,
     )
+}
+
+/// Verify that `header` was signed with a valid signature from its proposer.
+///
+/// Return `Ok(())` if the signature is valid, and an `Err` otherwise.
+fn verify_header_signature<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    header: &SignedBeaconBlockHeader,
+) -> Result<(), BlockError<T::EthSpec>> {
+    let proposer_pubkey = get_validator_pubkey_cache(chain)?
+        .get(header.message.proposer_index as usize)
+        .cloned()
+        .ok_or_else(|| BlockError::UnknownValidator(header.message.proposer_index))?;
+    let (fork, genesis_validators_root) = chain
+        .with_head(|head| {
+            Ok((
+                head.beacon_state.fork,
+                head.beacon_state.genesis_validators_root,
+            ))
+        })
+        .map_err(|e: BlockError<T::EthSpec>| e)?;
+
+    if header.verify_signature::<T::EthSpec>(
+        &proposer_pubkey,
+        &fork,
+        genesis_validators_root,
+        &chain.spec,
+    ) {
+        Ok(())
+    } else {
+        Err(BlockError::ProposalSignatureInvalid)
+    }
 }
 
 fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {

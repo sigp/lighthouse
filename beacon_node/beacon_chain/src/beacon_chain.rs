@@ -1580,7 +1580,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(attestation_observation_timer);
 
-        // FIXME(sproul): add timer
         if let Some(slasher) = self.slasher.as_ref() {
             for attestation in &signed_block.message.body.attestations {
                 let committee =

@@ -294,7 +294,10 @@ where
         self
     }
 
-    pub fn slasher_server(self) -> Result<Self, String> {
+    /// Immediately start the slasher service.
+    ///
+    /// Error if no slasher is configured.
+    pub fn start_slasher_server(&self) -> Result<(), String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -309,7 +312,7 @@ where
             .clone()
             .ok_or_else(|| "slasher server requires a slot clock")?;
         SlasherServer::run(slasher, slot_clock, &context.executor);
-        Ok(self)
+        Ok(())
     }
 
     /// Immediately starts the service that periodically logs information each slot.
@@ -410,6 +413,10 @@ where
             debug!(log, "Metrics server is disabled");
             None
         };
+
+        if self.slasher.is_some() {
+            self.start_slasher_server()?;
+        }
 
         Ok(Client {
             beacon_chain: self.beacon_chain,

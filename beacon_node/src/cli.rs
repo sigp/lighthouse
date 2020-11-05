@@ -354,6 +354,27 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("slasher-history-length")
+                .long("slasher-history-length")
+                .help(
+                    "Configure how many epochs of history the slasher keeps. Immutable after \
+                     initialization."
+                )
+                .value_name("EPOCHS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-max-db-size")
+                .long("slasher-max-db-size")
+                .help(
+                    "Maximum size of the LMDB database used by the slasher."
+                )
+                .value_name("GIGABYTES")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(

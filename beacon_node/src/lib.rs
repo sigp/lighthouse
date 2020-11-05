@@ -138,12 +138,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .http_api_config(client_config.http_api.clone())
             .http_metrics_config(client_config.http_metrics.clone());
 
-        // FIXME(sproul): chain this
-        let builder = if client_config.slasher.is_some() {
-            builder.slasher_server()?
-        } else {
-            builder
-        };
         builder.build().map(Self)
     }
 

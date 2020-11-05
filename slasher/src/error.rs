@@ -1,3 +1,4 @@
+use crate::Config;
 use std::io;
 use types::{Epoch, Hash256};
 
@@ -9,9 +10,17 @@ pub enum Error {
     BincodeError(bincode::Error),
     ArithError(safe_arith::ArithError),
     ChunkIndexOutOfBounds(usize),
+    IncompatibleSchemaVersion {
+        database_schema_version: u64,
+        software_schema_version: u64,
+    },
     ConfigInvalidChunkSize {
         chunk_size: usize,
         history_length: usize,
+    },
+    ConfigIncompatible {
+        on_disk_config: Config,
+        config: Config,
     },
     DistanceTooLarge,
     DistanceCalculationOverflow,

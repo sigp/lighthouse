@@ -7,6 +7,7 @@ pub const DEFAULT_CHUNK_SIZE: usize = 16;
 pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
 pub const DEFAULT_HISTORY_LENGTH: usize = 54_000;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
+pub const DEFAULT_MAX_DB_SIZE: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -17,6 +18,8 @@ pub struct Config {
     pub history_length: usize,
     /// Update frequency in seconds.
     pub update_period: u64,
+    /// Maximum size of the LMDB database in gigabytes.
+    pub max_db_size_gbs: usize,
 }
 
 impl Config {
@@ -27,6 +30,7 @@ impl Config {
             validator_chunk_size: DEFAULT_VALIDATOR_CHUNK_SIZE,
             history_length: DEFAULT_HISTORY_LENGTH,
             update_period: DEFAULT_UPDATE_PERIOD,
+            max_db_size_gbs: DEFAULT_MAX_DB_SIZE,
         }
     }
 
@@ -39,6 +43,12 @@ impl Config {
         } else {
             Ok(())
         }
+    }
+
+    pub fn is_compatible(&self, other: &Config) -> bool {
+        self.chunk_size == other.chunk_size
+            && self.validator_chunk_size == other.validator_chunk_size
+            && self.history_length == other.history_length
     }
 
     pub fn chunk_index(&self, epoch: Epoch) -> usize {

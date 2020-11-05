@@ -350,6 +350,12 @@ pub fn get_config<E: EthSpec>(
             slasher_config.update_period = update_period;
         }
 
+        if let Some(history_length) =
+            clap_utils::parse_optional(cli_args, "slasher-history-length")?
+        {
+            slasher_config.history_length = history_length;
+        }
+
         client_config.slasher = Some(slasher_config);
     }
 
