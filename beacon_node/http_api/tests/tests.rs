@@ -37,7 +37,7 @@ const FINALIZED_EPOCH: u64 = 3;
 const TCP_PORT: u16 = 42;
 const UDP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
-const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0";
+const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// Skipping the slots around the epoch boundary allows us to check that we're obtaining states
 /// from skipped slots for the finalized and justified checkpoints (instead of the state from the
@@ -162,10 +162,6 @@ impl ApiTester {
             EXTERNAL_ADDR.parse().unwrap(),
             None,
         );
-        //TODO: have to update this once #1764 is resolved
-        if let Some(peer_info) = network_globals.peers.write().peer_info_mut(&peer_id) {
-            peer_info.listening_addresses = vec![EXTERNAL_ADDR.parse().unwrap()];
-        }
 
         *network_globals.sync_state.write() = SyncState::Synced;
 
@@ -1115,7 +1111,7 @@ impl ApiTester {
         let expected = PeerData {
             peer_id: self.external_peer_id.to_string(),
             enr: None,
-            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
+            address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
         };
@@ -1131,7 +1127,7 @@ impl ApiTester {
         let expected = PeerData {
             peer_id: self.external_peer_id.to_string(),
             enr: None,
-            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
+            address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
         };
