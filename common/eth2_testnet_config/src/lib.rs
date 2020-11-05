@@ -271,7 +271,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempdir::TempDir;
-    use types::{Eth1Data, Hash256, V012LegacyEthSpec, YamlConfig};
+    use types::{Eth1Data, Hash256, MainnetEthSpec, V012LegacyEthSpec, YamlConfig};
 
     type E = V012LegacyEthSpec;
 
@@ -281,13 +281,23 @@ mod tests {
             let config =
                 Eth2TestnetConfig::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
 
-            // Ensure we can parse the YAML config to a chain spec.
-            config
-                .yaml_config
-                .as_ref()
-                .unwrap()
-                .apply_to_chain_spec::<E>(&E::default_spec())
-                .unwrap();
+            if net.name == "mainnet" {
+                // Ensure we can parse the YAML config to a chain spec.
+                config
+                    .yaml_config
+                    .as_ref()
+                    .unwrap()
+                    .apply_to_chain_spec::<MainnetEthSpec>(&E::default_spec())
+                    .unwrap();
+            } else {
+                // Ensure we can parse the YAML config to a chain spec.
+                config
+                    .yaml_config
+                    .as_ref()
+                    .unwrap()
+                    .apply_to_chain_spec::<V012LegacyEthSpec>(&E::default_spec())
+                    .unwrap();
+            }
 
             assert_eq!(
                 config.genesis_state_bytes.is_some(),
