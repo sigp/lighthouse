@@ -108,6 +108,8 @@ pub struct ChainSpec {
      */
     pub eth1_follow_distance: u64,
     pub seconds_per_eth1_block: u64,
+    pub deposit_chain_id: u64,
+    pub deposit_network_id: u64,
     pub deposit_contract_address: Address,
 
     /*
@@ -262,7 +264,6 @@ impl ChainSpec {
             hysteresis_quotient: 4,
             hysteresis_downward_multiplier: 1,
             hysteresis_upward_multiplier: 5,
-            proportional_slashing_multiplier: 3,
 
             /*
              *  Gwei values
@@ -281,7 +282,7 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            genesis_delay: 172800, // 2 days
+            genesis_delay: 604800, // 7 days
             milliseconds_per_slot: 12_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -296,8 +297,9 @@ impl ChainSpec {
             base_reward_factor: 64,
             whistleblower_reward_quotient: 512,
             proposer_reward_quotient: 8,
-            inactivity_penalty_quotient: u64::pow(2, 24),
-            min_slashing_penalty_quotient: 32,
+            inactivity_penalty_quotient: u64::pow(2, 26),
+            min_slashing_penalty_quotient: 128,
+            proportional_slashing_multiplier: 1,
 
             /*
              * Signature domains
@@ -318,8 +320,10 @@ impl ChainSpec {
             /*
              * Eth1
              */
-            eth1_follow_distance: 1_024,
+            eth1_follow_distance: 2048,
             seconds_per_eth1_block: 14,
+            deposit_chain_id: 1,
+            deposit_network_id: 1,
             deposit_contract_address: "1234567890123456789012345678901234567890"
                 .parse()
                 .expect("chain spec deposit contract address"),
@@ -355,24 +359,31 @@ impl ChainSpec {
             shard_committee_period: 64,
             genesis_delay: 300,
             milliseconds_per_slot: 6_000,
+            inactivity_penalty_quotient: u64::pow(2, 25),
+            min_slashing_penalty_quotient: 64,
+            proportional_slashing_multiplier: 2,
             safe_slots_to_update_justified: 2,
             network_id: 2, // lighthouse testnet network id
+            deposit_chain_id: 5,
+            deposit_network_id: 5,
             boot_nodes,
             ..ChainSpec::mainnet()
         }
     }
 
-    /// Interop testing spec
+    /// Suits the `v0.12.3` version of the eth2 spec:
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
     ///
-    /// This allows us to customize a chain spec for interop testing.
-    pub fn interop() -> Self {
+    /// This method only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
+    /// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
+    pub fn v012_legacy() -> Self {
         let boot_nodes = vec![];
 
         Self {
-            milliseconds_per_slot: 12_000,
-            target_committee_size: 4,
-            shuffle_round_count: 10,
-            network_id: 13,
+            genesis_delay: 172_800, // 2 days
+            inactivity_penalty_quotient: u64::pow(2, 24),
+            min_slashing_penalty_quotient: 32,
+            eth1_follow_distance: 1024,
             boot_nodes,
             ..ChainSpec::mainnet()
         }
@@ -440,10 +451,9 @@ mod tests {
 ///
 /// Spec v0.12.3
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "UPPERCASE", deny_unknown_fields)]
 pub struct YamlConfig {
-    #[serde(default)]
-    config_name: String,
+    pub config_name: String,
     // ChainSpec
     #[serde(with = "serde_utils::quoted_u64")]
     max_committees_per_slot: u64,
@@ -475,10 +485,6 @@ pub struct YamlConfig {
     hysteresis_downward_multiplier: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     hysteresis_upward_multiplier: u64,
-    // Proportional slashing multiplier defaults to 3 for compatibility with Altona and Medalla.
-    #[serde(default = "default_proportional_slashing_multiplier")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    proportional_slashing_multiplier: u64,
     #[serde(with = "serde_utils::bytes_4_hex")]
     genesis_fork_version: [u8; 4],
     #[serde(with = "serde_utils::u8_hex")]
@@ -507,6 +513,8 @@ pub struct YamlConfig {
     inactivity_penalty_quotient: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_slashing_penalty_quotient: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    proportional_slashing_multiplier: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     safe_slots_to_update_justified: u64,
 
@@ -562,16 +570,11 @@ pub struct YamlConfig {
     epochs_per_random_subnet_subscription: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
-    deposit_contract_address: Address,
-    /* TODO: incorporate these into ChainSpec and turn on `serde(deny_unknown_fields)`
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
-    */
-}
-
-// Compatibility shim for proportional slashing multpilier on Altona and Medalla.
-fn default_proportional_slashing_multiplier() -> u64 {
-    3
+    deposit_contract_address: Address,
 }
 
 impl Default for YamlConfig {
@@ -581,9 +584,28 @@ impl Default for YamlConfig {
     }
 }
 
+#[allow(clippy::integer_arithmetic)] // Arith cannot overflow or panic.
+fn milliseconds_to_seconds(millis: u64) -> u64 {
+    millis / 1000
+}
+
 /// Spec v0.12.1
 impl YamlConfig {
-    #[allow(clippy::integer_arithmetic)]
+    /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
+    ///
+    /// Returns `None` if there is no match.
+    pub fn eth_spec_id(&self) -> Option<EthSpecId> {
+        Some(match self.config_name.as_str() {
+            "mainnet" => EthSpecId::Mainnet,
+            "minimal" => EthSpecId::Minimal,
+            "zinken" => EthSpecId::V012Legacy,
+            "spadina" => EthSpecId::V012Legacy,
+            "medalla" => EthSpecId::V012Legacy,
+            "altona" => EthSpecId::V012Legacy,
+            _ => return None,
+        })
+    }
+
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: T::spec_name().to_string(),
@@ -605,7 +627,7 @@ impl YamlConfig {
             hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
             proportional_slashing_multiplier: spec.proportional_slashing_multiplier,
             bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
-            seconds_per_slot: spec.milliseconds_per_slot / 1000,
+            seconds_per_slot: milliseconds_to_seconds(spec.milliseconds_per_slot),
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
             min_seed_lookahead: spec.min_seed_lookahead.into(),
             max_seed_lookahead: spec.max_seed_lookahead.into(),
@@ -648,6 +670,8 @@ impl YamlConfig {
             random_subnets_per_validator: spec.random_subnets_per_validator,
             epochs_per_random_subnet_subscription: spec.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
+            deposit_chain_id: spec.deposit_chain_id,
+            deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
         }
     }
@@ -706,6 +730,8 @@ impl YamlConfig {
             random_subnets_per_validator: self.random_subnets_per_validator,
             epochs_per_random_subnet_subscription: self.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: self.seconds_per_eth1_block,
+            deposit_chain_id: self.deposit_chain_id,
+            deposit_network_id: self.deposit_network_id,
             deposit_contract_address: self.deposit_contract_address,
             /*
              * Gwei values
@@ -832,6 +858,8 @@ mod yaml_tests {
 
         // modifying the original spec
         spec.max_committees_per_slot += 1;
+        spec.deposit_chain_id += 1;
+        spec.deposit_network_id += 1;
         // Applying a yaml config with incorrect EthSpec should fail
         let res = yamlconfig.apply_to_chain_spec::<MainnetEthSpec>(&spec);
         assert_eq!(res, None);

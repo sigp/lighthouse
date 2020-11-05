@@ -537,16 +537,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn shrink_to_fit(&mut self) {
         // Remove excess banned peers
         while self.banned_peers_count.banned_peers() > MAX_BANNED_PEERS {
-            if let Some(to_drop) = if let Some((id, info)) = self
+            if let Some(to_drop) = if let Some((id, info, _)) = self
                 .peers
                 .iter()
-                .filter(|(_, info)| info.is_banned())
-                .min_by(|(_, info_a), (_, info_b)| {
-                    info_a
-                        .score()
-                        .partial_cmp(&info_b.score())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                }) {
+                .filter_map(|(id, info)| match info.connection_status() {
+                    PeerConnectionStatus::Banned { since } => Some((id, info, since)),
+                    _ => None,
+                })
+                .min_by_key(|(_, _, since)| *since)
+            {
                 self.banned_peers_count
                     .remove_banned_peer(info.seen_addresses());
                 Some(id.clone())
@@ -571,12 +570,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .peers
                 .iter()
                 .filter(|(_, info)| info.is_disconnected())
-                .min_by(|(_, info_a), (_, info_b)| {
-                    info_a
-                        .score()
-                        .partial_cmp(&info_b.score())
-                        .unwrap_or(std::cmp::Ordering::Equal)
+                .filter_map(|(id, info)| match info.connection_status() {
+                    PeerConnectionStatus::Disconnected { since } => Some((id, since)),
+                    _ => None,
                 })
+                .min_by_key(|(_, since)| *since)
                 .map(|(id, _)| id.clone())
             {
                 debug!(self.log, "Removing old disconnected peer"; "peer_id" => to_drop.to_string());

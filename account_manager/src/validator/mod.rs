@@ -1,4 +1,5 @@
 pub mod create;
+pub mod exit;
 pub mod import;
 pub mod list;
 pub mod recover;
@@ -32,6 +33,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(list::cli_app())
         .subcommand(recover::cli_app())
         .subcommand(slashing_protection::cli_app())
+        .subcommand(exit::cli_app())
 }
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
@@ -51,6 +53,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
         (slashing_protection::CMD, Some(matches)) => {
             slashing_protection::cli_run(matches, env, validator_base_dir)
         }
+        (exit::CMD, Some(matches)) => exit::cli_run(matches, env),
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown

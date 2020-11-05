@@ -1,8 +1,8 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
+use eth1::DepositCache;
 use eth1::{Config, Service};
-use eth1::{DepositCache, DepositLog};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::compat::Future01CompatExt;
 use merkle_proof::verify_merkle_proof;
@@ -146,16 +146,16 @@ mod eth1_cache {
                 }
 
                 service
-                    .update_deposit_cache()
+                    .update_deposit_cache(None)
                     .await
                     .expect("should update deposit cache");
                 service
-                    .update_block_cache()
+                    .update_block_cache(None)
                     .await
                     .expect("should update block cache");
 
                 service
-                    .update_block_cache()
+                    .update_block_cache(None)
                     .await
                     .expect("should update cache when nothing has changed");
 
@@ -209,11 +209,11 @@ mod eth1_cache {
         }
 
         service
-            .update_deposit_cache()
+            .update_deposit_cache(None)
             .await
             .expect("should update deposit cache");
         service
-            .update_block_cache()
+            .update_block_cache(None)
             .await
             .expect("should update block cache");
 
@@ -256,11 +256,11 @@ mod eth1_cache {
                 eth1.ganache.evm_mine().await.expect("should mine block")
             }
             service
-                .update_deposit_cache()
+                .update_deposit_cache(None)
                 .await
                 .expect("should update deposit cache");
             service
-                .update_block_cache()
+                .update_block_cache(None)
                 .await
                 .expect("should update block cache");
         }
@@ -300,12 +300,15 @@ mod eth1_cache {
             eth1.ganache.evm_mine().await.expect("should mine block")
         }
         futures::try_join!(
-            service.update_deposit_cache(),
-            service.update_deposit_cache()
+            service.update_deposit_cache(None),
+            service.update_deposit_cache(None)
         )
         .expect("should perform two simultaneous updates of deposit cache");
-        futures::try_join!(service.update_block_cache(), service.update_block_cache())
-            .expect("should perform two simultaneous updates of block cache");
+        futures::try_join!(
+            service.update_block_cache(None),
+            service.update_block_cache(None)
+        )
+        .expect("should perform two simultaneous updates of block cache");
 
         assert!(service.block_cache_len() >= n, "should grow the cache");
     }
@@ -351,12 +354,12 @@ mod deposit_tree {
             }
 
             service
-                .update_deposit_cache()
+                .update_deposit_cache(None)
                 .await
                 .expect("should perform update");
 
             service
-                .update_deposit_cache()
+                .update_deposit_cache(None)
                 .await
                 .expect("should perform update when nothing has changed");
 
@@ -426,8 +429,8 @@ mod deposit_tree {
         }
 
         futures::try_join!(
-            service.update_deposit_cache(),
-            service.update_deposit_cache()
+            service.update_deposit_cache(None),
+            service.update_deposit_cache(None)
         )
         .expect("should perform two updates concurrently");
 
@@ -477,7 +480,7 @@ mod deposit_tree {
         let logs: Vec<_> = blocking_deposit_logs(&eth1, 0..block_number)
             .await
             .iter()
-            .map(|raw| DepositLog::from_log(raw, spec).expect("should parse deposit log"))
+            .map(|raw| raw.to_deposit_log(spec).expect("should parse deposit log"))
             .inspect(|log| {
                 tree.insert_log(log.clone())
                     .expect("should add consecutive logs")
@@ -535,11 +538,16 @@ mod deposit_tree {
 /// Tests for the base HTTP requests and response handlers.
 mod http {
     use super::*;
+    use eth1::http::BlockQuery;
 
     async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> Block {
-        eth1::http::get_block(&eth1.endpoint(), block_number, timeout())
-            .await
-            .expect("should get block number")
+        eth1::http::get_block(
+            &eth1.endpoint(),
+            BlockQuery::Number(block_number),
+            timeout(),
+        )
+        .await
+        .expect("should get block number")
     }
 
     #[tokio::test]
@@ -668,7 +676,7 @@ mod fast {
         }
 
         service
-            .update_deposit_cache()
+            .update_deposit_cache(None)
             .await
             .expect("should perform update");
 
@@ -736,7 +744,7 @@ mod persist {
         }
 
         service
-            .update_deposit_cache()
+            .update_deposit_cache(None)
             .await
             .expect("should perform update");
 
@@ -748,7 +756,7 @@ mod persist {
         let deposit_count = service.deposit_cache_len();
 
         service
-            .update_block_cache()
+            .update_block_cache(None)
             .await
             .expect("should perform update");
 

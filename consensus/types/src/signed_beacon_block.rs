@@ -8,6 +8,7 @@ use ssz_derive::{Decode, Encode};
 use std::fmt;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -41,7 +42,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBeaconBlock<E: EthSpec> {
     pub message: BeaconBlock<E>,

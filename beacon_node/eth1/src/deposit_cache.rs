@@ -304,7 +304,7 @@ pub mod tests {
             block_number: 42,
             data: EXAMPLE_LOG.to_vec(),
         };
-        DepositLog::from_log(&log, &spec).expect("should decode log")
+        log.to_deposit_log(&spec).expect("should decode log")
     }
 
     #[test]

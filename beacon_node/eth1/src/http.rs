@@ -39,6 +39,13 @@ pub enum Eth1NetworkId {
     Custom(u64),
 }
 
+/// Used to identify a block when querying the Eth1 node.
+#[derive(Clone, Copy)]
+pub enum BlockQuery {
+    Number(u64),
+    Latest,
+}
+
 impl Into<u64> for Eth1NetworkId {
     fn into(self) -> u64 {
         match self {
@@ -107,11 +114,15 @@ pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, 
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_block(
     endpoint: &str,
-    block_number: u64,
+    query: BlockQuery,
     timeout: Duration,
 ) -> Result<Block, String> {
+    let query_param = match query {
+        BlockQuery::Number(block_number) => format!("0x{:x}", block_number),
+        BlockQuery::Latest => "latest".to_string(),
+    };
     let params = json!([
-        format!("0x{:x}", block_number),
+        query_param,
         false // do not return full tx objects.
     ]);
 

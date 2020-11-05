@@ -86,6 +86,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             )
         })?;
 
+    eprintln!("validator-dir path: {:?}", validator_dir);
     // Collect the paths for the keystores that should be imported.
     let keystore_paths = match (keystore, keystores_dir) {
         (Some(keystore), None) => vec![keystore],

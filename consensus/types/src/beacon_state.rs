@@ -181,12 +181,14 @@ where
     #[compare_fields(as_slice)]
     pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
     #[compare_fields(as_slice)]
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Randomness
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations

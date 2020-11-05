@@ -6,7 +6,45 @@ use ssz_types::typenum::{
     Unsigned, U0, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U64,
     U65536, U8, U8192,
 };
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
+use std::str::FromStr;
+
+const MAINNET: &str = "mainnet";
+const MINIMAL: &str = "minimal";
+const LEGACY: &str = "v0.12-legacy";
+
+/// Used to identify one of the `EthSpec` instances defined here.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EthSpecId {
+    Mainnet,
+    Minimal,
+    V012Legacy,
+}
+
+impl FromStr for EthSpecId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            MAINNET => Ok(EthSpecId::Mainnet),
+            MINIMAL => Ok(EthSpecId::Minimal),
+            LEGACY => Ok(EthSpecId::V012Legacy),
+            _ => Err(format!("Unknown eth spec: {}", s)),
+        }
+    }
+}
+
+impl fmt::Display for EthSpecId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            EthSpecId::Mainnet => MAINNET,
+            EthSpecId::Minimal => MINIMAL,
+            EthSpecId::V012Legacy => LEGACY,
+        };
+        write!(f, "{}", s)
+    }
+}
 
 pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
     /*
@@ -56,7 +94,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
 
     fn default_spec() -> ChainSpec;
 
-    fn spec_name() -> &'static str;
+    fn spec_name() -> EthSpecId;
 
     fn genesis_epoch() -> Epoch {
         Epoch::new(Self::GenesisEpoch::to_u64())
@@ -144,7 +182,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxValidatorsPerCommittee = U2048;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
-    type EpochsPerEth1VotingPeriod = U32;
+    type EpochsPerEth1VotingPeriod = U64;
     type SlotsPerHistoricalRoot = U8192;
     type EpochsPerHistoricalVector = U65536;
     type EpochsPerSlashingsVector = U8192;
@@ -156,14 +194,14 @@ impl EthSpec for MainnetEthSpec {
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
-    type SlotsPerEth1VotingPeriod = U1024; // 32 epochs * 32 slots per epoch
+    type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
     }
 
-    fn spec_name() -> &'static str {
-        "mainnet"
+    fn spec_name() -> EthSpecId {
+        EthSpecId::Mainnet
     }
 }
 
@@ -203,28 +241,32 @@ impl EthSpec for MinimalEthSpec {
         ChainSpec::minimal()
     }
 
-    fn spec_name() -> &'static str {
-        "minimal"
+    fn spec_name() -> EthSpecId {
+        EthSpecId::Minimal
     }
 }
 
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 
-/// Interop testnet spec
+/// Suits the `v0.12.3` version of the eth2 spec:
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
+///
+/// This struct only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
+/// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub struct InteropEthSpec;
+pub struct V012LegacyEthSpec;
 
-impl EthSpec for InteropEthSpec {
-    type SlotsPerEpoch = U8;
-    type EpochsPerEth1VotingPeriod = U2;
-    type SlotsPerHistoricalRoot = U64;
-    type EpochsPerHistoricalVector = U64;
-    type EpochsPerSlashingsVector = U64;
-    type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
-    type SlotsPerEth1VotingPeriod = U16; // 2 epochs * 8 slots per epoch
+impl EthSpec for V012LegacyEthSpec {
+    type EpochsPerEth1VotingPeriod = U32;
+    type SlotsPerEth1VotingPeriod = U1024; // 32 epochs * 32 slots per epoch
 
     params_from_eth_spec!(MainnetEthSpec {
+        SlotsPerEpoch,
+        SlotsPerHistoricalRoot,
+        EpochsPerHistoricalVector,
+        EpochsPerSlashingsVector,
+        MaxPendingAttestations,
         JustificationBitsLength,
         SubnetBitfieldLength,
         MaxValidatorsPerCommittee,
@@ -239,12 +281,10 @@ impl EthSpec for InteropEthSpec {
     });
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::interop()
+        ChainSpec::v012_legacy()
     }
 
-    fn spec_name() -> &'static str {
-        "interop"
+    fn spec_name() -> EthSpecId {
+        EthSpecId::V012Legacy
     }
 }
-
-pub type InteropBeaconState = BeaconState<InteropEthSpec>;

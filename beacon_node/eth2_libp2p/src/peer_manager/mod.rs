@@ -3,6 +3,7 @@
 pub use self::peerdb::*;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::types::SyncState;
 use crate::{error, metrics};
 use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
@@ -313,6 +314,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This is used to determine if we should accept incoming connections.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.network_globals.peers.read().is_banned(peer_id)
+    }
+
+    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
+        self.network_globals.peers.read().is_connected(peer_id)
     }
 
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
@@ -844,16 +849,19 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             }
         }
 
-        loop {
-            match self.status_peers.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    self.status_peers.insert(peer_id.clone());
-                    self.events.push(PeerManagerEvent::Status(peer_id))
+        if !matches!(self.network_globals.sync_state(), SyncState::SyncingFinalized{..}|SyncState::SyncingHead{..})
+        {
+            loop {
+                match self.status_peers.poll_next_unpin(cx) {
+                    Poll::Ready(Some(Ok(peer_id))) => {
+                        self.status_peers.insert(peer_id.clone());
+                        self.events.push(PeerManagerEvent::Status(peer_id))
+                    }
+                    Poll::Ready(Some(Err(e))) => {
+                        error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
+                    }
+                    Poll::Ready(None) | Poll::Pending => break,
                 }
-                Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
-                }
-                Poll::Ready(None) | Poll::Pending => break,
             }
         }
 

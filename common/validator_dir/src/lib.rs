@@ -12,7 +12,10 @@ pub mod insecure_keys;
 mod manager;
 mod validator_dir;
 
-pub use crate::validator_dir::{Error, Eth1DepositData, ValidatorDir, ETH1_DEPOSIT_TX_HASH_FILE};
+pub use crate::validator_dir::{
+    unlock_keypair_from_password_path, Error, Eth1DepositData, ValidatorDir,
+    ETH1_DEPOSIT_TX_HASH_FILE,
+};
 pub use builder::{
     Builder, Error as BuilderError, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE,
