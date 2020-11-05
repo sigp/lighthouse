@@ -761,11 +761,7 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET validator/duties/attester/{epoch}?index`
-    ///
-    /// ## Note
-    ///
-    /// The `index` query parameter accepts a list of validator indices.
+    /// `GET validator/blocks/{slot}`
     pub async fn get_validator_blocks<T: EthSpec>(
         &self,
         slot: Slot,
