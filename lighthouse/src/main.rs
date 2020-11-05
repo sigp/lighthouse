@@ -264,14 +264,21 @@ fn run<E: EthSpec>(
 
     warn!(
         log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
+        "Ethereum 2.0 is pre-release. This software is experimental"
     );
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
         log,
         "Configured for testnet";
-        "name" => testnet_name
+        "name" => &testnet_name
     );
+
+    if testnet_name == "mainnet" {
+        warn!(
+            log,
+            "The mainnet specification is being used. This not recommended (yet)."
+        )
+    }
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
