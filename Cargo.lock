@@ -1368,8 +1368,7 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "595cf0600428cea17ce274cc11bb2fa8247a900a76fde1bbce2b81a39f335c02"
+source = "git+https://github.com/sigp/discv5?rev=fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0#fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0"
 dependencies = [
  "aes-ctr",
  "aes-gcm",
@@ -1401,7 +1400,8 @@ dependencies = [
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/sigp/discv5?rev=fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0#fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "595cf0600428cea17ce274cc11bb2fa8247a900a76fde1bbce2b81a39f335c02"
 dependencies = [
  "aes-ctr",
  "aes-gcm",
@@ -3968,8 +3968,7 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c7ad66970bbab360c97179b60906e2dc4aef1f7fca8ab4e5c5db8c97b16814a"
+source = "git+https://github.com/sigp/rust-libp2p?rev=8c6ce6eb1228de568568f6cd72fb134dea5f9669#8c6ce6eb1228de568568f6cd72fb134dea5f9669"
 dependencies = [
  "arrayref",
  "bs58",
@@ -3986,7 +3985,8 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.9.3"
-source = "git+https://github.com/sigp/rust-libp2p?rev=8c6ce6eb1228de568568f6cd72fb134dea5f9669#8c6ce6eb1228de568568f6cd72fb134dea5f9669"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7ad66970bbab360c97179b60906e2dc4aef1f7fca8ab4e5c5db8c97b16814a"
 dependencies = [
  "arrayref",
  "bs58",
