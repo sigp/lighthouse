@@ -516,6 +516,39 @@ impl FromStr for PeerState {
     }
 }
 
+#[derive(Clone, Deserialize)]
+pub struct EventQuery{
+    pub topics: QueryVec<EventTopic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventTopic {
+    Head,
+    Block,
+    Attestation,
+    VoluntaryExit,
+    FinalizedCheckpoint,
+    ChainReorg,
+}
+
+impl FromStr for EventTopic {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "head" => Ok(EventTopic::Head),
+                "block" => Ok(EventTopic::Block),
+            "attestation" => Ok(EventTopic::Attestation),
+                "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
+            "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
+                "chain_reorg" => Ok(EventTopic::ChainReorg),
+            _ => Err("event topic cannot be parsed.".to_string()),
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PeerDirection {

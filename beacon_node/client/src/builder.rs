@@ -454,7 +454,7 @@ where
     pub fn tee_event_handler(
         mut self,
         config: WebSocketConfig,
-    ) -> Result<(Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>), String> {
+    ) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -471,9 +471,9 @@ where
         };
 
         self.websocket_listen_addr = listening_addr;
-        let (tee_event_handler, bus) = TeeEventHandler::new(log, sender)?;
+        let tee_event_handler = TeeEventHandler::new(log, sender);
         self.event_handler = Some(tee_event_handler);
-        Ok((self, bus))
+        Ok(self)
     }
 }
 

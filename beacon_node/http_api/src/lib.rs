@@ -11,10 +11,7 @@ mod metrics;
 mod state_id;
 mod validator_inclusion;
 
-use beacon_chain::{
-    observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
-    BeaconChainError, BeaconChainTypes,
-};
+use beacon_chain::{observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes, EventHandler};
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
 use eth2::{
@@ -42,8 +39,12 @@ use types::{
     Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
-use warp::{http::Response, Filter};
+use warp::{http::Response, Filter, Stream};
 use warp_utils::task::{blocking_json_task, blocking_task};
+use beacon_chain::events::EventKind;
+use warp::sse::ServerSentEvent;
+use tokio::sync::broadcast::Receiver;
+use futures::StreamExt;
 
 const API_PREFIX: &str = "eth";
 const API_VERSION: &str = "v1";
@@ -287,6 +288,18 @@ pub fn serve<T: BeaconChainTypes>(
                     )),
                 }
             });
+
+    // let event_handler_filter =
+    //     warp::any()
+    //         .map(move || inner_ctx.chain.map(|chain|chain.event_handler).clone())
+    //         .and_then(|event_handler| async move {
+    //             match event_handler {
+    //                 Some(event_handler) => Ok(event_handler),
+    //                 None => Err(warp_utils::reject::custom_not_found(
+    //                     "Beacon chain genesis has not yet been observed.".to_string(),
+    //                 )),
+    //             }
+    //         });
 
     // Create a `warp` filter that provides access to the network sender channel.
     let inner_ctx = ctx.clone();
@@ -1901,7 +1914,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::param::<StateId>())
         .and(warp::path("ssz"))
         .and(warp::path::end())
-        .and(chain_filter)
+        .and(chain_filter.clone())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
                 let state = state_id.state(&chain)?;
@@ -1915,6 +1928,57 @@ pub fn serve<T: BeaconChainTypes>(
                             e
                         ))
                     })
+            })
+        });
+
+
+    // fn sse_events() -> impl Stream<Item = Result<impl ServerSentEvent, Infallible>> {
+    //     iter(vec![
+    //         Ok(warp::sse::data("unnamed event").into_a()),
+    //         Ok((
+    //             warp::sse::event("chat"),
+    //             warp::sse::data("chat message"),
+    //         ).into_a().into_b()),
+    //         Ok((
+    //             warp::sse::id(13),
+    //             warp::sse::event("chat"),
+    //             warp::sse::data("other chat message\nwith next line"),
+    //             warp::sse::retry(Duration::from_millis(5000)),
+    //         ).into_b().into_b()),
+    //     ])
+    // }
+
+    fn stream_test<T: EthSpec>(rx: Receiver<EventKind<T>>) -> impl Stream<Item = Result<impl ServerSentEvent + Send + 'static, warp::Error>> + Send + 'static
+    {
+
+        // Convert messages into Server-Sent Events and return resulting stream.
+        rx.map(|msg| match msg {
+            Ok(EventKind::Head{
+                slot,
+                block,
+                state,
+                epoch_transition,
+            }) => Ok((warp::sse::event("head"), warp::sse::data(block)).into_a()),
+            _ => Ok(warp::sse::data("test".to_string()).into_b()),
+        })
+    }
+
+    let get_events = warp::path("events")
+        .and(warp::path::end())
+        .and(warp::query::<api_types::EventQuery>())
+        .and(chain_filter)
+        // what filters do i need
+        .and_then(|topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>|{
+            blocking_task(move || {
+                // for each topic subscribed..
+                // spawn a new subscription
+                match topics.topics.0.get(0) {
+                    Some(_) => {
+                        let stream = stream_test::<T::EthSpec>(chain.event_handler.subscribe());
+                        Ok(warp::sse::reply(warp::sse::keep_alive().stream(stream)))
+                    },
+                    _ => Err(warp_utils::reject::custom_server_error(format!("test custom server error"))),
+                }
             })
         });
 
@@ -1964,6 +2028,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_block_cache.boxed())
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
+                .or(get_events.boxed())
                 .boxed(),
         )
         .or(warp::post()

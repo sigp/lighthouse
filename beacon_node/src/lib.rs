@@ -110,7 +110,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder.no_eth1_backend()?
         };
 
-        let (builder, _events) = builder
+        let builder = builder
             .system_time_slot_clock()?
             .tee_event_handler(client_config.websocket_server.clone())?;
 

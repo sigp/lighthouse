@@ -1954,18 +1954,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        if current_head.slot.epoch(T::EthSpec::slots_per_epoch())
+        let is_epoch_transition = current_head.slot.epoch(T::EthSpec::slots_per_epoch())
             < new_head
-                .beacon_state
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch())
-            || is_reorg
+            .beacon_state
+            .slot
+            .epoch(T::EthSpec::slots_per_epoch());
+
+        if is_epoch_transition || is_reorg
         {
             self.persist_head_and_fork_choice()?;
             self.op_pool.prune_attestations(self.epoch()?);
         }
 
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
+
+        // These fields are used for server-sent events
+        let state_root = new_head.beacon_state_root.clone();
+        let slot = new_head.beacon_state.slot.clone();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -1994,10 +1999,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.after_finalization(new_finalized_checkpoint, new_finalized_state_root)?;
         }
 
-        let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
-            reorg: is_reorg,
-            previous_head_beacon_block_root: current_head.block_root,
-            current_head_beacon_block_root: beacon_block_root,
+        let _ = self.event_handler.register(EventKind::Head {
+            slot,
+            block: beacon_block_root,
+            state: state_root,
+            epoch_transition: is_epoch_transition,
+
         });
 
         Ok(())
