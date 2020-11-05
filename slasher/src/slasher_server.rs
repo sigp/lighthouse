@@ -27,7 +27,8 @@ impl SlasherServer {
 
         executor.spawn(
             async move {
-                // FIXME(sproul): read slot time from config, align to some fraction of each slot
+                // NOTE: could align each run to some fixed point in each slot, see:
+                // https://github.com/sigp/lighthouse/issues/1861
                 let slot_clock = Arc::new(slot_clock);
                 let mut interval = interval_at(Instant::now(), Duration::from_secs(update_period));
                 while interval.next().await.is_some() {
@@ -54,12 +55,24 @@ impl SlasherServer {
                         error!(
                             slasher.log,
                             "Error during scheduled slasher processing";
+                            "epoch" => current_epoch,
                             "error" => format!("{:?}", e)
                         );
+                        continue;
+                    }
+                    if let Err(e) = slasher.prune_database(current_epoch) {
+                        error!(
+                            slasher.log,
+                            "Error during slasher database pruning";
+                            "epoch" => current_epoch,
+                            "error" => format!("{:?}", e),
+                        );
+                        continue;
                     }
                     debug!(
                         slasher.log,
                         "Completed slasher update";
+                        "epoch" => current_epoch,
                         "time_taken" => format!("{}ms", t.elapsed().as_millis()),
                         "num_attestations" => num_attestations,
                         "num_blocks" => num_blocks,

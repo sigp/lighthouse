@@ -2,7 +2,7 @@ use maplit::hashset;
 use rayon::prelude::*;
 use slasher::{
     config::DEFAULT_CHUNK_SIZE,
-    test_utils::{att_slashing, indexed_att, logger, E},
+    test_utils::{att_slashing, indexed_att, logger, slashed_validators_from_slashings, E},
     Config, Slasher,
 };
 use std::collections::HashSet;
@@ -91,7 +91,7 @@ fn no_double_vote_repeated() {
     let attestations = vec![att1, att2];
     slasher_test_indiv(&attestations, &hashset! {}, 1);
     slasher_test_batch(&attestations, &hashset! {}, 1);
-    parallel_slasher_test(&attestations, vec![], 1);
+    parallel_slasher_test(&attestations, hashset! {}, 1);
 }
 
 #[test]
@@ -193,8 +193,7 @@ fn slasher_test(
 
 fn parallel_slasher_test(
     attestations: &[IndexedAttestation<E>],
-    // FIXME(sproul): check slashed validators
-    _slashed_validators: Vec<u64>,
+    expected_slashed_validators: HashSet<u64>,
     current_epoch: u64,
 ) {
     let tempdir = TempDir::new("slasher").unwrap();
@@ -209,4 +208,8 @@ fn parallel_slasher_test(
             slasher.process_queued(current_epoch)
         })
         .expect("parallel processing shouldn't race");
+
+    let slashings = slasher.get_attester_slashings();
+    let slashed_validators = slashed_validators_from_slashings(&slashings);
+    assert_eq!(slashed_validators, expected_slashed_validators);
 }

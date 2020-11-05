@@ -18,7 +18,6 @@ pub struct Slasher<E: EthSpec> {
     pub(crate) block_queue: BlockQueue,
     attester_slashings: Mutex<HashSet<AttesterSlashing<E>>>,
     proposer_slashings: Mutex<HashSet<ProposerSlashing>>,
-    // TODO: consider removing Arc
     config: Arc<Config>,
     pub(crate) log: Logger,
 }
@@ -113,21 +112,13 @@ impl<E: EthSpec> Slasher<E> {
         self.attestation_queue.requeue(deferred);
 
         // Insert attestations into database.
-        info!(
+        debug!(
             self.log,
             "Storing attestations in slasher DB";
             "num_valid" => snapshot.len(),
             "num_deferred" => num_deferred,
             "num_dropped" => num_dropped,
         );
-        /*
-        eprintln!(
-            "valid: {}, deferred: {}, dropped: {}",
-            snapshot.len(),
-            num_deferred,
-            num_dropped
-        );
-        */
         for attestation in snapshot.attestations.iter() {
             self.db.store_indexed_attestation(
                 txn,
@@ -215,12 +206,12 @@ impl<E: EthSpec> Slasher<E> {
         subqueue_id: usize,
         attestation: &IndexedAttestation<E>,
         attester_record: AttesterRecord,
-    ) -> Result<Vec<AttesterSlashing<E>>, Error> {
-        let mut slashings = vec![];
+    ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
+        let mut slashings = HashSet::new();
 
         for validator_index in self
             .config
-            .attesting_validators_for_chunk(attestation, subqueue_id)
+            .attesting_validators_in_chunk(attestation, subqueue_id)
         {
             let slashing_status = self.db.check_and_update_attester_record(
                 txn,
@@ -236,12 +227,7 @@ impl<E: EthSpec> Slasher<E> {
                     "validator_index" => validator_index,
                     "epoch" => slashing.attestation_1.data.target.epoch,
                 );
-
-                // Avoid creating duplicate slashings for the same attestation.
-                // PERF: this is O(n) instead of O(1), but n should be small.
-                if !slashings.contains(&slashing) {
-                    slashings.push(slashing);
-                }
+                slashings.insert(slashing);
             }
         }
 
@@ -292,8 +278,9 @@ impl<E: EthSpec> Slasher<E> {
         )
     }
 
+    /// Prune unnecessary attestations and blocks from the on-disk database.
+    ///
     /// Must only be called after `process_queued(current_epoch)`.
-    // FIXME(sproul): consider checking this condition
     pub fn prune_database(&self, current_epoch: Epoch) -> Result<(), Error> {
         self.db.prune(current_epoch)
     }

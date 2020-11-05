@@ -51,10 +51,7 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
         // The surrounding attestation must be in `attestation_1` to be valid.
         match self {
             NotSlashable => None,
-            AlreadyDoubleVoted => {
-                // println!("Already double voted!");
-                None
-            }
+            AlreadyDoubleVoted => None,
             DoubleVote(existing) | SurroundedByExisting(existing) => Some(AttesterSlashing {
                 attestation_1: *existing,
                 attestation_2: new_attestation.clone(),

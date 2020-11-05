@@ -30,7 +30,6 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    // TODO: write tests for epochs greater than length
     pub fn get_target(
         &self,
         validator_index: u64,
@@ -430,7 +429,6 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
     let slashing_status =
         current_chunk.check_slashable(db, txn, validator_index, attestation, config)?;
 
-    // TODO: consider removing this early return and updating the array
     if slashing_status != AttesterSlashingStatus::NotSlashable {
         return Ok(slashing_status);
     }
@@ -507,11 +505,8 @@ pub fn update<E: EthSpec>(
     )?);
 
     // Update all current epochs.
-    // FIXME(sproul): abstract
-    for validator_index in validator_chunk_index * config.validator_chunk_size
-        ..(validator_chunk_index + 1) * config.validator_chunk_size
-    {
-        db.update_current_epoch_for_validator(validator_index as u64, current_epoch, txn)?;
+    for validator_index in config.validator_indices_in_chunk(validator_chunk_index) {
+        db.update_current_epoch_for_validator(validator_index, current_epoch, txn)?;
     }
 
     Ok(slashings)
@@ -571,15 +566,14 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     // Map from chunk index to updated chunk at that index.
     let mut updated_chunks = BTreeMap::new();
 
-    for validator_index in validator_chunk_index * config.validator_chunk_size
-        ..(validator_chunk_index + 1) * config.validator_chunk_size
-    {
+    // Update the arrays for the change of current epoch.
+    for validator_index in config.validator_indices_in_chunk(validator_chunk_index) {
         epoch_update_for_validator(
             db,
             txn,
             &mut updated_chunks,
             validator_chunk_index,
-            validator_index as u64,
+            validator_index,
             current_epoch,
             config,
         )?;
@@ -588,7 +582,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     for attestations in chunk_attestations.values() {
         for attestation in attestations {
             for validator_index in
-                config.attesting_validators_for_chunk(&attestation.0, validator_chunk_index)
+                config.attesting_validators_in_chunk(&attestation.0, validator_chunk_index)
             {
                 let slashing_status = apply_attestation_for_validator::<E, T>(
                     db,

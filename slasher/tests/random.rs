@@ -1,14 +1,15 @@
 use rand::prelude::*;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use slasher::{
-    test_utils::{indexed_att, logger, E},
+    test_utils::{
+        indexed_att, logger, slashed_validators_from_attestations,
+        slashed_validators_from_slashings, E,
+    },
     Config, Slasher,
 };
 use std::cmp::max;
-use std::collections::HashSet;
-use std::iter::FromIterator;
 use tempdir::TempDir;
-use types::{AttesterSlashing, Epoch, IndexedAttestation};
+use types::Epoch;
 
 #[derive(Debug)]
 struct TestConfig {
@@ -130,50 +131,7 @@ fn random_test(seed: u64, test_config: TestConfig) {
     assert_eq!(slashed_validators, expected_slashed_validators);
 }
 
-fn hashset_intersection(
-    attestation_1_indices: &[u64],
-    attestation_2_indices: &[u64],
-) -> HashSet<u64> {
-    &HashSet::from_iter(attestation_1_indices.iter().copied())
-        & &HashSet::from_iter(attestation_2_indices.iter().copied())
-}
-
-fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>>) -> HashSet<u64> {
-    slashings
-        .iter()
-        .flat_map(|slashing| {
-            let att1 = &slashing.attestation_1;
-            let att2 = &slashing.attestation_2;
-            assert!(
-                att1.is_double_vote(att2) || att1.is_surround_vote(att2),
-                "invalid slashing: {:#?}",
-                slashing
-            );
-            hashset_intersection(&att1.attesting_indices, &att2.attesting_indices)
-        })
-        .collect()
-}
-
-fn slashed_validators_from_attestations(attestations: &[IndexedAttestation<E>]) -> HashSet<u64> {
-    let mut slashed_validators = HashSet::new();
-    // O(n^2) code, watch out.
-    for att1 in attestations {
-        for att2 in attestations {
-            if att1 == att2 {
-                continue;
-            }
-
-            if att1.is_double_vote(att2) || att1.is_surround_vote(att2) {
-                slashed_validators.extend(hashset_intersection(
-                    &att1.attesting_indices,
-                    &att2.attesting_indices,
-                ));
-            }
-        }
-    }
-    slashed_validators
-}
-
+// Fuzz-like test that runs forever on different seeds looking for crashes.
 #[test]
 #[ignore]
 fn no_crash() {
@@ -183,6 +141,7 @@ fn no_crash() {
     }
 }
 
+// Fuzz-like test that runs forever on different seeds looking for missed slashings.
 #[test]
 #[ignore]
 fn check_slashings() {
@@ -199,9 +158,9 @@ fn check_slashings() {
 }
 
 #[test]
-fn problema() {
+fn check_slashings_example1() {
     random_test(
-        17417858527589321514,
+        1,
         TestConfig {
             check_slashings: true,
             ..TestConfig::default()
@@ -210,9 +169,9 @@ fn problema() {
 }
 
 #[test]
-fn slash_out_of_order() {
+fn check_slashings_example2() {
     random_test(
-        3534213164912297730,
+        2,
         TestConfig {
             check_slashings: true,
             max_attestations: 3,
@@ -222,12 +181,28 @@ fn slash_out_of_order() {
 }
 
 #[test]
-fn ooft() {
+fn check_slashings_example3() {
     random_test(
-        16346384169145986037,
+        3,
         TestConfig {
             check_slashings: true,
+            max_attestations: 100,
             ..TestConfig::default()
         },
     );
+}
+
+#[test]
+fn no_crash_example1() {
+    random_test(1, TestConfig::default());
+}
+
+#[test]
+fn no_crash_example2() {
+    random_test(2, TestConfig::default());
+}
+
+#[test]
+fn no_crash_example3() {
+    random_test(3, TestConfig::default());
 }

@@ -138,12 +138,11 @@ impl AsRef<[u8]> for CurrentEpochKey {
 
 impl<E: EthSpec> SlasherDB<E> {
     pub fn open(config: Arc<Config>) -> Result<Self, Error> {
-        // TODO: open_with_permissions
         std::fs::create_dir_all(&config.database_path)?;
         let env = Environment::new()
             .set_max_dbs(LMDB_MAX_DBS)
             .set_map_size(LMDB_MAP_SIZE)
-            .open(&config.database_path)?;
+            .open_with_permissions(&config.database_path, 0o600)?;
         let indexed_attestation_db =
             env.create_db(Some(INDEXED_ATTESTATION_DB), Self::db_flags())?;
         let attesters_db = env.create_db(Some(ATTESTERS_DB), Self::db_flags())?;

@@ -5,13 +5,6 @@ use slasher::{
 use tempdir::TempDir;
 use types::Epoch;
 
-/*
-#[test]
-fn attestation_pruning_basic() {
-    unimplemented!()
-}
-*/
-
 #[test]
 fn attestation_pruning_empty_wrap_around() {
     let tempdir = TempDir::new("slasher").unwrap();
@@ -27,7 +20,6 @@ fn attestation_pruning_empty_wrap_around() {
 
     let mut current_epoch = Epoch::new(history_length - 1);
 
-    // FIXME(sproul): add bounds check that attestation isn't wider than history length
     slasher.accept_attestation(indexed_att(v.clone(), 0, history_length - 1, 0));
     slasher.process_queued(current_epoch).unwrap();
     slasher.prune_database(current_epoch).unwrap();

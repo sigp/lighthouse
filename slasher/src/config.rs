@@ -68,8 +68,18 @@ impl Config {
         validator_offset * self.chunk_size + chunk_offset
     }
 
+    /// Return an iterator over all the validator indices in a validator chunk.
+    pub fn validator_indices_in_chunk(
+        &self,
+        validator_chunk_index: usize,
+    ) -> impl Iterator<Item = u64> {
+        (validator_chunk_index * self.validator_chunk_size
+            ..(validator_chunk_index + 1) * self.validator_chunk_size)
+            .map(|index| index as u64)
+    }
+
     /// Iterate over the attesting indices which belong to the `validator_chunk_index` chunk.
-    pub fn attesting_validators_for_chunk<'a, E: EthSpec>(
+    pub fn attesting_validators_in_chunk<'a, E: EthSpec>(
         &'a self,
         attestation: &'a IndexedAttestation<E>,
         validator_chunk_index: usize,
