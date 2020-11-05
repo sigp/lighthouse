@@ -330,11 +330,20 @@ fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId,
         let trans_clone = transport.clone();
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
+
+    // mplex config
+    let mut mplex_config = libp2p::mplex::MplexConfig::new();
+    mplex_config.max_buffer_len(256);
+    mplex_config.max_buffer_len_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
+
     // Authentication
     Ok(transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(libp2p::mplex::MplexConfig::new())
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            libp2p::yamux::Config::default(),
+            mplex_config,
+        ))
         .timeout(Duration::from_secs(10))
         .boxed())
 }

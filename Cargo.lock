@@ -3038,6 +3038,7 @@ dependencies = [
  "libp2p-swarm",
  "libp2p-tcp",
  "libp2p-websocket",
+ "libp2p-yamux",
  "multihash",
  "parity-multiaddr 0.9.3 (git+https://github.com/sigp/rust-libp2p?rev=de104a80c48f6e61bd7bdac8e17f809477fb4c4a)",
  "parking_lot 0.11.0",
@@ -3256,6 +3257,18 @@ dependencies = [
  "url 2.1.1",
  "webpki",
  "webpki-roots",
+]
+
+[[package]]
+name = "libp2p-yamux"
+version = "0.27.0"
+source = "git+https://github.com/sigp/rust-libp2p?rev=de104a80c48f6e61bd7bdac8e17f809477fb4c4a#de104a80c48f6e61bd7bdac8e17f809477fb4c4a"
+dependencies = [
+ "futures 0.3.7",
+ "libp2p-core 0.24.0",
+ "parking_lot 0.11.0",
+ "thiserror",
+ "yamux",
 ]
 
 [[package]]
@@ -7160,6 +7173,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39f0c922f1a334134dc2f7a8b67dc5d25f0735263feec974345ff706bcf20b0d"
 dependencies = [
  "linked-hash-map",
+]
+
+[[package]]
+name = "yamux"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aeb8c4043cac71c3c299dff107171c220d179492350ea198e109a414981b83c"
+dependencies = [
+ "futures 0.3.7",
+ "log 0.4.11",
+ "nohash-hasher",
+ "parking_lot 0.11.0",
+ "rand 0.7.3",
+ "static_assertions",
 ]
 
 [[package]]
