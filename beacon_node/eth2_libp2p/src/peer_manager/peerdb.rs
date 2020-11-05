@@ -16,8 +16,7 @@ use types::{EthSpec, SubnetId};
 const MAX_DC_PEERS: usize = 500;
 /// The maximum number of banned nodes to remember.
 const MAX_BANNED_PEERS: usize = 1000;
-/// If there are more than `BANNED_PEERS_PER_IP_THRESHOLD` many banned peers with the same IP we ban
-/// the IP.
+/// We ban an IP if there are more than `BANNED_PEERS_PER_IP_THRESHOLD` banned peers with this IP.
 const BANNED_PEERS_PER_IP_THRESHOLD: usize = 5;
 
 /// Storage of known peers, their reputation and information
@@ -784,27 +783,30 @@ mod tests {
     #[test]
     fn test_disconnected_ban_consistency() {
         let mut pdb = get_db();
+        let mut multiaddr = Multiaddr::empty();
+        multiaddr.push(Protocol::Tcp(9000));
+        multiaddr.push(Protocol::Ip4("0.0.0.0".parse().unwrap()));
 
         let random_peer = PeerId::random();
         let random_peer1 = PeerId::random();
         let random_peer2 = PeerId::random();
         let random_peer3 = PeerId::random();
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&random_peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer2, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
         pdb.notify_disconnect(&random_peer1);
         pdb.disconnect_and_ban(&random_peer2);
         pdb.notify_disconnect(&random_peer2);
-        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -818,7 +820,7 @@ mod tests {
             pdb.banned_peers().count()
         );
 
-        pdb.connect_outgoing(&random_peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_outgoing(&random_peer2, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -834,11 +836,11 @@ mod tests {
 
         pdb.disconnect_and_ban(&random_peer3);
         pdb.notify_disconnect(&random_peer3);
-        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
         pdb.notify_disconnect(&random_peer2);
         pdb.disconnect_and_ban(&random_peer3);
         pdb.notify_disconnect(&random_peer3);
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -868,6 +870,7 @@ mod tests {
         for ip in ips {
             let mut addr = Multiaddr::empty();
             addr.push(Protocol::from(ip));
+            addr.push(Protocol::Tcp(9000));
             pdb.connect_ingoing(&p, addr, None);
         }
         p
@@ -981,8 +984,10 @@ mod tests {
         assert!(!pdb.is_banned(&p2));
 
         // add ip2 to all peers and ban them.
+        let mut socker_addr = Multiaddr::from(ip2);
+        socker_addr.push(Protocol::Tcp(8080));
         for p in &peers {
-            pdb.connect_ingoing(&p, ip2.into(), None);
+            pdb.connect_ingoing(&p, socker_addr.clone(), None);
             pdb.disconnect_and_ban(p);
             pdb.notify_disconnect(p);
         }
