@@ -17,10 +17,10 @@ fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
     let runtime = env.runtime();
     let _guard = runtime.enter();
     runtime
-        .block_on({
-            dbg!("here!");
-            LocalBeaconNode::production(context, testing_client_config())
-        })
+        .block_on(LocalBeaconNode::production(
+            context,
+            testing_client_config(),
+        ))
         .expect("should block until node created")
 }
 
@@ -34,11 +34,9 @@ fn http_server_genesis_state() {
         .build()
         .expect("environment should build");
 
-    dbg!("here");
     let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
-    dbg!("here");
     let api_state = env
         .runtime()
         .block_on(remote_node.get_debug_beacon_states(StateId::Slot(Slot::new(0))))

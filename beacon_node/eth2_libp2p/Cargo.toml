@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 discv5 = { git = "https://github.com/sigp/discv5", rev = "f117b3ca56fa3dca2317270434634ff7106d391a", features = ["libp2p"] }
-tokio-io-timeout = { rev = "8371da4499b6da9c9c48a625185f8401eafa76ab", version = "0.5.0" }
 unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "dep-update", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
@@ -25,6 +24,7 @@ fnv = "1.0.7"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 smallvec = "1.4.2"
+tokio-io-timeout = "0.5.0" 
 lru = "0.6.0"
 parking_lot = "0.11.0"
 sha2 = "0.9.1"
