@@ -74,21 +74,6 @@ build-release-tarballs:
 	$(MAKE) build-aarch64-portable
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"-portable")
 
-# Builds the Remote Signer binary in release (optimized).
-#
-# Binaries will most likely be found in `./target/release`
-build-remote-signer:
-ifeq ($(PORTABLE), true)
-	cargo build --release --manifest-path remote_signer/Cargo.toml --features "portable"
-else
-	cargo build --release --manifest-path remote_signer/Cargo.toml
-endif
-
-# Builds the Remote Signer binary in release (optimized),
-# using the slower Milagro BLS library, which is written in native Rust.
-build-remote-signer-milagro:
-	cargo build --release --manifest-path remote_signer/Cargo.toml --features "milagro"
-
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:

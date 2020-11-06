@@ -77,12 +77,7 @@ Content | `{"error": "Key not found: <identifier>"}`
 
 1. [Get Rust](https://www.rust-lang.org/learn/get-started).
 2. Go to the root directory of this repository.
-3. Execute `make build-remote-signer`.
-4. The binary `remote-signer` will most likely be found in `./target/release`.
-
-Or,
-
-3. You can just execute `make`
+3. Execute `make`
 4. The binary `lighthouse` will most likely be found in `./target/release`.
 5. Run it as `lighthouse remote_signer` or `lighthouse rs`.
 
@@ -118,10 +113,6 @@ OPTIONS:
                                       mainnet, minimal, interop]
         --storage-raw-dir <DIR>       Data directory for secret keys in raw files.
 ```
-
-## Implementation Tracking
-
-Please, check this repository's issue for the [Implementation Tracking](https://github.com/sigp/rust-bls-remote-signer/issues/1)
 
 ## Roadmap
 
