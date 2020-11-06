@@ -200,3 +200,20 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gossip_max_size() {
+        // Cannot decode more than gossip max size
+        let mut encoder = Encoder::new();
+        let payload = encoder.compress_vec(&[0; GOSSIP_MAX_SIZE + 1]).unwrap();
+        let message_data: MessageData = payload.into();
+        assert_eq!(
+            message_data.decompressed.unwrap_err(),
+            "ssz_snappy decoded data > GOSSIP_MAX_SIZE".to_string()
+        );
+    }
+}
