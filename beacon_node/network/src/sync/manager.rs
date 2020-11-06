@@ -691,10 +691,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     {
                         SyncState::Synced
                     } else if peers.advanced_peers().next().is_some() {
-                        SyncState::SyncingHead {
-                            start_slot: head,
-                            target_slot: current_slot,
-                        }
+                        SyncState::SyncTransition
                     } else if peers.synced_peers().next().is_none() {
                         SyncState::Stalled
                     } else {

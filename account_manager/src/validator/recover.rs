@@ -88,6 +88,9 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
+    eprintln!("validator-dir path: {:?}", validator_dir);
+    eprintln!("secrets-dir path: {:?}", secrets_dir);
+
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;
 

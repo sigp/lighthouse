@@ -320,7 +320,7 @@ mod test {
 
         let vec = vec![];
         let fixed: VariableList<u64, U4> = VariableList::from(vec);
-        assert_eq!(&fixed[..], &vec![][..]);
+        assert_eq!(&fixed[..], &[] as &[u64]);
     }
 
     #[test]

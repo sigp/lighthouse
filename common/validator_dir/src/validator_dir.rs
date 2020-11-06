@@ -143,7 +143,7 @@ impl ValidatorDir {
     ///
     /// If there is a filesystem error, a password is missing or the password is incorrect.
     pub fn voting_keypair<P: AsRef<Path>>(&self, password_dir: P) -> Result<Keypair, Error> {
-        unlock_keypair(&self.dir.clone(), VOTING_KEYSTORE_FILE, password_dir)
+        unlock_keypair(&self.dir.join(VOTING_KEYSTORE_FILE), password_dir)
     }
 
     /// Attempts to read the keystore in `self.dir` and decrypt the keypair using a password file
@@ -155,7 +155,7 @@ impl ValidatorDir {
     ///
     /// If there is a file-system error, a password is missing or the password is incorrect.
     pub fn withdrawal_keypair<P: AsRef<Path>>(&self, password_dir: P) -> Result<Keypair, Error> {
-        unlock_keypair(&self.dir.clone(), WITHDRAWAL_KEYSTORE_FILE, password_dir)
+        unlock_keypair(&self.dir.join(WITHDRAWAL_KEYSTORE_FILE), password_dir)
     }
 
     /// Indicates if there is a file containing an eth1 deposit transaction. This can be used to
@@ -250,17 +250,16 @@ impl Drop for ValidatorDir {
     }
 }
 
-/// Attempts to load and decrypt a keystore.
-fn unlock_keypair<P: AsRef<Path>>(
-    keystore_dir: &PathBuf,
-    filename: &str,
+/// Attempts to load and decrypt a Keypair given path to the keystore.
+pub fn unlock_keypair<P: AsRef<Path>>(
+    keystore_path: &PathBuf,
     password_dir: P,
 ) -> Result<Keypair, Error> {
     let keystore = Keystore::from_json_reader(
         &mut OpenOptions::new()
             .read(true)
             .create(false)
-            .open(keystore_dir.clone().join(filename))
+            .open(keystore_path)
             .map_err(Error::UnableToOpenKeystore)?,
     )
     .map_err(Error::UnableToReadKeystore)?;
@@ -271,7 +270,28 @@ fn unlock_keypair<P: AsRef<Path>>(
     let password: PlainText = read(&password_path)
         .map_err(|_| Error::UnableToReadPassword(password_path))?
         .into();
+    keystore
+        .decrypt_keypair(password.as_bytes())
+        .map_err(Error::UnableToDecryptKeypair)
+}
 
+/// Attempts to load and decrypt a Keypair given path to the keystore and the password file.
+pub fn unlock_keypair_from_password_path(
+    keystore_path: &PathBuf,
+    password_path: &PathBuf,
+) -> Result<Keypair, Error> {
+    let keystore = Keystore::from_json_reader(
+        &mut OpenOptions::new()
+            .read(true)
+            .create(false)
+            .open(keystore_path)
+            .map_err(Error::UnableToOpenKeystore)?,
+    )
+    .map_err(Error::UnableToReadKeystore)?;
+
+    let password: PlainText = read(password_path)
+        .map_err(|_| Error::UnableToReadPassword(password_path.clone()))?
+        .into();
     keystore
         .decrypt_keypair(password.as_bytes())
         .map_err(Error::UnableToDecryptKeypair)

@@ -3,12 +3,13 @@
 use crate::{
     ok_or_error,
     types::{BeaconState, Epoch, EthSpec, GenericResponse, ValidatorId},
-    BeaconNodeHttpClient, Error, StateId, StatusCode,
+    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
+use ssz_derive::{Decode, Encode};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -145,6 +146,50 @@ impl Health {
     }
 }
 
+/// Indicates how up-to-date the Eth1 caches are.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Eth1SyncStatusData {
+    pub head_block_number: Option<u64>,
+    pub head_block_timestamp: Option<u64>,
+    pub latest_cached_block_number: Option<u64>,
+    pub latest_cached_block_timestamp: Option<u64>,
+    pub voting_period_start_timestamp: u64,
+    pub eth1_node_sync_status_percentage: f64,
+    pub lighthouse_is_cached_and_ready: bool,
+}
+
+/// A fully parsed eth1 deposit contract log.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct DepositLog {
+    pub deposit_data: DepositData,
+    /// The block number of the log that included this `DepositData`.
+    pub block_number: u64,
+    /// The index included with the deposit log.
+    pub index: u64,
+    /// True if the signature is valid.
+    pub signature_is_valid: bool,
+}
+
+/// A block of the eth1 chain.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct Eth1Block {
+    pub hash: Hash256,
+    pub timestamp: u64,
+    pub number: u64,
+    pub deposit_root: Option<Hash256>,
+    pub deposit_count: Option<u64>,
+}
+
+impl Eth1Block {
+    pub fn eth1_data(self) -> Option<Eth1Data> {
+        Some(Eth1Data {
+            deposit_root: self.deposit_root?,
+            deposit_count: self.deposit_count?,
+            block_hash: self.hash,
+        })
+    }
+}
+
 impl BeaconNodeHttpClient {
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
@@ -242,6 +287,51 @@ impl BeaconNodeHttpClient {
             .push("validator_inclusion")
             .push(&epoch.to_string())
             .push(&validator_id.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/eth1/syncing`
+    pub async fn get_lighthouse_eth1_syncing(
+        &self,
+    ) -> Result<GenericResponse<Eth1SyncStatusData>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("eth1")
+            .push("syncing");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/eth1/block_cache`
+    pub async fn get_lighthouse_eth1_block_cache(
+        &self,
+    ) -> Result<GenericResponse<Vec<Eth1Block>>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("eth1")
+            .push("block_cache");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/eth1/deposit_cache`
+    pub async fn get_lighthouse_eth1_deposit_cache(
+        &self,
+    ) -> Result<GenericResponse<Vec<DepositLog>>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("eth1")
+            .push("deposit_cache");
 
         self.get(path).await
     }
