@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 clap = "2.33.3"
 client = { path = "../../remote_signer/client", package = "remote_signer_client" }
-environment = { path = "../../lighthouse/environment", package = "environment" }
+environment = { path = "../../lighthouse/environment" }
 reqwest = { version = "0.10.8", features = ["blocking", "json"] }
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.58"

@@ -80,6 +80,12 @@ Content | `{"error": "Key not found: <identifier>"}`
 3. Execute `make build-remote-signer`.
 4. The binary `remote-signer` will most likely be found in `./target/release`.
 
+Or,
+
+3. You can just execute `make`
+4. The binary `lighthouse` will most likely be found in `./target/release`.
+5. Run it as `lighthouse remote_signer` or `lighthouse rs`.
+
 ## Running the signer
 
 ### Storing the secret keys as raw files
