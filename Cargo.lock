@@ -3311,6 +3311,7 @@ dependencies = [
  "futures 0.3.7",
  "lighthouse_version",
  "logging",
+ "remote_signer",
  "slashing_protection",
  "slog",
  "slog-async",
@@ -4744,6 +4745,70 @@ name = "regex-syntax"
 version = "0.6.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b181ba2dcf07aaccad5448e8ead58db5b742cf85dfe035e2227f137a539a189"
+
+[[package]]
+name = "remote_signer"
+version = "0.2.0"
+dependencies = [
+ "bls",
+ "clap",
+ "environment",
+ "remote_signer_backend",
+ "remote_signer_client",
+ "remote_signer_test",
+ "serde_json",
+ "slog",
+ "types",
+]
+
+[[package]]
+name = "remote_signer_backend"
+version = "0.2.0"
+dependencies = [
+ "bls",
+ "clap",
+ "hex",
+ "lazy_static",
+ "regex",
+ "remote_signer_test",
+ "slog",
+ "sloggers",
+ "tempdir",
+ "types",
+ "zeroize",
+]
+
+[[package]]
+name = "remote_signer_client"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "environment",
+ "futures 0.3.7",
+ "hyper 0.13.9",
+ "lazy_static",
+ "regex",
+ "remote_signer_backend",
+ "serde",
+ "serde_json",
+ "slog",
+ "task_executor",
+ "types",
+]
+
+[[package]]
+name = "remote_signer_test"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "environment",
+ "remote_signer_client",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempdir",
+ "types",
+]
 
 [[package]]
 name = "remove_dir_all"
