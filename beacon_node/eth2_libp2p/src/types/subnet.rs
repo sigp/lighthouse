@@ -21,8 +21,52 @@ impl PartialEq for SubnetDiscovery {
                             < DURATION_DIFFERENCE
                 }
                 (None, None) => true,
-                (None, Some(_)) => true,
-                (Some(_), None) => true,
+                (None, Some(_)) => false, // not equal
+                (Some(_), None) => false, // not equal
             }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests `PartialEq` implementation for `SubnetDiscovery`
+    #[test]
+    fn test_equality() {
+        let mut s1 = SubnetDiscovery {
+            subnet_id: SubnetId::new(1),
+            min_ttl: None,
+        };
+        let mut s2 = SubnetDiscovery {
+            subnet_id: SubnetId::new(2),
+            min_ttl: None,
+        };
+
+        assert_ne!(s1, s2, "unequal subnet_id should be unequal");
+
+        s2.subnet_id = SubnetId::new(1);
+
+        assert_eq!(s1, s2, "equal subnet_id and min_ttl should be equal");
+
+        let instant = Instant::now();
+
+        s1.min_ttl = Some(instant);
+
+        assert_ne!(s1, s2, "unequal min ttls");
+        assert_ne!(s2, s1, "unequal min ttls");
+
+        s2.min_ttl = Some(instant);
+
+        assert_eq!(
+            s1, s2,
+            "equal subnet_id and min_ttl within DURATION_DIFFERENCE should be equal"
+        );
+
+        s2.min_ttl = Some(instant + DURATION_DIFFERENCE);
+        assert_ne!(
+            s1, s2,
+            "equal subnet_id and min_ttl not within DURATION_DIFFERENCE should be unequal"
+        );
     }
 }
