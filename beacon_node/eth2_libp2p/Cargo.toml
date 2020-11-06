@@ -52,7 +52,6 @@ slog-term = "2.6.0"
 slog-async = "2.5.0"
 tempdir = "0.3.7"
 exit-future = "0.2.0"
-env_logger = "0.7.1"
 
 [features]
 libp2p-websocket = []
