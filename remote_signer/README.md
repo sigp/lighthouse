@@ -6,7 +6,7 @@ Simple HTTP BLS signer service.
 
 This service is designed to be consumed by Ethereum 2.0 clients, looking for a more secure avenue to store their BLS12-381 secret keys, while running their validators in more permisive and/or scalable environments.
 
-One goal of this package is to be standard compliant. There is a [current draft for an Ethereum Improvement Proposal (EIP)](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-3030.md) in progress. Please refer to the [wishlist](#wishlist--roadmap) in this very document for a list of advanced features.
+One goal of this package is to be standard compliant. There is a [current draft for an Ethereum Improvement Proposal (EIP)](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-3030.md) in progress. Please refer to the [roadmap](#roadmap) for a list of advanced features.
 
 ## API
 
