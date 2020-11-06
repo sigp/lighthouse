@@ -356,6 +356,20 @@ pub fn get_config<E: EthSpec>(
             slasher_config.history_length = history_length;
         }
 
+        if let Some(max_db_size) = clap_utils::parse_optional(cli_args, "slasher-max-db-size")? {
+            slasher_config.max_db_size_gbs = max_db_size;
+        }
+
+        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
+            slasher_config.chunk_size = chunk_size;
+        }
+
+        if let Some(validator_chunk_size) =
+            clap_utils::parse_optional(cli_args, "slasher-validator-chunk-size")?
+        {
+            slasher_config.validator_chunk_size = validator_chunk_size;
+        }
+
         client_config.slasher = Some(slasher_config);
     }
 

@@ -5,7 +5,7 @@ use types::{Epoch, EthSpec, IndexedAttestation};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
 pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
-pub const DEFAULT_HISTORY_LENGTH: usize = 54_000;
+pub const DEFAULT_HISTORY_LENGTH: usize = 8192;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256;
 
