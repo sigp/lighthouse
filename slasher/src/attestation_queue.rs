@@ -7,7 +7,7 @@ use types::{EthSpec, IndexedAttestation};
 /// Staging area for attestations received from the network.
 ///
 /// To be added to the database in batches, for efficiency and to prevent data races.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AttestationQueue<E: EthSpec> {
     /// All attestations (unique) for storage on disk.
     pub queue: Mutex<AttestationBatch<E>>,
@@ -28,6 +28,10 @@ pub struct AttestationBatch<E: EthSpec> {
 impl<E: EthSpec> AttestationBatch<E> {
     pub fn len(&self) -> usize {
         self.attestations.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.attestations.is_empty()
     }
 
     /// Group the attestations by validator index.
@@ -62,12 +66,6 @@ impl<E: EthSpec> AttestationBatch<E> {
 }
 
 impl<E: EthSpec> AttestationQueue<E> {
-    pub fn new() -> Self {
-        Self {
-            queue: Mutex::new(AttestationBatch::default()),
-        }
-    }
-
     /// Add an attestation to the queue.
     pub fn queue(&self, attestation: IndexedAttestation<E>) {
         let attester_record = AttesterRecord::from(attestation.clone());
@@ -78,7 +76,7 @@ impl<E: EthSpec> AttestationQueue<E> {
     }
 
     pub fn dequeue(&self) -> AttestationBatch<E> {
-        std::mem::replace(&mut self.queue.lock(), AttestationBatch::default())
+        std::mem::take(&mut self.queue.lock())
     }
 
     pub fn requeue(&self, batch: AttestationBatch<E>) {
@@ -87,5 +85,9 @@ impl<E: EthSpec> AttestationQueue<E> {
 
     pub fn len(&self) -> usize {
         self.queue.lock().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }

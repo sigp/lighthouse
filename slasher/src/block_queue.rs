@@ -1,18 +1,12 @@
 use parking_lot::Mutex;
 use types::SignedBeaconBlockHeader;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BlockQueue {
     blocks: Mutex<Vec<SignedBeaconBlockHeader>>,
 }
 
 impl BlockQueue {
-    pub fn new() -> Self {
-        BlockQueue {
-            blocks: Mutex::new(vec![]),
-        }
-    }
-
     pub fn queue(&self, block_header: SignedBeaconBlockHeader) {
         self.blocks.lock().push(block_header)
     }
@@ -24,5 +18,9 @@ impl BlockQueue {
 
     pub fn len(&self) -> usize {
         self.blocks.lock().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }

@@ -29,8 +29,8 @@ impl<E: EthSpec> Slasher<E> {
         let db = SlasherDB::open(config.clone())?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
-        let attestation_queue = AttestationQueue::new();
-        let block_queue = BlockQueue::new();
+        let attestation_queue = AttestationQueue::default();
+        let block_queue = BlockQueue::default();
         Ok(Self {
             db,
             attester_slashings,

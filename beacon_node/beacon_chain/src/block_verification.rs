@@ -283,7 +283,7 @@ impl<E: EthSpec> BlockSlashInfo<BlockError<E>> {
             BlockError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
             // `InvalidSignature` could indicate any signature in the block, so we want
             // to recheck the proposer signature alone.
-            BlockError::InvalidSignature | _ => BlockSlashInfo::SignatureNotChecked(header, e),
+            _ => BlockSlashInfo::SignatureNotChecked(header, e),
         }
     }
 }

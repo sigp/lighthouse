@@ -554,6 +554,7 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     db: &SlasherDB<E>,
     txn: &mut RwTransaction<'_>,
