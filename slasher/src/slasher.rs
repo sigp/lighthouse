@@ -42,12 +42,14 @@ impl<E: EthSpec> Slasher<E> {
         })
     }
 
+    /// Harvest all attester slashings found, removing them from the slasher.
     pub fn get_attester_slashings(&self) -> HashSet<AttesterSlashing<E>> {
-        std::mem::replace(&mut self.attester_slashings.lock(), HashSet::new())
+        std::mem::take(&mut self.attester_slashings.lock())
     }
 
+    /// Harvest all proposer slashings found, removing them from the slasher.
     pub fn get_proposer_slashings(&self) -> HashSet<ProposerSlashing> {
-        std::mem::replace(&mut self.proposer_slashings.lock(), HashSet::new())
+        std::mem::take(&mut self.proposer_slashings.lock())
     }
 
     pub fn config(&self) -> &Config {
@@ -238,6 +240,8 @@ impl<E: EthSpec> Slasher<E> {
     ///
     /// Drop any attestations that are too old to ever be relevant, and return any attestations
     /// that might be valid in the future.
+    ///
+    /// Returns `(valid, deferred, num_dropped)`.
     fn validate(
         &self,
         batch: AttestationBatch<E>,

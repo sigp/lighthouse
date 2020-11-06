@@ -25,7 +25,7 @@ pub struct SignedBeaconBlockHeader {
 ///
 /// Guarantees `header1 == header2 -> hash(header1) == hash(header2)`.
 ///
-/// Used in the operation pool.
+/// Used in the slasher.
 impl Hash for SignedBeaconBlockHeader {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.message.hash(state);
@@ -34,6 +34,7 @@ impl Hash for SignedBeaconBlockHeader {
 }
 
 impl SignedBeaconBlockHeader {
+    /// Verify that this block header was signed by `pubkey`.
     pub fn verify_signature<E: EthSpec>(
         &self,
         pubkey: &PublicKey,

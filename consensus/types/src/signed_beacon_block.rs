@@ -82,6 +82,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         self.signature.verify(pubkey, message)
     }
 
+    /// Produce a signed beacon block header corresponding to this block.
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         SignedBeaconBlockHeader {
             message: self.message.block_header(),

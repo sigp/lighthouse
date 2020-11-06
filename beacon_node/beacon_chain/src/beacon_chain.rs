@@ -1085,6 +1085,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(signed_aggregate)
     }
 
+    /// Move slashings collected by the slasher into the op pool for block inclusion.
     fn ingest_slashings_to_op_pool(&self, state: &BeaconState<T::EthSpec>) {
         if let Some(slasher) = self.slasher.as_ref() {
             let attester_slashings = slasher.get_attester_slashings();
@@ -1580,6 +1581,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(attestation_observation_timer);
 
+        // If a slasher is configured, provide the attestations from the block.
         if let Some(slasher) = self.slasher.as_ref() {
             for attestation in &signed_block.message.body.attestations {
                 let committee =

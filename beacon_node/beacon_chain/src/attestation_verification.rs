@@ -259,9 +259,9 @@ impl From<BeaconChainError> for Error {
     }
 }
 
+/// Errors that may occur while verifying an attestation for consumption by the slasher.
 #[derive(Debug)]
 enum SlasherVerificationError {
-    /// There was an error while verifying the indexed attestation for the slasher.
     SignatureError(BlockOperationError<IndexedAttestationInvalid>),
     BeaconChainError(BeaconChainError),
 }
@@ -327,6 +327,12 @@ pub enum AttestationSlashInfo<T: BeaconChainTypes, TErr> {
     SignatureValid(IndexedAttestation<T::EthSpec>, TErr),
 }
 
+/// After processing an attestation normally, optionally process it further for the slasher.
+///
+/// This maps an `AttestationSlashInfo` error back into a regular `Error`, performing signature
+/// checks on attestations that failed verification for other reasons.
+///
+/// No substantial extra work will be done if there is no slasher configured.
 fn process_slash_info<T: BeaconChainTypes>(
     slash_info: AttestationSlashInfo<T, Error>,
     chain: &BeaconChain<T>,
@@ -404,6 +410,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
+    /// Run the checks that happen before an indexed attestation is constructed.
     fn verify_early_checks(
         signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -472,6 +479,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         }
     }
 
+    /// Run the checks that happen after the indexed attestation and signature have been checked.
     fn verify_late_checks(
         signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
         attestation_root: Hash256,
@@ -510,6 +518,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         Ok(())
     }
 
+    /// Verify the attestation, producing extra information about whether it might be slashable.
     pub fn verify_slashable(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -591,6 +600,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
 }
 
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
+    /// Run the checks that happen before an indexed attestation is constructed.
     pub fn verify_early_checks(
         attestation: &Attestation<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -631,6 +641,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         Ok(())
     }
 
+    /// Run the checks that apply to the indexed attestation before the signature is checked.
     pub fn verify_middle_checks(
         attestation: &Attestation<T::EthSpec>,
         indexed_attestation: &IndexedAttestation<T::EthSpec>,
@@ -678,6 +689,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         Ok((validator_index, expected_subnet_id))
     }
 
+    /// Run the checks that apply after the signature has been checked.
     fn verify_late_checks(
         attestation: &Attestation<T::EthSpec>,
         validator_index: u64,
@@ -722,6 +734,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
+    /// Verify the attestation, producing extra information about whether it might be slashable.
     pub fn verify_slashable(
         attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,

@@ -27,7 +27,6 @@ tree_hash_derive = { path = "../consensus/tree_hash_derive" }
 types = { path = "../consensus/types" }
 
 [dev-dependencies]
-criterion = "0.3"
 maplit = "1.0.2"
 rayon = "1.3.0"
 tempdir = "0.3.7"

@@ -268,10 +268,11 @@ impl<T: EthSpec> From<DBError> for BlockError<T> {
     }
 }
 
+/// Information about invalid blocks which might still be slashable despite being invalid.
 pub enum BlockSlashInfo<TErr> {
-    /// The block is invalid, but its signature wasn't checked.
+    /// The block is invalid, but its proposer signature wasn't checked.
     SignatureNotChecked(SignedBeaconBlockHeader, TErr),
-    /// The block's signature is invalid, so it will never be slashable.
+    /// The block's proposer signature is invalid, so it will never be slashable.
     SignatureInvalid(TErr),
     /// The signature is valid but the attestation is invalid in some other way.
     SignatureValid(SignedBeaconBlockHeader, TErr),
@@ -396,12 +397,14 @@ pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
     ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
         self.into_fully_verified_block_slashable(chain)
             .map(|fully_verified| {
+                // Supply valid block to slasher.
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_block_header(fully_verified.block.signed_block_header());
                 }
                 fully_verified
             })
             .map_err(|slash_info| {
+                // Process invalid blocks to see if they are suitable for the slasher.
                 if let Some(slasher) = chain.slasher.as_ref() {
                     let (verified_header, error) = match slash_info {
                         BlockSlashInfo::SignatureNotChecked(header, e) => {
@@ -427,6 +430,7 @@ pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
             })
     }
 
+    /// Convert the block to fully-verified form while producing data to aid checking slashability.
     fn into_fully_verified_block_slashable(
         self,
         chain: &BeaconChain<T>,
@@ -614,6 +618,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         }
     }
 
+    /// As for `new` above but prodcuding `BlockSlashInfo`.
     pub fn check_slashable(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -654,6 +659,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         }
     }
 
+    /// Same as `from_gossip_verified_block` but producing slashing-relevant data as well.
     pub fn from_gossip_verified_block_check_slashable(
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,

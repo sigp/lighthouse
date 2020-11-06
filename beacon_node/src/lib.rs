@@ -130,15 +130,15 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let discv5_executor = Discv5Executor(executor);
         client_config.network.discv5_config.executor = Some(Box::new(discv5_executor));
 
-        let builder = builder
+        builder
             .build_beacon_chain()?
             .network(&client_config.network)
             .await?
             .notifier()?
             .http_api_config(client_config.http_api.clone())
-            .http_metrics_config(client_config.http_metrics.clone());
-
-        builder.build().map(Self)
+            .http_metrics_config(client_config.http_metrics.clone())
+            .build()
+            .map(Self)
     }
 
     pub fn into_inner(self) -> ProductionClient<E> {
