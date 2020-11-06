@@ -149,13 +149,13 @@ impl Default for Config {
         let discv5_config = Discv5ConfigBuilder::new()
             .enable_packet_filter()
             .session_cache_capacity(1000)
-            .request_timeout(Duration::from_secs(4))
+            .request_timeout(Duration::from_secs(1))
+            .query_peer_timeout(Duration::from_secs(2))
+            .query_timeout(Duration::from_secs(30))
             .request_retries(1)
             .enr_peer_update_min(10)
             .query_parallelism(5)
             .disable_report_discovered_peers()
-            .query_timeout(Duration::from_secs(30))
-            .query_peer_timeout(Duration::from_secs(2))
             .ip_limit() // limits /24 IP's in buckets.
             .ping_interval(Duration::from_secs(300))
             .build();
