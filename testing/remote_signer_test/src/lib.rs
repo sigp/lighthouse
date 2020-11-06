@@ -21,7 +21,7 @@ use types::{AttestationData, BeaconBlock, Epoch, EthSpec, Fork, Hash256, Mainnet
 
 pub type E = MainnetEthSpec;
 
-pub struct ApiTestSigner<E> {
+pub struct ApiTestSigner<E: EthSpec> {
     pub address: String,
     environment: Environment<E>,
 }
@@ -31,7 +31,7 @@ pub struct ApiTestResponse {
     pub json: Value,
 }
 
-impl ApiTestSigner<E> {
+impl ApiTestSigner<MainnetEthSpec> {
     pub fn new(arg_vec: Vec<&str>) -> Self {
         let matches = set_matches(arg_vec);
         let mut environment = get_environment(false);

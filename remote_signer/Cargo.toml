@@ -18,8 +18,7 @@ helpers = { path = "../testing/remote_signer_test", package = "remote_signer_tes
 bls = { path = "../crypto/bls" }
 clap = "2.33.3"
 client = { path = "./client", package = "remote_signer_client" }
-environment = { path = "./environment", package = "remote_signer_environment" }
+environment = { path = "../lighthouse/environment", package = "environment" }
 serde_json = "1.0.58"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 types = { path = "../consensus/types"}
-version = { path = "./version", package = "remote_signer_version" }

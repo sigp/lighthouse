@@ -1,9 +1,0 @@
-[package]
-name = "remote_signer_version"
-version = "0.1.0"
-authors = ["Paul Hauner <paul@paulhauner.com>", "Herman Junge <herman@sigmaprime.io>"]
-edition = "2018"
-
-[dependencies]
-git-version = "0.3.4"
-target_info = "0.1.0"

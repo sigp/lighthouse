@@ -66,8 +66,6 @@ members = [
     "remote_signer",
     "remote_signer/backend",
     "remote_signer/client",
-    "remote_signer/environment",
-    "remote_signer/version",
 
     "testing/ef_tests",
     "testing/eth1_test_rig",

@@ -33,7 +33,7 @@ pub fn validate_bls_pair(
     let pk_param_as_bytes = decode(&public_key)
         .map_err(|e| BackendError::InvalidPublicKey(format!("{}; {}", public_key, e)))?;
 
-    if &secret_key.public_key().serialize()[..] != pk_param_as_bytes {
+    if &secret_key.public_key().serialize()[..] != pk_param_as_bytes.as_slice() {
         return Err(BackendError::KeyMismatch(public_key.to_string()));
     }
 

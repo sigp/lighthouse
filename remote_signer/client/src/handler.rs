@@ -59,8 +59,7 @@ impl<E: EthSpec, S: 'static + Send + Sync> Handler<E, S> {
         let req = Request::from_parts(req_parts, body);
 
         let value = executor
-            .clone()
-            .handle
+            .runtime_handle()
             .spawn_blocking(move || func(req, ctx))
             .await
             .map_err(|e| {

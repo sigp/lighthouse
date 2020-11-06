@@ -1,6 +1,5 @@
 use crate::config::Config;
 use client_backend::{Backend, Storage};
-use environment::TaskExecutor;
 use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
@@ -8,6 +7,7 @@ use hyper::{Body, Request, Server};
 use slog::{info, warn};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::{ChainSpec, EthSpec};
 
 pub struct Context<E: EthSpec, S: Send + Sync> {

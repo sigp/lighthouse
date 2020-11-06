@@ -125,6 +125,7 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
+        .subcommand(remote_signer::cli_app())
         .get_matches();
 
     // Debugging output for libp2p and external crates.
@@ -292,7 +293,7 @@ fn run<E: EthSpec>(
                         .shutdown_sender()
                         .try_send("Failed to start beacon node");
                 }
-            })
+            });
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
@@ -316,7 +317,17 @@ fn run<E: EthSpec>(
                         .shutdown_sender()
                         .try_send("Failed to start validator client");
                 }
-            })
+            });
+        }
+        ("remote_signer", Some(matches)) => {
+            if let Err(e) = remote_signer::run(&mut environment, matches) {
+                crit!(log, "Failed to start remote signer"; "reason" => e);
+                let _ = environment
+                    .core_context()
+                    .executor
+                    .shutdown_sender()
+                    .try_send("Failed to start remote signer");
+            }
         }
         _ => {
             crit!(log, "No subcommand supplied. See --help .");
