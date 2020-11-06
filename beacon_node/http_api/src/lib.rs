@@ -1422,7 +1422,6 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>| {
                 blocking_json_task(move || {
-
                     let current_epoch = chain
                         .epoch()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -1452,8 +1451,13 @@ pub fn serve<T: BeaconChainTypes>(
                                     .map_err(warp_utils::reject::beacon_state_error)
                                     .and_then(|i| {
                                         let pubkey =
-                                            chain.validator_pubkey(i).map_err(warp_utils::reject::beacon_chain_error)?
-                                                .ok_or_else(|| warp_utils::reject::beacon_chain_error(BeaconChainError::ValidatorPubkeyCacheIncomplete(i)) )?;
+                                            chain.validator_pubkey(i)
+                                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                                .ok_or_else(||
+                                                    warp_utils::reject::beacon_chain_error(
+                                                        BeaconChainError::ValidatorPubkeyCacheIncomplete(i)
+                                                    )
+                                                )?;
 
                                         Ok(api_types::ProposerData {
                                             pubkey: PublicKeyBytes::from(pubkey),
@@ -1710,17 +1714,25 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>, log: Logger| {
                 blocking_json_task(move || {
-                    let mut verified_aggregates = Vec::new();
+                    let mut verified_aggregates = Vec::with_capacity(aggregates.len());
+                    let mut messages = Vec::with_capacity(aggregates.len());
+                    let mut failures = Vec::new();
 
                     // Verify that all messages in the post are valid before processing further
-                    for aggregate in aggregates.as_slice() {
+                    for (index, aggregate) in aggregates.as_slice().iter().enumerate() {
                         match chain.verify_aggregated_attestation_for_gossip(aggregate.clone()) {
-                            Ok(verified_aggregate) => verified_aggregates.push(verified_aggregate),
+                            Ok(verified_aggregate) => {
+                                messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
+                                    verified_aggregate.aggregate().clone(),
+                                )));
+                                verified_aggregates.push((index, verified_aggregate));
+                            }
                             // If we already know the attestation, don't broadcast it or attempt to
                             // further verify it. Return success.
                             //
@@ -1729,48 +1741,54 @@ pub fn serve<T: BeaconChainTypes>(
                             // node.
                             Err(AttnError::AttestationAlreadyKnown(_)) => continue,
                             Err(e) => {
-                                return Err(warp_utils::reject::object_invalid(format!(
-                                    "gossip verification failed: {:?}",
-                                    e
-                                )));
-                            }
+                                error!(log,
+                                    "failure verifying aggregate and proofs";
+                                    "error" => format!("{:?}", e),
+                                    "request_index" => index,
+                                    "aggregator_index" => aggregate.message.aggregator_index,
+                                    "attestation_index" => aggregate.message.aggregate.data.index,
+                                    "attestation_slot" => aggregate.message.aggregate.data.slot,
+                                );
+                                failures.push(api_types::Failure::new(index, format!("{:?}", e)));
+                            },
                         }
                     }
 
-                    let messages: Vec<PubsubMessage<T::EthSpec>> = verified_aggregates
-                        .iter()
-                        .map(|verified_aggregate| {
-                            PubsubMessage::AggregateAndProofAttestation(Box::new(
-                                verified_aggregate.aggregate().clone(),
-                            ))
-                        })
-                        .collect();
-
+                    // Publish aggregate attestations to the libp2p network
                     if !messages.is_empty() {
                         publish_network_message(&network_tx, NetworkMessage::Publish { messages })?;
                     }
 
-                    for verified_aggregate in verified_aggregates {
-                        chain
-                            .apply_attestation_to_fork_choice(&verified_aggregate)
-                            .map_err(|e| {
-                                warp_utils::reject::broadcast_without_import(format!(
-                                    "not applied to fork choice: {:?}",
-                                    e
-                                ))
-                            })?;
-
-                        chain
-                            .add_to_block_inclusion_pool(verified_aggregate)
-                            .map_err(|e| {
-                                warp_utils::reject::broadcast_without_import(format!(
-                                    "not applied to block inclusion pool: {:?}",
-                                    e
-                                ))
-                            })?;
+                    // Import aggregate attestations
+                    for (index, verified_aggregate) in verified_aggregates {
+                        if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
+                            error!(log,
+                                    "failure applying verified aggregate attestation to fork choice";
+                                    "error" => format!("{:?}", e),
+                                    "request_index" => index,
+                                    "aggregator_index" => verified_aggregate.aggregate().message.aggregator_index,
+                                    "attestation_index" => verified_aggregate.attestation().data.index,
+                                    "attestation_slot" => verified_aggregate.attestation().data.slot,
+                                );
+                            failures.push(api_types::Failure::new(index, format!("{:?}", e)));
+                        }
+                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                            warn!(log,
+                                    "could not add verified aggregate attestation to the inclusion pool";
+                                    "error" => format!("{:?}", e),
+                                    "request_index" => index,
+                                );
+                            failures.push(api_types::Failure::new(index, format!("{:?}", e)));
+                        }
                     }
 
-                    Ok(())
+                    if !failures.is_empty() {
+                        Err(warp_utils::reject::indexed_bad_request("error processing aggregate and proofs".to_string(),
+                            failures
+                        ))
+                    } else {
+                        Ok(())
+                    }
                 })
             },
         );
