@@ -6,10 +6,7 @@ edition = "2018"
 
 [dependencies]
 bincode = "1.3.1"
-blake2b_simd = "0.5.10"
-byte-slice-cast = "0.3.5"
 byteorder = "1.3.4"
-task_executor = { path = "../common/task_executor" }
 eth2_ssz = { path = "../consensus/ssz" }
 eth2_ssz_derive = { path = "../consensus/ssz_derive" }
 flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
@@ -23,6 +20,7 @@ serde_derive = "1.0"
 slog = "2.5.2"
 sloggers = "*"
 slot_clock = { path = "../common/slot_clock" }
+task_executor = { path = "../common/task_executor" }
 tokio = { version = "0.2.21", features = ["full"] }
 tree_hash = { path = "../consensus/tree_hash" }
 tree_hash_derive = { path = "../consensus/tree_hash_derive" }
@@ -36,7 +34,3 @@ tempdir = "0.3.7"
 
 [features]
 test_logger = []
-
-[[bench]]
-name = "blake2b"
-harness = false

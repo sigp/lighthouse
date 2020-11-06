@@ -5305,8 +5305,6 @@ name = "slasher"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "blake2b_simd",
- "byte-slice-cast",
  "byteorder",
  "criterion",
  "eth2_ssz",
