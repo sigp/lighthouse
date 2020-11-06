@@ -4785,7 +4785,7 @@ dependencies = [
  "clap",
  "environment",
  "futures 0.3.7",
- "hyper 0.13.8",
+ "hyper 0.13.9",
  "lazy_static",
  "regex",
  "remote_signer_backend",
