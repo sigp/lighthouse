@@ -16,6 +16,7 @@ const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
 /// Error type of a batch in a wrong state.
 // Such errors should never be encountered.
+#[derive(Debug)]
 pub struct WrongState(pub(super) String);
 
 /// Auxiliary type alias for readability.
@@ -421,5 +422,51 @@ impl<T: EthSpec> std::fmt::Debug for BatchState<T> {
             ),
             BatchState::Poisoned => f.write_str("Poisoned"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::RequestId;
+    use eth2_libp2p::rpc::methods::BlocksByRangeRequest;
+    use eth2_libp2p::PeerId;
+    use ssz::Encode;
+    use std::collections::HashSet;
+    use std::hash::{Hash, Hasher};
+    use std::ops::Sub;
+    use types::{
+        BeaconBlock, Epoch, EthSpec, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
+    };
+
+    type E = MinimalEthSpec;
+
+    /// Produces an empty block at the start of the given epoch shifted by 1 slot.
+    fn block_for_epoch(epoch: &Epoch) -> SignedBeaconBlock<E> {
+        let mut message = BeaconBlock::empty(&E::default_spec());
+        message.slot = epoch.start_slot(E::slots_per_epoch()) + 1;
+
+        SignedBeaconBlock {
+            message,
+            signature: Signature::empty(),
+        }
+    }
+
+    #[test]
+    fn good_batch_is_a_happy_batch() {
+        // create the batch
+        let epoch = Epoch::new(0);
+        let mut batch = BatchInfo::new(&epoch, 4);
+        // register the request to a peer
+        let peer = PeerId::random();
+        let request_id = 10;
+        batch.start_downloading_from_peer(peer, request_id).unwrap();
+        // download the batch
+        let block = block_for_epoch(&epoch);
+        batch.add_block(block).unwrap();
+        batch.download_completed().unwrap();
+        // process the batch
+        let _blocks_to_process = batch.start_processing().unwrap();
+        batch.processing_completed(true /* successful */).unwrap();
     }
 }
