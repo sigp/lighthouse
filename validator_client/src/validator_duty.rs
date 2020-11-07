@@ -110,37 +110,40 @@ impl ValidatorDuty {
         // to validator indices. We track indices so we can determine which validator indices from
         // our query yielded results.
         let returned_indices: Vec<u64> = beacon_node
-            .post_validator_duties_attester(
-                request_epoch,
-                query_indices.as_slice(),
-            )
+            .post_validator_duties_attester(request_epoch, query_indices.as_slice())
             .await
             .map_err(|e| format!("Failed to get attester duties: {}", e))?
             .data
             .into_iter()
-            .filter_map(|attester_data| {
-                match attester_data.pubkey.decompress() {
-                    Ok(pubkey) => {
-                        duties.push(ValidatorDuty {
-                            validator_pubkey: pubkey,
-                            validator_index: Some(attester_data.validator_index),
-                            attestation_slot: Some(attester_data.slot),
-                            attestation_committee_index: Some(attester_data.committee_index),
-                            attestation_committee_position: Some(
-                                attester_data.validator_committee_index as usize,
-                            ),
-                            committee_count_at_slot: Some(attester_data.committees_at_slot),
-                            committee_length: Some(attester_data.committee_length),
-                            block_proposal_slots: proposal_slots_by_index.get(&attester_data.validator_index).cloned(),
-                        });
-                        Some(attester_data.validator_index)
-                    }
-                    Err(e) => {
-                        error!(log, "Could not deserialize validator public key"; "error" => format!("{:?}", e), "validator_index" => attester_data.validator_index);
-                        None
-                    }
+            .filter_map(|attester_data| match attester_data.pubkey.decompress() {
+                Ok(pubkey) => {
+                    duties.push(ValidatorDuty {
+                        validator_pubkey: pubkey,
+                        validator_index: Some(attester_data.validator_index),
+                        attestation_slot: Some(attester_data.slot),
+                        attestation_committee_index: Some(attester_data.committee_index),
+                        attestation_committee_position: Some(
+                            attester_data.validator_committee_index as usize,
+                        ),
+                        committee_count_at_slot: Some(attester_data.committees_at_slot),
+                        committee_length: Some(attester_data.committee_length),
+                        block_proposal_slots: proposal_slots_by_index
+                            .get(&attester_data.validator_index)
+                            .cloned(),
+                    });
+                    Some(attester_data.validator_index)
                 }
-            }).collect();
+                Err(e) => {
+                    error!(
+                        log,
+                        "Could not deserialize validator public key";
+                        "error" => format!("{:?}", e),
+                        "validator_index" => attester_data.validator_index
+                    );
+                    None
+                }
+            })
+            .collect();
 
         // Compare queried validators with results, and add empty duties where necessary.
         for (index, pubkey) in query_indices.into_iter().zip(query_pubkeys.into_iter()) {

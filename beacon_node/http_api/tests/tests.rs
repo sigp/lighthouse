@@ -1553,7 +1553,7 @@ impl ApiTester {
             .post_validator_duties_attester(
                 epoch,
                 (0..self.validator_keypairs.len() as u64)
-                    .collect()
+                    .collect::<Vec<u64>>()
                     .as_slice(),
             )
             .await
