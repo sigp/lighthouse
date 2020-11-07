@@ -96,7 +96,7 @@ Content | `{"error": "Key not found: <identifier>"}`
 
 ```
 USAGE:
-    remote_signer [OPTIONS]
+    lighthouse remote_signer [OPTIONS]
 
 FLAGS:
     -h, --help       Prints help information
@@ -124,10 +124,7 @@ OPTIONS:
 - [ ] Support EIP-2335, BLS12-381 keystore
 - [ ] Support storage in AWS Cloud HSM
 - [ ] Route with the `warp` library
-- [ ] Filter by the `message` field
-  - [ ] Middleware REST API
-  - [ ] Built-in middleware
-  - [ ] Flag to enforce the `message` field and compare it to the signing root
+- [ ] Slashing protection pipeline
 - [ ] TLS/SSL support for requests
 - [ ] Authentication by HTTP Header support
 - [ ] Confidential computing support (e.g. Intel SGX)
