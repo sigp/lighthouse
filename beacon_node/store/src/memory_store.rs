@@ -84,6 +84,10 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     fn begin_rw_transaction(&self) -> MutexGuard<()> {
         self.transaction_mutex.lock()
     }
+
+    fn compact(&self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {}

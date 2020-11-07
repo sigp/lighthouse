@@ -67,6 +67,9 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// This doesn't prevent other threads writing to the DB unless they also use
     /// this method. In future we may implement a safer mandatory locking scheme.
     fn begin_rw_transaction(&self) -> MutexGuard<()>;
+
+    /// Compact the database, freeing space used by deleted items.
+    fn compact(&self) -> Result<(), Error>;
 }
 
 pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {

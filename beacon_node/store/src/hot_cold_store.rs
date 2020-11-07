@@ -9,7 +9,8 @@ use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, SPLIT_KEY,
+    PruningCheckpoint, SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY,
+    SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
 use crate::{
@@ -923,6 +924,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 slots_per_epoch,
             })
         }
+    }
+
+    /// Run a compaction pass to free up space used by deleted states.
+    pub fn compact(&self) -> Result<(), Error> {
+        self.hot_db.compact()?;
+        Ok(())
+    }
+
+    /// Load the checkpoint to begin pruning from (the "old finalized checkpoint").
+    pub fn load_pruning_checkpoint(&self) -> Result<Option<Checkpoint>, Error> {
+        Ok(self
+            .hot_db
+            .get(&PRUNING_CHECKPOINT_KEY)?
+            .map(|pc: PruningCheckpoint| pc.checkpoint))
+    }
+
+    /// Create a staged store for the pruning checkpoint.
+    pub fn pruning_checkpoint_store_op(&self, checkpoint: Checkpoint) -> KeyValueStoreOp {
+        PruningCheckpoint { checkpoint }.as_kv_store_op(PRUNING_CHECKPOINT_KEY)
     }
 }
 
