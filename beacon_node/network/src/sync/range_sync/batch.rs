@@ -452,6 +452,10 @@ mod tests {
         }
     }
 
+    fn first_slot(epoch: &Epoch) -> Slot {
+        epoch.start_slot(E::slots_per_epoch())
+    }
+
     #[test]
     fn good_batch_is_a_happy_batch() {
         // create the batch
@@ -468,5 +472,21 @@ mod tests {
         // process the batch
         let _blocks_to_process = batch.start_processing().unwrap();
         batch.processing_completed(true /* successful */).unwrap();
+    }
+
+    #[test]
+    fn test_new_batch() {
+        // create the batch
+        let start_epoch = Epoch::new(0);
+        let how_many_epochs = 4;
+        let batch = BatchInfo::<E>::new(&start_epoch, how_many_epochs);
+        // check that the batch is in the right state
+        assert!(matches!(batch.state, BatchState::<E>::AwaitingDownload));
+        // check that the batch's boundaries are correct
+        assert_eq!(batch.start_slot, first_slot(&start_epoch) + 1);
+        assert_eq!(
+            batch.end_slot,
+            first_slot(&(start_epoch + how_many_epochs)) + 1
+        );
     }
 }
