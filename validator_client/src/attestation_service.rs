@@ -480,7 +480,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         if !signed_aggregate_and_proofs.is_empty() {
             match self
                 .beacon_node
-                .post_validator_aggregate_and_proof(signed_aggregate_and_proofs.clone())
+                .post_validator_aggregate_and_proof(signed_aggregate_and_proofs.as_slice())
                 .await
             {
                 Ok(()) => {

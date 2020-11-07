@@ -1306,7 +1306,7 @@ impl ApiTester {
                 if epoch > current_epoch + 1 {
                     assert_eq!(
                         self.client
-                            .post_validator_duties_attester(epoch, indices)
+                            .post_validator_duties_attester(epoch, indices.as_slice())
                             .await
                             .unwrap_err()
                             .status()
@@ -1318,7 +1318,7 @@ impl ApiTester {
 
                 let results = self
                     .client
-                    .post_validator_duties_attester(epoch, indices.clone())
+                    .post_validator_duties_attester(epoch, indices.as_slice())
                     .await
                     .unwrap()
                     .data;
@@ -1552,7 +1552,9 @@ impl ApiTester {
             .client
             .post_validator_duties_attester(
                 epoch,
-                (0..self.validator_keypairs.len() as u64).collect(),
+                (0..self.validator_keypairs.len() as u64)
+                    .collect()
+                    .as_slice(),
             )
             .await
             .unwrap()
@@ -1627,7 +1629,7 @@ impl ApiTester {
         let aggregate = self.get_aggregate().await;
 
         self.client
-            .post_validator_aggregate_and_proof::<E>(vec![aggregate])
+            .post_validator_aggregate_and_proof::<E>(vec![aggregate].as_slice())
             .await
             .unwrap();
 
@@ -1642,7 +1644,7 @@ impl ApiTester {
         aggregate.message.aggregate.data.slot += 1;
 
         self.client
-            .post_validator_aggregate_and_proof::<E>(vec![aggregate])
+            .post_validator_aggregate_and_proof::<E>(vec![aggregate].as_slice())
             .await
             .unwrap_err();
 

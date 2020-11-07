@@ -602,20 +602,14 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         // Determine which pubkeys we already know the index of by checking the duties store for
         // the current epoch.
-        let mut unknown_pubkeys = Vec::new();
-        let known_pubkeys = self
+        let pubkeys: Vec<(PublicKey, Option<u64>)> = self
             .validator_store
             .voting_pubkeys()
             .into_iter()
-            .filter_map(
-                |pubkey| match self.store.get_index(&pubkey, current_epoch) {
-                    Some(index) => Some((pubkey, index)),
-                    None => {
-                        unknown_pubkeys.push(pubkey);
-                        None
-                    }
-                },
-            )
+            .map(|pubkey| {
+                let index = self.store.get_index(&pubkey, current_epoch);
+                (pubkey, index)
+            })
             .collect();
 
         let mut validator_subscriptions = vec![];
@@ -623,8 +617,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             &self.beacon_node,
             current_epoch,
             request_epoch,
-            known_pubkeys,
-            unknown_pubkeys.as_slice(),
+            pubkeys.as_slice(),
+            &log,
         )
         .await
         {
