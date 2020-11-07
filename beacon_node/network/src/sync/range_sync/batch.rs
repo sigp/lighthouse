@@ -441,6 +441,8 @@ mod tests {
 
     type E = MinimalEthSpec;
 
+    /* Helper functions */
+
     /// Produces an empty block at the start of the given epoch shifted by 1 slot.
     fn block_for_epoch(epoch: &Epoch) -> SignedBeaconBlock<E> {
         let mut message = BeaconBlock::empty(&E::default_spec());
@@ -456,7 +458,16 @@ mod tests {
         epoch.start_slot(E::slots_per_epoch())
     }
 
+    fn batch_at_state(start: &Epoch, epochs: u64, state: BatchState<E>) -> BatchInfo<E> {
+        let mut batch = BatchInfo::new(start, epochs);
+        batch.state = state;
+        batch
+    }
+
+    /* Tests */
+
     #[test]
+    // For documentation purposes.
     fn good_batch_is_a_happy_batch() {
         // create the batch
         let epoch = Epoch::new(0);
@@ -519,4 +530,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_add_block() {
+        // get a testing batch and block
+        let epoch = Epoch::new(0);
+        let peer = PeerId::random();
+        let state_pre = BatchState::Downloading(peer.clone(), vec![], 10);
+        let mut batch = batch_at_state(&epoch, 2, state_pre);
+        let block = block_for_epoch(&epoch);
+
+        // check that the block is added
+        batch.add_block(block.clone()).unwrap();
+        match batch.state() {
+            BatchState::Downloading(d_peer, d_blocks, 10) => {
+                assert_eq!(d_peer, &peer);
+                assert_eq!(d_blocks, &vec![block]);
+            }
+            _ => panic!("batch is not in the expected state"),
+        }
+    }
 }
