@@ -482,11 +482,41 @@ mod tests {
         let batch = BatchInfo::<E>::new(&start_epoch, how_many_epochs);
         // check that the batch is in the right state
         assert!(matches!(batch.state, BatchState::<E>::AwaitingDownload));
-        // check that the batch's boundaries are correct
-        assert_eq!(batch.start_slot, first_slot(&start_epoch) + 1);
+        // check that the batch asks for as many blocks as we defined
         assert_eq!(
-            batch.end_slot,
-            first_slot(&(start_epoch + how_many_epochs)) + 1
+            batch.end_slot - batch.start_slot,
+            how_many_epochs * E::slots_per_epoch()
+        );
+        // check that the batch is shifted by 1
+        assert_eq!(batch.start_slot, first_slot(&start_epoch) + 1);
+    }
+
+    #[test]
+    fn test_batch_as_request() {
+        let start_epoch = Epoch::new(0);
+        let how_many_epochs = 4;
+
+        // create the batch
+        let batch1 = BatchInfo::<E>::new(&start_epoch, how_many_epochs);
+        let request1 = batch1.to_blocks_by_range_request();
+        let requested_slots = how_many_epochs * E::slots_per_epoch();
+        assert_eq!(
+            request1,
+            BlocksByRangeRequest {
+                start_slot: 1,
+                count: requested_slots,
+                step: 1
+            }
+        );
+
+        // create the next batch and check that they are contiguous
+        let batch2 = BatchInfo::<E>::new(&(start_epoch + how_many_epochs), how_many_epochs);
+        let request2 = batch2.to_blocks_by_range_request();
+
+        assert_eq!(
+            request1.start_slot + request1.step * request1.count,
+            request2.start_slot
         );
     }
+
 }
