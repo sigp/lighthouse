@@ -203,8 +203,13 @@ where
                     context.eth2_config().spec.clone(),
                 );
 
+                // If the HTTP API server is enabled, start an instance of it where it only
+                // contains a reference to the eth1 service (all non-eth1 endpoints will fail
+                // gracefully).
+                //
+                // Later in this function we will shutdown this temporary "waiting for genesis"
+                // server so the real one can be started later.
                 let (exit_tx, exit_rx) = oneshot::channel::<()>();
-
                 let http_listen_opt = if self.http_api_config.enabled {
                     #[allow(clippy::type_complexity)] // I'm not sure how to elegantly avoid this.
                     let ctx: Arc<
