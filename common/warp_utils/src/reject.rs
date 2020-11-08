@@ -129,7 +129,7 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     let message;
 
     if let Some(e) = err.find::<crate::reject::IndexedBadRequestErrors>() {
-        message = format!("BAD_REQUEST: error: {}", e.message);
+        message = format!("BAD_REQUEST: {}", e.message);
         code = StatusCode::BAD_REQUEST;
 
         let json = warp::reply::json(&IndexedErrorMessage {

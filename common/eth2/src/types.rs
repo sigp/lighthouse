@@ -18,16 +18,15 @@ pub struct ErrorMessage {
     pub stacktraces: Vec<String>,
 }
 
-/// An API error serializable to JSON.
+/// An indexed API error serializable to JSON.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IndexedErrorMessage {
     pub code: u16,
     pub message: String,
-    #[serde(default)]
     pub failures: Vec<Failure>,
 }
 
-/// An API error serializable to JSON.
+/// A single failure in an index of API errors, serializable to JSON.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Failure {
     pub index: u64,

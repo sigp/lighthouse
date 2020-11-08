@@ -28,6 +28,8 @@ pub enum Error {
     Reqwest(reqwest::Error),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
+    /// The server returned an error message with an array of errors.
+    ServerIndexedMessage(IndexedErrorMessage),
     /// The server returned an error message where the body was unable to be parsed.
     StatusCode(StatusCode),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
@@ -50,6 +52,7 @@ impl Error {
         match self {
             Error::Reqwest(error) => error.status(),
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
+            Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
             Error::InvalidUrl(_) => None,
             Error::InvalidSecret(_) => None,
@@ -882,7 +885,14 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("aggregate_and_proofs");
 
-        self.post(path, &aggregates).await?;
+        let response = self
+            .client
+            .post(path)
+            .json(aggregates)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_indexed_error(response).await?;
 
         Ok(())
     }
@@ -914,6 +924,20 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
         Ok(response)
     } else if let Ok(message) = response.json().await {
         Err(Error::ServerMessage(message))
+    } else {
+        Err(Error::StatusCode(status))
+    }
+}
+
+/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
+/// appropriate indexed error message.
+async fn ok_or_indexed_error(response: Response) -> Result<Response, Error> {
+    let status = response.status();
+
+    if status == StatusCode::OK {
+        Ok(response)
+    } else if let Ok(message) = response.json().await {
+        Err(Error::ServerIndexedMessage(message))
     } else {
         Err(Error::StatusCode(status))
     }

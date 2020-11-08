@@ -1629,7 +1629,7 @@ impl ApiTester {
         let aggregate = self.get_aggregate().await;
 
         self.client
-            .post_validator_aggregate_and_proof::<E>(vec![aggregate].as_slice())
+            .post_validator_aggregate_and_proof::<E>(&[aggregate])
             .await
             .unwrap();
 
@@ -1644,7 +1644,7 @@ impl ApiTester {
         aggregate.message.aggregate.data.slot += 1;
 
         self.client
-            .post_validator_aggregate_and_proof::<E>(vec![aggregate].as_slice())
+            .post_validator_aggregate_and_proof::<E>(&[aggregate])
             .await
             .unwrap_err();
 
