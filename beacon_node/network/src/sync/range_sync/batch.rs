@@ -23,6 +23,7 @@ pub struct WrongState(pub(super) String);
 type IsFailed = bool;
 
 /// A segment of a chain.
+#[derive(Debug)]
 pub struct BatchInfo<T: EthSpec> {
     /// Start slot of the batch.
     start_slot: Slot,
@@ -548,5 +549,35 @@ mod tests {
             }
             _ => panic!("batch is not in the expected state"),
         }
+    }
+
+    #[test]
+    fn test_complete_download() {
+        let epoch = Epoch::new(0);
+        let peer = PeerId::random();
+
+        // check that empty download is Ok
+        let state_pre = BatchState::Downloading(peer.clone(), vec![], 10);
+        let mut batch = batch_at_state(&epoch, 2, state_pre);
+        assert_eq!(
+            batch.download_completed().unwrap(),
+            0, /* received blocks */
+        );
+
+        // check that non empty download in range is Ok
+        let block = block_for_epoch(&epoch);
+        let state_pre = BatchState::Downloading(peer.clone(), vec![block], 10);
+        let mut batch = batch_at_state(&epoch, 2, state_pre);
+        assert_eq!(
+            batch.download_completed().unwrap(),
+            1, /* received blocks */
+        );
+
+        // check that out of range blocks fail
+        let block_a = block_for_epoch(&epoch);
+        let block_b = block_for_epoch(&(epoch + 3));
+        let state_pre = BatchState::Downloading(peer.clone(), vec![block_a, block_b], 10);
+        let mut batch = batch_at_state(&epoch, 2, state_pre);
+        assert!(matches!(batch.download_completed(), Err(Ok(..))));
     }
 }
