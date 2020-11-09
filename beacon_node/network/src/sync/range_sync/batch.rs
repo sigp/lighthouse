@@ -668,4 +668,45 @@ mod tests {
             download_and_fail(&mut batch).unwrap()
         );
     }
+
+    #[test]
+    fn test_batch_failure_on_download_and_processing() {
+        let mut batch = BatchInfo::<E>::new(&Epoch::new(0), 3);
+        let peer = PeerId::random();
+        let req_id = 10;
+
+        // helper fn
+        let download_and_fail = |batch: &mut BatchInfo<E>| {
+            batch
+                .start_downloading_from_peer(peer.clone(), req_id)
+                .unwrap();
+            batch.download_completed().unwrap();
+            let _blocks_to_process = batch.start_processing().unwrap();
+            batch.processing_completed(false)
+        };
+
+        // test that the failed download counter and failed processing counter are independent
+
+        // first fail the download without reaching the max
+        for _ in 0..MAX_BATCH_DOWNLOAD_ATTEMPTS - 1 {
+            batch
+                .start_downloading_from_peer(peer.clone(), req_id)
+                .unwrap();
+            assert_eq!(false /* not failed*/, batch.download_failed().unwrap());
+        }
+
+        // now fail processing without reaching the max
+        for _ in 0..MAX_BATCH_PROCESSING_ATTEMPTS - 1 {
+            assert_eq!(
+                false, /* not failed*/
+                download_and_fail(&mut batch).unwrap()
+            );
+        }
+
+        // another failed attempt now fails the batch
+        assert_eq!(
+            true, /* it failed*/
+            download_and_fail(&mut batch).unwrap()
+        );
+    }
 }
