@@ -127,17 +127,6 @@ impl ValidatorDuty {
             .map(|(pubkey, index_opt)| {
                 if let Some(index) = index_opt {
                     if let Some(attester_data) = attester_data_map.get(&index) {
-                        if attester_data.validator_index != index {
-                            error!(
-                                log,
-                                "Validator index mismatch";
-                                "local" => index,
-                                "remote" => attester_data.validator_index
-                            );
-
-                            return Self::no_duties(pubkey, None);
-                        }
-
                         match attester_data.pubkey.decompress() {
                             Ok(pubkey) => ValidatorDuty {
                                 validator_pubkey: pubkey,
