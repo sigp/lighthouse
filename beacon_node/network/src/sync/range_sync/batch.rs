@@ -628,7 +628,10 @@ mod tests {
             batch
                 .start_downloading_from_peer(peer.clone(), req_id)
                 .unwrap();
-            assert_eq!(false /* not failed*/, batch.download_failed().unwrap());
+            assert_eq!(
+                false, /* not failed */
+                batch.download_failed().unwrap()
+            );
         }
 
         batch
@@ -658,13 +661,13 @@ mod tests {
         // Test that a batch that fails processing too much is failed
         for _ in 0..MAX_BATCH_PROCESSING_ATTEMPTS - 1 {
             assert_eq!(
-                false, /* not failed*/
+                false, /* not failed */
                 download_and_fail(&mut batch).unwrap()
             );
         }
 
         assert_eq!(
-            true, /* it failed*/
+            true, /* it failed */
             download_and_fail(&mut batch).unwrap()
         );
     }
@@ -698,15 +701,42 @@ mod tests {
         // now fail processing without reaching the max
         for _ in 0..MAX_BATCH_PROCESSING_ATTEMPTS - 1 {
             assert_eq!(
-                false, /* not failed*/
+                false, /* not failed */
                 download_and_fail(&mut batch).unwrap()
             );
         }
 
         // another failed attempt now fails the batch
         assert_eq!(
-            true, /* it failed*/
+            true, /* it failed */
             download_and_fail(&mut batch).unwrap()
         );
+    }
+
+    #[test]
+    fn test_failed_validation_is_failed_processing() {
+        // Check that a batch that fails validation too much is failed
+        let mut batch = BatchInfo::<E>::new(&Epoch::new(0), 3);
+        let peer = PeerId::random();
+        let req_id = 10;
+
+        // helper function to successfully download and process a batch but failing its validation
+        let retry_batch = |batch: &mut BatchInfo<E>| {
+            batch
+                .start_downloading_from_peer(peer.clone(), req_id)
+                .unwrap();
+            batch.download_completed().unwrap();
+            let _blocks_to_process = batch.start_processing().unwrap();
+            batch.processing_completed(true).unwrap();
+            batch.validation_failed()
+        };
+
+        for _ in 0..MAX_BATCH_PROCESSING_ATTEMPTS - 1 {
+            assert_eq!(
+                false, /* not failed */
+                retry_batch(&mut batch).unwrap()
+            );
+        }
+        assert_eq!(true /* failed */, retry_batch(&mut batch).unwrap());
     }
 }
