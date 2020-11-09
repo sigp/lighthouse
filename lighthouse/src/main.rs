@@ -115,7 +115,7 @@ fn main() {
                 .long("testnet")
                 .value_name("testnet")
                 .help("Name of network lighthouse will connect to")
-                .possible_values(&["medalla", "altona", "spadina", "zinken", "mainnet"])
+                .possible_values(&["medalla", "altona", "spadina", "zinken", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
