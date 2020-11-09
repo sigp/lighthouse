@@ -28,7 +28,7 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, info, o, trace, warn};
+use slog::{crit, debug, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -241,7 +241,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipTopic::new(kind, GossipEncoding::default(), fork_digest).into()
         };
 
-        info!(self.log, "Updating gossipsub scores";
+        debug!(self.log, "Updating gossipsub scores";
             "active_validators" => active_validators,
             "beacon_block_params" => format!("{:?}", beacon_block_params),
             "beacon_aggregate_proof_params" => format!("{:?}", beacon_aggregate_proof_params),
