@@ -211,7 +211,7 @@ where
                 // server so the real one can be started later.
                 let (exit_tx, exit_rx) = oneshot::channel::<()>();
                 let http_listen_opt = if self.http_api_config.enabled {
-                    #[allow(clippy::type_complexity)] // I'm not sure how to elegantly avoid this.
+                    #[allow(clippy::type_complexity)]
                     let ctx: Arc<
                         http_api::Context<
                             Witness<
