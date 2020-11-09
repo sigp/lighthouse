@@ -429,16 +429,10 @@ impl<T: EthSpec> std::fmt::Debug for BatchState<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sync::RequestId;
     use eth2_libp2p::rpc::methods::BlocksByRangeRequest;
     use eth2_libp2p::PeerId;
-    use ssz::Encode;
     use std::collections::HashSet;
-    use std::hash::{Hash, Hasher};
-    use std::ops::Sub;
-    use types::{
-        BeaconBlock, Epoch, EthSpec, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
-    };
+    use types::{BeaconBlock, Epoch, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock, Slot};
 
     type E = MinimalEthSpec;
 
@@ -579,5 +573,47 @@ mod tests {
         let state_pre = BatchState::Downloading(peer.clone(), vec![block_a, block_b], 10);
         let mut batch = batch_at_state(&epoch, 2, state_pre);
         assert!(matches!(batch.download_completed(), Err(Ok(..))));
+    }
+
+    #[test]
+    fn test_expecting_block() {
+        let req_id = 10;
+        let peer = PeerId::random();
+        let mut batch = batch_at_state(
+            &Epoch::new(0),
+            3,
+            BatchState::Downloading(peer.clone(), vec![], req_id),
+        );
+
+        // check that same peer with different request_id
+        let another_req = 20;
+        assert!(!batch.is_expecting_block(&peer, &another_req));
+
+        // Check that another peer with the same request_id is rejected
+        let another_peer = PeerId::random();
+        assert!(!batch.is_expecting_block(&another_peer, &req_id));
+
+        // Check that right peer and right request are accepted
+        assert!(batch.is_expecting_block(&peer, &req_id));
+
+        // Check that a batch that is not downloading is not expecting a block
+        batch.state = BatchState::AwaitingDownload;
+        assert!(!batch.is_expecting_block(&peer, &req_id));
+    }
+
+    #[test]
+    fn test_downloading_from_peer() {
+        let mut batch = BatchInfo::<E>::new(&Epoch::new(0), 3);
+
+        // Check that the peer is registered for downloading the batch
+        let peer = PeerId::random();
+        batch.start_downloading_from_peer(peer.clone(), 10).unwrap();
+        assert_eq!(&peer, batch.current_peer().unwrap());
+
+        // Check that start_downloading_from_peer does not reset the download
+        assert!(batch
+            .start_downloading_from_peer(PeerId::random(), 10)
+            .is_err());
+        assert_eq!(&peer, batch.current_peer().unwrap());
     }
 }
