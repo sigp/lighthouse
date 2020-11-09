@@ -635,8 +635,37 @@ mod tests {
             .start_downloading_from_peer(peer.clone(), req_id)
             .unwrap();
         assert_eq!(
-            true, /* now it failed*/
+            true, /* now it failed */
             batch.download_failed().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_batch_failure_on_processing() {
+        let mut batch = BatchInfo::<E>::new(&Epoch::new(0), 3);
+        let peer = PeerId::random();
+        let req_id = 10;
+
+        let download_and_fail = |batch: &mut BatchInfo<E>| {
+            batch
+                .start_downloading_from_peer(peer.clone(), req_id)
+                .unwrap();
+            batch.download_completed().unwrap();
+            let _blocks_to_process = batch.start_processing().unwrap();
+            batch.processing_completed(false)
+        };
+
+        // Test that a batch that fails processing too much is failed
+        for _ in 0..MAX_BATCH_PROCESSING_ATTEMPTS - 1 {
+            assert_eq!(
+                false, /* not failed*/
+                download_and_fail(&mut batch).unwrap()
+            );
+        }
+
+        assert_eq!(
+            true, /* it failed*/
+            download_and_fail(&mut batch).unwrap()
         );
     }
 }
