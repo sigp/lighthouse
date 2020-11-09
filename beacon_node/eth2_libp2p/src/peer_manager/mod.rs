@@ -741,9 +741,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .peer_info(peer_id)
             .map(|info| {
                 info.seen_addresses()
-                    .iter()
                     .filter(|ip| peer_db.is_ip_banned(ip))
-                    .cloned()
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -761,7 +759,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let seen_ip_addresses = peer_db
             .peer_info(peer_id)
-            .map(|info| info.seen_addresses().iter().cloned().collect::<Vec<_>>())
+            .map(|info| info.seen_addresses().collect::<Vec<_>>())
             .unwrap_or_default();
 
         self.discovery.unban_peer(&peer_id, seen_ip_addresses);

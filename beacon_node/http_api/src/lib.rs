@@ -1286,10 +1286,16 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
-                        //TODO: update this to seen_addresses once #1764 is resolved
-                        let address = match peer_info.listening_addresses.get(0) {
-                            Some(addr) => addr.to_string(),
-                            None => "".to_string(), // this field is non-nullable in the eth2 API spec
+                        let address = if let Some(socket_addr) =
+                            peer_info.seen_addresses.iter().next()
+                        {
+                            let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
+                            addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
+                            addr.to_string()
+                        } else if let Some(addr) = peer_info.listening_addresses.first() {
+                            addr.to_string()
+                        } else {
+                            String::new()
                         };
 
                         // the eth2 API spec implies only peers we have been connected to at some point should be included.
@@ -1297,7 +1303,7 @@ pub fn serve<T: BeaconChainTypes>(
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
-                                last_seen_p2p_address: address,
+                                address,
                                 direction: api_types::PeerDirection::from_connection_direction(
                                     &dir,
                                 ),
@@ -1330,16 +1336,23 @@ pub fn serve<T: BeaconChainTypes>(
                     // the eth2 API spec implies only peers we have been connected to at some point should be included.
                     .filter(|(_, peer_info)| peer_info.connection_direction.is_some())
                     .for_each(|(peer_id, peer_info)| {
-                        //TODO: update this to seen_addresses once #1764 is resolved
-                        let address = match peer_info.listening_addresses.get(0) {
-                            Some(addr) => addr.to_string(),
-                            None => "".to_string(), // this field is non-nullable in the eth2 API spec
+                        let address = if let Some(socket_addr) =
+                            peer_info.seen_addresses.iter().next()
+                        {
+                            let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
+                            addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
+                            addr.to_string()
+                        } else if let Some(addr) = peer_info.listening_addresses.first() {
+                            addr.to_string()
+                        } else {
+                            String::new()
                         };
+
                         if let Some(dir) = peer_info.connection_direction.as_ref() {
                             peers.push(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
-                                last_seen_p2p_address: address,
+                                address,
                                 direction: api_types::PeerDirection::from_connection_direction(
                                     &dir,
                                 ),
