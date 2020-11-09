@@ -215,6 +215,64 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_length_prefix() {
+        let mut uvi_codec: Uvi<u128> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Smallest > 10 byte varint
+        let len: u128 = 2u128.pow(70);
+
+        // Insert length-prefix
+        uvi_codec.encode(len, &mut dst).unwrap();
+
+        let snappy_protocol_id =
+            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+        let mut snappy_outbound_codec =
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
+
+        let snappy_decoded_message = snappy_outbound_codec.decode(&mut dst).unwrap_err();
+
+        assert_eq!(
+            snappy_decoded_message,
+            RPCError::IoError("input bytes exceed maximum".to_string()),
+            "length-prefix of > 10 bytes is invalid"
+        );
+    }
+
+    #[test]
+    fn test_length_limits() {
+        fn encode_len(len: usize) -> BytesMut {
+            let mut uvi_codec: Uvi<usize> = Uvi::default();
+            let mut dst = BytesMut::with_capacity(1024);
+            uvi_codec.encode(len, &mut dst).unwrap();
+            dst
+        }
+
+        let protocol_id =
+            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy);
+
+        // Response limits
+        let limit = protocol_id.rpc_response_limits::<Spec>();
+        let mut max = encode_len(limit.max + 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id.clone(), 1_048_576);
+        assert_eq!(codec.decode(&mut max).unwrap_err(), RPCError::InvalidData);
+
+        let mut min = encode_len(limit.min - 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id.clone(), 1_048_576);
+        assert_eq!(codec.decode(&mut min).unwrap_err(), RPCError::InvalidData);
+
+        // Request limits
+        let limit = protocol_id.rpc_request_limits();
+        let mut max = encode_len(limit.max + 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id.clone(), 1_048_576);
+        assert_eq!(codec.decode(&mut max).unwrap_err(), RPCError::InvalidData);
+
+        let mut min = encode_len(limit.min - 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id, 1_048_576);
+        assert_eq!(codec.decode(&mut min).unwrap_err(), RPCError::InvalidData);
+    }
+
+    #[test]
     fn test_decode_malicious_status_message() {
         // Snappy stream identifier
         let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
