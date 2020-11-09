@@ -67,6 +67,8 @@ pub const DEFAULT_HARDCODED_TESTNET: &str = "medalla";
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetConfig {
     pub deposit_contract_address: String,
+    /// Note: instead of the block where the contract is deployed, it is acceptable to set this
+    /// value to be the block number where the first deposit occurs.
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     pub genesis_state_bytes: Option<Vec<u8>>,
