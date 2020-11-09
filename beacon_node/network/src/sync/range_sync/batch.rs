@@ -431,7 +431,6 @@ mod tests {
     use super::*;
     use eth2_libp2p::rpc::methods::BlocksByRangeRequest;
     use eth2_libp2p::PeerId;
-    use std::collections::HashSet;
     use types::{BeaconBlock, Epoch, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock, Slot};
 
     type E = MinimalEthSpec;
@@ -612,8 +611,32 @@ mod tests {
 
         // Check that start_downloading_from_peer does not reset the download
         assert!(batch
-            .start_downloading_from_peer(PeerId::random(), 10)
+            .start_downloading_from_peer(PeerId::random(), 20)
             .is_err());
         assert_eq!(&peer, batch.current_peer().unwrap());
+        assert!(batch.is_expecting_block(&peer, &10));
+    }
+
+    #[test]
+    fn test_batch_failure_on_download() {
+        let mut batch = BatchInfo::<E>::new(&Epoch::new(0), 3);
+        let peer = PeerId::random();
+        let req_id = 10;
+
+        // Test that a batch that fails downloading too much is failed
+        for _ in 0..MAX_BATCH_DOWNLOAD_ATTEMPTS - 1 {
+            batch
+                .start_downloading_from_peer(peer.clone(), req_id)
+                .unwrap();
+            assert_eq!(false /* not failed*/, batch.download_failed().unwrap());
+        }
+
+        batch
+            .start_downloading_from_peer(peer.clone(), req_id)
+            .unwrap();
+        assert_eq!(
+            true, /* now it failed*/
+            batch.download_failed().unwrap()
+        );
     }
 }
