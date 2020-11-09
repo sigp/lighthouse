@@ -16,14 +16,15 @@ use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use parking_lot::Mutex;
-use slog::{debug, info};
+use slog::{debug, info, warn};
 use ssz::Decode;
 use std::net::SocketAddr;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     SignedBeaconBlockHash,
@@ -202,12 +203,75 @@ where
                     context.eth2_config().spec.clone(),
                 );
 
+                // If the HTTP API server is enabled, start an instance of it where it only
+                // contains a reference to the eth1 service (all non-eth1 endpoints will fail
+                // gracefully).
+                //
+                // Later in this function we will shutdown this temporary "waiting for genesis"
+                // server so the real one can be started later.
+                let (exit_tx, exit_rx) = oneshot::channel::<()>();
+                let http_listen_opt = if self.http_api_config.enabled {
+                    #[allow(clippy::type_complexity)]
+                    let ctx: Arc<
+                        http_api::Context<
+                            Witness<
+                                TSlotClock,
+                                TEth1Backend,
+                                TEthSpec,
+                                TEventHandler,
+                                THotStore,
+                                TColdStore,
+                            >,
+                        >,
+                    > = Arc::new(http_api::Context {
+                        config: self.http_api_config.clone(),
+                        chain: None,
+                        network_tx: None,
+                        network_globals: None,
+                        eth1_service: Some(genesis_service.eth1_service.clone()),
+                        log: context.log().clone(),
+                    });
+
+                    // Discard the error from the oneshot.
+                    let exit_future = async {
+                        let _ = exit_rx.await;
+                    };
+
+                    let (listen_addr, server) = http_api::serve(ctx, exit_future)
+                        .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+
+                    context
+                        .clone()
+                        .executor
+                        .spawn_without_exit(async move { server.await }, "http-api");
+
+                    Some(listen_addr)
+                } else {
+                    None
+                };
+
                 let genesis_state = genesis_service
                     .wait_for_genesis_state(
                         Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
                         context.eth2_config().spec.clone(),
                     )
                     .await?;
+
+                let _ = exit_tx.send(());
+
+                if let Some(http_listen) = http_listen_opt {
+                    // This is a bit of a hack to ensure that the HTTP server has indeed shutdown.
+                    //
+                    // We will restart it again after we've finished setting up for genesis.
+                    while TcpListener::bind(http_listen).is_err() {
+                        warn!(
+                            context.log(),
+                            "Waiting for HTTP server port to open";
+                            "port" => http_listen
+                        );
+                        tokio::time::delay_for(Duration::from_secs(1)).await;
+                    }
+                }
 
                 builder
                     .genesis_state(genesis_state)

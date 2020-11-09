@@ -115,7 +115,7 @@ fn main() {
                 .long("testnet")
                 .value_name("testnet")
                 .help("Name of network lighthouse will connect to")
-                .possible_values(&["medalla", "altona", "spadina", "zinken"])
+                .possible_values(&["medalla", "altona", "spadina", "zinken", "mainnet"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -265,14 +265,21 @@ fn run<E: EthSpec>(
 
     warn!(
         log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
+        "Ethereum 2.0 is pre-release. This software is experimental"
     );
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
         log,
         "Configured for testnet";
-        "name" => testnet_name
+        "name" => &testnet_name
     );
+
+    if testnet_name == "mainnet" {
+        warn!(
+            log,
+            "The mainnet specification is being used. This not recommended (yet)."
+        )
+    }
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
