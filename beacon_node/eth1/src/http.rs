@@ -88,6 +88,17 @@ pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Net
     )
 }
 
+/// Get the eth1 chain id of the given endpoint.
+pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1NetworkId, String> {
+    let response_body = send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
+    Eth1NetworkId::from_str(
+        response_result(&response_body)?
+            .ok_or_else(|| "No result was returned for block number".to_string())?
+            .as_str()
+            .ok_or_else(|| "Data was not string")?,
+    )
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Block {
     pub hash: Hash256,
