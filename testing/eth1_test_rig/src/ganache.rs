@@ -15,6 +15,7 @@ use web3::{
 const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
 
 const NETWORK_ID: u64 = 42;
+const CHAIN_ID: u64 = 42;
 
 /// Provides a dedicated `ganachi-cli` instance with a connected `Web3` instance.
 ///
@@ -46,6 +47,8 @@ impl GanacheInstance {
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
             .arg("--networkId")
             .arg(format!("{}", NETWORK_ID))
+            .arg("--chainId")
+            .arg(format!("{}", CHAIN_ID))
             .spawn()
             .map_err(|e| {
                 format!(
@@ -104,6 +107,11 @@ impl GanacheInstance {
     /// Returns the network id of the ganache instance
     pub fn network_id(&self) -> u64 {
         NETWORK_ID
+    }
+
+    /// Returns the chain id of the ganache instance
+    pub fn chain_id(&self) -> u64 {
+        CHAIN_ID
     }
 
     /// Increase the timestamp on future blocks by `increase_by` seconds.
