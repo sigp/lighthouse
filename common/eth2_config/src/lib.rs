@@ -124,7 +124,7 @@ define_net!(zinken, include_zinken_file, "zinken", true);
 
 define_net!(mainnet, include_mainnet_file, "mainnet", false);
 
-define_net!(toledo, include_toledo_file, "toledo", false);
+define_net!(toledo, include_toledo_file, "toledo", true);
 
 #[cfg(test)]
 mod tests {
