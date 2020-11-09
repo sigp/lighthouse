@@ -617,7 +617,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             &self.beacon_node,
             current_epoch,
             request_epoch,
-            pubkeys.as_slice(),
+            pubkeys,
             &log,
         )
         .await
