@@ -11,7 +11,7 @@ use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
-use slog::{debug, error};
+use slog::{crit, debug, error};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -300,7 +300,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             match old_id {
                 Some(Some(old_id)) => debug!(self.log, "Switching finalized chains";
                     "old_id" => old_id, &chain),
-                None => debug!(self.log, "Syncing new chain"; &chain),
+                None => debug!(self.log, "Syncing new finalized chain"; &chain),
                 Some(None) => {
                     // this is the same chain. We try to advance it.
                 }
@@ -311,8 +311,12 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
             if let Err(remove_reason) = chain.start_syncing(network, local_epoch, local_head_epoch)
             {
-                // this happens only if sending a batch over the `network` fails a lot
-                error!(self.log, "Chain removed while switching chains"; "chain" => new_id, "reason" => ?remove_reason);
+                if remove_reason.is_critical() {
+                    crit!(self.log, "Chain removed while switching chains"; "chain" => new_id, "reason" => ?remove_reason);
+                } else {
+                    // this happens only if sending a batch over the `network` fails a lot
+                    error!(self.log, "Chain removed while switching chains"; "chain" => new_id, "reason" => ?remove_reason);
+                }
                 self.finalized_chains.remove(&new_id);
                 self.on_chain_removed(&new_id, true);
             }
@@ -330,6 +334,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ) {
         // Include the awaiting head peers
         for (peer_id, peer_sync_info) in awaiting_head_peers.drain() {
+            debug!(self.log, "including head peer");
             self.add_peer_or_create_chain(
                 local_epoch,
                 peer_sync_info.head_root,
@@ -368,7 +373,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     chain.start_syncing(network, local_epoch, local_head_epoch)
                 {
                     self.head_chains.remove(&id);
-                    error!(self.log, "Chain removed while switching head chains"; "chain" => id, "reason" => ?remove_reason);
+                    if remove_reason.is_critical() {
+                        crit!(self.log, "Chain removed while switching head chains"; "chain" => id, "reason" => ?remove_reason);
+                    } else {
+                        error!(self.log, "Chain removed while switching head chains"; "chain" => id, "reason" => ?remove_reason);
+                    }
                 } else {
                     syncing_chains.push(id);
                 }
@@ -482,7 +491,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 debug_assert_eq!(chain.target_head_root, target_head_root);
                 debug_assert_eq!(chain.target_head_slot, target_head_slot);
                 if let Err(remove_reason) = chain.add_peer(network, peer) {
-                    debug!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                    if remove_reason.is_critical() {
+                        error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                    } else {
+                        error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                    }
                     let chain = entry.remove();
                     self.on_chain_removed(&id, chain.is_syncing());
                 }

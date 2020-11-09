@@ -91,6 +91,9 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
 
+    /// Batches validated by this chain.
+    validated_batches: u8,
+
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: Sender<BeaconWorkEvent<T::EthSpec>>,
 
@@ -140,6 +143,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             attempted_optimistic_starts: HashSet::default(),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
+            validated_batches: 0,
             beacon_processor_send,
             log: log.new(o!("chain" => id)),
         }
@@ -153,6 +157,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Get the chain's id.
     pub fn get_id(&self) -> ChainId {
         self.id
+    }
+
+    /// Peers currently syncing this chain.
+    pub fn peers<'a>(&'a self) -> impl Iterator<Item = PeerId> + 'a {
+        self.peers.keys().cloned()
+    }
+
+    /// Progress in epochs made by the chain
+    pub fn validated_epochs(&self) -> u64 {
+        self.validated_batches as u64 * EPOCHS_PER_BATCH
     }
 
     /// Removes a peer from the chain.
@@ -447,6 +461,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.advance_chain(network, batch_id);
                     // we register so that on chain switching we don't try it again
                     self.attempted_optimistic_starts.insert(batch_id);
+                    self.processing_target += EPOCHS_PER_BATCH;
                 } else if let Some(epoch) = self.optimistic_start {
                     // check if this batch corresponds to an optimistic batch. In this case, we
                     // reject it as an optimistic candidate since the batch was empty
@@ -456,10 +471,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                             false, /* do not re-request */
                             "batch was empty",
                         )?;
+                    } else {
+                        self.processing_target += EPOCHS_PER_BATCH;
                     }
                 }
-
-                self.processing_target += EPOCHS_PER_BATCH;
 
                 // check if the chain has completed syncing
                 if self.current_processed_slot() >= self.target_head_slot {
@@ -574,6 +589,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let removed_batches = std::mem::replace(&mut self.batches, remaining_batches);
 
         for (id, batch) in removed_batches.into_iter() {
+            self.validated_batches = self.validated_batches.saturating_add(1);
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
@@ -1024,6 +1040,7 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
         )?;
         serializer.emit_usize("batches", self.batches.len())?;
         serializer.emit_usize("peers", self.peers.len())?;
+        serializer.emit_u8("validated_batches", self.validated_batches)?;
         slog::Result::Ok(())
     }
 }
@@ -1037,7 +1054,7 @@ impl From<WrongBatchState> for RemoveChain {
 
 impl std::fmt::Debug for RemoveChain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // needed to avoid Debuggins Strings
+        // needed to avoid Debugging Strings
         match self {
             RemoveChain::ChainCompleted => f.write_str("ChainCompleted"),
             RemoveChain::EmptyPeerPool => f.write_str("EmptyPeerPool"),
@@ -1045,5 +1062,14 @@ impl std::fmt::Debug for RemoveChain {
             RemoveChain::WrongBatchState(reason) => write!(f, "WrongBatchState: {}", reason),
             RemoveChain::WrongChainState(reason) => write!(f, "WrongChainState: {}", reason),
         }
+    }
+}
+
+impl RemoveChain {
+    pub fn is_critical(&self) -> bool {
+        matches!(
+            self,
+            RemoveChain::WrongBatchState(..) | RemoveChain::WrongChainState(..)
+        )
     }
 }

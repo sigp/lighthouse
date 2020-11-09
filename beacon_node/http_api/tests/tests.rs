@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig,
@@ -35,7 +37,7 @@ const FINALIZED_EPOCH: u64 = 3;
 const TCP_PORT: u16 = 42;
 const UDP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
-const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0";
+const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// Skipping the slots around the epoch boundary allows us to check that we're obtaining states
 /// from skipped slots for the finalized and justified checkpoints (instead of the state from the
@@ -160,12 +162,11 @@ impl ApiTester {
             EXTERNAL_ADDR.parse().unwrap(),
             None,
         );
-        //TODO: have to update this once #1764 is resolved
-        if let Some(peer_info) = network_globals.peers.write().peer_info_mut(&peer_id) {
-            peer_info.listening_addresses = vec![EXTERNAL_ADDR.parse().unwrap()];
-        }
 
         *network_globals.sync_state.write() = SyncState::Synced;
+
+        let eth1_service =
+            eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
 
         let context = Arc::new(Context {
             config: Config {
@@ -177,6 +178,7 @@ impl ApiTester {
             chain: Some(chain.clone()),
             network_tx: Some(network_tx),
             network_globals: Some(Arc::new(network_globals)),
+            eth1_service: Some(eth1_service),
             log,
         });
         let ctx = context.clone();
@@ -1109,7 +1111,7 @@ impl ApiTester {
         let expected = PeerData {
             peer_id: self.external_peer_id.to_string(),
             enr: None,
-            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
+            address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
         };
@@ -1125,7 +1127,7 @@ impl ApiTester {
         let expected = PeerData {
             peer_id: self.external_peer_id.to_string(),
             enr: None,
-            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
+            address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
         };
@@ -1641,6 +1643,32 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_lighthouse_eth1_syncing(self) -> Self {
+        self.client.get_lighthouse_eth1_syncing().await.unwrap();
+
+        self
+    }
+
+    pub async fn test_get_lighthouse_eth1_block_cache(self) -> Self {
+        let blocks = self.client.get_lighthouse_eth1_block_cache().await.unwrap();
+
+        assert!(blocks.data.is_empty());
+
+        self
+    }
+
+    pub async fn test_get_lighthouse_eth1_deposit_cache(self) -> Self {
+        let deposits = self
+            .client
+            .get_lighthouse_eth1_deposit_cache()
+            .await
+            .unwrap();
+
+        assert!(deposits.data.is_empty());
+
+        self
+    }
+
     pub async fn test_get_lighthouse_beacon_states_ssz(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let result = self
@@ -1660,59 +1688,42 @@ impl ApiTester {
 }
 
 #[tokio::test(core_threads = 2)]
-async fn beacon_genesis() {
-    ApiTester::new().test_beacon_genesis().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_root() {
-    ApiTester::new().test_beacon_states_root().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_fork() {
-    ApiTester::new().test_beacon_states_fork().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_finality_checkpoints() {
+async fn beacon_get() {
     ApiTester::new()
+        .test_beacon_genesis()
+        .await
+        .test_beacon_states_root()
+        .await
+        .test_beacon_states_fork()
+        .await
         .test_beacon_states_finality_checkpoints()
-        .await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_validators() {
-    ApiTester::new().test_beacon_states_validators().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_committees() {
-    ApiTester::new().test_beacon_states_committees().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_states_validator_id() {
-    ApiTester::new().test_beacon_states_validator_id().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_headers() {
-    ApiTester::new()
+        .await
+        .test_beacon_states_validators()
+        .await
+        .test_beacon_states_committees()
+        .await
+        .test_beacon_states_validator_id()
+        .await
         .test_beacon_headers_all_slots()
         .await
         .test_beacon_headers_all_parents()
+        .await
+        .test_beacon_headers_block_id()
+        .await
+        .test_beacon_blocks()
+        .await
+        .test_beacon_blocks_attestations()
+        .await
+        .test_beacon_blocks_root()
+        .await
+        .test_get_beacon_pool_attestations()
+        .await
+        .test_get_beacon_pool_attester_slashings()
+        .await
+        .test_get_beacon_pool_proposer_slashings()
+        .await
+        .test_get_beacon_pool_voluntary_exits()
         .await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_headers_block_id() {
-    ApiTester::new().test_beacon_headers_block_id().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_blocks() {
-    ApiTester::new().test_beacon_blocks().await;
 }
 
 #[tokio::test(core_threads = 2)]
@@ -1723,29 +1734,6 @@ async fn post_beacon_blocks_valid() {
 #[tokio::test(core_threads = 2)]
 async fn post_beacon_blocks_invalid() {
     ApiTester::new().test_post_beacon_blocks_invalid().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_blocks_root() {
-    ApiTester::new().test_beacon_blocks_root().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_blocks_attestations() {
-    ApiTester::new().test_beacon_blocks_attestations().await;
-}
-
-#[tokio::test(core_threads = 2)]
-async fn beacon_pools_get() {
-    ApiTester::new()
-        .test_get_beacon_pool_attestations()
-        .await
-        .test_get_beacon_pool_attester_slashings()
-        .await
-        .test_get_beacon_pool_proposer_slashings()
-        .await
-        .test_get_beacon_pool_voluntary_exits()
-        .await;
 }
 
 #[tokio::test(core_threads = 2)]
@@ -1957,6 +1945,12 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_validator_inclusion()
         .await
         .test_get_lighthouse_validator_inclusion_global()
+        .await
+        .test_get_lighthouse_eth1_syncing()
+        .await
+        .test_get_lighthouse_eth1_block_cache()
+        .await
+        .test_get_lighthouse_eth1_deposit_cache()
         .await
         .test_get_lighthouse_beacon_states_ssz()
         .await;

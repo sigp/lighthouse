@@ -60,11 +60,12 @@ Examples where it is **ineffective** are:
 
 ## Import and Export
 
-Lighthouse supports v4 of the slashing protection interchange format described
+Lighthouse supports v5 of the slashing protection interchange format described
 [here][interchange-spec]. An interchange file is a record of all blocks and attestations
 signing by a set of validator keys – basically a portable slashing protection database!
 
-You can import a `.json` interchange file from another client using this command:
+With your validator client stopped, you can import a `.json` interchange file from another client
+using this command:
 
 ```bash
 lighthouse account validator slashing-protection import <my_interchange.json>
@@ -84,6 +85,8 @@ You can export Lighthouse's database for use with another client with this comma
 ```
 lighthouse account validator slashing-protection export <lighthouse_interchange.json>
 ```
+
+The validator client needs to be stopped in order to export.
 
 [interchange-spec]: https://hackmd.io/@sproul/Bk0Y0qdGD
 

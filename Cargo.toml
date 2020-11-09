@@ -63,10 +63,15 @@ members = [
     "lighthouse",
     "lighthouse/environment",
 
-    "testing/simulator",
+    "remote_signer",
+    "remote_signer/backend",
+    "remote_signer/client",
+
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/node_test_rig",
+    "testing/remote_signer_test",
+    "testing/simulator",
     "testing/state_transition_vectors",
 
     "validator_client",
