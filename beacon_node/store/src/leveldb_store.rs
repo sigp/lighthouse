@@ -1,6 +1,7 @@
 use super::*;
 use crate::metrics;
 use db_key::Key;
+use leveldb::compaction::Compaction;
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
@@ -151,6 +152,27 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 
     fn begin_rw_transaction(&self) -> MutexGuard<()> {
         self.transaction_mutex.lock()
+    }
+
+    /// Compact all values in the states and states flag columns.
+    fn compact(&self) -> Result<(), Error> {
+        let endpoints = |column: DBColumn| {
+            (
+                BytesKey::from_vec(get_key_for_col(column.as_str(), Hash256::zero().as_bytes())),
+                BytesKey::from_vec(get_key_for_col(
+                    column.as_str(),
+                    Hash256::repeat_byte(0xff).as_bytes(),
+                )),
+            )
+        };
+
+        for (start_key, end_key) in vec![
+            endpoints(DBColumn::BeaconStateTemporary),
+            endpoints(DBColumn::BeaconState),
+        ] {
+            self.db.compact(&start_key, &end_key);
+        }
+        Ok(())
     }
 }
 

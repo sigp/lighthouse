@@ -10,7 +10,8 @@ where
 {
     /// Clean up the database by performing one-off maintenance at start-up.
     pub fn remove_garbage(&self) -> Result<(), Error> {
-        self.delete_temp_states()
+        self.delete_temp_states()?;
+        Ok(())
     }
 
     /// Delete the temporary states that were leftover by failed block imports.
