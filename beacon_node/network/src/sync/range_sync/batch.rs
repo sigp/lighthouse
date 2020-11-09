@@ -114,7 +114,7 @@ impl<T: EthSpec> BatchInfo<T> {
         peers
     }
 
-    /// Verifies if an incomming block belongs to this batch.
+    /// Verifies if an incoming block belongs to this batch.
     pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &RequestId) -> bool {
         if let BatchState::Downloading(expected_peer, _, expected_id) = &self.state {
             return peer_id == expected_peer && expected_id == request_id;
@@ -279,7 +279,7 @@ impl<T: EthSpec> BatchInfo<T> {
             other => {
                 self.state = other;
                 Err(WrongState(format!(
-                    "Starting procesing batch in wrong state {:?}",
+                    "Starting processing batch in wrong state {:?}",
                     self.state
                 )))
             }
@@ -311,7 +311,7 @@ impl<T: EthSpec> BatchInfo<T> {
             other => {
                 self.state = other;
                 Err(WrongState(format!(
-                    "Procesing completed for batch in wrong state: {:?}",
+                    "Processing completed for batch in wrong state: {:?}",
                     self.state
                 )))
             }
