@@ -14,5 +14,5 @@ exec lighthouse \
 	vc \
 	--datadir $DATADIR \
 	--testnet-dir $TESTNET_DIR \
-	--init-slashing-protection
+	--init-slashing-protection \
 	--allow-unsynced
