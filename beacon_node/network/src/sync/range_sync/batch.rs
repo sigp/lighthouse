@@ -739,4 +739,13 @@ mod tests {
         }
         assert_eq!(true /* failed */, retry_batch(&mut batch).unwrap());
     }
+
+    #[test]
+    fn test_failed_batch_is_not_recoverable() {
+        let mut batch = batch_at_state(&Epoch::new(0), 3, BatchState::Failed);
+        assert!(batch
+            .start_downloading_from_peer(PeerId::random(), 10)
+            .is_err());
+        assert!(batch.state().is_failed());
+    }
 }
