@@ -281,7 +281,7 @@ mod tests {
             let config =
                 Eth2TestnetConfig::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
 
-            if net.name == "mainnet" {
+            if net.name == "mainnet" || net.name == "toledo" {
                 // Ensure we can parse the YAML config to a chain spec.
                 config
                     .yaml_config
