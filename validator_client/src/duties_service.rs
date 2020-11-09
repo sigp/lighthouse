@@ -106,6 +106,10 @@ impl DutyAndProof {
     pub fn validator_pubkey(&self) -> &PublicKey {
         &self.duty.validator_pubkey
     }
+
+    pub fn validator_index(&self) -> Option<u64> {
+        self.duty.validator_index
+    }
 }
 
 impl Into<DutyAndProof> for ValidatorDuty {
@@ -227,6 +231,14 @@ impl DutiesStore {
             })
             .cloned()
             .collect()
+    }
+
+    fn get_index(&self, pubkey: &PublicKey, epoch: Epoch) -> Option<u64> {
+        self.store
+            .read()
+            .get(pubkey)?
+            .get(&epoch)?
+            .validator_index()
     }
 
     fn is_aggregator(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<bool> {
@@ -588,29 +600,42 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let mut replaced = 0;
         let mut invalid = 0;
 
-        let mut validator_subscriptions = vec![];
-        for pubkey in self.validator_store.voting_pubkeys() {
-            let remote_duties = match ValidatorDuty::download(
-                &self.beacon_node,
-                current_epoch,
-                request_epoch,
-                pubkey,
-            )
-            .await
-            {
-                Ok(duties) => duties,
-                Err(e) => {
-                    error!(
-                        log,
-                        "Failed to download validator duties";
-                        "error" => e
-                    );
-                    continue;
-                }
-            };
+        // Determine which pubkeys we already know the index of by checking the duties store for
+        // the current epoch.
+        let pubkeys: Vec<(PublicKey, Option<u64>)> = self
+            .validator_store
+            .voting_pubkeys()
+            .into_iter()
+            .map(|pubkey| {
+                let index = self.store.get_index(&pubkey, current_epoch);
+                (pubkey, index)
+            })
+            .collect();
 
+        let mut validator_subscriptions = vec![];
+        let remote_duties: Vec<ValidatorDuty> = match ValidatorDuty::download(
+            &self.beacon_node,
+            current_epoch,
+            request_epoch,
+            pubkeys,
+            &log,
+        )
+        .await
+        {
+            Ok(duties) => duties,
+            Err(e) => {
+                error!(
+                    log,
+                    "Failed to download validator duties";
+                    "error" => e
+                );
+                vec![]
+            }
+        };
+
+        remote_duties.iter().for_each(|remote_duty| {
             // Convert the remote duties into our local representation.
-            let duties: DutyAndProof = remote_duties.clone().into();
+            let duties: DutyAndProof = remote_duty.clone().into();
 
             let validator_pubkey = duties.duty.validator_pubkey.clone();
 
@@ -628,9 +653,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                             debug!(
                                 log,
                                 "First duty assignment for validator";
-                                "proposal_slots" => format!("{:?}", &remote_duties.block_proposal_slots),
-                                "attestation_slot" => format!("{:?}", &remote_duties.attestation_slot),
-                                "validator" => format!("{:?}", &remote_duties.validator_pubkey)
+                                "proposal_slots" => format!("{:?}", &remote_duty.block_proposal_slots),
+                                "attestation_slot" => format!("{:?}", &remote_duty.attestation_slot),
+                                "validator" => format!("{:?}", &remote_duty.validator_pubkey)
                             );
                             new_validator += 1;
                         }
@@ -642,10 +667,10 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     }
 
                     if let Some(is_aggregator) =
-                        self.store.is_aggregator(&validator_pubkey, request_epoch)
+                    self.store.is_aggregator(&validator_pubkey, request_epoch)
                     {
                         if outcome.is_subscription_candidate() {
-                            if let Some(subscription) = remote_duties.subscription(is_aggregator) {
+                            if let Some(subscription) = remote_duty.subscription(is_aggregator) {
                                 validator_subscriptions.push(subscription)
                             }
                         }
@@ -657,7 +682,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     "error" => e
                 ),
             }
-        }
+        });
 
         if invalid > 0 {
             error!(

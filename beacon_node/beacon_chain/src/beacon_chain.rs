@@ -984,9 +984,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - `VerifiedUnaggregatedAttestation`
     /// - `VerifiedAggregatedAttestation`
-    pub fn apply_attestation_to_fork_choice<'a>(
+    pub fn apply_attestation_to_fork_choice(
         &self,
-        verified: &'a impl SignatureVerifiedAttestation<T>,
+        verified: &impl SignatureVerifiedAttestation<T>,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
