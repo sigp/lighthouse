@@ -748,4 +748,38 @@ mod tests {
             .is_err());
         assert!(batch.state().is_failed());
     }
+
+    #[test]
+    fn test_failed_peers() {
+        let mut batch = BatchInfo::<E>::new(&Epoch::new(0), 2);
+        let expected_failed_peers = vec![PeerId::random(), PeerId::random(), PeerId::random()];
+
+        // fail the download for the first peer
+        batch
+            .start_downloading_from_peer(expected_failed_peers[0].clone(), 1)
+            .unwrap();
+        batch.download_failed().unwrap();
+
+        // fail processing for the second peer
+        batch
+            .start_downloading_from_peer(expected_failed_peers[1].clone(), 1)
+            .unwrap();
+        batch.download_completed().unwrap();
+        let _blocks_to_process = batch.start_processing().unwrap();
+        batch.processing_completed(false).unwrap();
+
+        // fail validation for the third peer
+        batch
+            .start_downloading_from_peer(expected_failed_peers[2].clone(), 1)
+            .unwrap();
+        batch.download_completed().unwrap();
+        let _blocks_to_process = batch.start_processing().unwrap();
+        batch.processing_completed(true).unwrap();
+        batch.validation_failed().unwrap();
+
+        let failed_peers = batch.failed_peers();
+        for peer in expected_failed_peers {
+            assert!(failed_peers.contains(&peer));
+        }
+    }
 }
