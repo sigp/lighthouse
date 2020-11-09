@@ -1742,14 +1742,14 @@ pub fn serve<T: BeaconChainTypes>(
                             Err(AttnError::AttestationAlreadyKnown(_)) => continue,
                             Err(e) => {
                                 error!(log,
-                                    "failure verifying aggregate and proofs";
+                                    "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
                                     "aggregator_index" => aggregate.message.aggregator_index,
                                     "attestation_index" => aggregate.message.aggregate.data.index,
                                     "attestation_slot" => aggregate.message.aggregate.data.slot,
                                 );
-                                failures.push(api_types::Failure::new(index, format!("{:?}", e)));
+                                failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
                             },
                         }
                     }
@@ -1763,22 +1763,22 @@ pub fn serve<T: BeaconChainTypes>(
                     for (index, verified_aggregate) in verified_aggregates {
                         if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
                             error!(log,
-                                    "failure applying verified aggregate attestation to fork choice";
+                                    "Failure applying verified aggregate attestation to fork choice";
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
                                     "aggregator_index" => verified_aggregate.aggregate().message.aggregator_index,
                                     "attestation_index" => verified_aggregate.attestation().data.index,
                                     "attestation_slot" => verified_aggregate.attestation().data.slot,
                                 );
-                            failures.push(api_types::Failure::new(index, format!("{:?}", e)));
+                            failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
                         if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
                             warn!(log,
-                                    "could not add verified aggregate attestation to the inclusion pool";
+                                    "Could not add verified aggregate attestation to the inclusion pool";
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
                                 );
-                            failures.push(api_types::Failure::new(index, format!("{:?}", e)));
+                            failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
                         }
                     }
 
