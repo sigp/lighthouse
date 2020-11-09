@@ -244,10 +244,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives an iterator of all peers on a given subnet.
-    pub fn peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
+    pub fn good_peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(move |(_, info)| info.is_connected() && info.on_subnet(subnet_id))
+            .filter(move |(_, info)| {
+                info.is_connected() && info.on_subnet(subnet_id) && info.is_good_gossipsub_peer()
+            })
             .map(|(peer_id, _)| peer_id)
     }
 

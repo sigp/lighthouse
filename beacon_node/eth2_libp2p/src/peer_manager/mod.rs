@@ -29,12 +29,12 @@ mod peer_sync_status;
 mod peerdb;
 pub(crate) mod score;
 
+use libp2p::gossipsub::TopicHash;
 pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ScoreState};
-use std::collections::HashMap;
 use std::cmp::Ordering;
-use libp2p::gossipsub::TopicHash;
+use std::collections::HashMap;
 
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
@@ -246,7 +246,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .network_globals
                     .peers
                     .read()
-                    .peers_on_subnet(s.subnet_id)
+                    .good_peers_on_subnet(s.subnet_id)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     debug!(
@@ -528,16 +528,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     pub(crate) fn update_gossipsub_scores(&mut self, gossipsub: &Gossipsub) {
         //collect peers with scores
-        let mut guard = self
-            .network_globals
-            .peers
-            .write();
+        let mut guard = self.network_globals.peers.write();
         let mut peers: Vec<_> = guard
             .peers_mut()
             .filter_map(|(peer_id, info)| {
-                gossipsub.peer_score(peer_id).map(|score| {
-                    (peer_id, info, score)
-                })
+                gossipsub
+                    .peer_score(peer_id)
+                    .map(|score| (peer_id, info, score))
             })
             .collect();
 
@@ -545,10 +542,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         peers.sort_unstable_by(|(.., s1), (.., s2)| s2.partial_cmp(s1).unwrap_or(Ordering::Equal));
 
         //check if we are in emergency mode (if a topic has too few non-negative peers)
-        let mut non_negative_peers: HashMap<TopicHash, usize> = gossipsub
-            .topics()
-            .map(|t| (t.clone(), 0))
-            .collect();
+        let mut non_negative_peers: HashMap<TopicHash, usize> =
+            gossipsub.topics().map(|t| (t.clone(), 0)).collect();
         for (id, _, score) in &peers {
             if *score < 0.0 {
                 break;
@@ -568,23 +563,27 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .into_iter()
             .any(|c| *c < TARGET_SUBNET_PEERS);
 
-
         let mut ignored_negative_peer_count = 0;
         for (_, info, score) in peers {
-            info.update_gossipsub_score(if score < 0.0 {
-                if emergency_mode {
+            info.update_gossipsub_score(
+                if emergency_mode && score < 0.0 {
                     score * EMERGENCY_FACTOR
-                } else if (ignored_negative_peer_count as f32) <
-                    self.target_peers as f32 * ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR {
-                    ignored_negative_peer_count += 1;
-                    0.0  // We ignore the negative score for the best 5 negative peers so that their
-                         // gossipsub score can recover without getting disconnected.
                 } else {
                     score
-                }
-            } else {
-                score
-            });
+                },
+                if !emergency_mode
+                    && score < 0.0
+                    && (ignored_negative_peer_count as f32)
+                        < self.target_peers as f32 * ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR
+                {
+                    ignored_negative_peer_count += 1;
+                    // We ignore the negative score for the best 5 negative peers so that their
+                    // gossipsub score can recover without getting disconnected.
+                    true
+                } else {
+                    false
+                },
+            );
         }
     }
 

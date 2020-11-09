@@ -632,7 +632,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     .network_globals
                     .peers
                     .read()
-                    .peers_on_subnet(subnet_query.subnet_id)
+                    .good_peers_on_subnet(subnet_query.subnet_id)
                     .count();
 
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {

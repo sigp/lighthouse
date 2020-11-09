@@ -130,8 +130,12 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    pub(crate) fn update_gossipsub_score(&mut self, new_score: f64) {
-        self.score.update_gossipsub_score(new_score);
+    pub(crate) fn update_gossipsub_score(&mut self, new_score: f64, ignore: bool) {
+        self.score.update_gossipsub_score(new_score, ignore);
+    }
+
+    pub fn is_good_gossipsub_peer(&self) -> bool {
+        self.score.is_good_gossipsub_peer()
     }
 
     #[cfg(test)]

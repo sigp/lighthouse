@@ -107,6 +107,9 @@ pub struct RealScore {
     // lighthouse.
     lighthouse_score: f64,
     gossipsub_score: f64,
+    /// We ignore the negative gossipsub scores of some peers to allow decaying without
+    /// disconnecting.
+    ignore_negative_gossipsub_score: bool,
     score: f64,
     /// The time the score was last updated to perform time-based adjustments such as score-decay.
     #[serde(skip)]
@@ -120,6 +123,7 @@ impl Default for RealScore {
             gossipsub_score: DEFAULT_SCORE,
             score: DEFAULT_SCORE,
             last_updated: Instant::now(),
+            ignore_negative_gossipsub_score: false,
         }
     }
 }
@@ -127,13 +131,12 @@ impl Default for RealScore {
 impl RealScore {
     /// Access to the underlying score.
     fn recompuete_score(&mut self) {
-        self.score = self.lighthouse_score
-            + self.gossipsub_score
-                * if self.gossipsub_score > 0.0 {
-                    GOSSIPSUB_POSITIVE_SCORE_WEIGHT
-                } else {
-                    GOSSIPSUB_NEGATIVE_SCORE_WEIGHT
-                };
+        self.score = self.lighthouse_score;
+        if self.gossipsub_score >= 0.0 {
+            self.score += self.gossipsub_score * GOSSIPSUB_POSITIVE_SCORE_WEIGHT;
+        } else if !self.ignore_negative_gossipsub_score {
+            self.score += self.gossipsub_score * GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
+        }
     }
 
     fn score(&self) -> f64 {
@@ -214,13 +217,18 @@ impl RealScore {
         }
     }
 
-    pub fn update_gossipsub_score(&mut self, new_score: f64) {
+    pub fn update_gossipsub_score(&mut self, new_score: f64, ignore: bool) {
         // we only update gossipsub if last_updated is in the past which means either the peer is
         // not banned or the BANNED_BEFORE_DECAY time is over.
         if self.last_updated <= Instant::now() {
             self.gossipsub_score = new_score;
+            self.ignore_negative_gossipsub_score = ignore;
             self.update_state();
         }
+    }
+
+    pub fn is_good_gossipsub_peer(&self) -> bool {
+        self.gossipsub_score >= 0.0
     }
 }
 
@@ -253,7 +261,7 @@ macro_rules! apply {
 apply!(apply_peer_action, peer_action: PeerAction);
 apply!(add, delta: f64);
 apply!(update);
-apply!(update_gossipsub_score, new_score: f64);
+apply!(update_gossipsub_score, new_score: f64, ignore: bool);
 #[cfg(test)]
 apply!(test_add, score: f64);
 #[cfg(test)]
@@ -277,6 +285,13 @@ impl Score {
             x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Banned,
             x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnected,
             _ => ScoreState::Healthy,
+        }
+    }
+
+    pub fn is_good_gossipsub_peer(&self) -> bool {
+        match self {
+            Self::Max => true,
+            Self::Real(score) => score.is_good_gossipsub_peer(),
         }
     }
 }
