@@ -9,13 +9,13 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
-use bus::Bus;
+
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
-use parking_lot::Mutex;
+
 use slog::{debug, info};
 use ssz::Decode;
 use std::net::SocketAddr;
@@ -24,10 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::mpsc::UnboundedSender;
-use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
-    SignedBeaconBlockHash,
-};
+use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// Interval between polling the eth1 node for genesis information.
@@ -459,7 +456,7 @@ where
             .service_context("ws".into());
 
         let log = context.log().clone();
-        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
+        let (_sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
             let (sender, listening_addr) =
                 websocket_server::start_server(context.executor, &config)?;
             (sender, Some(listening_addr))

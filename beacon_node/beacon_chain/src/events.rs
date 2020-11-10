@@ -1,15 +1,11 @@
-use bus::Bus;
-use eth2::types::{EventTopic, SseBlock, SseFinalizedCheckpoint, SseState};
-use parking_lot::Mutex;
+use eth2::types::{SseBlock, SseFinalizedCheckpoint, SseState};
 use serde_derive::{Deserialize, Serialize};
-use slog::{error, info, Logger};
+use slog::Logger;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender};
 use types::{
-    Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockHash,
-    SignedVoluntaryExit, Slot,
+    Attestation, EthSpec, SignedVoluntaryExit,
 };
 pub use websocket_server::WebSocketSender;
 
@@ -71,27 +67,27 @@ impl<T: EthSpec> EventHandler<T> for ServerSentEventHandler<T> {
                 .attestation_tx
                 .send(EventKind::Attestation(attestation))
                 .map(|_| Ok(()))
-                .map_err(|e| format!(""))?,
+                .map_err(|_e| format!(""))?,
             EventKind::Block(block) => self
                 .block_tx
                 .send(EventKind::Block(block))
                 .map(|_| Ok(()))
-                .map_err(|e| format!(""))?,
+                .map_err(|_e| format!(""))?,
             EventKind::FinalizedCheckpoint(checkpoint) => self
                 .finalized_tx
                 .send(EventKind::FinalizedCheckpoint(checkpoint))
                 .map(|_| Ok(()))
-                .map_err(|e| format!(""))?,
+                .map_err(|_e| format!(""))?,
             EventKind::State(state) => self
                 .state_tx
                 .send(EventKind::State(state))
                 .map(|_| Ok(()))
-                .map_err(|e| format!(""))?,
+                .map_err(|_e| format!(""))?,
             EventKind::VoluntaryExit(exit) => self
                 .exit_tx
                 .send(EventKind::VoluntaryExit(exit))
                 .map(|_| Ok(()))
-                .map_err(|e| format!(""))?,
+                .map_err(|_e| format!(""))?,
         }
     }
 

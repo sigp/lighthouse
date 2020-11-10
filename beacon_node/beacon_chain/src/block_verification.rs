@@ -47,7 +47,8 @@ use crate::{
         BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    events::EventHandler, metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
+    events::EventHandler,
+    metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
 };
 use eth2::types::SseBlock;
 use fork_choice::{ForkChoice, ForkChoiceStore};

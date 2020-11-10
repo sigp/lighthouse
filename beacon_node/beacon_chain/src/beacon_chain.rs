@@ -27,7 +27,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{SseBlock, SseFinalizedCheckpoint, SseState};
+use eth2::types::{SseFinalizedCheckpoint, SseState};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -966,18 +966,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
     ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
-
         // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
-        self.event_handler.register(EventKind::Attestation(unaggregated_attestation.clone()));
+        self.event_handler
+            .register(EventKind::Attestation(unaggregated_attestation.clone()));
 
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).map(|v| {
-            metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-            v
-        })
+        VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).map(
+            |v| {
+                metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+                v
+            },
+        )
     }
 
     /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
@@ -986,9 +988,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
-
         // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-        self.event_handler.register(EventKind::Attestation(signed_aggregate.message.aggregate.clone()));
+        self.event_handler.register(EventKind::Attestation(
+            signed_aggregate.message.aggregate.clone(),
+        ));
 
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
@@ -1179,9 +1182,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         exit: SignedVoluntaryExit,
     ) -> Result<ObservationOutcome<SignedVoluntaryExit>, Error> {
-
         // this method is called for both API and gossip exits, so this covers all exit events
-        self.event_handler.register(EventKind::VoluntaryExit(exit.clone()));
+        self.event_handler
+            .register(EventKind::VoluntaryExit(exit.clone()));
 
         // NOTE: this could be more efficient if it avoided cloning the head state
         let wall_clock_state = self.wall_clock_state()?;

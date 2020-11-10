@@ -34,11 +34,11 @@ use state_id::StateId;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
 use std::convert::TryInto;
-use std::fmt::Display;
+
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::stream::{self, StreamExt, StreamMap};
+use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
@@ -292,18 +292,6 @@ pub fn serve<T: BeaconChainTypes>(
                     )),
                 }
             });
-
-    // let event_handler_filter =
-    //     warp::any()
-    //         .map(move || inner_ctx.chain.map(|chain|chain.event_handler).clone())
-    //         .and_then(|event_handler| async move {
-    //             match event_handler {
-    //                 Some(event_handler) => Ok(event_handler),
-    //                 None => Err(warp_utils::reject::custom_not_found(
-    //                     "Beacon chain genesis has not yet been observed.".to_string(),
-    //                 )),
-    //             }
-    //         });
 
     // Create a `warp` filter that provides access to the network sender channel.
     let inner_ctx = ctx.clone();
@@ -787,11 +775,13 @@ pub fn serve<T: BeaconChainTypes>(
                     )?;
 
                     // send an event to the `events` endpoint before verification
-                    chain.event_handler.register(EventKind::Block(api_types::SseBlock{
-                        slot: block.message.slot,
-                        //TODO: is there a better way to get the block root?
-                        block: block.canonical_root(),
-                    }));
+                    chain
+                        .event_handler
+                        .register(EventKind::Block(api_types::SseBlock {
+                            slot: block.message.slot,
+                            //TODO: is there a better way to get the block root?
+                            block: block.canonical_root(),
+                        }));
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
