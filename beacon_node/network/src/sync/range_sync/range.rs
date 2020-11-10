@@ -331,7 +331,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
     fn on_chain_removed(
         &mut self,
-        chain: SyncingChain<T>,
+        chain: SyncingChain<T::EthSpec>,
         sync_type: RangeSyncType,
         remove_reason: RemoveChain,
         network: &mut SyncNetworkContext<T::EthSpec>,
