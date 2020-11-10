@@ -371,6 +371,7 @@ mod tests {
         let mut score = Score::default();
         score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD, false);
         assert!(!score.is_good_gossipsub_peer());
+        assert!(score.score() < 0.0);
         assert_eq!(score.state(), ScoreState::Healthy);
         score.add(-1.0001);
         assert_eq!(score.state(), ScoreState::Disconnected);
@@ -380,7 +381,7 @@ mod tests {
     fn test_ignored_gossipsub_score() {
         let mut score = Score::default();
         score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD, true);
-        assert!(score.is_good_gossipsub_peer());
+        assert!(!score.is_good_gossipsub_peer());
         assert_eq!(score.score(), 0.0);
     }
 }
