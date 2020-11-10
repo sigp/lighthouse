@@ -1066,10 +1066,12 @@ mod tests {
     use super::*;
     // use eth2_libp2p::rpc::methods::BlocksByRangeRequest;
     // use eth2_libp2p::PeerId;
-    use types::{BeaconBlock, Epoch, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock, Slot};
+    // use types::{BeaconBlock, Epoch, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock, Slot};
+    use types::{MinimalEthSpec, Slot};
+    // use slog::{o, Drain};
     // use super::batch::{BatchInfo, BatchState};
     // use crate::beacon_processor::ProcessId;
-    // use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+    use crate::beacon_processor::WorkEvent;
     // use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
     // use eth2_libp2p::{PeerAction, PeerId};
     // use fnv::FnvHashMap;
@@ -1077,10 +1079,35 @@ mod tests {
     // use slog::{crit, debug, o, warn};
     // use std::collections::{btree_map::Entry, BTreeMap, HashSet};
     // use std::hash::{Hash, Hasher};
-    // use tokio::sync::mpsc::Sender;
+    use sloggers::{null::NullLoggerBuilder, Build};
+    use tokio::sync::mpsc;
     // use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
     type E = MinimalEthSpec;
+
+    /* helper functions */
+
+    fn test_setup(
+        target_slot: Slot,
+    ) -> (
+        mpsc::Receiver<WorkEvent<E>>, /* beacon work receiver */
+        SyncingChain<E>,
+    ) {
+        let (tx, rx) = mpsc::channel(5);
+        let target_root = Hash256::random();
+        let log = NullLoggerBuilder.build().expect("logger should build");
+
+        let chain = SyncingChain::new(
+            Epoch::new(1),
+            target_slot,
+            target_root,
+            PeerId::random(),
+            tx,
+            &log,
+        );
+
+        (rx, chain)
+    }
 
     /* Invariants */
 
@@ -1120,5 +1147,27 @@ mod tests {
                 )),
             "batches in the download buffer are not already processed"
         );
+    }
+
+    fn verify_invariants(chain: &SyncingChain<E>) {
+        download_buffer_is_bounded_and_not_processed(chain);
+        before_download_buffer_is_awaiting_validation(chain);
+    }
+
+    /* Tests! */
+
+    #[test]
+    fn test_chain_ids() {
+        let (_, chain) = test_setup(Slot::new(1));
+        assert_eq!(
+            SyncingChain::<E>::id(&chain.target_head_root, &chain.target_head_slot),
+            chain.id
+        );
+    }
+
+    #[test]
+    fn test_new_chain() {
+        let (_, chain) = test_setup(Slot::new(1));
+        verify_invariants(&chain);
     }
 }
