@@ -11,7 +11,11 @@ mod metrics;
 mod state_id;
 mod validator_inclusion;
 
-use beacon_chain::{observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes, EventHandler};
+use beacon_chain::events::EventKind;
+use beacon_chain::{
+    observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
+    BeaconChainError, BeaconChainTypes, EventHandler,
+};
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
 use eth2::{
@@ -30,21 +34,21 @@ use state_id::StateId;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
 use std::convert::TryInto;
+use std::fmt::Display;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
+use tokio::stream::{self, StreamExt, StreamMap};
+use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
     Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
+use warp::sse::ServerSentEvent;
 use warp::{http::Response, Filter, Stream};
 use warp_utils::task::{blocking_json_task, blocking_task};
-use beacon_chain::events::EventKind;
-use warp::sse::ServerSentEvent;
-use tokio::sync::broadcast::Receiver;
-use futures::StreamExt;
 
 const API_PREFIX: &str = "eth";
 const API_VERSION: &str = "v1";
@@ -781,6 +785,13 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         PubsubMessage::BeaconBlock(Box::new(block.clone())),
                     )?;
+
+                    // send an event to the `events` endpoint before verification
+                    chain.event_handler.register(EventKind::Block(api_types::SseBlock{
+                        slot: block.message.slot,
+                        //TODO: is there a better way to get the block root?
+                        block: block.canonical_root(),
+                    }));
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
@@ -1931,35 +1942,14 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-
-    // fn sse_events() -> impl Stream<Item = Result<impl ServerSentEvent, Infallible>> {
-    //     iter(vec![
-    //         Ok(warp::sse::data("unnamed event").into_a()),
-    //         Ok((
-    //             warp::sse::event("chat"),
-    //             warp::sse::data("chat message"),
-    //         ).into_a().into_b()),
-    //         Ok((
-    //             warp::sse::id(13),
-    //             warp::sse::event("chat"),
-    //             warp::sse::data("other chat message\nwith next line"),
-    //             warp::sse::retry(Duration::from_millis(5000)),
-    //         ).into_b().into_b()),
-    //     ])
-    // }
-
-    fn stream_test<T: EthSpec>(rx: Receiver<EventKind<T>>) -> impl Stream<Item = Result<impl ServerSentEvent + Send + 'static, warp::Error>> + Send + 'static
+    fn merge_streams<T: EthSpec>(
+        stream_map: StreamMap<String, Receiver<EventKind<T>>>,
+    ) -> impl Stream<Item = Result<impl ServerSentEvent + Send + 'static, warp::Error>> + Send + 'static
     {
-
         // Convert messages into Server-Sent Events and return resulting stream.
-        rx.map(|msg| match msg {
-            Ok(EventKind::Head{
-                slot,
-                block,
-                state,
-                epoch_transition,
-            }) => Ok((warp::sse::event("head"), warp::sse::data(block)).into_a()),
-            _ => Ok(warp::sse::data("test".to_string()).into_b()),
+        stream_map.map(move |(topic_name, msg)| match msg {
+            Ok(data) => Ok((warp::sse::event(topic_name.clone()), warp::sse::json(data)).into_a()),
+            _ => Ok(warp::sse::json("test".to_string()).into_b()),
         })
     }
 
@@ -1967,20 +1957,38 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::EventQuery>())
         .and(chain_filter)
-        // what filters do i need
-        .and_then(|topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>|{
-            blocking_task(move || {
-                // for each topic subscribed..
-                // spawn a new subscription
-                match topics.topics.0.get(0) {
-                    Some(_) => {
-                        let stream = stream_test::<T::EthSpec>(chain.event_handler.subscribe());
-                        Ok(warp::sse::reply(warp::sse::keep_alive().stream(stream)))
-                    },
-                    _ => Err(warp_utils::reject::custom_server_error(format!("test custom server error"))),
-                }
-            })
-        });
+        .and_then(
+            |topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>| {
+                blocking_task(move || {
+                    // for each topic subscribed spawn a new subscription
+                    let mut stream_map = StreamMap::with_capacity(topics.topics.0.len());
+
+                    for topic in topics.topics.0.clone() {
+                        let receiver = match topic {
+                            api_types::EventTopic::State => chain.event_handler.subscribe_state(),
+                            api_types::EventTopic::Block => chain.event_handler.subscribe_block(),
+                            api_types::EventTopic::Attestation => {
+                                chain.event_handler.subscribe_attestation()
+                            }
+                            api_types::EventTopic::VoluntaryExit => {
+                                chain.event_handler.subscribe_exit()
+                            }
+                            api_types::EventTopic::FinalizedCheckpoint => {
+                                chain.event_handler.subscribe_finalized()
+                            }
+                        };
+                        stream_map.insert(topic.to_string(), receiver);
+                    }
+                    let stream = merge_streams(stream_map);
+
+                    Ok::<_, warp::Rejection>(warp::sse::reply(
+                        warp::sse::keep_alive().stream(stream),
+                    ))
+
+                    // _ => Err(warp_utils::reject::custom_server_error(format!("test custom server error"))),
+                })
+            },
+        );
 
     // Define the ultimate set of routes that will be provided to the server.
     let routes = warp::get()

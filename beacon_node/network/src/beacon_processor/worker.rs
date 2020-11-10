@@ -3,9 +3,10 @@ use super::{
     BlockResultSender,
 };
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
+use beacon_chain::events::EventKind;
 use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, EventHandler, ForkChoiceError,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};

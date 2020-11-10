@@ -1,7 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
-use beacon_chain::events::TeeEventHandler;
+use beacon_chain::events::ServerSentEventHandler;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -437,7 +437,7 @@ impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
             TSlotClock,
             TEth1Backend,
             TEthSpec,
-            TeeEventHandler<TEthSpec>,
+            ServerSentEventHandler<TEthSpec>,
             THotStore,
             TColdStore,
         >,
@@ -450,15 +450,12 @@ where
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
     #[allow(clippy::type_complexity)]
-    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
-    pub fn tee_event_handler(
-        mut self,
-        config: WebSocketConfig,
-    ) -> Result<Self, String> {
+    /// Specifies that the `BeaconChain` should publish server sent events on the HTTP server.
+    pub fn server_sent_event_handler(mut self, config: WebSocketConfig) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "tee_event_handler requires a runtime_context")?
+            .ok_or_else(|| "server_sent_event_handler requires a runtime_context")?
             .service_context("ws".into());
 
         let log = context.log().clone();
@@ -471,8 +468,8 @@ where
         };
 
         self.websocket_listen_addr = listening_addr;
-        let tee_event_handler = TeeEventHandler::new(log, sender);
-        self.event_handler = Some(tee_event_handler);
+        let event_handler = ServerSentEventHandler::new(log);
+        self.event_handler = Some(event_handler);
         Ok(self)
     }
 }

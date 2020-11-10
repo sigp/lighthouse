@@ -517,19 +517,18 @@ impl FromStr for PeerState {
 }
 
 #[derive(Clone, Deserialize)]
-pub struct EventQuery{
+pub struct EventQuery {
     pub topics: QueryVec<EventTopic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventTopic {
-    Head,
+    State,
     Block,
     Attestation,
     VoluntaryExit,
     FinalizedCheckpoint,
-    ChainReorg,
 }
 
 impl FromStr for EventTopic {
@@ -537,17 +536,27 @@ impl FromStr for EventTopic {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "head" => Ok(EventTopic::Head),
-                "block" => Ok(EventTopic::Block),
+            "state" => Ok(EventTopic::State),
+            "block" => Ok(EventTopic::Block),
             "attestation" => Ok(EventTopic::Attestation),
-                "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
+            "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
-                "chain_reorg" => Ok(EventTopic::ChainReorg),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
 }
 
+impl fmt::Display for EventTopic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EventTopic::State => write!(f, "state"),
+            EventTopic::Block => write!(f, "block"),
+            EventTopic::Attestation => write!(f, "attestation"),
+            EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
+            EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -575,6 +584,32 @@ impl FromStr for PeerDirection {
             _ => Err("peer direction cannot be parsed.".to_string()),
         }
     }
+}
+
+// --------- Server Sent Event Types -----------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SseBlock {
+    pub slot: Slot,
+    pub block: Hash256,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SseFinalizedCheckpoint {
+    pub block: Hash256,
+    pub state: Hash256,
+    pub epoch: Epoch,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SseState {
+    pub slot: Slot,
+    pub block: Hash256,
+    pub state: Hash256,
+    pub distance: Slot,
+    pub epoch_transition: bool,
+    pub reorg: bool,
+    pub reorg_distance: Slot,
 }
 
 #[cfg(test)]

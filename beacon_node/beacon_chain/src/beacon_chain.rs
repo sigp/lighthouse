@@ -27,6 +27,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
+use eth2::types::{SseBlock, SseFinalizedCheckpoint, SseState};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -401,6 +402,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         process_results(self.rev_iter_block_roots_from(block_root)?, |mut iter| {
             iter.find(|(_, ancestor_slot)| *ancestor_slot == slot)
                 .map(|(ancestor_block_root, _)| ancestor_block_root)
+        })
+    }
+
+    /// Find the slot block root
+    pub fn find_reorg_slot(&self, state: &BeaconState<T::EthSpec>) -> Result<Option<Slot>, Error> {
+        process_results(self.rev_iter_block_roots()?, |mut iter| {
+            iter.find(|(ancestor_block_root, slot)| {
+                *ancestor_block_root
+                    == state
+                        .get_block_root(*slot)
+                        .map(|root| *root)
+                        .unwrap_or_else(|_| Hash256::random())
+            })
+            .map(|(_, ancestor_slot)| ancestor_slot)
         })
     }
 
@@ -948,14 +963,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// aggregation bit set.
     pub fn verify_unaggregated_attestation_for_gossip(
         &self,
-        attestation: Attestation<T::EthSpec>,
+        unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
     ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+
+        // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
+        self.event_handler.register(EventKind::Attestation(unaggregated_attestation.clone()));
+
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedUnaggregatedAttestation::verify(attestation, subnet_id, self).map(|v| {
+        VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).map(|v| {
             metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
             v
         })
@@ -967,6 +986,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
+
+        // This method is called for API and gossip attestations, so this covers all aggregated attestation events
+        self.event_handler.register(EventKind::Attestation(signed_aggregate.message.aggregate.clone()));
+
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -1156,6 +1179,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         exit: SignedVoluntaryExit,
     ) -> Result<ObservationOutcome<SignedVoluntaryExit>, Error> {
+
+        // this method is called for both API and gossip exits, so this covers all exit events
+        self.event_handler.register(EventKind::VoluntaryExit(exit.clone()));
+
         // NOTE: this could be more efficient if it avoided cloning the head state
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self
@@ -1444,11 +1471,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Increment the Prometheus counter for block processing successes.
                 metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
 
-                let _ = self.event_handler.register(EventKind::BeaconBlockImported {
-                    block_root,
-                    block: Box::new(block),
-                });
-
                 Ok(block_root)
             }
             // There was an error whilst attempting to verify and import the block. The block might
@@ -1459,12 +1481,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Beacon block processing error";
                     "error" => format!("{:?}", e),
                 );
-
-                let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
-                    reason: format!("Internal error: {:?}", e),
-                    block: Box::new(block),
-                });
-
                 Err(BlockError::BeaconChainError(e))
             }
             // The block failed verification.
@@ -1474,12 +1490,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Beacon block rejected";
                     "reason" => other.to_string(),
                 );
-
-                let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
-                    reason: format!("Invalid block: {}", other),
-                    block: Box::new(block),
-                });
-
                 Err(other)
             }
         }
@@ -1582,7 +1592,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                     crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
                     shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
-                        .map_err(|err|BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?;
+                        .map_err(|err| BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?;
                     return Err(BlockError::WeakSubjectivityConflict);
                 }
             }
@@ -1900,8 +1910,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .get_block_root(current_head.slot)
                 .map(|root| *root)
                 .unwrap_or_else(|_| Hash256::random());
+        let mut reorg_distance = Slot::new(0);
 
         if is_reorg {
+            //calculate distance
+            match self.find_reorg_slot(&new_head.beacon_state) {
+                Ok(Some(slot)) => reorg_distance = current_head.slot - slot,
+                //TODO: entirely new chain? is this possible
+                Ok(None) => {}
+                Err(e) => {
+                    warn!(
+                        self.log,
+                        "Could not find re-org depth";
+                        "error" => format!("{:?}", e),
+                    );
+                }
+            }
+
             metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
             warn!(
                 self.log,
@@ -1910,7 +1935,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "previous_slot" => current_head.slot,
                 "new_head_parent" => format!("{}", new_head.beacon_block.parent_root()),
                 "new_head" => format!("{}", beacon_block_root),
-                "new_slot" => new_head.beacon_block.slot()
+                "new_slot" => new_head.beacon_block.slot(),
+                "reorg_distance" => reorg_distance,
             );
         } else {
             debug!(
@@ -1956,12 +1982,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let is_epoch_transition = current_head.slot.epoch(T::EthSpec::slots_per_epoch())
             < new_head
-            .beacon_state
-            .slot
-            .epoch(T::EthSpec::slots_per_epoch());
+                .beacon_state
+                .slot
+                .epoch(T::EthSpec::slots_per_epoch());
 
-        if is_epoch_transition || is_reorg
-        {
+        if is_epoch_transition || is_reorg {
             self.persist_head_and_fork_choice()?;
             self.op_pool.prune_attestations(self.epoch()?);
         }
@@ -1970,7 +1995,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // These fields are used for server-sent events
         let state_root = new_head.beacon_state_root.clone();
-        let slot = new_head.beacon_state.slot.clone();
+        let head_slot = new_head.beacon_state.slot.clone();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -1999,13 +2024,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.after_finalization(new_finalized_checkpoint, new_finalized_state_root)?;
         }
 
-        let _ = self.event_handler.register(EventKind::Head {
-            slot,
+        let current_slot = self.slot()?;
+
+        let _ = self.event_handler.register(EventKind::State(SseState {
+            slot: head_slot,
             block: beacon_block_root,
             state: state_root,
+            distance: current_slot - head_slot,
             epoch_transition: is_epoch_transition,
-
-        });
+            reorg: is_reorg,
+            reorg_distance,
+        }));
 
         Ok(())
     }
@@ -2122,10 +2151,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.head_tracker.clone(),
         )?;
 
-        let _ = self.event_handler.register(EventKind::BeaconFinalization {
-            epoch: new_finalized_checkpoint.epoch,
-            root: new_finalized_checkpoint.root,
-        });
+        let _ =
+            self.event_handler
+                .register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
+                    epoch: new_finalized_checkpoint.epoch,
+                    block: new_finalized_checkpoint.root,
+                    state: new_finalized_state_root,
+                }));
 
         Ok(())
     }

@@ -1,56 +1,61 @@
 use bus::Bus;
+use eth2::types::{EventTopic, SseBlock, SseFinalizedCheckpoint, SseState};
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
-use slog::{info, error, Logger};
+use slog::{error, info, Logger};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockHash, Slot, SignedVoluntaryExit};
-pub use websocket_server::WebSocketSender;
 use tokio::sync::broadcast;
-use tokio::sync::broadcast::{Sender, Receiver};
+use tokio::sync::broadcast::{Receiver, Sender};
+use types::{
+    Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockHash,
+    SignedVoluntaryExit, Slot,
+};
+pub use websocket_server::WebSocketSender;
+
+//TODO: figure out what this should be. Or should he have different capacities for each?
+const DEFAULT_CHANNEL_CAPACITY: usize = 10;
 
 pub trait EventHandler<T: EthSpec>: Sized + Send + Sync {
     fn register(&self, kind: EventKind<T>) -> Result<(), String>;
-    fn subscribe(&self) -> Receiver<EventKind<T>>;
+
+    fn subscribe_attestation(&self) -> Receiver<EventKind<T>>;
+
+    fn subscribe_block(&self) -> Receiver<EventKind<T>>;
+
+    fn subscribe_finalized(&self) -> Receiver<EventKind<T>>;
+
+    fn subscribe_state(&self) -> Receiver<EventKind<T>>;
+
+    fn subscribe_exit(&self) -> Receiver<EventKind<T>>;
 }
 
 pub struct NullEventHandler<T: EthSpec>(PhantomData<T>);
 
-impl<T: EthSpec> EventHandler<T> for WebSocketSender<T> {
-    fn register(&self, kind: EventKind<T>) -> Result<(), String> {
-        self.send_string(
-            serde_json::to_string(&kind)
-                .map_err(|e| format!("Unable to serialize event: {:?}", e))?,
-        )
-    }
-    fn subscribe(&self) -> Receiver<EventKind<T>> {
-        let (_, rx ) = broadcast::channel(2);
-        rx
-    }
-}
-
 pub struct ServerSentEventHandler<T: EthSpec> {
-    // Bus<> is itself Sync + Send.  We use Mutex<> here only because of the surrounding code does
-    // not enforce mutability statically (i.e. relies on interior mutability).
-    head_changed_queue: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
-    head_tx: Sender<EventKind<T>>,
-    head_rx: Receiver<EventKind<T>>,
+    attestation_tx: Sender<EventKind<T>>,
+    block_tx: Sender<EventKind<T>>,
+    finalized_tx: Sender<EventKind<T>>,
+    state_tx: Sender<EventKind<T>>,
+    exit_tx: Sender<EventKind<T>>,
     log: Logger,
     _phantom: PhantomData<T>,
 }
 
 impl<T: EthSpec> ServerSentEventHandler<T> {
     pub fn new(log: Logger) -> Self {
-        let (head_tx, mut head_rx) = broadcast::channel(2);
+        let (attestation_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
+        let (block_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
+        let (finalized_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
+        let (state_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
+        let (exit_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
 
-
-        let bus = Bus::new(T::slots_per_epoch() as usize);
-        let mutex = Mutex::new(bus);
-        let arc = Arc::new(mutex);
         Self {
-            head_changed_queue: arc.clone(),
-            head_tx,
-            head_rx,
+            attestation_tx,
+            block_tx,
+            finalized_tx,
+            state_tx,
+            exit_tx,
             log,
             _phantom: PhantomData,
         }
@@ -59,62 +64,55 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
 impl<T: EthSpec> EventHandler<T> for ServerSentEventHandler<T> {
     fn register(&self, kind: EventKind<T>) -> Result<(), String> {
+        // info!(self.log, "registering head event - slot: {} block: {} stat: {} epoch transition: {}", slot, block, state, epoch_transition);
+
         match kind {
-            EventKind::Head {
-                slot,
-                block,
-                state,
-                epoch_transition,
-            } => {
-                info!(self.log, "registering head event - slot: {} block: {} stat: {} epoch transition: {}", slot, block, state, epoch_transition);
-                self.head_tx.send(EventKind::Head {
-                    slot,
-                    block,
-                    state,
-                    epoch_transition,
-                    //TODO: clean up
-                }).map_err(|e|format!("Could not send head change event to queue."))?;
-                Ok(())
-            }
-            _ => Ok(()),
+            EventKind::Attestation(attestation) => self
+                .attestation_tx
+                .send(EventKind::Attestation(attestation))
+                .map(|_| Ok(()))
+                .map_err(|e| format!(""))?,
+            EventKind::Block(block) => self
+                .block_tx
+                .send(EventKind::Block(block))
+                .map(|_| Ok(()))
+                .map_err(|e| format!(""))?,
+            EventKind::FinalizedCheckpoint(checkpoint) => self
+                .finalized_tx
+                .send(EventKind::FinalizedCheckpoint(checkpoint))
+                .map(|_| Ok(()))
+                .map_err(|e| format!(""))?,
+            EventKind::State(state) => self
+                .state_tx
+                .send(EventKind::State(state))
+                .map(|_| Ok(()))
+                .map_err(|e| format!(""))?,
+            EventKind::VoluntaryExit(exit) => self
+                .exit_tx
+                .send(EventKind::VoluntaryExit(exit))
+                .map(|_| Ok(()))
+                .map_err(|e| format!(""))?,
         }
     }
-    fn subscribe(&self) -> Receiver<EventKind<T>>{
-        info!(self.log, "subscribing to head topic");
-        self.head_tx.subscribe()
-    }
-}
 
-// An event handler that pushes events to both the websockets handler and the SSE handler.
-// Named after the unix `tee` command.  Meant as a temporary solution before ditching WebSockets
-// completely once SSE functions well enough.
-pub struct TeeEventHandler<E: EthSpec> {
-    websockets_handler: WebSocketSender<E>,
-    sse_handler: ServerSentEventHandler<E>,
-}
-
-impl<E: EthSpec> TeeEventHandler<E> {
-    #[allow(clippy::type_complexity)]
-    pub fn new(
-        log: Logger,
-        websockets_handler: WebSocketSender<E>,
-    ) -> Self {
-        let sse_handler = ServerSentEventHandler::new(log);
-        Self {
-            websockets_handler,
-            sse_handler,
-        }
+    fn subscribe_attestation(&self) -> Receiver<EventKind<T>> {
+        self.attestation_tx.subscribe()
     }
-}
 
-impl<E: EthSpec> EventHandler<E> for TeeEventHandler<E> {
-    fn register(&self, kind: EventKind<E>) -> Result<(), String> {
-        self.websockets_handler.register(kind.clone())?;
-        self.sse_handler.register(kind)?;
-        Ok(())
+    fn subscribe_block(&self) -> Receiver<EventKind<T>> {
+        self.block_tx.subscribe()
     }
-    fn subscribe(&self) -> Receiver<EventKind<E>>{
-        self.sse_handler.subscribe()
+
+    fn subscribe_finalized(&self) -> Receiver<EventKind<T>> {
+        self.finalized_tx.subscribe()
+    }
+
+    fn subscribe_state(&self) -> Receiver<EventKind<T>> {
+        self.state_tx.subscribe()
+    }
+
+    fn subscribe_exit(&self) -> Receiver<EventKind<T>> {
+        self.exit_tx.subscribe()
     }
 }
 
@@ -122,8 +120,29 @@ impl<T: EthSpec> EventHandler<T> for NullEventHandler<T> {
     fn register(&self, _kind: EventKind<T>) -> Result<(), String> {
         Ok(())
     }
-    fn subscribe(&self) -> Receiver<EventKind<T>> {
-        let (_, rx ) = broadcast::channel(2);
+
+    fn subscribe_attestation(&self) -> Receiver<EventKind<T>> {
+        let (_, rx) = broadcast::channel(1);
+        rx
+    }
+
+    fn subscribe_block(&self) -> Receiver<EventKind<T>> {
+        let (_, rx) = broadcast::channel(1);
+        rx
+    }
+
+    fn subscribe_finalized(&self) -> Receiver<EventKind<T>> {
+        let (_, rx) = broadcast::channel(1);
+        rx
+    }
+
+    fn subscribe_state(&self) -> Receiver<EventKind<T>> {
+        let (_, rx) = broadcast::channel(1);
+        rx
+    }
+
+    fn subscribe_exit(&self) -> Receiver<EventKind<T>> {
+        let (_, rx) = broadcast::channel(1);
         rx
     }
 }
@@ -135,64 +154,11 @@ impl<T: EthSpec> Default for NullEventHandler<T> {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(
-    bound = "T: EthSpec",
-    rename_all = "snake_case",
-    tag = "event",
-    content = "data"
-)]
+#[serde(bound = "T: EthSpec", rename_all = "snake_case")]
 pub enum EventKind<T: EthSpec> {
-    Attestation(Box<Attestation<T>>),
-    Block{
-        slot: Slot,
-        block: Hash256,
-    },
-    ChainReorg{
-        slot: Slot,
-        //quoted
-        depth: u64,
-        old_head_block: Hash256,
-        new_head_block: Hash256,
-        old_head_state: Hash256,
-        new_head_state: Hash256,
-        epoch: Epoch,
-    },
-    FinalizedCheckpoint{
-        block: Hash256,
-        state: Hash256,
-        epoch: Epoch,
-    },
-    Head{
-        slot: Slot,
-        block: Hash256,
-        state: Hash256,
-        epoch_transition: bool,
-    },
-    VoluntaryExit(Box<SignedVoluntaryExit>),
-
-
-    BeaconHeadChanged {
-        reorg: bool,
-        current_head_beacon_block_root: Hash256,
-        previous_head_beacon_block_root: Hash256,
-    },
-    BeaconFinalization {
-        epoch: Epoch,
-        root: Hash256,
-    },
-    BeaconBlockImported {
-        block_root: Hash256,
-        block: Box<SignedBeaconBlock<T>>,
-    },
-    BeaconBlockRejected {
-        reason: String,
-        block: Box<SignedBeaconBlock<T>>,
-    },
-    BeaconAttestationImported {
-        attestation: Box<Attestation<T>>,
-    },
-    BeaconAttestationRejected {
-        reason: String,
-        attestation: Box<Attestation<T>>,
-    },
+    Attestation(Attestation<T>),
+    Block(SseBlock),
+    FinalizedCheckpoint(SseFinalizedCheckpoint),
+    State(SseState),
+    VoluntaryExit(SignedVoluntaryExit),
 }

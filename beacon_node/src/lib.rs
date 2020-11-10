@@ -10,7 +10,7 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_config};
 pub use eth2_config::Eth2Config;
 
-use beacon_chain::events::TeeEventHandler;
+use beacon_chain::events::ServerSentEventHandler;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
@@ -27,7 +27,7 @@ pub type ProductionClient<E> = Client<
         SystemTimeSlotClock,
         CachingEth1Backend<E>,
         E,
-        TeeEventHandler<E>,
+        ServerSentEventHandler<E>,
         LevelDB<E>,
         LevelDB<E>,
     >,
@@ -112,7 +112,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let builder = builder
             .system_time_slot_clock()?
-            .tee_event_handler(client_config.websocket_server.clone())?;
+            .server_sent_event_handler(client_config.websocket_server.clone())?;
 
         // Inject the executor into the discv5 network config.
         let discv5_executor = Discv5Executor(executor);
