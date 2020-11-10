@@ -1060,3 +1060,65 @@ impl RemoveChain {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // use eth2_libp2p::rpc::methods::BlocksByRangeRequest;
+    // use eth2_libp2p::PeerId;
+    use types::{BeaconBlock, Epoch, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock, Slot};
+    // use super::batch::{BatchInfo, BatchState};
+    // use crate::beacon_processor::ProcessId;
+    // use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+    // use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
+    // use eth2_libp2p::{PeerAction, PeerId};
+    // use fnv::FnvHashMap;
+    // use rand::seq::SliceRandom;
+    // use slog::{crit, debug, o, warn};
+    // use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+    // use std::hash::{Hash, Hasher};
+    // use tokio::sync::mpsc::Sender;
+    // use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+
+    type E = MinimalEthSpec;
+
+    /* Invariants */
+
+    fn before_download_buffer_is_awaiting_validation(chain: &SyncingChain<E>) {
+        // Any batch before the `processing_target` is awaiting validation.
+        assert!(
+            chain
+                .batches
+                .range(..chain.processing_target)
+                .all(|(_id, batch)| matches!(batch.state(), BatchState::AwaitingValidation(..))),
+            "batches previous to the download buffer must be awaiting validation"
+        )
+    }
+
+    fn download_buffer_is_bounded_and_not_processed(chain: &SyncingChain<E>) {
+        // Between the `processing_target` and `to_be_downloaded` we hold at most
+        // `BATCH_BUFFER_SIZE`. These batches shouldn't be already processed
+        // TODO: optimistic batch can make this false
+
+        assert!(
+            chain
+                .batches
+                .range(chain.processing_target..chain.to_be_downloaded)
+                .count()
+                <= BATCH_BUFFER_SIZE as usize
+        );
+
+        assert!(
+            chain
+                .batches
+                .range(chain.processing_target..chain.to_be_downloaded)
+                .all(|(_id, batch)| matches!(
+                    batch.state(),
+                    BatchState::Downloading(..)
+                        | BatchState::AwaitingProcessing(..)
+                        | BatchState::Processing(..)
+                )),
+            "batches in the download buffer are not already processed"
+        );
+    }
+}
