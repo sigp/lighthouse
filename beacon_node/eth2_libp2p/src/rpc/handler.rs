@@ -176,31 +176,6 @@ enum InboundState<TSpec: EthSpec> {
     Poisoned,
 }
 
-impl<TSpec: EthSpec> InboundState<TSpec> {
-    /// Sends the given items over the underlying substream, if the state allows it, and returns the
-    /// final state.
-    fn send_items(
-        self,
-        pending_items: &mut Vec<RPCCodedResponse<TSpec>>,
-        remaining_chunks: u64,
-    ) -> Self {
-        if let InboundState::Idle(substream) = self {
-            // only send on Idle
-            if !pending_items.is_empty() {
-                // take the items that we need to send
-                let to_send = std::mem::replace(pending_items, vec![]);
-                let fut = process_inbound_substream(substream, remaining_chunks, to_send).boxed();
-                InboundState::Busy(Box::pin(fut))
-            } else {
-                // nothing to do, keep waiting for responses
-                InboundState::Idle(substream)
-            }
-        } else {
-            self
-        }
-    }
-}
-
 /// State of an outbound substream. Either waiting for a response, or in the process of sending.
 pub enum OutboundSubstreamState<TSpec: EthSpec> {
     /// A request has been sent, and we are awaiting a response. This future is driven in the
@@ -626,69 +601,99 @@ where
         // drive inbound streams that need to be processed
         let mut substreams_to_remove = Vec::new(); // Closed substreams that need to be removed
         for (id, info) in self.inbound_substreams.iter_mut() {
-            match std::mem::replace(&mut info.state, InboundState::Poisoned) {
-                state @ InboundState::Idle(..) if !deactivated => {
-                    info.state = state.send_items(&mut info.pending_items, info.remaining_chunks);
-                }
-                InboundState::Idle(mut substream) => {
-                    // handler is deactivated, close the stream and mark it for removal
-                    match substream.close().poll_unpin(cx) {
-                        // if we can't close right now, put the substream back and try again later
-                        Poll::Pending => info.state = InboundState::Idle(substream),
-                        Poll::Ready(res) => {
-                            substreams_to_remove.push(*id);
-                            if let Some(ref delay_key) = info.delay_key {
-                                self.inbound_substreams_delay.remove(delay_key);
-                            }
-                            if let Err(error) = res {
-                                self.pending_errors.push(HandlerErr::Inbound {
-                                    id: *id,
-                                    error,
-                                    proto: info.protocol,
-                                });
-                            }
-                            if info.pending_items.last().map(|l| l.close_after()) == Some(false) {
-                                // if the request was still active, report back to cancel it
-                                self.pending_errors.push(HandlerErr::Inbound {
-                                    id: *id,
-                                    proto: info.protocol,
-                                    error: RPCError::HandlerRejected,
-                                });
-                            }
+            loop {
+                match std::mem::replace(&mut info.state, InboundState::Poisoned) {
+                    InboundState::Idle(substream) if !deactivated => {
+                        if !info.pending_items.is_empty() {
+                            let to_send = std::mem::replace(&mut info.pending_items, vec![]);
+                            let fut = process_inbound_substream(
+                                substream,
+                                info.remaining_chunks,
+                                to_send,
+                            )
+                            .boxed();
+                            info.state = InboundState::Busy(Box::pin(fut));
+                        } else {
+                            info.state = InboundState::Idle(substream);
+                            break;
                         }
                     }
-                }
-                InboundState::Busy(mut fut) => {
-                    // first check if sending finished
-                    let state = match fut.poll_unpin(cx) {
-                        Poll::Ready((substream, errors, remove, new_remaining_chunks)) => {
-                            info.remaining_chunks = new_remaining_chunks;
-                            // report any error
-                            for error in errors {
-                                self.pending_errors.push(HandlerErr::Inbound {
-                                    id: *id,
-                                    error,
-                                    proto: info.protocol,
-                                })
-                            }
-                            if remove {
+                    InboundState::Idle(mut substream) => {
+                        // handler is deactivated, close the stream and mark it for removal
+                        match substream.close().poll_unpin(cx) {
+                            // if we can't close right now, put the substream back and try again later
+                            Poll::Pending => info.state = InboundState::Idle(substream),
+                            Poll::Ready(res) => {
                                 substreams_to_remove.push(*id);
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay.remove(delay_key);
                                 }
+                                if let Err(error) = res {
+                                    self.pending_errors.push(HandlerErr::Inbound {
+                                        id: *id,
+                                        error,
+                                        proto: info.protocol,
+                                    });
+                                }
+                                if info.pending_items.last().map(|l| l.close_after()) == Some(false)
+                                {
+                                    // if the request was still active, report back to cancel it
+                                    self.pending_errors.push(HandlerErr::Inbound {
+                                        id: *id,
+                                        proto: info.protocol,
+                                        error: RPCError::HandlerRejected,
+                                    });
+                                }
                             }
-                            InboundState::Idle(substream)
                         }
-                        Poll::Pending => InboundState::Busy(fut),
-                    };
-                    info.state = if !deactivated {
-                        // if the last batch finished, send more.
-                        state.send_items(&mut info.pending_items, info.remaining_chunks)
-                    } else {
-                        state
-                    };
+                        break;
+                    }
+                    InboundState::Busy(mut fut) => {
+                        // first check if sending finished
+                        match fut.poll_unpin(cx) {
+                            Poll::Ready((substream, errors, remove, new_remaining_chunks)) => {
+                                info.remaining_chunks = new_remaining_chunks;
+                                // report any error
+                                for error in errors {
+                                    self.pending_errors.push(HandlerErr::Inbound {
+                                        id: *id,
+                                        error,
+                                        proto: info.protocol,
+                                    })
+                                }
+                                if remove {
+                                    substreams_to_remove.push(*id);
+                                    if let Some(ref delay_key) = info.delay_key {
+                                        self.inbound_substreams_delay.remove(delay_key);
+                                    }
+                                }
+
+                                // The stream may be currently idle. Attempt to process more
+                                // elements
+
+                                if !deactivated && !info.pending_items.is_empty() {
+                                    let to_send =
+                                        std::mem::replace(&mut info.pending_items, vec![]);
+                                    let fut = process_inbound_substream(
+                                        substream,
+                                        info.remaining_chunks,
+                                        to_send,
+                                    )
+                                    .boxed();
+                                    info.state = InboundState::Busy(Box::pin(fut));
+                                } else {
+                                    info.state = InboundState::Idle(substream);
+                                    break;
+                                }
+                            }
+                            Poll::Pending => {
+                                info.state = InboundState::Busy(fut);
+                                break;
+                            }
+                        };
+                    }
+                    InboundState::Poisoned => unreachable!("Poisoned inbound substream"),
                 }
-                InboundState::Poisoned => unreachable!("Poisoned inbound substream"),
             }
         }
 

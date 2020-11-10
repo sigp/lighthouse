@@ -115,7 +115,7 @@ fn main() {
                 .long("testnet")
                 .value_name("testnet")
                 .help("Name of network lighthouse will connect to")
-                .possible_values(&["medalla", "altona", "spadina", "zinken"])
+                .possible_values(&["medalla", "altona", "spadina", "zinken", "mainnet"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -125,6 +125,7 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
+        .subcommand(remote_signer::cli_app())
         .get_matches();
 
     // Debugging output for libp2p and external crates.
@@ -264,14 +265,21 @@ fn run<E: EthSpec>(
 
     warn!(
         log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
+        "Ethereum 2.0 is pre-release. This software is experimental"
     );
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
         log,
         "Configured for testnet";
-        "name" => testnet_name
+        "name" => &testnet_name
     );
+
+    if testnet_name == "mainnet" {
+        warn!(
+            log,
+            "The mainnet specification is being used. This not recommended (yet)."
+        )
+    }
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
@@ -292,7 +300,7 @@ fn run<E: EthSpec>(
                         .shutdown_sender()
                         .try_send("Failed to start beacon node");
                 }
-            })
+            });
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
@@ -316,7 +324,17 @@ fn run<E: EthSpec>(
                         .shutdown_sender()
                         .try_send("Failed to start validator client");
                 }
-            })
+            });
+        }
+        ("remote_signer", Some(matches)) => {
+            if let Err(e) = remote_signer::run(&mut environment, matches) {
+                crit!(log, "Failed to start remote signer"; "reason" => e);
+                let _ = environment
+                    .core_context()
+                    .executor
+                    .shutdown_sender()
+                    .try_send("Failed to start remote signer");
+            }
         }
         _ => {
             crit!(log, "No subcommand supplied. See --help .");

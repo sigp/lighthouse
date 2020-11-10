@@ -15,7 +15,7 @@ use futures::channel::{
 };
 use futures::{future, StreamExt};
 
-use slog::{info, o, Drain, Level, Logger};
+use slog::{error, info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
 use std::ffi::OsStr;
@@ -395,9 +395,16 @@ impl<E: EthSpec> Environment<E> {
         // setup for handling a Ctrl-C
         let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
         let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
+        let log = self.log.clone();
         ctrlc::set_handler(move || {
             if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
-                ctrlc_send.send(()).expect("Error sending ctrl-c message");
+                if let Err(e) = ctrlc_send.send(()) {
+                    error!(
+                        log,
+                        "Error sending ctrl-c message";
+                        "error" => e
+                    );
+                }
             }
         })
         .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;

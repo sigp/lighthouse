@@ -1,4 +1,4 @@
-use eth2::types::ErrorMessage;
+use eth2::types::{ErrorMessage, Failure, IndexedErrorMessage};
 use std::convert::Infallible;
 use warp::{http::StatusCode, reject::Reject};
 
@@ -110,11 +110,36 @@ pub fn invalid_auth(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(InvalidAuthorization(msg))
 }
 
+#[derive(Debug)]
+pub struct IndexedBadRequestErrors {
+    pub message: String,
+    pub failures: Vec<Failure>,
+}
+
+impl Reject for IndexedBadRequestErrors {}
+
+pub fn indexed_bad_request(message: String, failures: Vec<Failure>) -> warp::reject::Rejection {
+    warp::reject::custom(IndexedBadRequestErrors { message, failures })
+}
+
 /// This function receives a `Rejection` and tries to return a custom
 /// value, otherwise simply passes the rejection along.
 pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
     let code;
     let message;
+
+    if let Some(e) = err.find::<crate::reject::IndexedBadRequestErrors>() {
+        message = format!("BAD_REQUEST: {}", e.message);
+        code = StatusCode::BAD_REQUEST;
+
+        let json = warp::reply::json(&IndexedErrorMessage {
+            code: code.as_u16(),
+            message,
+            failures: e.failures.clone(),
+        });
+
+        return Ok(warp::reply::with_status(json, code));
+    }
 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;

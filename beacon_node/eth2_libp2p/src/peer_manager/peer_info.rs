@@ -9,7 +9,7 @@ use serde::{
     Serialize,
 };
 use std::collections::HashSet;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
@@ -31,7 +31,7 @@ pub struct PeerInfo<T: EthSpec> {
     pub listening_addresses: Vec<Multiaddr>,
     /// This is addresses we have physically seen and this is what we use for banning/un-banning
     /// peers.
-    seen_addresses: HashSet<IpAddr>,
+    pub seen_addresses: HashSet<SocketAddr>,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
     pub sync_status: PeerSyncStatus,
@@ -91,9 +91,11 @@ impl<T: EthSpec> PeerInfo<T> {
         false
     }
 
-    /// Returns the seen addresses of the peer.
-    pub fn seen_addresses(&self) -> &HashSet<IpAddr> {
-        &self.seen_addresses
+    /// Returns the seen IP addresses of the peer.
+    pub fn seen_addresses<'a>(&'a self) -> impl Iterator<Item = IpAddr> + 'a {
+        self.seen_addresses
+            .iter()
+            .map(|socket_addr| socket_addr.ip())
     }
 
     /// Returns the connection status of the peer.
@@ -243,7 +245,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Connected and increases the number of ingoing
     /// connections by one
-    pub(crate) fn connect_ingoing(&mut self, seen_address: Option<IpAddr>) {
+    pub(crate) fn connect_ingoing(&mut self, seen_address: Option<SocketAddr>) {
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
             Disconnected { .. }
@@ -256,14 +258,14 @@ impl<T: EthSpec> PeerInfo<T> {
             }
         }
 
-        if let Some(ip_addr) = seen_address {
-            self.seen_addresses.insert(ip_addr);
+        if let Some(socket_addr) = seen_address {
+            self.seen_addresses.insert(socket_addr);
         }
     }
 
     /// Modifies the status to Connected and increases the number of outgoing
     /// connections by one
-    pub(crate) fn connect_outgoing(&mut self, seen_address: Option<IpAddr>) {
+    pub(crate) fn connect_outgoing(&mut self, seen_address: Option<SocketAddr>) {
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. }

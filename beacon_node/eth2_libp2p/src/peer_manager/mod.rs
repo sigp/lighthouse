@@ -316,6 +316,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.network_globals.peers.read().is_banned(peer_id)
     }
 
+    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
+        self.network_globals.peers.read().is_connected(peer_id)
+    }
+
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
     pub fn peer_limit_reached(&self) -> bool {
@@ -737,9 +741,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .peer_info(peer_id)
             .map(|info| {
                 info.seen_addresses()
-                    .iter()
                     .filter(|ip| peer_db.is_ip_banned(ip))
-                    .cloned()
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -757,7 +759,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let seen_ip_addresses = peer_db
             .peer_info(peer_id)
-            .map(|info| info.seen_addresses().iter().cloned().collect::<Vec<_>>())
+            .map(|info| info.seen_addresses().collect::<Vec<_>>())
             .unwrap_or_default();
 
         self.discovery.unban_peer(&peer_id, seen_ip_addresses);

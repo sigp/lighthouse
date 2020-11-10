@@ -36,6 +36,7 @@ eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
+remote_signer = { "path" = "../remote_signer" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
