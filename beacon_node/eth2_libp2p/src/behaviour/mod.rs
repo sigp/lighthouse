@@ -202,8 +202,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         debug!(behaviour_log, "Using peer score params"; "params" => format!("{:?}", params));
 
-        let update_gossipsub_scores =
-            tokio::time::interval(tokio::time::Duration::from(params.decay_interval));
+        let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
         gossipsub
             .with_peer_score(params.clone(), thresholds)

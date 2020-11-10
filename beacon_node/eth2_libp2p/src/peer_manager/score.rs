@@ -369,9 +369,18 @@ mod tests {
     #[test]
     fn test_very_negative_gossipsub_score() {
         let mut score = Score::default();
-        score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD);
+        score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD, false);
+        assert!(!score.is_good_gossipsub_peer());
         assert_eq!(score.state(), ScoreState::Healthy);
         score.add(-1.0001);
         assert_eq!(score.state(), ScoreState::Disconnected);
+    }
+
+    #[test]
+    fn test_ignored_gossipsub_score() {
+        let mut score = Score::default();
+        score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD, true);
+        assert!(score.is_good_gossipsub_peer());
+        assert_eq!(score.score(), 0.0);
     }
 }
