@@ -58,8 +58,9 @@ impl SlasherServer {
                             "epoch" => current_epoch,
                             "error" => format!("{:?}", e)
                         );
-                        continue;
                     }
+                    // Prune the database, even in the case where batch processing failed.
+                    // If the LMDB database is full then pruning could help to free it up.
                     if let Err(e) = slasher.prune_database(current_epoch) {
                         error!(
                             slasher.log,

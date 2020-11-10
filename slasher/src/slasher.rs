@@ -283,8 +283,6 @@ impl<E: EthSpec> Slasher<E> {
     }
 
     /// Prune unnecessary attestations and blocks from the on-disk database.
-    ///
-    /// Must only be called after `process_queued(current_epoch)`.
     pub fn prune_database(&self, current_epoch: Epoch) -> Result<(), Error> {
         self.db.prune(current_epoch)
     }
