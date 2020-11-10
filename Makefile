@@ -74,7 +74,6 @@ build-release-tarballs:
 	$(MAKE) build-aarch64-portable
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"-portable")
 
-
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:

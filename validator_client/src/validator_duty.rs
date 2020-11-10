@@ -3,6 +3,8 @@ use eth2::{
     BeaconNodeHttpClient,
 };
 use serde::{Deserialize, Serialize};
+use slog::{error, Logger};
+use std::collections::HashMap;
 use types::{CommitteeIndex, Epoch, PublicKey, PublicKeyBytes, Slot};
 
 /// This struct is being used as a shim since we deprecated the `rest_api` in favour of `http_api`.
@@ -33,10 +35,10 @@ pub struct ValidatorDuty {
 
 impl ValidatorDuty {
     /// Instantiate `Self` as if there are no known dutes for `validator_pubkey`.
-    fn no_duties(validator_pubkey: PublicKey) -> Self {
+    fn no_duties(validator_pubkey: PublicKey, validator_index: Option<u64>) -> Self {
         ValidatorDuty {
             validator_pubkey,
-            validator_index: None,
+            validator_index,
             attestation_slot: None,
             attestation_committee_index: None,
             attestation_committee_position: None,
@@ -53,58 +55,113 @@ impl ValidatorDuty {
         beacon_node: &BeaconNodeHttpClient,
         current_epoch: Epoch,
         request_epoch: Epoch,
-        pubkey: PublicKey,
-    ) -> Result<ValidatorDuty, String> {
-        let pubkey_bytes = PublicKeyBytes::from(&pubkey);
+        mut pubkeys: Vec<(PublicKey, Option<u64>)>,
+        log: &Logger,
+    ) -> Result<Vec<ValidatorDuty>, String> {
+        for (pubkey, index_opt) in &mut pubkeys {
+            if index_opt.is_none() {
+                *index_opt = beacon_node
+                    .get_beacon_states_validator_id(
+                        StateId::Head,
+                        &ValidatorId::PublicKey(PublicKeyBytes::from(&*pubkey)),
+                    )
+                    .await
+                    .map_err(|e| {
+                        error!(
+                            log,
+                            "Failed to obtain validator index";
+                            "pubkey" => ?pubkey,
+                            "error" => ?e
+                        )
+                    })
+                    // Supress the error since we've already logged an error and we don't want to
+                    // stop the rest of the code.
+                    .ok()
+                    .and_then(|body_opt| body_opt.map(|body| body.data.index));
+            }
+        }
 
-        let validator_index = if let Some(index) = beacon_node
-            .get_beacon_states_validator_id(
-                StateId::Head,
-                &ValidatorId::PublicKey(pubkey_bytes.clone()),
-            )
-            .await
-            .map_err(|e| format!("Failed to get validator index: {}", e))?
-            .map(|body| body.data.index)
-        {
-            index
+        // Query for all block proposer duties in the current epoch and map the response by index.
+        let proposal_slots_by_index: HashMap<u64, Vec<Slot>> = if current_epoch == request_epoch {
+            beacon_node
+                .get_validator_duties_proposer(current_epoch)
+                .await
+                .map(|resp| resp.data)
+                // Exit early if there's an error.
+                .map_err(|e| format!("Failed to get proposer indices: {:?}", e))?
+                .into_iter()
+                .fold(
+                    HashMap::with_capacity(pubkeys.len()),
+                    |mut map, proposer_data| {
+                        map.entry(proposer_data.validator_index)
+                            .or_insert_with(Vec::new)
+                            .push(proposer_data.slot);
+                        map
+                    },
+                )
         } else {
-            return Ok(Self::no_duties(pubkey));
+            HashMap::new()
         };
 
-        if let Some(attester) = beacon_node
-            .get_validator_duties_attester(request_epoch, Some(&[validator_index]))
+        let query_indices = pubkeys
+            .iter()
+            .filter_map(|(_, index_opt)| *index_opt)
+            .collect::<Vec<_>>();
+        let attester_data_map = beacon_node
+            .post_validator_duties_attester(request_epoch, query_indices.as_slice())
             .await
-            .map_err(|e| format!("Failed to get attester duties: {}", e))?
-            .data
-            .first()
-        {
-            let block_proposal_slots = if current_epoch == request_epoch {
-                beacon_node
-                    .get_validator_duties_proposer(current_epoch)
-                    .await
-                    .map_err(|e| format!("Failed to get proposer indices: {}", e))?
-                    .data
-                    .into_iter()
-                    .filter(|data| data.pubkey == pubkey_bytes)
-                    .map(|data| data.slot)
-                    .collect()
-            } else {
-                vec![]
-            };
+            .map(|resp| resp.data)
+            // Exit early if there's an error.
+            .map_err(|e| format!("Failed to get attester duties: {:?}", e))?
+            .into_iter()
+            .fold(
+                HashMap::with_capacity(pubkeys.len()),
+                |mut map, attester_data| {
+                    map.insert(attester_data.validator_index, attester_data);
+                    map
+                },
+            );
 
-            Ok(ValidatorDuty {
-                validator_pubkey: pubkey,
-                validator_index: Some(attester.validator_index),
-                attestation_slot: Some(attester.slot),
-                attestation_committee_index: Some(attester.committee_index),
-                attestation_committee_position: Some(attester.validator_committee_index as usize),
-                committee_count_at_slot: Some(attester.committees_at_slot),
-                committee_length: Some(attester.committee_length),
-                block_proposal_slots: Some(block_proposal_slots),
+        let duties = pubkeys
+            .into_iter()
+            .map(|(pubkey, index_opt)| {
+                if let Some(index) = index_opt {
+                    if let Some(attester_data) = attester_data_map.get(&index) {
+                        match attester_data.pubkey.decompress() {
+                            Ok(pubkey) => ValidatorDuty {
+                                validator_pubkey: pubkey,
+                                validator_index: Some(attester_data.validator_index),
+                                attestation_slot: Some(attester_data.slot),
+                                attestation_committee_index: Some(attester_data.committee_index),
+                                attestation_committee_position: Some(
+                                    attester_data.validator_committee_index as usize,
+                                ),
+                                committee_count_at_slot: Some(attester_data.committees_at_slot),
+                                committee_length: Some(attester_data.committee_length),
+                                block_proposal_slots: proposal_slots_by_index
+                                    .get(&attester_data.validator_index)
+                                    .cloned(),
+                            },
+                            Err(e) => {
+                                error!(
+                                    log,
+                                    "Could not deserialize validator public key";
+                                    "error" => format!("{:?}", e),
+                                    "validator_index" => attester_data.validator_index
+                                );
+                                Self::no_duties(pubkey, Some(index))
+                            }
+                        }
+                    } else {
+                        Self::no_duties(pubkey, Some(index))
+                    }
+                } else {
+                    Self::no_duties(pubkey, None)
+                }
             })
-        } else {
-            Ok(Self::no_duties(pubkey))
-        }
+            .collect();
+
+        Ok(duties)
     }
 
     /// Return `true` if these validator duties are equal, ignoring their `block_proposal_slots`.

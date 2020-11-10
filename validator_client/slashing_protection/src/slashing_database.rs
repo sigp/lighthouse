@@ -1,6 +1,6 @@
 use crate::interchange::{
-    CompleteInterchangeData, Interchange, InterchangeFormat, InterchangeMetadata,
-    SignedAttestation as InterchangeAttestation, SignedBlock as InterchangeBlock,
+    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation as InterchangeAttestation,
+    SignedBlock as InterchangeBlock,
 };
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
@@ -25,7 +25,7 @@ pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Supported version of the interchange format.
-pub const SUPPORTED_INTERCHANGE_FORMAT_VERSION: u64 = 4;
+pub const SUPPORTED_INTERCHANGE_FORMAT_VERSION: u64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct SlashingDatabase {
@@ -673,7 +673,6 @@ impl SlashingDatabase {
         .collect::<Result<_, InterchangeError>>()?;
 
         let metadata = InterchangeMetadata {
-            interchange_format: InterchangeFormat::Complete,
             interchange_format_version: SUPPORTED_INTERCHANGE_FORMAT_VERSION,
             genesis_validators_root,
         };
@@ -681,7 +680,7 @@ impl SlashingDatabase {
         let data = data
             .into_iter()
             .map(|(pubkey, (signed_blocks, signed_attestations))| {
-                Ok(CompleteInterchangeData {
+                Ok(InterchangeData {
                     pubkey: pubkey.parse().map_err(InterchangeError::InvalidPubkey)?,
                     signed_blocks,
                     signed_attestations,

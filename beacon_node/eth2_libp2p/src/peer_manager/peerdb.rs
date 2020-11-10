@@ -1,4 +1,4 @@
-use super::peer_info::{PeerConnectionStatus, PeerInfo};
+use super::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
 use super::score::{Score, ScoreState};
 use crate::multiaddr::{Multiaddr, Protocol};
@@ -7,8 +7,8 @@ use crate::Enr;
 use crate::PeerId;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, trace, warn};
-use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
@@ -16,8 +16,7 @@ use types::{EthSpec, SubnetId};
 const MAX_DC_PEERS: usize = 500;
 /// The maximum number of banned nodes to remember.
 const MAX_BANNED_PEERS: usize = 1000;
-/// If there are more than `BANNED_PEERS_PER_IP_THRESHOLD` many banned peers with the same IP we ban
-/// the IP.
+/// We ban an IP if there are more than `BANNED_PEERS_PER_IP_THRESHOLD` banned peers with this IP.
 const BANNED_PEERS_PER_IP_THRESHOLD: usize = 5;
 
 /// Storage of known peers, their reputation and information
@@ -42,19 +41,19 @@ pub struct BannedPeersCount {
 impl BannedPeersCount {
     /// Removes the peer from the counts if it is banned. Returns true if the peer was banned and
     /// false otherwise.
-    pub fn remove_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
+    pub fn remove_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_sub(1);
         for address in ip_addresses {
-            if let Some(count) = self.banned_peers_per_ip.get_mut(address) {
+            if let Some(count) = self.banned_peers_per_ip.get_mut(&address) {
                 *count = count.saturating_sub(1);
             }
         }
     }
 
-    pub fn add_banned_peer(&mut self, ip_addresses: &HashSet<IpAddr>) {
+    pub fn add_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_add(1);
         for address in ip_addresses {
-            *self.banned_peers_per_ip.entry(*address).or_insert(0) += 1;
+            *self.banned_peers_per_ip.entry(address).or_insert(0) += 1;
         }
     }
 
@@ -174,8 +173,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     fn ip_is_banned(&self, peer: &PeerInfo<TSpec>) -> bool {
         peer.seen_addresses()
-            .iter()
-            .any(|addr| self.banned_peers_count.ip_is_banned(addr))
+            .any(|ip| self.banned_peers_count.ip_is_banned(&ip))
     }
 
     /// Returns true if the IP is banned.
@@ -370,8 +368,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             });
     }
 
-    /// Sets a peer as connected with an ingoing connection.
-    pub fn connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
+    fn connect(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+        enr: Option<Enr>,
+        direction: ConnectionDirection,
+    ) {
         let info = self.peers.entry(peer_id.clone()).or_default();
         info.enr = enr;
 
@@ -385,39 +388,37 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .remove_banned_peer(info.seen_addresses());
         }
 
-        // Add the seen ip address to the peer's info
-        let ip_addr = multiaddr.iter().find_map(|p| match p {
-            Protocol::Ip4(ip) => Some(ip.into()),
-            Protocol::Ip6(ip) => Some(ip.into()),
+        // Add the seen ip address and port to the peer's info
+        let socket_addr = match multiaddr.iter().fold(
+            (None, None),
+            |(found_ip, found_port), protocol| match protocol {
+                Protocol::Ip4(ip) => (Some(ip.into()), found_port),
+                Protocol::Ip6(ip) => (Some(ip.into()), found_port),
+                Protocol::Tcp(port) => (found_ip, Some(port)),
+                _ => (found_ip, found_port),
+            },
+        ) {
+            (Some(ip), Some(port)) => Some(SocketAddr::new(ip, port)),
+            (Some(_ip), None) => {
+                crit!(self.log, "Connected peer has an IP but no TCP port"; "peer_id" => %peer_id);
+                None
+            }
             _ => None,
-        });
+        };
 
-        info.connect_ingoing(ip_addr);
+        match direction {
+            ConnectionDirection::Incoming => info.connect_ingoing(socket_addr),
+            ConnectionDirection::Outgoing => info.connect_outgoing(socket_addr),
+        }
+    }
+    /// Sets a peer as connected with an ingoing connection.
+    pub fn connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
+        self.connect(peer_id, multiaddr, enr, ConnectionDirection::Incoming)
     }
 
     /// Sets a peer as connected with an outgoing connection.
     pub fn connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
-        info.enr = enr;
-
-        if info.is_disconnected() {
-            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
-        }
-
-        if info.is_banned() {
-            error!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
-            self.banned_peers_count
-                .remove_banned_peer(info.seen_addresses());
-        }
-
-        // Add the seen ip address to the peer's info
-        let ip_addr = multiaddr.iter().find_map(|p| match p {
-            Protocol::Ip4(ip) => Some(ip.into()),
-            Protocol::Ip6(ip) => Some(ip.into()),
-            _ => None,
-        });
-
-        info.connect_outgoing(ip_addr);
+        self.connect(peer_id, multiaddr, enr, ConnectionDirection::Outgoing)
     }
 
     /// Sets the peer as disconnected. A banned peer remains banned
@@ -782,27 +783,30 @@ mod tests {
     #[test]
     fn test_disconnected_ban_consistency() {
         let mut pdb = get_db();
+        let mut multiaddr = Multiaddr::empty();
+        multiaddr.push(Protocol::Tcp(9000));
+        multiaddr.push(Protocol::Ip4("0.0.0.0".parse().unwrap()));
 
         let random_peer = PeerId::random();
         let random_peer1 = PeerId::random();
         let random_peer2 = PeerId::random();
         let random_peer3 = PeerId::random();
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&random_peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer2, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
             pdb.banned_peers().count()
         );
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
         pdb.notify_disconnect(&random_peer1);
         pdb.disconnect_and_ban(&random_peer2);
         pdb.notify_disconnect(&random_peer2);
-        pdb.connect_ingoing(&random_peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -816,7 +820,7 @@ mod tests {
             pdb.banned_peers().count()
         );
 
-        pdb.connect_outgoing(&random_peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_outgoing(&random_peer2, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -832,11 +836,11 @@ mod tests {
 
         pdb.disconnect_and_ban(&random_peer3);
         pdb.notify_disconnect(&random_peer3);
-        pdb.connect_ingoing(&random_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
         pdb.notify_disconnect(&random_peer2);
         pdb.disconnect_and_ban(&random_peer3);
         pdb.notify_disconnect(&random_peer3);
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -866,6 +870,7 @@ mod tests {
         for ip in ips {
             let mut addr = Multiaddr::empty();
             addr.push(Protocol::from(ip));
+            addr.push(Protocol::Tcp(9000));
             pdb.connect_ingoing(&p, addr, None);
         }
         p
@@ -979,8 +984,10 @@ mod tests {
         assert!(!pdb.is_banned(&p2));
 
         // add ip2 to all peers and ban them.
+        let mut socker_addr = Multiaddr::from(ip2);
+        socker_addr.push(Protocol::Tcp(8080));
         for p in &peers {
-            pdb.connect_ingoing(&p, ip2.into(), None);
+            pdb.connect_ingoing(&p, socker_addr.clone(), None);
             pdb.disconnect_and_ban(p);
             pdb.notify_disconnect(p);
         }

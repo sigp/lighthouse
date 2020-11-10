@@ -81,6 +81,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
+            .http_api_config(client_config.http_api.clone())
             .disk_store(&db_path, &freezer_db_path_res?, store_config)?;
 
         let builder = if let Some(slasher_config) = client_config.slasher.clone() {
@@ -135,7 +136,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .network(&client_config.network)
             .await?
             .notifier()?
-            .http_api_config(client_config.http_api.clone())
             .http_metrics_config(client_config.http_metrics.clone())
             .build()
             .map(Self)

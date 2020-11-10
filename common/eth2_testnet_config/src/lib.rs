@@ -8,8 +8,8 @@
 //! https://github.com/sigp/lighthouse/pull/605
 //!
 use eth2_config::{
-    include_altona_file, include_medalla_file, include_spadina_file, include_zinken_file,
-    testnets_dir,
+    include_altona_file, include_mainnet_file, include_medalla_file, include_spadina_file,
+    include_zinken_file, testnets_dir,
 };
 
 use enr::{CombinedKey, Enr};
@@ -56,8 +56,9 @@ const ALTONA: HardcodedNet = define_net!(altona, include_altona_file);
 const MEDALLA: HardcodedNet = define_net!(medalla, include_medalla_file);
 const SPADINA: HardcodedNet = define_net!(spadina, include_spadina_file);
 const ZINKEN: HardcodedNet = define_net!(zinken, include_zinken_file);
+const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
 
-const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, ZINKEN];
+const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, ZINKEN, MAINNET];
 pub const DEFAULT_HARDCODED_TESTNET: &str = "medalla";
 
 /// Specifies an Eth2 testnet.
@@ -66,6 +67,8 @@ pub const DEFAULT_HARDCODED_TESTNET: &str = "medalla";
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetConfig {
     pub deposit_contract_address: String,
+    /// Note: instead of the block where the contract is deployed, it is acceptable to set this
+    /// value to be the block number where the first deposit occurs.
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     pub genesis_state_bytes: Option<Vec<u8>>,
@@ -239,7 +242,8 @@ impl Eth2TestnetConfig {
                     file.read_to_end(&mut bytes)
                         .map_err(|e| format!("Unable to read {:?}: {:?}", file, e))
                 })?;
-            Some(bytes)
+
+            Some(bytes).filter(|bytes| !bytes.is_empty())
         } else {
             None
         };
@@ -269,7 +273,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempdir::TempDir;
-    use types::{Eth1Data, Hash256, V012LegacyEthSpec, YamlConfig};
+    use types::{Eth1Data, Hash256, MainnetEthSpec, V012LegacyEthSpec, YamlConfig};
 
     type E = V012LegacyEthSpec;
 
@@ -279,13 +283,23 @@ mod tests {
             let config =
                 Eth2TestnetConfig::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
 
-            // Ensure we can parse the YAML config to a chain spec.
-            config
-                .yaml_config
-                .as_ref()
-                .unwrap()
-                .apply_to_chain_spec::<E>(&E::default_spec())
-                .unwrap();
+            if net.name == "mainnet" {
+                // Ensure we can parse the YAML config to a chain spec.
+                config
+                    .yaml_config
+                    .as_ref()
+                    .unwrap()
+                    .apply_to_chain_spec::<MainnetEthSpec>(&E::default_spec())
+                    .unwrap();
+            } else {
+                // Ensure we can parse the YAML config to a chain spec.
+                config
+                    .yaml_config
+                    .as_ref()
+                    .unwrap()
+                    .apply_to_chain_spec::<V012LegacyEthSpec>(&E::default_spec())
+                    .unwrap();
+            }
 
             assert_eq!(
                 config.genesis_state_bytes.is_some(),

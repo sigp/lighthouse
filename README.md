@@ -9,9 +9,9 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
 [Book Status]:https://img.shields.io/badge/user--docs-master-informational
-[Book Link]: http://lighthouse-book.sigmaprime.io/
+[Book Link]: https://lighthouse-book.sigmaprime.io
 
-[Documentation](http://lighthouse-book.sigmaprime.io/)
+[Documentation](https://lighthouse-book.sigmaprime.io)
 
 ![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
 
@@ -25,7 +25,7 @@ Lighthouse is:
 
 - Fully open-source, licensed under Apache 2.0.
 - Security-focused. Fuzzing has begun and security reviews are underway.
-- Built in [Rust](https://www.rust-lang.org/), a modern language providing unique safety guarantees and
+- Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the
 	Ethereum Foundation, ConsenSys and private individuals.
@@ -64,7 +64,7 @@ Current development overview:
 
 ## Documentation
 
-The [Lighthouse Book](http://lighthouse-book.sigmaprime.io/) contains information
+The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information
 for testnet users and developers.
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
@@ -76,7 +76,7 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 Lighthouse welcomes contributors.
 
 If you are looking to contribute, please head to the
-[Contributing](http://lighthouse-book.sigmaprime.io/contributing.html) section
+[Contributing](https://lighthouse-book.sigmaprime.io/contributing.html) section
 of the Lighthouse book.
 
 ## Contact

@@ -23,6 +23,7 @@ use types::{Keypair, PublicKey};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
+use std::ops::{Deref, DerefMut};
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
@@ -327,6 +328,37 @@ pub struct InitializedValidators {
     log: Logger,
 }
 
+pub struct LockedData<T> {
+    data: T,
+    lock_path: PathBuf,
+}
+
+impl<T> LockedData<T> {
+    fn new(data: T, lock_path: PathBuf) -> Self {
+        Self { data, lock_path }
+    }
+}
+
+impl<T> Deref for LockedData<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T> DerefMut for LockedData<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl<T> Drop for LockedData<T> {
+    fn drop(&mut self) {
+        remove_lock(&self.lock_path);
+    }
+}
+
 impl InitializedValidators {
     /// Instantiates `Self`, initializing all validators in `definitions`.
     pub async fn from_definitions(
@@ -536,13 +568,21 @@ impl InitializedValidators {
             .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
         create_lock_file(&cache_lockfile_path, self.delete_lockfiles, &self.log)?;
 
-        let mut key_cache = self
-            .decrypt_key_cache(
-                KeyCache::open_or_create(&self.validators_dir)
-                    .map_err(Error::UnableToOpenKeyCache)?,
-                &mut key_stores,
-            )
-            .await?;
+        let mut key_cache = LockedData::new(
+            {
+                let cache = KeyCache::open_or_create(&self.validators_dir).map_err(|e| {
+                    remove_lock(&cache_lockfile_path);
+                    Error::UnableToOpenKeyCache(e)
+                })?;
+                self.decrypt_key_cache(cache, &mut key_stores)
+                    .await
+                    .map_err(|e| {
+                        remove_lock(&cache_lockfile_path);
+                        e
+                    })?
+            },
+            cache_lockfile_path,
+        );
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
@@ -629,13 +669,11 @@ impl InitializedValidators {
                     Ok(true) => info!(log, "Modified key_cache saved successfully"),
                     _ => {}
                 };
-                remove_lock(&cache_lockfile_path);
             })
             .await
             .map_err(Error::TokioJoin)?;
         } else {
             debug!(log, "Key cache not modified");
-            remove_lock(&cache_lockfile_path);
         }
         Ok(())
     }
