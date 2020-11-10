@@ -1111,6 +1111,11 @@ mod tests {
 
     /* Invariants */
 
+    fn buffer_indices_are_valid_ranges(chain: &SyncingChain<E>) {
+        assert!(chain.start_epoch <= chain.processing_target);
+        assert!(chain.processing_target <= chain.to_be_downloaded);
+    }
+
     fn before_download_buffer_is_awaiting_validation(chain: &SyncingChain<E>) {
         // Any batch before the `processing_target` is awaiting validation.
         assert!(
@@ -1149,7 +1154,49 @@ mod tests {
         );
     }
 
+    /// Check that `current_processing_batch` is always correctly assigned.
+    /// The `current_processing_batch` is `Some(batch_x)` IFF `batch_x` is processing.
+    fn current_processing_batch_consistency(chain: &SyncingChain<E>) {
+        // the => side
+        if let Some(batch_x) = &chain.current_processing_batch {
+            let batch_state = chain.batches.get(batch_x).unwrap().state();
+            assert!(matches!(batch_state, BatchState::Processing(..)));
+        }
+
+        // the <= side
+        for (id, batch) in chain.batches.iter() {
+            if matches!(batch.state(), BatchState::Processing(..)) {
+                assert_eq!(&chain.current_processing_batch.unwrap(), id);
+            }
+        }
+    }
+
+    /// Check that batch downloads are correctly registered for the peer.
+    /// A peer has a `batch_x` registered in `peers` IFF `batch_x` is downloading from this peer.
+    fn registered_downloads_consistency(chain: &SyncingChain<E>) {
+        // the => side
+        for (peer, batches) in &chain.peers {
+            for batch in batches {
+                let state = chain.batches.get(batch).unwrap().state();
+                if let BatchState::Downloading(downloading_peer, ..) = state {
+                    assert_eq!(downloading_peer, peer);
+                } else {
+                    panic!("Registered batch download is not downloading");
+                }
+            }
+        }
+        // the <= side
+        for (id, batch) in &chain.batches {
+            if let BatchState::Downloading(ref downloading_peer, ..) = batch.state() {
+                assert!(chain.peers.get(downloading_peer).unwrap().contains(id));
+            }
+        }
+    }
+
     fn verify_invariants(chain: &SyncingChain<E>) {
+        buffer_indices_are_valid_ranges(chain);
+        current_processing_batch_consistency(chain);
+        registered_downloads_consistency(chain);
         download_buffer_is_bounded_and_not_processed(chain);
         before_download_buffer_is_awaiting_validation(chain);
     }
