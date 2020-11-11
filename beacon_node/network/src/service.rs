@@ -641,6 +641,13 @@ fn update_gossip_metrics<T: EthSpec>(
         .as_ref()
         .map(|gauge| gauge.reset());
 
+    let _ = metrics::BEACON_BLOCK_MESH_PEERS_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+
     // reset the mesh peers, showing all subnets
     for subnet_id in 0..T::default_spec().attestation_subnet_count {
         let _ = metrics::get_int_gauge(
@@ -782,6 +789,7 @@ fn update_gossip_metrics<T: EthSpec>(
         };
     }
 
+    let mut peer_to_client = HashMap::new();
     let mut scores_per_client: HashMap<String, Vec<f64>> = HashMap::new();
     {
         let peers = network_globals.peers.read();
@@ -791,12 +799,46 @@ fn update_gossip_metrics<T: EthSpec>(
                 .map_or("Unknown".to_string(), |peer_info| {
                     peer_info.client.kind.to_string()
                 });
+            peer_to_client.insert(peer_id, client.clone());
             let score = gossipsub.peer_score(peer_id).unwrap_or(0.0);
             if (client == "Prysm" || client == "Lighthouse") && score < 0.0 {
                 trace!(logger, "Peer has negative score"; "peer" => format!("{:?}", peer_id),
                        "client" => &client, "score" => score);
             }
             scores_per_client.entry(client).or_default().push(score);
+        }
+    }
+
+    // mesh peers per client
+    for topic_hash in gossipsub.topics() {
+        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+            match topic.kind() {
+                GossipKind::BeaconBlock => {
+                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::BEACON_BLOCK_MESH_PEERS_PER_CLIENT,
+                                &[client],
+                            ) {
+                                v.inc()
+                            };
+                        }
+                    }
+                },
+                GossipKind::BeaconAggregateAndProof => {
+                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
+                                &[client],
+                            ) {
+                                v.inc()
+                            };
+                        }
+                    }
+                },
+                _ => ()
+            }
         }
     }
 

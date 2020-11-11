@@ -95,6 +95,18 @@ lazy_static! {
         "Max scores per client",
         &["Client"]
     );
+    pub static ref BEACON_BLOCK_MESH_PEERS_PER_CLIENT: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "block_mesh_peers_per_client",
+            "Number of mesh peers for BeaconBlock topic per client",
+            &["Client"]
+        );
+    pub static ref BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "beacon_aggregate_and_proof_mesh_peers_per_client",
+            "Number of mesh peers for BeaconAggregateAndProof topic per client",
+            &["Client"]
+        );
 }
 
 lazy_static! {
