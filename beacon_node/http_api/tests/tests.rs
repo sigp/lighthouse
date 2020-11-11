@@ -1473,7 +1473,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_validator_attestation_data(self) -> Self {
+    pub async fn test_get_validator_attestation_data(mut self) -> Self {
         let mut state = self.chain.head_beacon_state().unwrap();
         let slot = state.slot;
         state
@@ -1496,6 +1496,14 @@ impl ApiTester {
 
             assert_eq!(result, expected);
         }
+
+        // Ensure we don't allow queries for slots after current_slot + 1
+        self.client
+            .get_validator_attestation_data(slot + Slot::new(2), 0)
+            .await
+            .unwrap_err();
+
+        assert!(self.network_rx.try_recv().is_err());
 
         self
     }
