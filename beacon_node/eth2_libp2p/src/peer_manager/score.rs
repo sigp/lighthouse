@@ -20,6 +20,9 @@ pub(crate) const DEFAULT_SCORE: f64 = 0.0;
 const MIN_SCORE_BEFORE_DISCONNECT: f64 = -20.0;
 /// The minimum reputation before a peer is banned.
 const MIN_SCORE_BEFORE_BAN: f64 = -50.0;
+/// If a peer has a lighthouse score below this constant all other score parts will get ignored and
+/// the peer will get banned regardless of the other parts.
+const MIN_LIGHTHOUSE_SCORE_BEFORE_BAN: f64 = -60.0;
 /// The maximum score a peer can obtain.
 const MAX_SCORE: f64 = 100.0;
 /// The minimum score a peer can obtain.
@@ -130,9 +133,11 @@ impl Default for RealScore {
 
 impl RealScore {
     /// Access to the underlying score.
-    fn recompuete_score(&mut self) {
+    fn recompute_score(&mut self) {
         self.score = self.lighthouse_score;
-        if self.gossipsub_score >= 0.0 {
+        if self.lighthouse_score <= MIN_LIGHTHOUSE_SCORE_BEFORE_BAN {
+            //ignore all other scores, i.e. do nothing here
+        } else if self.gossipsub_score >= 0.0 {
             self.score += self.gossipsub_score * GOSSIPSUB_POSITIVE_SCORE_WEIGHT;
         } else if !self.ignore_negative_gossipsub_score {
             self.score += self.gossipsub_score * GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
@@ -146,12 +151,17 @@ impl RealScore {
     /// Modifies the score based on a peer's action.
     pub fn apply_peer_action(&mut self, peer_action: PeerAction) {
         match peer_action {
-            PeerAction::Fatal => self.lighthouse_score = MIN_SCORE, // The worst possible score
+            PeerAction::Fatal => self.set_lighthouse_score(MIN_SCORE), // The worst possible score
             PeerAction::LowToleranceError => self.add(-10.0),
             PeerAction::MidToleranceError => self.add(-5.0),
             PeerAction::HighToleranceError => self.add(-1.0),
             PeerAction::_ValidMessage => self.add(0.1),
         }
+    }
+
+    fn set_lighthouse_score(&mut self, new_score: f64) {
+        self.lighthouse_score = new_score;
+        self.update_state();
     }
 
     /// Add an f64 to the score abiding by the limits.
@@ -164,13 +174,12 @@ impl RealScore {
             new_score = MIN_SCORE;
         }
 
-        self.lighthouse_score = new_score;
-        self.update_state();
+        self.set_lighthouse_score(new_score);
     }
 
     fn update_state(&mut self) {
         let was_not_banned = self.score > MIN_SCORE_BEFORE_BAN;
-        self.recompuete_score();
+        self.recompute_score();
         if was_not_banned && self.score <= MIN_SCORE_BEFORE_BAN {
             //we ban this peer for at least BANNED_BEFORE_DECAY seconds
             self.last_updated += BANNED_BEFORE_DECAY;
@@ -186,8 +195,7 @@ impl RealScore {
     #[cfg(test)]
     // reset the score
     pub fn test_reset(&mut self) {
-        self.lighthouse_score = 0f64;
-        self.update_state();
+        self.set_lighthouse_score(0f64);
     }
 
     /// Applies time-based logic such as decay rates to the score.

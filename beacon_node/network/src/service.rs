@@ -20,7 +20,7 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
-use types::{EthSpec, ValidatorSubscription};
+use types::{EthSpec, RelativeEpoch, ValidatorSubscription};
 
 mod tests;
 
@@ -275,24 +275,41 @@ fn spawn_service<T: BeaconChainTypes>(
                     );
                 }
                 _ = service.gossipsub_parameter_update.next() => {
-                    if let Ok(current_epoch) = service.beacon_chain.epoch() {
-                        if let Ok(active_validators) = service.beacon_chain.with_head(|head| {
-                            Ok(head
-                            .beacon_state
-                            .validators
-                            .iter()
-                            .filter(|validator| validator.is_active_at(current_epoch))
-                            .count())
-                        }) {
-                            if let Ok(slot) = service.beacon_chain.slot() {
-                                if (*service.libp2p.swarm)
+                    if let Ok(slot) = service.beacon_chain.slot() {
+                        if let Some(active_validators) = service.beacon_chain.with_head(|head| {
+                                Ok(
+                                    head
+                                    .beacon_state
+                                    .get_cached_active_validator_indices(RelativeEpoch::Current)
+                                    .map(|indices| indices.len())
+                                    .ok()
+                                    .or_else(|| {
+                                        // if active validator cached was not build we count the
+                                        // active validators
+                                        service
+                                            .beacon_chain
+                                            .epoch()
+                                            .ok()
+                                            .map(|current_epoch| {
+                                                head
+                                                .beacon_state
+                                                .validators
+                                                .iter()
+                                                .filter(|validator|
+                                                    validator.is_active_at(current_epoch)
+                                                )
+                                                .count()
+                                            })
+                                    })
+                                )
+                            }).unwrap_or(None) {
+                            if (*service.libp2p.swarm)
                                 .update_gossipsub_parameters(active_validators, slot).is_err() {
-                                    error!(
-                                        service.log,
-                                        "Failed to update gossipsub parameters";
-                                        "active_validators" => active_validators
-                                    );
-                                }
+                                error!(
+                                    service.log,
+                                    "Failed to update gossipsub parameters";
+                                    "active_validators" => active_validators
+                                );
                             }
                         }
                     }
