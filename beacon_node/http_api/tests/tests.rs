@@ -1473,7 +1473,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_validator_attestation_data(mut self) -> Self {
+    pub async fn test_get_validator_attestation_data(self) -> Self {
         let mut state = self.chain.head_beacon_state().unwrap();
         let slot = state.slot;
         state
