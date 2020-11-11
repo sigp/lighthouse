@@ -2,7 +2,7 @@ use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::service::NetworkMessage;
-use crate::sync::{PeerSyncInfo, SyncMessage};
+use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{
@@ -18,10 +18,6 @@ use types::{
     Attestation, AttesterSlashing, ChainSpec, Epoch, EthSpec, Hash256, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
 };
-
-/// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
-/// Otherwise we queue it.
-pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -191,121 +187,122 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         status: StatusMessage,
     ) -> Result<(), BeaconChainError> {
-        let remote = PeerSyncInfo::from(status);
-        let local = match PeerSyncInfo::from_chain(&self.chain) {
-            Some(local) => local,
-            None => {
-                error!(
-                    self.log,
-                    "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention"
-                );
-                return Err(BeaconChainError::CannotAttestToFutureState);
-            }
-        };
+        /*
+                let remote = PeerSyncInfo::from(status);
+                let local = match PeerSyncInfo::from_chain(&self.chain) {
+                    Some(local) => local,
+                    None => {
+                        error!(
+                            self.log,
+                            "Failed to get peer sync info";
+                            "msg" => "likely due to head lock contention"
+                        );
+                        return Err(BeaconChainError::CannotAttestToFutureState);
+                    }
+                };
 
-        let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
+                let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        if local.fork_digest != remote.fork_digest {
-            // The node is on a different network/fork, disconnect them.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer_id" => peer_id.to_string(),
-                "reason" => "incompatible forks",
-                "our_fork" => hex::encode(local.fork_digest),
-                "their_fork" => hex::encode(remote.fork_digest)
-            );
+                if local.fork_digest != remote.fork_digest {
+                    // The node is on a different network/fork, disconnect them.
+                    debug!(
+                        self.log, "Handshake Failure";
+                        "peer_id" => peer_id.to_string(),
+                        "reason" => "incompatible forks",
+                        "our_fork" => hex::encode(local.fork_digest),
+                        "their_fork" => hex::encode(remote.fork_digest)
+                    );
 
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.head_slot
-            > self
-                .chain
-                .slot()
-                .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
-                + FUTURE_SLOT_TOLERANCE
-        {
-            // Note: If the slot_clock cannot be read, this will not error. Other system
-            // components will deal with an invalid slot clock error.
+                    self.network
+                        .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
+                } else if remote.head_slot
+                    > self
+                        .chain
+                        .slot()
+                        .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
+                        + FUTURE_SLOT_TOLERANCE
+                {
+                    // Note: If the slot_clock cannot be read, this will not error. Other system
+                    // components will deal with an invalid slot clock error.
 
-            // The remotes head is on a slot that is significantly ahead of ours. This could be
-            // because they are using a different genesis time, or that theirs or our system
-            // clock is incorrect.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer" => peer_id.to_string(),
-                "reason" => "different system clocks or genesis time"
-            );
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.finalized_epoch <= local.finalized_epoch
-            && remote.finalized_root != Hash256::zero()
-            && local.finalized_root != Hash256::zero()
-            && self
-                .chain
-                .root_at_slot(start_slot(remote.finalized_epoch))
-                .map(|root_opt| root_opt != Some(remote.finalized_root))?
-        {
-            // The remotes finalized epoch is less than or greater than ours, but the block root is
-            // different to the one in our chain.
-            //
-            // Therefore, the node is on a different chain and we should not communicate with them.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer" => peer_id.to_string(),
-                "reason" => "different finalized chain"
-            );
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.finalized_epoch < local.finalized_epoch {
-            // The node has a lower finalized epoch, their chain is not useful to us. There are two
-            // cases where a node can have a lower finalized epoch:
-            //
-            // ## The node is on the same chain
-            //
-            // If a node is on the same chain but has a lower finalized epoch, their head must be
-            // lower than ours. Therefore, we have nothing to request from them.
-            //
-            // ## The node is on a fork
-            //
-            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
-            // cause us to revert a finalized block. This is not permitted, therefore we have no
-            // interest in their blocks.
-            debug!(
-                self.log,
-                "NaivePeer";
-                "peer" => peer_id.to_string(),
-                "reason" => "lower finalized epoch"
-            );
-        } else if self
-            .chain
-            .store
-            .item_exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)?
-        {
-            debug!(
-                self.log, "Peer with known chain found";
-                "peer" => peer_id.to_string(),
-                "remote_head_slot" => remote.head_slot,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
+                    // The remotes head is on a slot that is significantly ahead of ours. This could be
+                    // because they are using a different genesis time, or that theirs or our system
+                    // clock is incorrect.
+                    debug!(
+                        self.log, "Handshake Failure";
+                        "peer" => peer_id.to_string(),
+                        "reason" => "different system clocks or genesis time"
+                    );
+                    self.network
+                        .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
+                } else if remote.finalized_epoch <= local.finalized_epoch
+                    && remote.finalized_root != Hash256::zero()
+                    && local.finalized_root != Hash256::zero()
+                    && self
+                        .chain
+                        .root_at_slot(start_slot(remote.finalized_epoch))
+                        .map(|root_opt| root_opt != Some(remote.finalized_root))?
+                {
+                    // The remotes finalized epoch is less than or greater than ours, but the block root is
+                    // different to the one in our chain.
+                    //
+                    // Therefore, the node is on a different chain and we should not communicate with them.
+                    debug!(
+                        self.log, "Handshake Failure";
+                        "peer" => peer_id.to_string(),
+                        "reason" => "different finalized chain"
+                    );
+                    self.network
+                        .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
+                } else if remote.finalized_epoch < local.finalized_epoch {
+                    // The node has a lower finalized epoch, their chain is not useful to us. There are two
+                    // cases where a node can have a lower finalized epoch:
+                    //
+                    // ## The node is on the same chain
+                    //
+                    // If a node is on the same chain but has a lower finalized epoch, their head must be
+                    // lower than ours. Therefore, we have nothing to request from them.
+                    //
+                    // ## The node is on a fork
+                    //
+                    // If a node is on a fork that has a lower finalized epoch, switching to that fork would
+                    // cause us to revert a finalized block. This is not permitted, therefore we have no
+                    // interest in their blocks.
+                    debug!(
+                        self.log,
+                        "NaivePeer";
+                        "peer" => peer_id.to_string(),
+                        "reason" => "lower finalized epoch"
+                    );
+                } else if self
+                    .chain
+                    .store
+                    .item_exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)?
+                {
+                    debug!(
+                        self.log, "Peer with known chain found";
+                        "peer" => peer_id.to_string(),
+                        "remote_head_slot" => remote.head_slot,
+                        "remote_latest_finalized_epoch" => remote.finalized_epoch,
+                    );
 
-            // If the node's best-block is already known to us and they are close to our current
-            // head, treat them as a fully sync'd peer.
-            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
-        } else {
-            // The remote node has an equal or great finalized epoch and we don't know it's head.
-            //
-            // Therefore, there are some blocks between the local finalized epoch and the remote
-            // head that are worth downloading.
-            debug!(
-                self.log, "UsefulPeer";
-                "peer" => peer_id.to_string(),
-                "local_finalized_epoch" => local.finalized_epoch,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
-            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
-        }
-
+                    // If the node's best-block is already known to us and they are close to our current
+                    // head, treat them as a fully sync'd peer.
+                    self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
+                } else {
+                    // The remote node has an equal or great finalized epoch and we don't know it's head.
+                    //
+                    // Therefore, there are some blocks between the local finalized epoch and the remote
+                    // head that are worth downloading.
+                    debug!(
+                        self.log, "UsefulPeer";
+                        "peer" => peer_id.to_string(),
+                        "local_finalized_epoch" => local.finalized_epoch,
+                        "remote_latest_finalized_epoch" => remote.finalized_epoch,
+                    );
+                    self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
+                }
+        */
         Ok(())
     }
 

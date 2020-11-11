@@ -1,7 +1,6 @@
 use crate::metrics;
-use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
-use crate::sync::{BatchProcessResult, ChainId};
+use crate::sync::{peer_sync_info::FUTURE_SLOT_TOLERANCE, BatchProcessResult, ChainId};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};

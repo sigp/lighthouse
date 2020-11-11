@@ -1,8 +1,9 @@
 //! Contains logic about identifying which Sync to perform given PeerSyncInfo of ourselves and
 //! of a remote.
 
-use crate::sync::PeerSyncInfo;
+// use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2_libp2p::SyncInfo;
 use std::sync::Arc;
 
 /// The type of Range sync that should be done relative to our current state.
@@ -19,8 +20,8 @@ impl RangeSyncType {
     /// `PeerSyncInfo`.
     pub fn new<T: BeaconChainTypes>(
         chain: &Arc<BeaconChain<T>>,
-        local_info: &PeerSyncInfo,
-        remote_info: &PeerSyncInfo,
+        local_info: &SyncInfo,
+        remote_info: &SyncInfo,
     ) -> RangeSyncType {
         // Check for finalized chain sync
         //
@@ -28,11 +29,11 @@ impl RangeSyncType {
         // -  The remotes finalized epoch is greater than our current finalized epoch and we have
         //    not seen the finalized hash before.
 
-        if remote_info.finalized_epoch > local_info.finalized_epoch
+        if remote_info.status_finalized_epoch > local_info.status_finalized_epoch
             && !chain
                 .fork_choice
                 .read()
-                .contains_block(&remote_info.finalized_root)
+                .contains_block(&remote_info.status_finalized_root)
         {
             RangeSyncType::Finalized
         } else {

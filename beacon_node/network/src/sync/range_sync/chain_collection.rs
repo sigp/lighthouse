@@ -7,9 +7,9 @@ use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
+use eth2_libp2p::SyncInfo;
 use fnv::FnvHashMap;
 use slog::{crit, debug, error};
 use smallvec::SmallVec;
@@ -185,11 +185,12 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     pub fn update(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
-        awaiting_head_peers: &mut HashMap<PeerId, PeerSyncInfo>,
+        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
         beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     ) {
+        /*
         let (local_finalized_epoch, local_head_epoch) =
-            match PeerSyncInfo::from_chain(&self.beacon_chain) {
+            match SyncInfo::from_chain(&self.beacon_chain) {
                 None => {
                     return error!(
                         self.log,
@@ -219,6 +220,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 beacon_processor_send,
             );
         }
+        */
     }
 
     pub fn state(&self) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, String> {
@@ -329,7 +331,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         local_epoch: Epoch,
         local_head_epoch: Epoch,
-        awaiting_head_peers: &mut HashMap<PeerId, PeerSyncInfo>,
+        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
         beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     ) {
         // Include the awaiting head peers
@@ -337,8 +339,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             debug!(self.log, "including head peer");
             self.add_peer_or_create_chain(
                 local_epoch,
-                peer_sync_info.head_root,
-                peer_sync_info.head_slot,
+                peer_sync_info.status_head_root,
+                peer_sync_info.status_head_slot,
                 peer_id,
                 RangeSyncType::Head,
                 beacon_processor_send,
@@ -402,11 +404,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Removes any outdated finalized or head chains.
     /// This removes chains with no peers, or chains whose start block slot is less than our current
     /// finalized block slot. Peers that would create outdated chains are removed too.
-    pub fn purge_outdated_chains(
-        &mut self,
-        awaiting_head_peers: &mut HashMap<PeerId, PeerSyncInfo>,
-    ) {
-        let local_info = match PeerSyncInfo::from_chain(&self.beacon_chain) {
+    pub fn purge_outdated_chains(&mut self, awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>) {
+        /*
+        let local_info = match SyncInfo::from_chain(&self.beacon_chain) {
             Some(local) => local,
             None => {
                 return error!(
@@ -463,6 +463,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         for (id, was_syncing) in removed_chains {
             self.on_chain_removed(&id, was_syncing);
         }
+        */
     }
 
     /// Adds a peer to a chain with the given target, or creates a new syncing chain if it doesn't
