@@ -824,7 +824,7 @@ fn update_gossip_metrics<T: EthSpec>(
                             };
                         }
                     }
-                },
+                }
                 GossipKind::BeaconAggregateAndProof => {
                     for peer in gossipsub.mesh_peers(&topic_hash) {
                         if let Some(client) = peer_to_client.get(peer) {
@@ -836,8 +836,8 @@ fn update_gossip_metrics<T: EthSpec>(
                             };
                         }
                     }
-                },
-                _ => ()
+                }
+                _ => (),
             }
         }
     }
