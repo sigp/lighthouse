@@ -1497,14 +1497,6 @@ impl ApiTester {
             assert_eq!(result, expected);
         }
 
-        // Ensure we don't allow queries for slots after current_slot + 1
-        self.client
-            .get_validator_attestation_data(slot + Slot::new(2), 0)
-            .await
-            .unwrap_err();
-
-        assert!(self.network_rx.try_recv().is_err());
-
         self
     }
 
