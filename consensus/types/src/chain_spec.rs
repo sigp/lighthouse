@@ -598,6 +598,7 @@ impl YamlConfig {
         Some(match self.config_name.as_str() {
             "mainnet" => EthSpecId::Mainnet,
             "minimal" => EthSpecId::Minimal,
+            "toledo" => EthSpecId::Mainnet,
             "zinken" => EthSpecId::V012Legacy,
             "spadina" => EthSpecId::V012Legacy,
             "medalla" => EthSpecId::V012Legacy,
