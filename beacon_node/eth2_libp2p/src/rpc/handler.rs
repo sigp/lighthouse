@@ -283,8 +283,8 @@ where
         let inbound_info = if let Some(info) = self.inbound_substreams.get_mut(&inbound_id) {
             info
         } else {
-            warn!(self.log, "Stream has expired. Response not sent";
-                "response" => response.to_string(), "id" => inbound_id);
+            warn!(self.log, "Inbound stream has expired, response not sent";
+                "response" => response.to_string(), "id" => inbound_id, "msg" => "Likely too many resources, reduce peer count");
             return;
         };
 
