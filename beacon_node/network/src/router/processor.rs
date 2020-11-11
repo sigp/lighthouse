@@ -113,7 +113,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Called when we first connect to a peer, or when the PeerManager determines we need to
     /// re-status.
     pub fn send_status(&mut self, peer_id: PeerId) {
-        if let Some(status_message) = status_message(&self.chain) {
+        if let Ok(status_message) = status_message(&self.chain) {
             debug!(
                 self.log,
                 "Sending Status Request";
@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         );
 
         // ignore status responses if we are shutting down
-        if let Some(status_message) = status_message(&self.chain) {
+        if let Ok(status_message) = status_message(&self.chain) {
             // Say status back.
             self.network.send_response(
                 peer_id.clone(),
@@ -679,14 +679,14 @@ impl<T: BeaconChainTypes> Processor<T> {
 /// Build a `StatusMessage` representing the state of the given `beacon_chain`.
 pub(crate) fn status_message<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
-) -> Option<StatusMessage> {
-    let head_info = beacon_chain.head_info().ok()?;
+) -> Result<StatusMessage, BeaconChainError> {
+    let head_info = beacon_chain.head_info()?;
     let genesis_validators_root = beacon_chain.genesis_validators_root;
 
     let fork_digest =
         ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
 
-    Some(StatusMessage {
+    Ok(StatusMessage {
         fork_digest,
         finalized_root: head_info.finalized_checkpoint.root,
         finalized_epoch: head_info.finalized_checkpoint.epoch,
