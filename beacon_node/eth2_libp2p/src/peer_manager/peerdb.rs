@@ -162,7 +162,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// This is used to determine if we should accept incoming connections or not.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
-            match peer.score().state() {
+            match peer.score_state() {
                 ScoreState::Banned => true,
                 _ => self.ip_is_banned(peer),
             }
@@ -184,7 +184,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns true if the Peer is either banned or in the disconnected state.
     pub fn is_banned_or_disconnected(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
-            match peer.score().state() {
+            match peer.score_state() {
                 ScoreState::Banned | ScoreState::Disconnected => true,
                 _ => self.ip_is_banned(peer),
             }
@@ -459,7 +459,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         });
 
         // Ban the peer if the score is not already low enough.
-        match info.score().state() {
+        match info.score_state() {
             ScoreState::Banned => {}
             _ => {
                 // If score isn't low enough to ban, this function has been called incorrectly.
@@ -519,7 +519,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             return Err("Unbanning peer that is not banned");
         }
 
-        if let ScoreState::Banned = info.score().state() {
+        if let ScoreState::Banned = info.score_state() {
             return Err("Attempted to unban (connection status) a banned peer");
         }
 
