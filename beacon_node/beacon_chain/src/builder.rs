@@ -324,94 +324,93 @@ where
         self.validator_pubkey_cache = Some(pubkey_cache);
         self.fork_choice = Some(fork_choice);
 
-        let caches = store
+        if let Some(caches) = store
             .get_item::<PersistedSeenCaches<TEthSpec>>(&SEEN_CACHES_KEY)
             .map_err(|e| format!("DB error when reading persisted seen caches: {:?}", e))?
-            .ok_or_else(|| {
-                "No persisted seen caches found in store. Will continue with empty caches."
-                    .to_string()
-            })?;
+        {
+            self.naive_aggregation_pool = Some(
+                NaiveAggregationPool::from_ssz_container(&caches.naive_aggregation_pool).map_err(
+                    |e| {
+                        format!(
+                            "Failed to decode naive aggregation pool for database: {:?}",
+                            e
+                        )
+                    },
+                )?,
+            );
 
-        self.naive_aggregation_pool = Some(
-            NaiveAggregationPool::from_ssz_container(&caches.naive_aggregation_pool).map_err(
-                |e| {
-                    format!(
-                        "Failed to decode naive aggregation pool for database: {:?}",
-                        e
-                    )
-                },
-            )?,
-        );
+            self.observed_attestations = Some(
+                ObservedAttestations::from_ssz_container(&caches.observed_attestations).map_err(
+                    |e| {
+                        format!(
+                            "Failed to decode observed attestations for database: {:?}",
+                            e
+                        )
+                    },
+                )?,
+            );
 
-        self.observed_attestations = Some(
-            ObservedAttestations::from_ssz_container(&caches.observed_attestations).map_err(
-                |e| {
-                    format!(
-                        "Failed to decode observed attestations for database: {:?}",
-                        e
-                    )
-                },
-            )?,
-        );
+            self.observed_attesters = Some(
+                ObservedAttesters::from_ssz_container(&caches.observed_attesters).map_err(|e| {
+                    format!("Failed to decode observed attesters for database: {:?}", e)
+                })?,
+            );
 
-        self.observed_attesters = Some(
-            ObservedAttesters::from_ssz_container(&caches.observed_attesters).map_err(|e| {
-                format!("Failed to decode observed attesters for database: {:?}", e)
-            })?,
-        );
+            self.observed_aggregators = Some(
+                ObservedAggregators::from_ssz_container(&caches.observed_aggregators).map_err(
+                    |e| {
+                        format!(
+                            "Failed to decode observed aggregators for database: {:?}",
+                            e
+                        )
+                    },
+                )?,
+            );
 
-        self.observed_aggregators = Some(
-            ObservedAggregators::from_ssz_container(&caches.observed_aggregators).map_err(|e| {
-                format!(
-                    "Failed to decode observed aggregators for database: {:?}",
-                    e
-                )
-            })?,
-        );
+            self.observed_block_producers = Some(
+                ObservedBlockProducers::from_ssz_container(&caches.observed_block_producers)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to decode observed block producers for database: {:?}",
+                            e
+                        )
+                    })?,
+            );
 
-        self.observed_block_producers = Some(
-            ObservedBlockProducers::from_ssz_container(&caches.observed_block_producers).map_err(
-                |e| {
-                    format!(
-                        "Failed to decode observed block producers for database: {:?}",
-                        e
-                    )
-                },
-            )?,
-        );
+            self.observed_voluntary_exits = Some(
+                ObservedOperations::from_ssz_container(&caches.observed_voluntary_exits).map_err(
+                    |e| {
+                        format!(
+                            "Failed to decode observed voluntary exits for database: {:?}",
+                            e
+                        )
+                    },
+                )?,
+            );
 
-        self.observed_voluntary_exits = Some(
-            ObservedOperations::from_ssz_container(&caches.observed_voluntary_exits).map_err(
-                |e| {
-                    format!(
-                        "Failed to decode observed voluntary exits for database: {:?}",
-                        e
-                    )
-                },
-            )?,
-        );
+            self.observed_proposer_slashings = Some(
+                ObservedOperations::from_ssz_container(&caches.observed_proposer_slashings)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to decode observed proposer slashings for database: {:?}",
+                            e
+                        )
+                    })?,
+            );
 
-        self.observed_proposer_slashings = Some(
-            ObservedOperations::from_ssz_container(&caches.observed_proposer_slashings).map_err(
-                |e| {
-                    format!(
-                        "Failed to decode observed proposer slashings for database: {:?}",
-                        e
-                    )
-                },
-            )?,
-        );
+            self.observed_attester_slashings = Some(
+                ObservedOperations::from_ssz_container(&caches.observed_attester_slashings)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to decode observed attester slashings for database: {:?}",
+                            e
+                        )
+                    })?,
+            );
+        } else {
+            info!(log, "Creating empty seen caches");
+        }
 
-        self.observed_attester_slashings = Some(
-            ObservedOperations::from_ssz_container(&caches.observed_attester_slashings).map_err(
-                |e| {
-                    format!(
-                        "Failed to decode observed attester slashings for database: {:?}",
-                        e
-                    )
-                },
-            )?,
-        );
         Ok(self)
     }
 
@@ -646,20 +645,19 @@ where
             op_pool: self
                 .op_pool
                 .ok_or_else(|| "Cannot build without op pool".to_string())?,
-            // TODO: allow for persisting and loading the pool from disk.
-            naive_aggregation_pool: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
+            naive_aggregation_pool: self
+                .naive_aggregation_pool
+                .map(RwLock::new)
+                .unwrap_or_else(|| <_>::default()),
             observed_attestations: self.observed_attestations.unwrap_or_default(),
-            // TODO: allow for persisting and loading the pool from disk.
-            observed_attesters: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
-            observed_aggregators: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
-            observed_block_producers: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
-            observed_voluntary_exits: <_>::default(),
-            observed_proposer_slashings: <_>::default(),
-            observed_attester_slashings: <_>::default(),
+            observed_attesters: self.observed_attesters.unwrap_or_default(),
+            observed_aggregators: self.observed_aggregators.unwrap_or_default(),
+            observed_block_producers: self.observed_block_producers.unwrap_or_default(),
+            observed_voluntary_exits: self.observed_voluntary_exits.unwrap_or_default(),
+            observed_proposer_slashings: self.observed_proposer_slashings.unwrap_or_default(),
+            observed_attester_slashings: self
+                .observed_attester_slashings
+                .unwrap_or_else(|| <_>::default()),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
