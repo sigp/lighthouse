@@ -89,6 +89,7 @@ impl BeaconProposerCache {
 
                         Ok(ProposerData {
                             pubkey: PublicKeyBytes::from(pubkey),
+                            validator_index: i as u64,
                             slot,
                         })
                     })
