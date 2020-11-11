@@ -573,6 +573,7 @@ impl<T: EthSpec> SyncingChain<T> {
 
         // safety check for batch boundaries
         if validating_epoch % EPOCHS_PER_BATCH != self.start_epoch % EPOCHS_PER_BATCH {
+            debug_assert!(false);
             crit!(self.log, "Validating Epoch is not aligned");
             return;
         }
@@ -620,10 +621,13 @@ impl<T: EthSpec> SyncingChain<T> {
                         active_batches.remove(&id);
                     }
                 }
-                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => crit!(
-                    self.log,
-                    "batch indicates inconsistent chain state while advancing chain"
-                ),
+                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
+                    debug_assert!(false);
+                    crit!(
+                        self.log,
+                        "batch indicates inconsistent chain state while advancing chain"
+                    )
+                }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     debug!(self.log, "Advancing chain while processing a batch"; "batch" => id, batch);
@@ -1072,7 +1076,7 @@ mod tests {
     // use super::batch::{BatchInfo, BatchState};
     // use crate::beacon_processor::ProcessId;
     use crate::beacon_processor::WorkEvent;
-    // use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
+    use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
     // use eth2_libp2p::{PeerAction, PeerId};
     // use fnv::FnvHashMap;
     // use rand::seq::SliceRandom;
@@ -1096,6 +1100,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(5);
         let target_root = Hash256::random();
         let log = NullLoggerBuilder.build().expect("logger should build");
+        // SyncNetworkContext:: TODO: remove this thing
 
         let chain = SyncingChain::new(
             Epoch::new(1),
@@ -1216,5 +1221,11 @@ mod tests {
     fn test_new_chain() {
         let (_, chain) = test_setup(Slot::new(1));
         verify_invariants(&chain);
+    }
+
+    #[test]
+    fn test_chain_advancement() {
+        let target_slot = E::slots_per_epoch()*10 + E::slots_per_epoch()/2;
+        let (processor, chain) = test_setup(Slot::new(target_slot));
     }
 }
