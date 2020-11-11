@@ -8,10 +8,15 @@ use tempfile::tempdir;
 use types::{Epoch, Hash256, PublicKey, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct TestCase {
+pub struct MultiTestCase {
     pub name: String,
-    pub should_succeed: bool,
     pub genesis_validators_root: Hash256,
+    pub steps: Vec<TestCase>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TestCase {
+    pub should_succeed: bool,
     pub interchange: Interchange,
     pub blocks: Vec<TestBlock>,
     pub attestations: Vec<TestAttestation>,
@@ -32,16 +37,17 @@ pub struct TestAttestation {
     pub should_succeed: bool,
 }
 
-impl TestCase {
-    pub fn new(name: &str, interchange: Interchange) -> Self {
-        TestCase {
+impl MultiTestCase {
+    pub fn new(name: &str, steps: Vec<TestCase>) -> Self {
+        MultiTestCase {
             name: name.into(),
-            should_succeed: true,
             genesis_validators_root: DEFAULT_GENESIS_VALIDATORS_ROOT,
-            interchange,
-            blocks: vec![],
-            attestations: vec![],
+            steps,
         }
+    }
+
+    pub fn single(name: &str, test_case: TestCase) -> Self {
+        Self::new(name, vec![test_case])
     }
 
     pub fn gvr(mut self, genesis_validators_root: Hash256) -> Self {
@@ -49,11 +55,94 @@ impl TestCase {
         self
     }
 
+    pub fn run(&self) {
+        let dir = tempdir().unwrap();
+        let slashing_db_file = dir.path().join("slashing_protection.sqlite");
+        let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
+
+        for test_case in &self.steps {
+            match slashing_db
+                .import_interchange_info(&test_case.interchange, self.genesis_validators_root)
+            {
+                Ok(()) if !test_case.should_succeed => {
+                    panic!(
+                        "test `{}` succeeded on import when it should have failed",
+                        self.name
+                    );
+                }
+                Err(e) if test_case.should_succeed => {
+                    panic!(
+                        "test `{}` failed on import when it should have succeeded, error: {:?}",
+                        self.name, e
+                    );
+                }
+                _ => (),
+            }
+
+            for (i, block) in test_case.blocks.iter().enumerate() {
+                match slashing_db.check_and_insert_block_signing_root(
+                    &block.pubkey,
+                    block.slot,
+                    Hash256::random(),
+                ) {
+                    Ok(safe) if !block.should_succeed => {
+                        panic!(
+                            "block {} from `{}` succeeded when it should have failed: {:?}",
+                            i, self.name, safe
+                        );
+                    }
+                    Err(e) if block.should_succeed => {
+                        panic!(
+                            "block {} from `{}` failed when it should have succeeded: {:?}",
+                            i, self.name, e
+                        );
+                    }
+                    _ => (),
+                }
+            }
+
+            for (i, att) in test_case.attestations.iter().enumerate() {
+                match slashing_db.check_and_insert_attestation_signing_root(
+                    &att.pubkey,
+                    att.source_epoch,
+                    att.target_epoch,
+                    Hash256::random(),
+                ) {
+                    Ok(safe) if !att.should_succeed => {
+                        panic!(
+                            "attestation {} from `{}` succeeded when it should have failed: {:?}",
+                            i, self.name, safe
+                        );
+                    }
+                    Err(e) if att.should_succeed => {
+                        panic!(
+                            "attestation {} from `{}` failed when it should have succeeded: {:?}",
+                            i, self.name, e
+                        );
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
+}
+
+impl TestCase {
+    pub fn new(interchange: Interchange) -> Self {
+        TestCase {
+            should_succeed: true,
+            interchange,
+            blocks: vec![],
+            attestations: vec![],
+        }
+    }
+
     pub fn should_fail(mut self) -> Self {
         self.should_succeed = false;
         self
     }
 
+    // FIXME(sproul): add signing roots
     pub fn with_blocks(mut self, blocks: impl IntoIterator<Item = (usize, u64, bool)>) -> Self {
         self.blocks.extend(
             blocks
@@ -80,72 +169,5 @@ impl TestCase {
             },
         ));
         self
-    }
-
-    pub fn run(&self) {
-        let dir = tempdir().unwrap();
-        let slashing_db_file = dir.path().join("slashing_protection.sqlite");
-        let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
-
-        match slashing_db.import_interchange_info(&self.interchange, self.genesis_validators_root) {
-            Ok(()) if !self.should_succeed => {
-                panic!(
-                    "test `{}` succeeded on import when it should have failed",
-                    self.name
-                );
-            }
-            Err(e) if self.should_succeed => {
-                panic!(
-                    "test `{}` failed on import when it should have succeeded, error: {:?}",
-                    self.name, e
-                );
-            }
-            _ => (),
-        }
-
-        for (i, block) in self.blocks.iter().enumerate() {
-            match slashing_db.check_and_insert_block_signing_root(
-                &block.pubkey,
-                block.slot,
-                Hash256::random(),
-            ) {
-                Ok(safe) if !block.should_succeed => {
-                    panic!(
-                        "block {} from `{}` succeeded when it should have failed: {:?}",
-                        i, self.name, safe
-                    );
-                }
-                Err(e) if block.should_succeed => {
-                    panic!(
-                        "block {} from `{}` failed when it should have succeeded: {:?}",
-                        i, self.name, e
-                    );
-                }
-                _ => (),
-            }
-        }
-
-        for (i, att) in self.attestations.iter().enumerate() {
-            match slashing_db.check_and_insert_attestation_signing_root(
-                &att.pubkey,
-                att.source_epoch,
-                att.target_epoch,
-                Hash256::random(),
-            ) {
-                Ok(safe) if !att.should_succeed => {
-                    panic!(
-                        "attestation {} from `{}` succeeded when it should have failed: {:?}",
-                        i, self.name, safe
-                    );
-                }
-                Err(e) if att.should_succeed => {
-                    panic!(
-                        "attestation {} from `{}` failed when it should have succeeded: {:?}",
-                        i, self.name, e
-                    );
-                }
-                _ => (),
-            }
-        }
     }
 }

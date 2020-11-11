@@ -602,6 +602,13 @@ impl SlashingDatabase {
                 )?;
             }
 
+            // Prune blocks less than the min slot from this interchange file.
+            // This ensures we don't sign anything less than the min slot after successful import,
+            // which is signficant if we have imported two files with a "gap" in between.
+            if let Some(new_min_slot) = record.signed_blocks.iter().map(|block| block.slot).min() {
+                self.prune_signed_blocks(&record.pubkey, new_min_slot, &txn)?;
+            }
+
             // Insert all signed attestations.
             for attestation in &record.signed_attestations {
                 self.check_and_insert_attestation_signing_root_txn(
@@ -609,6 +616,22 @@ impl SlashingDatabase {
                     attestation.source_epoch,
                     attestation.target_epoch,
                     attestation.signing_root.unwrap_or_else(Hash256::zero),
+                    &txn,
+                )?;
+            }
+
+            // Prune attestations less than the min source and target from this interchange file.
+            // See the rationale for blocks above.
+            if let Some((new_min_source, new_min_target)) = record
+                .signed_attestations
+                .iter()
+                .map(|attestation| (attestation.source_epoch, attestation.target_epoch))
+                .min()
+            {
+                self.prune_signed_attestations(
+                    &record.pubkey,
+                    new_min_source,
+                    new_min_target,
                     &txn,
                 )?;
             }
@@ -689,6 +712,48 @@ impl SlashingDatabase {
             .collect::<Result<_, InterchangeError>>()?;
 
         Ok(Interchange { metadata, data })
+    }
+
+    /// Remove all blocks for `public_key` with slots less than `new_min_slot`.
+    pub fn prune_signed_blocks(
+        &self,
+        public_key: &PublicKey,
+        new_min_slot: Slot,
+        txn: &Transaction,
+    ) -> Result<(), NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
+
+        txn.execute(
+            "DELETE FROM signed_blocks
+             WHERE validator_id = ?1 AND slot < ?2",
+            params![validator_id, new_min_slot],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn prune_signed_attestations(
+        &self,
+        public_key: &PublicKey,
+        new_min_source: Epoch,
+        new_min_target: Epoch,
+        txn: &Transaction,
+    ) -> Result<(), NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
+
+        // Delete attestations with source *and* target less than the minimums.
+        // Assuming `(new_min_source, new_min_target)` was successfully
+        // inserted into the database, then any other attestation in the database
+        // can't have just its source or just its target less than the new minimum.
+        // I.e. the following holds:
+        //   a.source < new_min_source <--> a.target < new_min_target
+        txn.execute(
+            "DELETE FROM signed_attestations
+             WHERE validator_id = ?1 AND source_epoch < ?2 AND target_epoch < ?3",
+            params![validator_id, new_min_source, new_min_target],
+        )?;
+
+        Ok(())
     }
 
     pub fn num_validator_rows(&self) -> Result<u32, NotSafe> {
