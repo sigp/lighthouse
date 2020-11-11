@@ -1,10 +1,10 @@
 use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey},
-    Error, INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN,
+    Error, PUBLIC_KEY_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::convert::TryInto;
 use std::fmt;
@@ -32,8 +32,7 @@ where
     ///
     /// May fail if the bytes are invalid.
     pub fn decompress(&self) -> Result<GenericPublicKey<Pub>, Error> {
-        let is_infinity = self.bytes[..] == INFINITY_PUBLIC_KEY[..];
-        Pub::deserialize(&self.bytes).map(|point| GenericPublicKey::from_point(point, is_infinity))
+        GenericPublicKey::deserialize(&self.bytes)
     }
 }
 
@@ -101,6 +100,16 @@ where
     Pub: TPublicKey,
 {
     fn from(pk: GenericPublicKey<Pub>) -> Self {
+        Self::from(&pk)
+    }
+}
+
+/// Serializes the `PublicKey` in compressed form, storing the bytes in the newly created `Self`.
+impl<Pub> From<&GenericPublicKey<Pub>> for GenericPublicKeyBytes<Pub>
+where
+    Pub: TPublicKey,
+{
+    fn from(pk: &GenericPublicKey<Pub>) -> Self {
         Self {
             bytes: pk.serialize(),
             _phantom: PhantomData,
@@ -130,6 +139,14 @@ impl<Pub> Decode for GenericPublicKeyBytes<Pub> {
 
 impl<Pub> TreeHash for GenericPublicKeyBytes<Pub> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
+}
+
+impl<Pub> fmt::Display for GenericPublicKeyBytes<Pub> {
+    impl_display!();
+}
+
+impl<Pub> std::str::FromStr for GenericPublicKeyBytes<Pub> {
+    impl_from_str!();
 }
 
 impl<Pub> Serialize for GenericPublicKeyBytes<Pub> {

@@ -39,19 +39,41 @@ pub enum Eth1NetworkId {
     Custom(u64),
 }
 
+/// Used to identify a block when querying the Eth1 node.
+#[derive(Clone, Copy)]
+pub enum BlockQuery {
+    Number(u64),
+    Latest,
+}
+
+impl Into<u64> for Eth1NetworkId {
+    fn into(self) -> u64 {
+        match self {
+            Eth1NetworkId::Mainnet => 1,
+            Eth1NetworkId::Goerli => 5,
+            Eth1NetworkId::Custom(id) => id,
+        }
+    }
+}
+
+impl From<u64> for Eth1NetworkId {
+    fn from(id: u64) -> Self {
+        let into = |x: Eth1NetworkId| -> u64 { x.into() };
+        match id {
+            id if id == into(Eth1NetworkId::Mainnet) => Eth1NetworkId::Mainnet,
+            id if id == into(Eth1NetworkId::Goerli) => Eth1NetworkId::Goerli,
+            id => Eth1NetworkId::Custom(id),
+        }
+    }
+}
+
 impl FromStr for Eth1NetworkId {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "1" => Ok(Eth1NetworkId::Mainnet),
-            "5" => Ok(Eth1NetworkId::Goerli),
-            custom => {
-                let network_id = u64::from_str_radix(custom, 10)
-                    .map_err(|e| format!("Failed to parse eth1 network id {}", e))?;
-                Ok(Eth1NetworkId::Custom(network_id))
-            }
-        }
+        u64::from_str_radix(s, 10)
+            .map(Into::into)
+            .map_err(|e| format!("Failed to parse eth1 network id {}", e))
     }
 }
 
@@ -92,11 +114,15 @@ pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, 
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_block(
     endpoint: &str,
-    block_number: u64,
+    query: BlockQuery,
     timeout: Duration,
 ) -> Result<Block, String> {
+    let query_param = match query {
+        BlockQuery::Number(block_number) => format!("0x{:x}", block_number),
+        BlockQuery::Latest => "latest".to_string(),
+    };
     let params = json!([
-        format!("0x{:x}", block_number),
+        query_param,
         false // do not return full tx objects.
     ]);
 

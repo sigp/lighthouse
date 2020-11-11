@@ -39,13 +39,6 @@ impl ValidatorPubkeyCache {
         state: &BeaconState<T>,
         persistence_path: P,
     ) -> Result<Self, BeaconChainError> {
-        if persistence_path.as_ref().exists() {
-            return Err(BeaconChainError::ValidatorPubkeyCacheFileError(format!(
-                "Persistence file already exists: {:?}",
-                persistence_path.as_ref()
-            )));
-        }
-
         let mut cache = Self {
             persitence_file: ValidatorPubkeyCacheFile::create(persistence_path)?,
             pubkeys: vec![],
@@ -159,8 +152,9 @@ impl ValidatorPubkeyCacheFile {
     /// Creates a file for reading and writing.
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         OpenOptions::new()
-            .create_new(true)
+            .create(true)
             .write(true)
+            .truncate(true)
             .open(path)
             .map(Self)
             .map_err(Error::Io)

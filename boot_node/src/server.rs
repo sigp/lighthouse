@@ -1,16 +1,25 @@
 //! The main bootnode server execution.
 
 use super::BootNodeConfig;
-use discv5::{Discv5, Discv5ConfigBuilder, Discv5Event};
-use eth2_libp2p::EnrExt;
+use eth2_libp2p::{
+    discv5::{enr::NodeId, Discv5, Discv5ConfigBuilder, Discv5Event},
+    EnrExt, Eth2Enr,
+};
 use futures::prelude::*;
 use slog::info;
+use types::EthSpec;
 
-pub async fn run(config: BootNodeConfig, log: slog::Logger) {
+pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     // Print out useful information about the generated ENR
 
     let enr_socket = config.local_enr.udp_socket().expect("Enr has a UDP socket");
-    info!(log, "Configuration parameters"; "listening_address" => format!("{}:{}", config.listen_socket.ip(), config.listen_socket.port()), "broadcast_address" => format!("{}:{}",enr_socket.ip(), enr_socket.port()));
+    let eth2_field = config
+        .local_enr
+        .eth2()
+        .map(|fork_id| hex::encode(fork_id.fork_digest))
+        .unwrap_or_default();
+
+    info!(log, "Configuration parameters"; "listening_address" => format!("{}:{}", config.listen_socket.ip(), config.listen_socket.port()), "broadcast_address" => format!("{}:{}",enr_socket.ip(), enr_socket.port()), "eth2" => eth2_field);
 
     info!(log, "Identity established"; "peer_id" => config.local_enr.peer_id().to_string(), "node_id" => config.local_enr.node_id().to_string());
 
@@ -51,7 +60,7 @@ pub async fn run(config: BootNodeConfig, log: slog::Logger) {
     // if there are peers in the local routing table, establish a session by running a query
     if !discv5.table_entries_id().is_empty() {
         info!(log, "Executing bootstrap query...");
-        let _ = discv5.find_node(discv5::enr::NodeId::random()).await;
+        let _ = discv5.find_node(NodeId::random()).await;
     }
 
     // respond with metrics every 10 seconds

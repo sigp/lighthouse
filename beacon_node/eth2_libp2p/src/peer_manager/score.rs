@@ -7,6 +7,7 @@
 //! The scoring algorithms are currently experimental.
 use serde::Serialize;
 use std::time::Instant;
+use tokio::time::Duration;
 
 lazy_static! {
     static ref HALFLIFE_DECAY: f64 = -(2.0f64.ln()) / SCORE_HALFLIFE;
@@ -25,7 +26,7 @@ const MIN_SCORE: f64 = -100.0;
 /// The halflife of a peer's score. I.e the number of seconds it takes for the score to decay to half its value.
 const SCORE_HALFLIFE: f64 = 600.0;
 /// The number of seconds we ban a peer for before their score begins to decay.
-const BANNED_BEFORE_DECAY: u64 = 1800;
+const BANNED_BEFORE_DECAY: Duration = Duration::from_secs(1800);
 
 /// A collection of actions a peer can perform which will adjust its score.
 /// Each variant has an associated score change.
@@ -48,7 +49,7 @@ pub enum PeerAction {
     /// An error occurred with this peer but it is not necessarily malicious.
     /// We have high tolerance for this actions: several occurrences are needed for a peer to get
     /// kicked.
-    /// NOTE: ~15 occurrences will get the peer banned
+    /// NOTE: ~50 occurrences will get the peer banned
     HighToleranceError,
     /// Received an expected message.
     _ValidMessage,
@@ -178,7 +179,26 @@ impl Score {
     }
 
     /// Add an f64 to the score abiding by the limits.
-    pub fn add(&mut self, score: f64) {
+    fn add(&mut self, score: f64) {
+        let mut new_score = self.score + score;
+        if new_score > MAX_SCORE {
+            new_score = MAX_SCORE;
+        }
+        if new_score < MIN_SCORE {
+            new_score = MIN_SCORE;
+        }
+
+        if self.score > MIN_SCORE_BEFORE_BAN && new_score <= MIN_SCORE_BEFORE_BAN {
+            //we ban this peer for at least BANNED_BEFORE_DECAY seconds
+            self.last_updated += BANNED_BEFORE_DECAY;
+        }
+
+        self.score = new_score;
+    }
+
+    /// Add an f64 to the score abiding by the limits.
+    #[cfg(test)]
+    pub fn test_add(&mut self, score: f64) {
         let mut new_score = self.score + score;
         if new_score > MAX_SCORE {
             new_score = MAX_SCORE;
@@ -190,29 +210,27 @@ impl Score {
         self.score = new_score;
     }
 
+    #[cfg(test)]
+    // reset the score
+    pub fn test_reset(&mut self) {
+        self.score = 0f64;
+    }
+
     /// Applies time-based logic such as decay rates to the score.
     /// This function should be called periodically.
     pub fn update(&mut self) {
-        // Apply decay logic
-        //
-        // There is two distinct decay processes. One for banned peers and one for all others. If
-        // the score is below the banning threshold and the duration since it was last update is
-        // shorter than the banning threshold, we do nothing.
-        let now = Instant::now();
-        if self.score <= MIN_SCORE_BEFORE_BAN
-            && now
-                .checked_duration_since(self.last_updated)
-                .map(|d| d.as_secs())
-                <= Some(BANNED_BEFORE_DECAY)
-        {
-            // The peer is banned and still within the ban timeout. Do not update it's score.
-            // Update last_updated so that the decay begins correctly when ready.
-            self.last_updated = now;
-            return;
-        }
+        self.update_at(Instant::now())
+    }
 
+    /// Applies time-based logic such as decay rates to the score with the given now value.
+    /// This private sub function is mainly used for testing.
+    fn update_at(&mut self, now: Instant) {
         // Decay the current score
         // Using exponential decay based on a constant half life.
+
+        // It is important that we use here `checked_duration_since` instead of elapsed, since
+        // we set last_updated to the future when banning peers. Therefore `checked_duration_since`
+        // will return None in this case and the score does not get decayed.
         if let Some(secs_since_update) = now
             .checked_duration_since(self.last_updated)
             .map(|d| d.as_secs())
@@ -256,5 +274,24 @@ mod tests {
         let change = 1.32;
         score.add(change);
         assert_eq!(score.score(), DEFAULT_SCORE + change);
+    }
+
+    #[test]
+    fn test_ban_time() {
+        let mut score = Score::default();
+        let now = Instant::now();
+
+        let change = MIN_SCORE_BEFORE_BAN;
+        score.add(change);
+        assert_eq!(score.score(), MIN_SCORE_BEFORE_BAN);
+        assert_eq!(score.state(), ScoreState::Banned);
+
+        score.update_at(now + BANNED_BEFORE_DECAY);
+        assert_eq!(score.score(), MIN_SCORE_BEFORE_BAN);
+        assert_eq!(score.state(), ScoreState::Banned);
+
+        score.update_at(now + BANNED_BEFORE_DECAY + Duration::from_secs(1));
+        assert!(score.score() > MIN_SCORE_BEFORE_BAN);
+        assert_eq!(score.state(), ScoreState::Disconnected);
     }
 }

@@ -33,20 +33,6 @@ jobs:
       run: sudo npm install -g ganache-cli
     - name: Run tests in release
       run: make test-release
-  release-tests-and-install-macos:
-    name: release-tests-and-install-macos
-    runs-on: macos-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v1
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install ganache-cli
-      run: sudo npm install -g ganache-cli
-    - name: Run tests in release
-      run: make test-release
-    - name: Install Lighthouse
-      run: make
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     runs-on: ubuntu-latest

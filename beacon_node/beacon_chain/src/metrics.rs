@@ -1,4 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
@@ -327,6 +328,10 @@ lazy_static! {
     pub static ref ATTN_OBSERVATION_PREV_EPOCH_AGGREGATORS: Result<IntGauge> = try_create_int_gauge(
         "beacon_attn_observation_epoch_aggregators",
         "Count of aggregators that have been seen by the beacon chain in the previous epoch"
+    );
+    pub static ref ATTN_OBSERVATION_CACHED_ATTESTATIONS_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "attn_observation_cached_attestations_total",
+        "Size of the cached attestation cache"
     );
 }
 

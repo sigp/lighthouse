@@ -1,13 +1,11 @@
-use crate::{
-    config::{Config, SLASHING_PROTECTION_FILENAME},
-    fork_service::ForkService,
-    initialized_validators::InitializedValidators,
-};
+use crate::{fork_service::ForkService, initialized_validators::InitializedValidators};
+use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::RwLock;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
@@ -49,29 +47,20 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
-    fork_service: ForkService<T, E>,
+    fork_service: ForkService<T>,
     _phantom: PhantomData<E>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn new(
         validators: InitializedValidators,
-        config: &Config,
+        slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
-        fork_service: ForkService<T, E>,
+        fork_service: ForkService<T>,
         log: Logger,
-    ) -> Result<Self, String> {
-        let slashing_db_path = config.data_dir.join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection =
-            SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
-                format!(
-                    "Failed to open or create slashing protection database: {:?}",
-                    e
-                )
-            })?;
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             validators: Arc::new(RwLock::new(validators)),
             slashing_protection,
             genesis_validators_root,
@@ -80,17 +69,44 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             temp_dir: None,
             fork_service,
             _phantom: PhantomData,
-        })
+        }
     }
 
-    /// Register all known validators with the slashing protection database.
+    pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
+        self.validators.clone()
+    }
+
+    /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
+    /// keystore on the filesystem.
     ///
-    /// Registration is required to protect against a lost or missing slashing database,
-    /// such as when relocating validator keys to a new machine.
-    pub fn register_all_validators_for_slashing_protection(&self) -> Result<(), String> {
+    /// This function includes:
+    ///
+    /// - Add the validator definition to the YAML file, saving it to the filesystem.
+    /// - Enable validator with the slashing protection database.
+    /// - If `enable == true`, start performing duties for the validator.
+    pub async fn add_validator_keystore<P: AsRef<Path>>(
+        &self,
+        voting_keystore_path: P,
+        password: ZeroizeString,
+        enable: bool,
+    ) -> Result<ValidatorDefinition, String> {
+        let mut validator_def =
+            ValidatorDefinition::new_keystore_with_password(voting_keystore_path, Some(password))
+                .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
+
         self.slashing_protection
-            .register_validators(self.validators.read().iter_voting_pubkeys())
-            .map_err(|e| format!("Error while registering validators: {:?}", e))
+            .register_validator(&validator_def.voting_public_key)
+            .map_err(|e| format!("failed to register validator: {:?}", e))?;
+
+        validator_def.enabled = enable;
+
+        self.validators
+            .write()
+            .add_definition(validator_def.clone())
+            .await
+            .map_err(|e| format!("Unable to add definition: {:?}", e))?;
+
+        Ok(validator_def)
     }
 
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
@@ -116,7 +132,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     pub fn randao_reveal(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<Signature> {
-        // TODO: check this against the slot clock to make sure it's not an early reveal?
         self.validators
             .read()
             .voting_keypair(validator_pubkey)
@@ -189,7 +204,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 warn!(
                     self.log,
                     "Not signing block for unregistered validator";
-                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None
@@ -268,7 +283,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 warn!(
                     self.log,
                     "Not signing attestation for unregistered validator";
-                    "msg" => "Carefully consider running with --auto-register (see --help)",
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None

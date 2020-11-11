@@ -7,13 +7,13 @@ edition = "2018"
 build = "build.rs"
 
 [build-dependencies]
-reqwest = { version = "0.10.4", features = ["blocking", "json", "native-tls-vendored"] }
-serde_json = "1.0.52"
+reqwest = { version = "0.10.8", features = ["blocking", "json", "native-tls-vendored"] }
+serde_json = "1.0.58"
 sha2 = "0.9.1"
 hex = "0.4.2"
 
 [dependencies]
 types = { path = "../../consensus/types"}
 eth2_ssz = "0.1.2"
-tree_hash = "0.1.0"
+tree_hash = "0.1.1"
 ethabi = "12.0.0"

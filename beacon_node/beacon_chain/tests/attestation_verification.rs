@@ -5,19 +5,19 @@ extern crate lazy_static;
 
 use beacon_chain::{
     attestation_verification::Error as AttnError,
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, NullMigratorEphemeralHarnessType,
-    },
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use int_to_bytes::int_to_bytes32;
-use state_processing::per_slot_processing;
+use state_processing::{
+    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+};
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, EthSpec, Hash256,
-    Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SubnetId, Unsigned,
+    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
+    BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -32,7 +32,7 @@ lazy_static! {
 }
 
 /// Returns a beacon chain harness.
-fn get_harness(validator_count: usize) -> BeaconChainHarness<NullMigratorEphemeralHarnessType<E>> {
+fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_target_aggregators(
         MainnetEthSpec,
         KEYPAIRS[0..validator_count].to_vec(),
@@ -186,7 +186,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
 /// Tests verification of `SignedAggregateAndProof` from the gossip network.
 #[test]
 fn aggregated_gossip_verification() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -274,6 +274,21 @@ fn aggregated_gossip_verification() {
         }
         if attestation_slot == early_slot
             && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
+    );
+
+    /*
+     * This is not in the specification for aggregate attestations (only unaggregates), but we
+     * check it anyway to avoid weird edge cases.
+     */
+    let unknown_root = Hash256::from_low_u64_le(424242);
+    assert_invalid!(
+        "attestation with invalid target root",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.target.root = unknown_root;
+            a
+        },
+        AttnError::InvalidTargetRoot { .. }
     );
 
     /*
@@ -533,7 +548,7 @@ fn aggregated_gossip_verification() {
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
 #[test]
 fn unaggregated_gossip_verification() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -568,7 +583,7 @@ fn unaggregated_gossip_verification() {
                 matches!(
                     harness
                         .chain
-                        .verify_unaggregated_attestation_for_gossip($attn_getter, $subnet_getter)
+                        .verify_unaggregated_attestation_for_gossip($attn_getter, Some($subnet_getter))
                         .err()
                         .expect(&format!(
                             "{} should error during verify_unaggregated_attestation_for_gossip",
@@ -581,6 +596,31 @@ fn unaggregated_gossip_verification() {
             );
         };
     }
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.12.3
+     *
+     * The committee index is within the expected range -- i.e. `data.index <
+     * get_committee_count_per_slot(state, data.target.epoch)`.
+     */
+    assert_invalid!(
+        "attestation with invalid committee index",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.index = harness
+                .chain
+                .head()
+                .unwrap()
+                .beacon_state
+                .get_committee_count_at_slot(a.data.slot)
+                .unwrap();
+            a
+        },
+        subnet_id,
+        AttnError::NoCommitteeForSlotAndIndex { .. }
+    );
 
     /*
      * The following test ensures:
@@ -642,6 +682,7 @@ fn unaggregated_gossip_verification() {
         {
             let mut a = valid_attestation.clone();
             a.data.slot = early_slot;
+            a.data.target.epoch = early_slot.epoch(E::slots_per_epoch());
             a
         },
         subnet_id,
@@ -652,6 +693,27 @@ fn unaggregated_gossip_verification() {
             earliest_permissible_slot,
         }
         if attestation_slot == early_slot && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
+    );
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.12.3
+     *
+     * The attestation's epoch matches its target -- i.e. `attestation.data.target.epoch ==
+     *   compute_epoch_at_slot(attestation.data.slot)`
+     *
+     */
+
+    assert_invalid!(
+        "attestation with invalid target epoch",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.target.epoch += 1;
+            a
+        },
+        subnet_id,
+        AttnError::InvalidTargetEpoch { .. }
     );
 
     /*
@@ -695,6 +757,32 @@ fn unaggregated_gossip_verification() {
     );
 
     /*
+     * The following test ensures:
+     *
+     * Spec v0.12.3
+     *
+     * The number of aggregation bits matches the committee size -- i.e.
+     *   `len(attestation.aggregation_bits) == len(get_beacon_committee(state, data.slot,
+     *   data.index))`.
+     */
+    assert_invalid!(
+        "attestation with invalid bitfield",
+        {
+            let mut a = valid_attestation.clone();
+            let bits = a.aggregation_bits.iter().collect::<Vec<_>>();
+            a.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
+            for (i, bit) in bits.into_iter().enumerate() {
+                a.aggregation_bits.set(i, bit).unwrap();
+            }
+            a
+        },
+        subnet_id,
+        AttnError::Invalid(AttestationValidationError::BeaconStateError(
+            BeaconStateError::InvalidBitfield
+        ))
+    );
+
+    /*
      * The following test ensures that:
      *
      * Spec v0.12.1
@@ -715,6 +803,26 @@ fn unaggregated_gossip_verification() {
             beacon_block_root,
         }
         if beacon_block_root == unknown_root
+    );
+
+    /*
+     * The following test ensures that:
+     *
+     * Spec v0.12.3
+     *
+     * The attestation's target block is an ancestor of the block named in the LMD vote
+     */
+
+    let unknown_root = Hash256::from_low_u64_le(424242);
+    assert_invalid!(
+        "attestation with invalid target root",
+        {
+            let mut a = valid_attestation.clone();
+            a.data.target.root = unknown_root;
+            a
+        },
+        subnet_id,
+        AttnError::InvalidTargetRoot { .. }
     );
 
     /*
@@ -742,7 +850,7 @@ fn unaggregated_gossip_verification() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), Some(subnet_id))
         .expect("valid attestation should be verified");
 
     /*
@@ -772,7 +880,7 @@ fn unaggregated_gossip_verification() {
 /// This also checks that we can do a state lookup if we don't get a hit from the shuffling cache.
 #[test]
 fn attestation_that_skips_epochs() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
@@ -831,6 +939,6 @@ fn attestation_that_skips_epochs() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
+        .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
         .expect("should gossip verify attestation that skips slots");
 }

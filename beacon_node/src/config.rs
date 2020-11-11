@@ -1,20 +1,17 @@
 use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
-use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
+use client::{ClientConfig, ClientGenesis};
+use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, warn, Logger};
-use ssz::Encode;
+use slog::{info, warn, Logger};
 use std::cmp;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
-
-pub const BEACON_NODE_DIR: &str = "beacon";
-pub const NETWORK_DIR: &str = "network";
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -23,10 +20,8 @@ pub const NETWORK_DIR: &str = "network";
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-#[allow(clippy::cognitive_complexity)]
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    spec_constants: &str,
     spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
@@ -70,8 +65,6 @@ pub fn get_config<E: EthSpec>(
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
 
-    client_config.spec_constants = spec_constants.into();
-
     /*
      * Networking
      */
@@ -89,26 +82,26 @@ pub fn get_config<E: EthSpec>(
      */
 
     if cli_args.is_present("staking") {
-        client_config.rest_api.enabled = true;
+        client_config.http_api.enabled = true;
         client_config.sync_eth1_chain = true;
     }
 
     /*
-     * Http server
+     * Http API server
      */
 
     if cli_args.is_present("http") {
-        client_config.rest_api.enabled = true;
+        client_config.http_api.enabled = true;
     }
 
     if let Some(address) = cli_args.value_of("http-address") {
-        client_config.rest_api.listen_address = address
+        client_config.http_api.listen_addr = address
             .parse::<Ipv4Addr>()
             .map_err(|_| "http-address is not a valid IPv4 address.")?;
     }
 
     if let Some(port) = cli_args.value_of("http-port") {
-        client_config.rest_api.port = port
+        client_config.http_api.listen_port = port
             .parse::<u16>()
             .map_err(|_| "http-port is not a valid u16.")?;
     }
@@ -119,7 +112,36 @@ pub fn get_config<E: EthSpec>(
         hyper::header::HeaderValue::from_str(allow_origin)
             .map_err(|_| "Invalid allow-origin value")?;
 
-        client_config.rest_api.allow_origin = allow_origin.to_string();
+        client_config.http_api.allow_origin = Some(allow_origin.to_string());
+    }
+
+    /*
+     * Prometheus metrics HTTP server
+     */
+
+    if cli_args.is_present("metrics") {
+        client_config.http_metrics.enabled = true;
+    }
+
+    if let Some(address) = cli_args.value_of("metrics-address") {
+        client_config.http_metrics.listen_addr = address
+            .parse::<Ipv4Addr>()
+            .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+    }
+
+    if let Some(port) = cli_args.value_of("metrics-port") {
+        client_config.http_metrics.listen_port = port
+            .parse::<u16>()
+            .map_err(|_| "metrics-port is not a valid u16.")?;
+    }
+
+    if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
+        hyper::header::HeaderValue::from_str(allow_origin)
+            .map_err(|_| "Invalid allow-origin value")?;
+
+        client_config.http_metrics.allow_origin = Some(allow_origin.to_string());
     }
 
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
@@ -127,7 +149,7 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("staking") {
         warn!(
             log,
-            "Running HTTP server on port {}", client_config.rest_api.port
+            "Running HTTP server on port {}", client_config.http_api.listen_port
         );
     }
 
@@ -196,14 +218,6 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
-    if spec_constants != client_config.spec_constants {
-        crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants,
-              "eth2_config" => spec_constants
-        );
-        return Err("Specification constant mismatch".into());
-    }
-
     /*
      * Zero-ports
      *
@@ -221,33 +235,40 @@ pub fn get_config<E: EthSpec>(
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
         client_config.network.discovery_port =
             unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
-        client_config.rest_api.port = 0;
+        client_config.http_api.listen_port = 0;
+        client_config.http_metrics.listen_port = 0;
         client_config.websocket_server.port = 0;
     }
 
     /*
      * Load the eth2 testnet dir to obtain some additional config values.
      */
-    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&cli_args)?;
+    let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
+    let spec_contract_address = format!("{:?}", spec.deposit_contract_address);
+    if client_config.eth1.deposit_contract_address != spec_contract_address {
+        return Err("Testnet contract address does not match spec".into());
+    }
+
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
+    client_config.eth1.network_id = spec.deposit_network_id.into();
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state) = eth2_testnet_config.genesis_state {
+    if let Some(genesis_state_bytes) = eth2_testnet_config.genesis_state_bytes {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.
         client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes: genesis_state.as_ssz_bytes(),
+            genesis_state_bytes,
         };
     } else {
         client_config.genesis = ClientGenesis::DepositContract;
@@ -267,8 +288,43 @@ pub fn get_config<E: EthSpec>(
     };
 
     let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
-    client_config.graffiti[..trimmed_graffiti_len]
+    client_config.graffiti.0[..trimmed_graffiti_len]
         .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
+
+    if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {
+        let mut split = wss_checkpoint.split(':');
+        let root_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+        let epoch_str = split
+            .next()
+            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+
+        if !root_str.starts_with("0x") {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 0x prefix"
+                    .to_string(),
+            );
+        }
+
+        if !root_str.chars().count() == 66 {
+            return Err(
+                "Unable to parse weak subjectivity checkpoint root, must have 32 bytes".to_string(),
+            );
+        }
+
+        let root =
+            Hash256::from_slice(&hex::decode(&root_str[2..]).map_err(|e| {
+                format!("Unable to parse weak subjectivity checkpoint root: {:?}", e)
+            })?);
+        let epoch = Epoch::new(
+            epoch_str
+                .parse()
+                .map_err(|_| "Invalid weak subjectivity checkpoint epoch".to_string())?,
+        );
+
+        client_config.chain.weak_subjectivity_checkpoint = Some(Checkpoint { epoch, root })
+    }
 
     if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
         client_config.chain.import_max_skip_slots = match max_skip_slots {
@@ -295,7 +351,7 @@ pub fn set_network_config(
     if let Some(dir) = cli_args.value_of("network-dir") {
         config.network_dir = PathBuf::from(dir);
     } else {
-        config.network_dir = data_dir.join(NETWORK_DIR);
+        config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
@@ -439,13 +495,17 @@ pub fn set_network_config(
         config.enr_address = Some(resolved_addr);
     }
 
-    if cli_args.is_present("disable_enr_auto_update") {
+    if cli_args.is_present("disable-enr-auto-update") {
         config.discv5_config.enr_update = false;
     }
 
     if cli_args.is_present("disable-discovery") {
         config.disable_discovery = true;
         warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    if cli_args.is_present("disable-upnp") {
+        config.upnp_enabled = false;
     }
 
     Ok(())
@@ -456,19 +516,24 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     // Read the `--datadir` flag.
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
-    // directory onto it.
+    // directory and the testnet name onto it.
+
     cli_args
         .value_of("datadir")
-        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
+        .map(|path| PathBuf::from(path).join(DEFAULT_BEACON_NODE_DIR))
+        .or_else(|| {
+            dirs::home_dir().map(|home| {
+                home.join(DEFAULT_ROOT_DIR)
+                    .join(directory::get_testnet_name(cli_args))
+                    .join(DEFAULT_BEACON_NODE_DIR)
+            })
+        })
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_testnet_config<E: EthSpec>(
-    cli_args: &ArgMatches,
-) -> Result<Eth2TestnetConfig<E>, String> {
+pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
     let optional_testnet_config = if cli_args.is_present("testnet") {
         clap_utils::parse_hardcoded_network(cli_args, "testnet")?
     } else if cli_args.is_present("testnet-dir") {

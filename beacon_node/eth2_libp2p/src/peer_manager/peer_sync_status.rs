@@ -29,26 +29,17 @@ pub struct SyncInfo {
 impl PeerSyncStatus {
     /// Returns true if the peer has advanced knowledge of the chain.
     pub fn is_advanced(&self) -> bool {
-        match self {
-            PeerSyncStatus::Advanced { .. } => true,
-            _ => false,
-        }
+        matches!(self, PeerSyncStatus::Advanced { .. })
     }
 
     /// Returns true if the peer is up to date with the current chain.
     pub fn is_synced(&self) -> bool {
-        match self {
-            PeerSyncStatus::Synced { .. } => true,
-            _ => false,
-        }
+        matches!(self, PeerSyncStatus::Synced { .. })
     }
 
     /// Returns true if the peer is behind the current chain.
     pub fn is_behind(&self) -> bool {
-        match self {
-            PeerSyncStatus::Behind { .. } => true,
-            _ => false,
-        }
+        matches!(self, PeerSyncStatus::Behind { .. })
     }
 
     /// Updates the sync state given a fully synced peer.

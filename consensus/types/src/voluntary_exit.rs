@@ -16,6 +16,7 @@ use tree_hash_derive::TreeHash;
 pub struct VoluntaryExit {
     /// Earliest epoch when voluntary exit can be processed.
     pub epoch: Epoch,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
 }
 

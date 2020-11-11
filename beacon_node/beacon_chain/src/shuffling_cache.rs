@@ -1,6 +1,6 @@
 use crate::metrics;
 use lru::LruCache;
-use types::{beacon_state::CommitteeCache, Epoch, Hash256};
+use types::{beacon_state::CommitteeCache, Epoch, Hash256, ShufflingId};
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
 ///
@@ -14,7 +14,7 @@ const CACHE_SIZE: usize = 16;
 /// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
 /// a find/replace error.
 pub struct ShufflingCache {
-    cache: LruCache<(Epoch, Hash256), CommitteeCache>,
+    cache: LruCache<ShufflingId, CommitteeCache>,
 }
 
 impl ShufflingCache {
@@ -24,8 +24,8 @@ impl ShufflingCache {
         }
     }
 
-    pub fn get(&mut self, epoch: Epoch, root: Hash256) -> Option<&CommitteeCache> {
-        let opt = self.cache.get(&(epoch, root));
+    pub fn get(&mut self, key: &ShufflingId) -> Option<&CommitteeCache> {
+        let opt = self.cache.get(key);
 
         if opt.is_some() {
             metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
@@ -36,11 +36,37 @@ impl ShufflingCache {
         opt
     }
 
-    pub fn insert(&mut self, epoch: Epoch, root: Hash256, committee_cache: &CommitteeCache) {
-        let key = (epoch, root);
+    pub fn contains(&self, key: &ShufflingId) -> bool {
+        self.cache.contains(key)
+    }
 
+    pub fn insert(&mut self, key: ShufflingId, committee_cache: &CommitteeCache) {
         if !self.cache.contains(&key) {
             self.cache.put(key, committee_cache.clone());
+        }
+    }
+}
+
+/// Contains the shuffling IDs for a beacon block.
+pub struct BlockShufflingIds {
+    pub current: ShufflingId,
+    pub next: ShufflingId,
+    pub block_root: Hash256,
+}
+
+impl BlockShufflingIds {
+    /// Returns the shuffling ID for the given epoch.
+    ///
+    /// Returns `None` if `epoch` is prior to `self.current.shuffling_epoch`.
+    pub fn id_for_epoch(&self, epoch: Epoch) -> Option<ShufflingId> {
+        if epoch == self.current.shuffling_epoch {
+            Some(self.current.clone())
+        } else if epoch == self.next.shuffling_epoch {
+            Some(self.next.clone())
+        } else if epoch > self.next.shuffling_epoch {
+            Some(ShufflingId::from_components(epoch, self.block_root))
+        } else {
+            None
         }
     }
 }

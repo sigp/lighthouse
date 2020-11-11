@@ -13,8 +13,8 @@ types = { path = "../../consensus/types" }
 validator_client = { path = "../../validator_client" }
 parking_lot = "0.11.0"
 futures = "0.3.5"
-tokio = "0.2.21"
+tokio = "0.2.22"
 eth1_test_rig = { path = "../eth1_test_rig" }
 env_logger = "0.7.1"
-clap = "2.33.0"
-rayon = "1.3.0"
+clap = "2.33.3"
+rayon = "1.4.1"

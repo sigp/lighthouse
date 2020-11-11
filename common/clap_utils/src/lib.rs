@@ -5,7 +5,6 @@ use eth2_testnet_config::Eth2TestnetConfig;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::EthSpec;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \
@@ -14,10 +13,10 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 
 /// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
 /// the path cannot be found or the testnet dir is invalid.
-pub fn parse_testnet_dir<E: EthSpec>(
+pub fn parse_testnet_dir(
     matches: &ArgMatches,
     name: &'static str,
-) -> Result<Option<Eth2TestnetConfig<E>>, String> {
+) -> Result<Option<Eth2TestnetConfig>, String> {
     let path = parse_required::<PathBuf>(matches, name)?;
     Eth2TestnetConfig::load(path.clone())
         .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
@@ -26,10 +25,10 @@ pub fn parse_testnet_dir<E: EthSpec>(
 
 /// Attempts to load a hardcoded network config if `name` is in `matches`, returning an error if
 /// the name is not a valid network name.
-pub fn parse_hardcoded_network<E: EthSpec>(
+pub fn parse_hardcoded_network(
     matches: &ArgMatches,
     name: &str,
-) -> Result<Option<Eth2TestnetConfig<E>>, String> {
+) -> Result<Option<Eth2TestnetConfig>, String> {
     let network_name = parse_required::<String>(matches, name)?;
     Eth2TestnetConfig::constant(network_name.as_str())
 }

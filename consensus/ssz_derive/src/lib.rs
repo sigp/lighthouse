@@ -87,7 +87,6 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let field_types_f = field_types_a.clone();
 
     let output = quote! {
-        #[allow(clippy::integer_arithmetic)]
         impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
@@ -98,10 +97,13 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
 
             fn ssz_fixed_len() -> usize {
                 if <Self as ssz::Encode>::is_ssz_fixed_len() {
+                    let mut len: usize = 0;
                     #(
-                        <#field_types_b as ssz::Encode>::ssz_fixed_len() +
+                        len = len
+                            .checked_add(<#field_types_b as ssz::Encode>::ssz_fixed_len())
+                            .expect("encode ssz_fixed_len length overflow");
                     )*
-                        0
+                    len
                 } else {
                     ssz::BYTES_PER_LENGTH_OFFSET
                 }
@@ -111,13 +113,19 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
                 if <Self as ssz::Encode>::is_ssz_fixed_len() {
                     <Self as ssz::Encode>::ssz_fixed_len()
                 } else {
-                    let mut len = 0;
+                    let mut len: usize = 0;
                     #(
                         if <#field_types_d as ssz::Encode>::is_ssz_fixed_len() {
-                            len += <#field_types_e as ssz::Encode>::ssz_fixed_len();
+                            len = len
+                                .checked_add(<#field_types_e as ssz::Encode>::ssz_fixed_len())
+                                .expect("encode ssz_bytes_len length overflow");
                         } else {
-                            len += ssz::BYTES_PER_LENGTH_OFFSET;
-                            len += self.#field_idents_a.ssz_bytes_len();
+                            len = len
+                                .checked_add(ssz::BYTES_PER_LENGTH_OFFSET)
+                                .expect("encode ssz_bytes_len length overflow for offset");
+                            len = len
+                                .checked_add(self.#field_idents_a.ssz_bytes_len())
+                                .expect("encode ssz_bytes_len length overflow for bytes");
                         }
                     )*
 
@@ -126,10 +134,12 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
             }
 
             fn ssz_append(&self, buf: &mut Vec<u8>) {
-                let offset = #(
-                        <#field_types_f as ssz::Encode>::ssz_fixed_len() +
-                    )*
-                        0;
+                let mut offset: usize = 0;
+                #(
+                    offset = offset
+                        .checked_add(<#field_types_f as ssz::Encode>::ssz_fixed_len())
+                        .expect("encode ssz_append offset overflow");
+                )*
 
                 let mut encoder = ssz::SszEncoder::container(buf, offset);
 
@@ -229,7 +239,6 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     }
 
     let output = quote! {
-        #[allow(clippy::integer_arithmetic)]
         impl #impl_generics ssz::Decode for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
@@ -240,10 +249,13 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
 
             fn ssz_fixed_len() -> usize {
                 if <Self as ssz::Decode>::is_ssz_fixed_len() {
+                    let mut len: usize = 0;
                     #(
-                        #fixed_lens +
+                        len = len
+                            .checked_add(#fixed_lens)
+                            .expect("decode ssz_fixed_len overflow");
                     )*
-                        0
+                    len
                 } else {
                     ssz::BYTES_PER_LENGTH_OFFSET
                 }
@@ -258,13 +270,17 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
                         });
                     }
 
-                    let mut start = 0;
+                    let mut start: usize = 0;
                     let mut end = start;
 
                     macro_rules! decode_field {
                         ($type: ty) => {{
                             start = end;
-                            end += <$type as ssz::Decode>::ssz_fixed_len();
+                            end = end
+                                .checked_add(<$type as ssz::Decode>::ssz_fixed_len())
+                                .ok_or_else(|| ssz::DecodeError::OutOfBoundsByte {
+                                    i: usize::max_value()
+                                })?;
                             let slice = bytes.get(start..end)
                                 .ok_or_else(|| ssz::DecodeError::InvalidByteLength {
                                     len: bytes.len(),

@@ -1,10 +1,8 @@
 use account_utils::PlainText;
 use account_utils::{read_input_from_user, strip_off_newlines};
-use clap::ArgMatches;
 use eth2_wallet::bip39::{Language, Mnemonic};
 use std::fs;
-use std::fs::create_dir_all;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::Duration;
@@ -12,26 +10,6 @@ use std::time::Duration;
 pub const MNEMONIC_PROMPT: &str = "Enter the mnemonic phrase:";
 pub const WALLET_NAME_PROMPT: &str = "Enter wallet name:";
 
-pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
-    let path = path.as_ref();
-
-    if !path.exists() {
-        create_dir_all(path).map_err(|e| format!("Unable to create {:?}: {:?}", path, e))?;
-    }
-
-    Ok(())
-}
-
-pub fn base_wallet_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBuf, String> {
-    clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        arg,
-        PathBuf::new().join(".lighthouse").join("wallets"),
-    )
-}
-
-/// Reads in a mnemonic from the user. If the file path is provided, read from it. Otherwise, read
-/// from an interactive prompt using tty, unless the `--stdin-inputs` flag is provided.
 pub fn read_mnemonic_from_cli(
     mnemonic_path: Option<PathBuf>,
     stdin_inputs: bool,

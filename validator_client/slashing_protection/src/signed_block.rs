@@ -12,6 +12,7 @@ pub struct SignedBlock {
 #[derive(PartialEq, Debug)]
 pub enum InvalidBlock {
     DoubleBlockProposal(SignedBlock),
+    SlotViolatesLowerBound { block_slot: Slot, bound_slot: Slot },
 }
 
 impl SignedBlock {

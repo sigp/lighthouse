@@ -1,5 +1,9 @@
 # Create a validator
 
+**🚨🚨🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
+time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
+DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
+
 Validators are fundamentally represented by a BLS keypair. In Lighthouse, we
 use a [wallet](./wallet-create.md) to generate these keypairs. Once a wallet
 exists, the `lighthouse account validator create` command is used to generate
@@ -41,10 +45,7 @@ OPTIONS:
             The GWEI value of the deposit amount. Defaults to the minimum amount required for an active validator
             (MAX_EFFECTIVE_BALANCE)
         --secrets-dir <SECRETS_DIR>
-            The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/secrets
-
-    -s, --spec <TITLE>
-            Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, interop]
+            The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/{testnet}/secrets
 
         --testnet <testnet>
             Name of network lighthouse will connect to [possible values: medalla, altona]
@@ -53,7 +54,7 @@ OPTIONS:
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
         --validator-dir <VALIDATOR_DIRECTORY>
-            The path where the validator directories will be created. Defaults to ~/.lighthouse/validators
+            The path where the validator directories will be created. Defaults to ~/.lighthouse/{testnet}/validators
 
         --wallet-name <WALLET_NAME>                   Use the wallet identified by this name
         --wallet-password <WALLET_PASSWORD_PATH>
@@ -71,12 +72,14 @@ lighthouse --testnet medalla account validator create --name wally --wallet-pass
 
 This command will:
 
-- Derive a single new BLS keypair from `wally`, updating it so that it generates a
+- Derive a single new BLS keypair from wallet `wally` in `~/.lighthouse/{testnet}/wallets`, updating it so that it generates a
     new key next time.
-- Create a new directory in `~/.lighthouse/validators` containing:
+- Create a new directory in `~/.lighthouse/{testnet}/validators` containing:
     - An encrypted keystore containing the validators voting keypair.
 	- An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`
 		for most testnets and mainnet) which can be submitted to the deposit
 		contract for the medalla testnet. Other testnets can be set via the
 		`--testnet` CLI param.
-- Store a password to the validators voting keypair in `~/.lighthouse/secrets`.
+- Store a password to the validators voting keypair in `~/.lighthouse/{testnet}/secrets`.
+
+where `testnet` is the name of the testnet passed in the `--testnet` parameter (default is `medalla`).

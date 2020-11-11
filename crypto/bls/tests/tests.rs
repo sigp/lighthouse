@@ -1,4 +1,4 @@
-use bls::{Hash256, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE};
+use bls::{Hash256, INFINITY_SIGNATURE, SECRET_KEY_BYTES_LEN};
 use ssz::{Decode, Encode};
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -17,6 +17,11 @@ macro_rules! test_suite {
             // Use i + 1 to avoid the all-zeros secret key.
             secret_bytes[32 - 8..].copy_from_slice(&(i + 1).to_be_bytes());
             SecretKey::deserialize(&secret_bytes).unwrap()
+        }
+
+        #[test]
+        fn invalid_zero_secret_key() {
+            assert!(SecretKey::deserialize(&[0; SECRET_KEY_BYTES_LEN]).is_err());
         }
 
         #[test]
@@ -131,11 +136,6 @@ macro_rules! test_suite {
                 self
             }
 
-            pub fn infinity_pubkey(mut self) -> Self {
-                self.pubkey = PublicKey::deserialize(&INFINITY_PUBLIC_KEY[..]).unwrap();
-                self
-            }
-
             pub fn assert_verify(self, is_valid: bool) {
                 assert_eq!(self.sig.verify(&self.pubkey, self.msg), is_valid);
 
@@ -154,24 +154,9 @@ macro_rules! test_suite {
         }
 
         #[test]
-        fn infinity_signature_is_valid_with_infinity_pubkey() {
-            SignatureTester::default()
-                .infinity_sig()
-                .infinity_pubkey()
-                .assert_verify(true)
-        }
-
-        #[test]
         fn infinity_signature_is_invalid_with_standard_pubkey() {
             SignatureTester::default()
                 .infinity_sig()
-                .assert_verify(false)
-        }
-
-        #[test]
-        fn standard_signature_is_invalid_with_infinity_pubkey() {
-            SignatureTester::default()
-                .infinity_pubkey()
                 .assert_verify(false)
         }
 
@@ -234,17 +219,6 @@ macro_rules! test_suite {
                 self
             }
 
-            pub fn single_infinity_pubkey(mut self) -> Self {
-                self.pubkeys = vec![PublicKey::deserialize(&INFINITY_PUBLIC_KEY[..]).unwrap()];
-                self
-            }
-
-            pub fn push_infinity_pubkey(mut self) -> Self {
-                self.pubkeys
-                    .push(PublicKey::deserialize(&INFINITY_PUBLIC_KEY[..]).unwrap());
-                self
-            }
-
             pub fn assert_single_message_verify(self, is_valid: bool) {
                 assert!(self.msgs.len() == 1);
                 let msg = self.msgs.first().unwrap();
@@ -304,15 +278,6 @@ macro_rules! test_suite {
                 .assert_single_message_verify(false)
         }
 
-        /// The infinity signature and one infinity pubkey should verify.
-        #[test]
-        fn fast_aggregate_verify_infinity_signature_with_one_infinity_pubkey() {
-            AggregateSignatureTester::new_with_single_msg(1)
-                .infinity_sig()
-                .single_infinity_pubkey()
-                .assert_single_message_verify(true)
-        }
-
         /// Adding a infinity signature (without an infinity pubkey) should verify.
         #[test]
         fn fast_aggregate_verify_with_one_aggregated_infinity_sig() {
@@ -329,34 +294,6 @@ macro_rules! test_suite {
                 .aggregate_infinity_sig()
                 .aggregate_infinity_sig()
                 .aggregate_infinity_sig()
-                .assert_single_message_verify(true)
-        }
-
-        /// Adding a infinity pubkey and an infinity signature should verify.
-        #[test]
-        fn fast_aggregate_verify_with_one_additional_infinity_pubkey_and_matching_sig() {
-            AggregateSignatureTester::new_with_single_msg(1)
-                .aggregate_infinity_sig()
-                .push_infinity_pubkey()
-                .assert_single_message_verify(true)
-        }
-
-        /// Adding a single infinity pubkey **without** updating the signature **should verify**.
-        #[test]
-        fn fast_aggregate_verify_with_one_additional_infinity_pubkey() {
-            AggregateSignatureTester::new_with_single_msg(1)
-                .push_infinity_pubkey()
-                .assert_single_message_verify(true)
-        }
-
-        /// Adding multiple infinity pubkeys **without** updating the signature **should verify**.
-        #[test]
-        fn fast_aggregate_verify_with_four_additional_infinity_pubkeys() {
-            AggregateSignatureTester::new_with_single_msg(1)
-                .push_infinity_pubkey()
-                .push_infinity_pubkey()
-                .push_infinity_pubkey()
-                .push_infinity_pubkey()
                 .assert_single_message_verify(true)
         }
 
@@ -463,34 +400,12 @@ macro_rules! test_suite {
                 self
             }
 
-            pub fn push_invalid_sig_infinity_set(mut self) -> Self {
-                let mut signature = AggregateSignature::infinity();
-                signature.add_assign(&secret_from_u64(42).sign(Hash256::zero()));
-                self.owned_sets.push(OwnedSignatureSet {
-                    signature,
-                    signing_keys: vec![PublicKey::deserialize(&INFINITY_PUBLIC_KEY).unwrap()],
-                    message: Hash256::zero(),
-                    should_be_valid: false,
-                });
-                self
-            }
-
             pub fn push_invalid_pubkey_infinity_set(mut self) -> Self {
                 self.owned_sets.push(OwnedSignatureSet {
                     signature: AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
                     signing_keys: vec![secret_from_u64(42).public_key()],
                     message: Hash256::zero(),
                     should_be_valid: false,
-                });
-                self
-            }
-
-            pub fn push_valid_infinity_set(mut self) -> Self {
-                self.owned_sets.push(OwnedSignatureSet {
-                    signature: AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
-                    signing_keys: vec![PublicKey::deserialize(&INFINITY_PUBLIC_KEY).unwrap()],
-                    message: Hash256::zero(),
-                    should_be_valid: true,
                 });
                 self
             }
@@ -569,35 +484,10 @@ macro_rules! test_suite {
         }
 
         #[test]
-        fn signature_set_1_valid_set_with_1_infinity_set() {
-            SignatureSetTester::default()
-                .push_valid_infinity_set()
-                .run_checks()
-        }
-
-        #[test]
-        fn signature_set_3_sets_with_one_valid_infinity_set() {
-            SignatureSetTester::default()
-                .push_valid_set(2)
-                .push_valid_infinity_set()
-                .push_valid_set(2)
-                .run_checks()
-        }
-
-        #[test]
         fn signature_set_3_sets_with_one_invalid_pubkey_infinity_set() {
             SignatureSetTester::default()
                 .push_valid_set(2)
                 .push_invalid_pubkey_infinity_set()
-                .push_valid_set(2)
-                .run_checks()
-        }
-
-        #[test]
-        fn signature_set_3_sets_with_one_invalid_sig_infinity_set() {
-            SignatureSetTester::default()
-                .push_valid_set(2)
-                .push_invalid_sig_infinity_set()
                 .push_valid_set(2)
                 .run_checks()
         }

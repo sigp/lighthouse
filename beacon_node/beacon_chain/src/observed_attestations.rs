@@ -184,6 +184,10 @@ impl<E: EthSpec> Default for ObservedAttestations<E> {
 }
 
 impl<E: EthSpec> ObservedAttestations<E> {
+    pub fn len(&self) -> usize {
+        self.sets.read().iter().map(SlotHashSet::len).sum()
+    }
+
     /// Store the root of `a` in `self`.
     ///
     /// `root` must equal `a.tree_hash_root()`.

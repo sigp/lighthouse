@@ -350,11 +350,9 @@ pub async fn check_still_syncing<E: EthSpec>(network: &LocalNetwork<E>) -> Resul
     for remote_node in network.remote_nodes()? {
         status.push(
             remote_node
-                .http
-                .node()
-                .syncing_status()
+                .get_node_syncing()
                 .await
-                .map(|status| status.is_syncing)
+                .map(|body| body.data.is_syncing)
                 .map_err(|e| format!("Get syncing status via http failed: {:?}", e))?,
         )
     }

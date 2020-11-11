@@ -1,5 +1,4 @@
 use crate::test_utils::TestRandom;
-use crate::utils::{graffiti_from_hex_str, graffiti_to_hex_str, Graffiti};
 use crate::*;
 
 use serde_derive::{Deserialize, Serialize};
@@ -17,10 +16,6 @@ use tree_hash_derive::TreeHash;
 pub struct BeaconBlockBody<T: EthSpec> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
-    #[serde(
-        serialize_with = "graffiti_to_hex_str",
-        deserialize_with = "graffiti_from_hex_str"
-    )]
     pub graffiti: Graffiti,
     pub proposer_slashings: VariableList<ProposerSlashing, T::MaxProposerSlashings>,
     pub attester_slashings: VariableList<AttesterSlashing<T>, T::MaxAttesterSlashings>,

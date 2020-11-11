@@ -9,7 +9,7 @@ use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction};
 use futures::prelude::*;
 use libp2p::core::{
-    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::boxed::Boxed,
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
 use libp2p::{
     core, noise,
@@ -20,7 +20,6 @@ use slog::{crit, debug, info, o, trace, warn};
 use ssz::Decode;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{Error, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,7 +58,7 @@ pub struct Service<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> Service<TSpec> {
     pub async fn new(
-        executor: environment::TaskExecutor,
+        executor: task_executor::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
@@ -109,7 +108,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 Behaviour::new(&local_keypair, config, network_globals.clone(), &log).await?;
 
             // use the executor for libp2p
-            struct Executor(environment::TaskExecutor);
+            struct Executor(task_executor::TaskExecutor);
             impl libp2p::core::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
                     self.0.spawn(f, "libp2p");
@@ -323,9 +322,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
 /// mplex as the multiplexing layer.
-fn build_transport(
-    local_private_key: Keypair,
-) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
+fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
     let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
@@ -333,15 +330,21 @@ fn build_transport(
         let trans_clone = transport.clone();
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
+
+    // mplex config
+    let mut mplex_config = libp2p::mplex::MplexConfig::new();
+    mplex_config.max_buffer_len(256);
+    mplex_config.max_buffer_len_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
+
     // Authentication
     Ok(transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(libp2p::mplex::MplexConfig::new())
-        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            libp2p::yamux::Config::default(),
+            mplex_config,
+        ))
         .timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(10))
-        .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed())
 }
 

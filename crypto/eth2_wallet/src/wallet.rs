@@ -66,7 +66,6 @@ impl<'a> WalletBuilder<'a> {
         password: &'a [u8],
         name: String,
     ) -> Result<Self, Error> {
-        // TODO: `bip39` does not use zeroize. Perhaps we should make a PR upstream?
         let seed = Bip39Seed::new(mnemonic, "");
 
         Self::from_seed_bytes(seed.as_bytes(), password, name)
@@ -213,6 +212,23 @@ impl Wallet {
     /// This will be the index of the next wallet generated with `Self::next_validator`.
     pub fn nextaccount(&self) -> u32 {
         self.json.nextaccount
+    }
+
+    /// Sets the value of the JSON wallet `nextaccount` field.
+    ///
+    /// This will be the index of the next wallet generated with `Self::next_validator`.
+    ///
+    /// ## Errors
+    ///
+    /// Returns `Err(())` if `nextaccount` is less than `self.nextaccount()` without mutating
+    /// `self`. This is to protect against duplicate validator generation.
+    pub fn set_nextaccount(&mut self, nextaccount: u32) -> Result<(), ()> {
+        if nextaccount >= self.nextaccount() {
+            self.json.nextaccount = nextaccount;
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     /// Returns the value of the JSON wallet `name` field.

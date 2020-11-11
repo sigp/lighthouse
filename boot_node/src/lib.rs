@@ -8,11 +8,12 @@ mod config;
 mod server;
 pub use cli::cli_app;
 use config::BootNodeConfig;
+use types::{EthSpec, EthSpecId};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
-pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
+pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String) {
     let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
         "debug" => log::Level::Debug,
@@ -45,13 +46,18 @@ pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
     let _scope_guard = slog_scope::set_global_logger(logger);
     let _log_guard = slog_stdlog::init_with_level(debug_level).unwrap();
 
+    let log = slog_scope::logger();
     // Run the main function emitting any errors
-    if let Err(e) = main(matches, slog_scope::logger()) {
+    if let Err(e) = match eth_spec_id {
+        EthSpecId::Minimal => main::<types::MinimalEthSpec>(matches, log),
+        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(matches, log),
+        EthSpecId::V012Legacy => main::<types::V012LegacyEthSpec>(matches, log),
+    } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }
 }
 
-fn main(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
+fn main<T: EthSpec>(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let mut runtime = tokio::runtime::Builder::new()
         .threaded_scheduler()
@@ -60,7 +66,7 @@ fn main(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
     // parse the CLI args into a useable config
-    let config = BootNodeConfig::try_from(matches)?;
+    let config: BootNodeConfig<T> = BootNodeConfig::try_from(matches)?;
 
     // Run the boot node
     runtime.block_on(server::run(config, log));
