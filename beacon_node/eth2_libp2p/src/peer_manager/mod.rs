@@ -511,15 +511,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut guard = self.network_globals.peers.write();
             let mut peers: Vec<_> = guard
                 .peers_mut()
-                .filter_map(|(peer_id, info)|
-                    gossipsub.peer_score(peer_id).map(|score| (peer_id, info, score))
-                )
+                .filter_map(|(peer_id, info)| {
+                    gossipsub
+                        .peer_score(peer_id)
+                        .map(|score| (peer_id, info, score))
+                })
                 .collect();
 
             // sort descending by score
-            peers.sort_unstable_by(
-                |(.., s1), (.., s2)| s2.partial_cmp(s1).unwrap_or(Ordering::Equal)
-            );
+            peers.sort_unstable_by(|(.., s1), (.., s2)| {
+                s2.partial_cmp(s1).unwrap_or(Ordering::Equal)
+            });
 
             let mut to_ignore_negative_peers =
                 (self.target_peers as f32 * ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR).ceil() as usize;
@@ -545,7 +547,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     &mut to_ban_peers,
                     &mut to_unban_peers,
                     &mut self.events,
-                    &self.log
+                    &self.log,
                 );
             }
         } // end write lock
@@ -765,7 +767,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &mut to_ban_peers,
                 &mut to_unban_peers,
                 &mut self.events,
-                &self.log
+                &self.log,
             );
         }
         self.ban_and_unban_peers(to_ban_peers, to_unban_peers);
