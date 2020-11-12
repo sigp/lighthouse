@@ -1237,6 +1237,7 @@ impl ApiTester {
         }
         self
     }
+
     pub async fn test_get_node_peer_count(self) -> Self {
         let result = self.client.get_node_peer_count().await.unwrap().data;
         assert_eq!(
