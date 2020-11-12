@@ -42,7 +42,7 @@ regex = "1.3.9"
 [dependencies.libp2p]
 #version = "0.23.0"
 git = "https://github.com/sigp/rust-libp2p"
-rev = "de104a80c48f6e61bd7bdac8e17f809477fb4c4a"
+rev = "b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
 

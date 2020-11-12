@@ -4,7 +4,7 @@ pub use self::peerdb::*;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
-use crate::{error, metrics};
+use crate::{error, metrics, Gossipsub};
 use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
 use futures::Stream;
@@ -33,7 +33,9 @@ pub(crate) mod score;
 pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ScoreState};
+use std::cmp::Ordering;
 use std::collections::HashMap;
+
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
 /// The time in seconds between PING events. We do not send a ping if the other peer has PING'd us
@@ -48,6 +50,10 @@ const HEARTBEAT_INTERVAL: u64 = 30;
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
 const PEER_EXCESS_FACTOR: f32 = 0.1;
+
+/// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
+/// them in lighthouse.
+const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -237,7 +243,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .network_globals
                     .peers
                     .read()
-                    .peers_on_subnet(s.subnet_id)
+                    .good_peers_on_subnet(s.subnet_id)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     debug!(
@@ -518,6 +524,34 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         } else {
             // PeerId is not known
             Vec::new()
+        }
+    }
+
+    pub(crate) fn update_gossipsub_scores(&mut self, gossipsub: &Gossipsub) {
+        //collect peers with scores
+        let mut guard = self.network_globals.peers.write();
+        let mut peers: Vec<_> = guard
+            .peers_mut()
+            .filter_map(|(peer_id, info)| gossipsub.peer_score(peer_id).map(|score| (info, score)))
+            .collect();
+
+        // sort descending by score
+        peers.sort_unstable_by(|(.., s1), (.., s2)| s2.partial_cmp(s1).unwrap_or(Ordering::Equal));
+
+        let mut to_ignore_negative_peers =
+            (self.target_peers as f32 * ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR).ceil() as usize;
+        for (info, score) in peers {
+            info.update_gossipsub_score(
+                score,
+                if score < 0.0 && to_ignore_negative_peers > 0 {
+                    to_ignore_negative_peers -= 1;
+                    // We ignore the negative score for the best negative peers so that their
+                    // gossipsub score can recover without getting disconnected.
+                    true
+                } else {
+                    false
+                },
+            );
         }
     }
 

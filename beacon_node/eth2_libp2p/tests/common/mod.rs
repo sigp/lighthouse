@@ -7,7 +7,7 @@ use eth2_libp2p::{GossipsubConfigBuilder, Libp2pEvent, NetworkConfig};
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
 use std::time::Duration;
-use types::{EnrForkId, MinimalEthSpec};
+use types::{ChainSpec, EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 use tempdir::TempDir;
@@ -105,10 +105,16 @@ pub async fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> L
         shutdown_tx,
     );
     Libp2pInstance(
-        LibP2PService::new(executor, &config, EnrForkId::default(), &log)
-            .await
-            .expect("should build libp2p instance")
-            .1,
+        LibP2PService::new(
+            executor,
+            &config,
+            EnrForkId::default(),
+            &log,
+            &ChainSpec::minimal(),
+        )
+        .await
+        .expect("should build libp2p instance")
+        .1,
         signal,
     )
 }
