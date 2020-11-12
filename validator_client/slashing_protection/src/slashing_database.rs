@@ -568,11 +568,14 @@ impl SlashingDatabase {
     }
 
     /// Import slashing protection from another client in the interchange format.
+    ///
+    /// Return a vector of public keys and errors for any validators whose data could not be
+    /// imported.
     pub fn import_interchange_info(
         &self,
         interchange: Interchange,
         genesis_validators_root: Hash256,
-    ) -> Result<(), InterchangeError> {
+    ) -> Result<Vec<(PublicKey, NotSafe)>, InterchangeError> {
         let version = interchange.metadata.interchange_format_version;
         if version != SUPPORTED_INTERCHANGE_FORMAT_VERSION {
             return Err(InterchangeError::UnsupportedVersion(version));
@@ -585,69 +588,82 @@ impl SlashingDatabase {
             });
         }
 
-        // Import atomically, to prevent registering validators with partial information.
         let mut conn = self.conn_pool.get()?;
-        let txn = conn.transaction()?;
 
-        for mut record in interchange.data {
-            self.register_validators_in_txn(std::iter::once(&record.pubkey), &txn)?;
+        let mut failed_records = vec![];
 
-            // Insert all signed blocks, sorting them so that the minimum bounds are not
-            // violated by ordering.
-            record.signed_blocks.sort_unstable_by_key(|b| b.slot);
-            for block in &record.signed_blocks {
-                self.check_and_insert_block_signing_root_txn(
-                    &record.pubkey,
-                    block.slot,
-                    block
-                        .signing_root
-                        .map(SigningRoot::from)
-                        .unwrap_or_default(),
-                    &txn,
-                )?;
-            }
-
-            // Prune blocks less than the min slot from this interchange file.
-            // This ensures we don't sign anything less than the min slot after successful import,
-            // which is signficant if we have imported two files with a "gap" in between.
-            if let Some(new_min_slot) = record.signed_blocks.iter().map(|block| block.slot).min() {
-                self.prune_signed_blocks(&record.pubkey, new_min_slot, &txn)?;
-            }
-
-            // Insert all signed attestations.
-            record
-                .signed_attestations
-                .sort_unstable_by_key(|att| (att.source_epoch, att.target_epoch));
-            for attestation in &record.signed_attestations {
-                self.check_and_insert_attestation_signing_root_txn(
-                    &record.pubkey,
-                    attestation.source_epoch,
-                    attestation.target_epoch,
-                    attestation
-                        .signing_root
-                        .map(SigningRoot::from)
-                        .unwrap_or_default(),
-                    &txn,
-                )?;
-            }
-
-            // Prune attestations less than the min source and target from this interchange file.
-            // See the rationale for blocks above.
-            if let Some((new_min_source, new_min_target)) = record
-                .signed_attestations
-                .iter()
-                .map(|attestation| (attestation.source_epoch, attestation.target_epoch))
-                .min()
-            {
-                self.prune_signed_attestations(
-                    &record.pubkey,
-                    new_min_source,
-                    new_min_target,
-                    &txn,
-                )?;
+        for record in interchange.data {
+            let pubkey = record.pubkey.clone();
+            let txn = conn.transaction()?;
+            match self.import_interchange_record(record, &txn) {
+                Ok(()) => {
+                    txn.commit()?;
+                }
+                Err(e) => {
+                    failed_records.push((pubkey, e));
+                }
             }
         }
-        txn.commit()?;
+
+        Ok(failed_records)
+    }
+
+    pub fn import_interchange_record(
+        &self,
+        mut record: InterchangeData,
+        txn: &Transaction,
+    ) -> Result<(), NotSafe> {
+        self.register_validators_in_txn(std::iter::once(&record.pubkey), &txn)?;
+
+        // Insert all signed blocks, sorting them so that the minimum bounds are not
+        // violated by blocks earlier in the file.
+        record.signed_blocks.sort_unstable_by_key(|b| b.slot);
+        for block in &record.signed_blocks {
+            self.check_and_insert_block_signing_root_txn(
+                &record.pubkey,
+                block.slot,
+                block
+                    .signing_root
+                    .map(SigningRoot::from)
+                    .unwrap_or_default(),
+                &txn,
+            )?;
+        }
+
+        // Prune blocks less than the min slot from this interchange file.
+        // This ensures we don't sign anything less than the min slot after successful import,
+        // which is signficant if we have imported two files with a "gap" in between.
+        if let Some(new_min_slot) = record.signed_blocks.iter().map(|block| block.slot).min() {
+            self.prune_signed_blocks(&record.pubkey, new_min_slot, &txn)?;
+        }
+
+        // Insert all signed attestations.
+        record
+            .signed_attestations
+            .sort_unstable_by_key(|att| (att.source_epoch, att.target_epoch));
+        for attestation in &record.signed_attestations {
+            self.check_and_insert_attestation_signing_root_txn(
+                &record.pubkey,
+                attestation.source_epoch,
+                attestation.target_epoch,
+                attestation
+                    .signing_root
+                    .map(SigningRoot::from)
+                    .unwrap_or_default(),
+                &txn,
+            )?;
+        }
+
+        // Prune attestations less than the min source and target from this interchange file.
+        // See the rationale for blocks above.
+        if let Some((new_min_source, new_min_target)) = record
+            .signed_attestations
+            .iter()
+            .map(|attestation| (attestation.source_epoch, attestation.target_epoch))
+            .min()
+        {
+            self.prune_signed_attestations(&record.pubkey, new_min_source, new_min_target, &txn)?;
+        }
 
         Ok(())
     }

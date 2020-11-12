@@ -17,6 +17,7 @@ pub struct MultiTestCase {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TestCase {
     pub should_succeed: bool,
+    pub allow_partial_import: bool,
     pub interchange: Interchange,
     pub blocks: Vec<TestBlock>,
     pub attestations: Vec<TestAttestation>,
@@ -65,11 +66,19 @@ impl MultiTestCase {
                 test_case.interchange.clone(),
                 self.genesis_validators_root,
             ) {
-                Ok(()) if !test_case.should_succeed => {
-                    panic!(
-                        "test `{}` succeeded on import when it should have failed",
-                        self.name
-                    );
+                Ok(failed_records) => {
+                    if !test_case.should_succeed {
+                        panic!(
+                            "test `{}` succeeded on import when it should have failed",
+                            self.name
+                        );
+                    }
+                    if !failed_records.is_empty() && !test_case.allow_partial_import {
+                        panic!(
+                            "test `{}` failed to import some records but should have succeeded: {:#?}",
+                            self.name, failed_records,
+                        );
+                    }
                 }
                 Err(e) if test_case.should_succeed => {
                     panic!(
@@ -132,6 +141,7 @@ impl TestCase {
     pub fn new(interchange: Interchange) -> Self {
         TestCase {
             should_succeed: true,
+            allow_partial_import: false,
             interchange,
             blocks: vec![],
             attestations: vec![],
@@ -140,6 +150,11 @@ impl TestCase {
 
     pub fn should_fail(mut self) -> Self {
         self.should_succeed = false;
+        self
+    }
+
+    pub fn allow_partial_import(mut self) -> Self {
+        self.allow_partial_import = true;
         self
     }
 

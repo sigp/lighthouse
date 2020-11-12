@@ -218,7 +218,7 @@ fn main() {
             "multiple_interchanges_single_validator_single_message_out_of_order",
             vec![
                 TestCase::new(interchange(vec![(0, vec![40], vec![])])),
-                TestCase::new(interchange(vec![(0, vec![20], vec![])])).should_fail(),
+                TestCase::new(interchange(vec![(0, vec![20], vec![])])).allow_partial_import(),
             ],
         ),
         // TODO: multiple interchanges, multiple messages, multiple validators
@@ -248,7 +248,6 @@ fn main() {
             TestCase::new(interchange(vec![(0, vec![10, 20], vec![])]))
                 .with_blocks(vec![(0, 20, false)]),
         ),
-        // TODO(EIP-3076): confirm semantics of interchange files containing slashable data
         MultiTestCase::single(
             "single_validator_slashable_blocks",
             TestCase::new(interchange_with_signing_roots(vec![(
@@ -256,12 +255,11 @@ fn main() {
                 vec![(10, Some(0)), (10, Some(11))],
                 vec![],
             )]))
-            .should_fail(),
+            .allow_partial_import(),
         ),
-        // TODO(EIP-3076): confirm compulsory `signing_root`, or fix Lighthouse
         MultiTestCase::single(
             "single_validator_slashable_blocks_no_root",
-            TestCase::new(interchange(vec![(0, vec![10, 10], vec![])])).should_fail(),
+            TestCase::new(interchange(vec![(0, vec![10, 10], vec![])])).allow_partial_import(),
         ),
         MultiTestCase::single(
             "single_validator_slashable_attestations_double_vote",
@@ -270,15 +268,17 @@ fn main() {
                 vec![],
                 vec![(2, 3, Some(0)), (2, 3, Some(1))],
             )]))
-            .should_fail(),
+            .allow_partial_import(),
         ),
         MultiTestCase::single(
             "single_validator_slashable_attestations_surrounds_existing",
-            TestCase::new(interchange(vec![(0, vec![], vec![(2, 3), (0, 4)])])).should_fail(),
+            TestCase::new(interchange(vec![(0, vec![], vec![(2, 3), (0, 4)])]))
+                .allow_partial_import(),
         ),
         MultiTestCase::single(
             "single_validator_slashable_attestations_surrounded_by_existing",
-            TestCase::new(interchange(vec![(0, vec![], vec![(0, 4), (2, 3)])])).should_fail(),
+            TestCase::new(interchange(vec![(0, vec![], vec![(0, 4), (2, 3)])]))
+                .allow_partial_import(),
         ),
         MultiTestCase::single(
             "duplicate_pubkey_not_slashable",
