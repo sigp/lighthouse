@@ -12,12 +12,13 @@ pub enum PeerSyncStatus {
     Advanced { info: SyncInfo },
     /// Is behind our current head and not useful for block downloads.
     Behind { info: SyncInfo },
+    /// This peer is in an incompatible network.
+    IrrelevantPeer,
     /// Not currently known as a STATUS handshake has not occurred.
     Unknown,
 }
 
-/// This is stored inside the PeerSyncStatus and is very similar to `PeerSyncInfo` in the
-/// `Network` crate.
+/// A relevant peer's sync information.
 #[derive(Clone, Debug, Serialize)]
 pub struct SyncInfo {
     pub status_head_slot: Slot,
@@ -83,6 +84,23 @@ impl PeerSyncStatus {
 
         match self {
             PeerSyncStatus::Behind { .. } | PeerSyncStatus::Unknown => {
+                *self = new_state;
+                false // state was not updated
+            }
+            _ => {
+                *self = new_state;
+                true
+            }
+        }
+    }
+
+    /// Updates the sync of a peer identified as irrelevant.
+    /// Returns true if the state has changed.
+    pub fn update_irrelevant(&mut self) -> bool {
+        let new_state = PeerSyncStatus::IrrelevantPeer;
+
+        match self {
+            PeerSyncStatus::IrrelevantPeer | PeerSyncStatus::Unknown => {
                 *self = new_state;
                 false // state was not updated
             }
