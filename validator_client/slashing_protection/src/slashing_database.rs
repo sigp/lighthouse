@@ -4,7 +4,7 @@ use crate::interchange::{
 };
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
-use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock};
+use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::{File, OpenOptions};
@@ -224,7 +224,7 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
@@ -274,7 +274,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         // Although it's not required to avoid slashing, we disallow attestations
         // which are obviously invalid by virtue of their source epoch exceeding their target.
@@ -403,14 +403,14 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
     ) -> Result<(), NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
         txn.execute(
             "INSERT INTO signed_blocks (validator_id, slot, signing_root)
              VALUES (?1, ?2, ?3)",
-            params![validator_id, slot, signing_root.as_bytes()],
+            params![validator_id, slot, signing_root.to_hash256().as_bytes()],
         )?;
         Ok(())
     }
@@ -425,7 +425,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
     ) -> Result<(), NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
@@ -436,7 +436,7 @@ impl SlashingDatabase {
                 validator_id,
                 att_source_epoch,
                 att_target_epoch,
-                att_signing_root.as_bytes()
+                att_signing_root.to_hash256().as_bytes()
             ],
         )?;
         Ok(())
@@ -457,7 +457,7 @@ impl SlashingDatabase {
         self.check_and_insert_block_signing_root(
             validator_pubkey,
             block_header.slot,
-            block_header.signing_root(domain),
+            block_header.signing_root(domain).into(),
         )
     }
 
@@ -466,7 +466,7 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
@@ -485,7 +485,7 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let safe = self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
@@ -508,7 +508,7 @@ impl SlashingDatabase {
         attestation: &AttestationData,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
-        let attestation_signing_root = attestation.signing_root(domain);
+        let attestation_signing_root = attestation.signing_root(domain).into();
         self.check_and_insert_attestation_signing_root(
             validator_pubkey,
             attestation.source.epoch,
@@ -523,7 +523,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
@@ -544,7 +544,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let safe = self.check_attestation(
@@ -570,7 +570,7 @@ impl SlashingDatabase {
     /// Import slashing protection from another client in the interchange format.
     pub fn import_interchange_info(
         &self,
-        interchange: &Interchange,
+        interchange: Interchange,
         genesis_validators_root: Hash256,
     ) -> Result<(), InterchangeError> {
         let version = interchange.metadata.interchange_format_version;
@@ -589,15 +589,20 @@ impl SlashingDatabase {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
 
-        for record in &interchange.data {
+        for mut record in interchange.data {
             self.register_validators_in_txn(std::iter::once(&record.pubkey), &txn)?;
 
-            // Insert all signed blocks.
+            // Insert all signed blocks, sorting them so that the minimum bounds are not
+            // violated by ordering.
+            record.signed_blocks.sort_unstable_by_key(|b| b.slot);
             for block in &record.signed_blocks {
                 self.check_and_insert_block_signing_root_txn(
                     &record.pubkey,
                     block.slot,
-                    block.signing_root.unwrap_or_else(Hash256::zero),
+                    block
+                        .signing_root
+                        .map(SigningRoot::from)
+                        .unwrap_or_default(),
                     &txn,
                 )?;
             }
@@ -610,12 +615,18 @@ impl SlashingDatabase {
             }
 
             // Insert all signed attestations.
+            record
+                .signed_attestations
+                .sort_unstable_by_key(|att| (att.source_epoch, att.target_epoch));
             for attestation in &record.signed_attestations {
                 self.check_and_insert_attestation_signing_root_txn(
                     &record.pubkey,
                     attestation.source_epoch,
                     attestation.target_epoch,
-                    attestation.signing_root.unwrap_or_else(Hash256::zero),
+                    attestation
+                        .signing_root
+                        .map(SigningRoot::from)
+                        .unwrap_or_default(),
                     &txn,
                 )?;
             }
@@ -657,7 +668,8 @@ impl SlashingDatabase {
         txn.prepare(
             "SELECT public_key, slot, signing_root
              FROM signed_blocks, validators
-             WHERE signed_blocks.validator_id = validators.id",
+             WHERE signed_blocks.validator_id = validators.id
+             ORDER BY slot ASC",
         )?
         .query_and_then(params![], |row| {
             let validator_pubkey: String = row.get(0)?;
@@ -675,7 +687,8 @@ impl SlashingDatabase {
         txn.prepare(
             "SELECT public_key, source_epoch, target_epoch, signing_root
              FROM signed_attestations, validators
-             WHERE signed_attestations.validator_id = validators.id",
+             WHERE signed_attestations.validator_id = validators.id
+             ORDER BY source_epoch ASC, target_epoch ASC",
         )?
         .query_and_then(params![], |row| {
             let validator_pubkey: String = row.get(0)?;

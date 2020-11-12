@@ -1,7 +1,7 @@
 use crate::{
     interchange::Interchange,
     test_utils::{pubkey, DEFAULT_GENESIS_VALIDATORS_ROOT},
-    SlashingDatabase,
+    SigningRoot, SlashingDatabase,
 };
 use serde_derive::{Deserialize, Serialize};
 use tempfile::tempdir;
@@ -61,9 +61,10 @@ impl MultiTestCase {
         let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
         for test_case in &self.steps {
-            match slashing_db
-                .import_interchange_info(&test_case.interchange, self.genesis_validators_root)
-            {
+            match slashing_db.import_interchange_info(
+                test_case.interchange.clone(),
+                self.genesis_validators_root,
+            ) {
                 Ok(()) if !test_case.should_succeed => {
                     panic!(
                         "test `{}` succeeded on import when it should have failed",
@@ -83,7 +84,7 @@ impl MultiTestCase {
                 match slashing_db.check_and_insert_block_signing_root(
                     &block.pubkey,
                     block.slot,
-                    Hash256::random(),
+                    SigningRoot::default(),
                 ) {
                     Ok(safe) if !block.should_succeed => {
                         panic!(
@@ -106,7 +107,7 @@ impl MultiTestCase {
                     &att.pubkey,
                     att.source_epoch,
                     att.target_epoch,
-                    Hash256::random(),
+                    SigningRoot::default(),
                 ) {
                     Ok(safe) if !att.should_succeed => {
                         panic!(

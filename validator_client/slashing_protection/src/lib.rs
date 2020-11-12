@@ -42,6 +42,36 @@ pub enum Safe {
     Valid,
 }
 
+/// A wrapper for `Hash256` that treats `0x0` as a special null value.
+///
+/// Notably `SigningRoot(0x0) != SigningRoot(0x0)`. It is `PartialEq` but not `Eq`!
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SigningRoot(Hash256);
+
+impl PartialEq for SigningRoot {
+    fn eq(&self, other: &Self) -> bool {
+        !self.0.is_zero() && self.0 == other.0
+    }
+}
+
+impl From<Hash256> for SigningRoot {
+    fn from(hash: Hash256) -> Self {
+        SigningRoot(hash)
+    }
+}
+
+impl Into<Hash256> for SigningRoot {
+    fn into(self) -> Hash256 {
+        self.0
+    }
+}
+
+impl SigningRoot {
+    fn to_hash256(self) -> Hash256 {
+        self.into()
+    }
+}
+
 /// Safely parse a `Hash256` from the given `column` of an SQLite `row`.
 fn hash256_from_row(column: usize, row: &rusqlite::Row) -> rusqlite::Result<Hash256> {
     use rusqlite::{types::Type, Error};
@@ -79,5 +109,22 @@ impl From<r2d2::Error> for NotSafe {
 impl ToString for NotSafe {
     fn to_string(&self) -> String {
         format!("{:?}", self)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn signing_root_partial_eq() {
+        let h0 = SigningRoot(Hash256::zero());
+        let h1 = SigningRoot(Hash256::repeat_byte(1));
+        let h2 = SigningRoot(Hash256::repeat_byte(2));
+        assert_ne!(h0, h0);
+        assert_ne!(h0, h1);
+        assert_ne!(h1, h0);
+        assert_eq!(h1, h1);
+        assert_ne!(h1, h2);
     }
 }

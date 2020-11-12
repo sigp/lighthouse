@@ -224,12 +224,29 @@ fn main() {
         // TODO: multiple interchanges, multiple messages, multiple validators
         MultiTestCase::single(
             "single_validator_out_of_order_blocks",
-            TestCase::new(interchange(vec![(0, vec![6, 5], vec![])])).should_fail(),
+            TestCase::new(interchange(vec![(0, vec![6, 5], vec![])])).with_blocks(vec![
+                (0, 5, false),
+                (0, 6, false),
+                (0, 7, true),
+            ]),
         ),
-        // TODO(EIP-3076): confirm ordering semantics
         MultiTestCase::single(
             "single_validator_out_of_order_attestations",
-            TestCase::new(interchange(vec![(0, vec![], vec![(4, 5), (3, 4)])])).should_fail(),
+            TestCase::new(interchange(vec![(0, vec![], vec![(4, 5), (3, 4)])])).with_attestations(
+                vec![
+                    (0, 3, 4, false),
+                    (0, 4, 5, false),
+                    (0, 1, 10, false),
+                    (0, 3, 3, false),
+                ],
+            ),
+        ),
+        // Ensure that it's not just the minimum bound check preventing blocks at the same slot
+        // from being signed.
+        MultiTestCase::single(
+            "single_validator_two_blocks_no_signing_root",
+            TestCase::new(interchange(vec![(0, vec![10, 20], vec![])]))
+                .with_blocks(vec![(0, 20, false)]),
         ),
         // TODO(EIP-3076): confirm semantics of interchange files containing slashable data
         MultiTestCase::single(
@@ -244,7 +261,7 @@ fn main() {
         // TODO(EIP-3076): confirm compulsory `signing_root`, or fix Lighthouse
         MultiTestCase::single(
             "single_validator_slashable_blocks_no_root",
-            TestCase::new(interchange(vec![(0, vec![10, 10], vec![])])),
+            TestCase::new(interchange(vec![(0, vec![10, 10], vec![])])).should_fail(),
         ),
         MultiTestCase::single(
             "single_validator_slashable_attestations_double_vote",
@@ -263,13 +280,14 @@ fn main() {
             "single_validator_slashable_attestations_surrounded_by_existing",
             TestCase::new(interchange(vec![(0, vec![], vec![(0, 4), (2, 3)])])).should_fail(),
         ),
-        // TODO(EIP-3076): confirm duplicate key semantics
         MultiTestCase::single(
             "duplicate_pubkey_not_slashable",
             TestCase::new(interchange(vec![
                 (0, vec![10, 11], vec![(0, 2)]),
                 (0, vec![12, 13], vec![(1, 3)]),
-            ])),
+            ]))
+            .with_blocks(vec![(0, 10, false), (0, 13, false), (0, 14, true)])
+            .with_attestations(vec![(0, 0, 2, false), (0, 1, 3, false)]),
         ),
     ];
 
