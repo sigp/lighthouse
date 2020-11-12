@@ -1353,7 +1353,7 @@ pub fn serve<T: BeaconChainTypes>(
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
-                                address,
+                                last_seen_p2p_address: address,
                                 direction: api_types::PeerDirection::from_connection_direction(
                                     &dir,
                                 ),
@@ -1375,46 +1375,66 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::end())
+        .and(warp::query::<api_types::PeersQuery>())
         .and(network_globals.clone())
-        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
-            blocking_json_task(move || {
-                let mut peers: Vec<api_types::PeerData> = Vec::new();
-                network_globals
-                    .peers
-                    .read()
-                    .peers()
-                    // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                    .filter(|(_, peer_info)| peer_info.connection_direction.is_some())
-                    .for_each(|(peer_id, peer_info)| {
-                        let address = if let Some(socket_addr) =
-                            peer_info.seen_addresses.iter().next()
-                        {
-                            let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
-                            addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
-                            addr.to_string()
-                        } else if let Some(addr) = peer_info.listening_addresses.first() {
-                            addr.to_string()
-                        } else {
-                            String::new()
-                        };
+        .and_then(
+            |query: api_types::PeersQuery, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                blocking_json_task(move || {
+                    let mut peers: Vec<api_types::PeerData> = Vec::new();
+                    network_globals
+                        .peers
+                        .read()
+                        .peers()
+                        .for_each(|(peer_id, peer_info)| {
+                            let address =
+                                if let Some(socket_addr) = peer_info.seen_addresses.iter().next() {
+                                    let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
+                                    addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(
+                                        socket_addr.port(),
+                                    ));
+                                    addr.to_string()
+                                } else if let Some(addr) = peer_info.listening_addresses.first() {
+                                    addr.to_string()
+                                } else {
+                                    String::new()
+                                };
 
-                        if let Some(dir) = peer_info.connection_direction.as_ref() {
-                            peers.push(api_types::PeerData {
-                                peer_id: peer_id.to_string(),
-                                enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
-                                address,
-                                direction: api_types::PeerDirection::from_connection_direction(
-                                    &dir,
-                                ),
-                                state: api_types::PeerState::from_peer_connection_status(
+                            // the eth2 API spec implies only peers we have been connected to at some point should be included.
+                            if let Some(dir) = peer_info.connection_direction.as_ref() {
+                                let direction =
+                                    api_types::PeerDirection::from_connection_direction(&dir);
+                                let state = api_types::PeerState::from_peer_connection_status(
                                     &peer_info.connection_status(),
-                                ),
-                            });
-                        }
-                    });
-                Ok(api_types::GenericResponse::from(peers))
-            })
-        });
+                                );
+
+                                let state_matches = query.state.as_ref().map_or(true, |states| {
+                                    states.0.iter().any(|state_param| *state_param == state)
+                                });
+                                let direction_matches =
+                                    query.direction.as_ref().map_or(true, |directions| {
+                                        directions.0.iter().any(|dir_param| *dir_param == direction)
+                                    });
+
+                                if state_matches && direction_matches {
+                                    peers.push(api_types::PeerData {
+                                        peer_id: peer_id.to_string(),
+                                        enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                        last_seen_p2p_address: address,
+                                        direction,
+                                        state,
+                                    });
+                                }
+                            }
+                        });
+                    Ok(api_types::PeersData {
+                        meta: api_types::PeersMetaData {
+                            count: peers.len() as u64,
+                        },
+                        data: peers,
+                    })
+                })
+            },
+        );
 
     /*
      * validator
