@@ -536,6 +536,7 @@ pub struct PeersMetaData {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PeerState {
     Connected,
     Connecting,
