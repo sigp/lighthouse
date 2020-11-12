@@ -755,6 +755,18 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `GET node/peer_count`
+    pub async fn get_node_peer_count(&self) -> Result<GenericResponse<PeerCount>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("peer_count");
+
+        self.get(path).await
+    }
+
     /// `GET debug/beacon/states/{state_id}`
     pub async fn get_debug_beacon_states<T: EthSpec>(
         &self,

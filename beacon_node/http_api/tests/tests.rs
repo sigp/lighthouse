@@ -1237,6 +1237,19 @@ impl ApiTester {
         }
         self
     }
+    pub async fn test_get_node_peer_count(self) -> Self {
+        let result = self.client.get_node_peer_count().await.unwrap().data;
+        assert_eq!(
+            result,
+            PeerCount {
+                connected: 1,
+                connecting: 0,
+                disconnected: 0,
+                disconnecting: 0,
+            }
+        );
+        self
+    }
 
     pub async fn test_get_debug_beacon_states(self) -> Self {
         for state_id in self.interesting_state_ids() {
@@ -1933,6 +1946,8 @@ async fn node_get() {
         .test_get_node_peers_by_id()
         .await
         .test_get_node_peers()
+        .await
+        .test_get_node_peer_count()
         .await;
 }
 

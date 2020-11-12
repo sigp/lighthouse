@@ -618,6 +618,18 @@ impl fmt::Display for PeerDirection {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeerCount {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub connected: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub connecting: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub disconnected: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub disconnecting: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1436,6 +1436,43 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET node/peer_count
+    let get_node_peer_count = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peer_count"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            blocking_json_task(move || {
+                let mut connected: u64 = 0;
+                let mut connecting: u64 = 0;
+                let mut disconnected: u64 = 0;
+                let mut disconnecting: u64 = 0;
+
+                network_globals
+                    .peers
+                    .read()
+                    .peers()
+                    .for_each(|(_, peer_info)| {
+                        let state = api_types::PeerState::from_peer_connection_status(
+                            &peer_info.connection_status(),
+                        );
+                        match state {
+                            api_types::PeerState::Connected => connected += 1,
+                            api_types::PeerState::Connecting => connecting += 1,
+                            api_types::PeerState::Disconnected => disconnected += 1,
+                            api_types::PeerState::Disconnecting => disconnecting += 1,
+                        }
+                    });
+
+                Ok(api_types::GenericResponse::from(api_types::PeerCount {
+                    disconnecting,
+                    connecting,
+                    connected,
+                    disconnected,
+                }))
+            })
+        });
     /*
      * validator
      */
@@ -2096,6 +2133,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_node_health.boxed())
                 .or(get_node_peers_by_id.boxed())
                 .or(get_node_peers.boxed())
+                .or(get_node_peer_count.boxed())
                 .or(get_validator_duties_proposer.boxed())
                 .or(get_validator_blocks.boxed())
                 .or(get_validator_attestation_data.boxed())
