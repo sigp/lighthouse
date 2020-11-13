@@ -151,7 +151,9 @@ pub fn build_enr<T: EthSpec>(
     // If we are subscribing to all subnets, add this to the bitfield ENR
     if config.subscribe_all_subnets {
         for x in 0..bitfield.len() {
-            bitfield.set(x, true);
+            bitfield
+                .set(x, true)
+                .map_err(|_| format!("Could not set bitfield bit: {}", x))?;
         }
     }
 
