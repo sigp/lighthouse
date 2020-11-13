@@ -7,7 +7,7 @@ pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, Combin
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::{Keypair, PublicKey};
 
-use crate::metrics;
+use crate::{config, metrics};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
@@ -36,7 +36,7 @@ pub use subnet_predicate::subnet_predicate;
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
 /// Target number of peers we'd like to have connected to a given long-lived subnet.
-pub const TARGET_SUBNET_PEERS: usize = 3;
+pub const TARGET_SUBNET_PEERS: usize = config::MESH_N_LOW;
 /// Target number of peers to search for given a grouped subnet query.
 const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// Number of times to attempt a discovery request.

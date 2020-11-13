@@ -17,6 +17,7 @@ use std::time::Duration;
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
+pub const MESH_N_LOW: usize = 6;
 
 pub type GossipsubConfig = GenericGossipsubConfig<MessageData>;
 pub type GossipsubConfigBuilder = GenericGossipsubConfigBuilder<MessageData>;
@@ -130,7 +131,7 @@ impl Default for Config {
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_millis(700))
             .mesh_n(8)
-            .mesh_n_low(6)
+            .mesh_n_low(MESH_N_LOW)
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
