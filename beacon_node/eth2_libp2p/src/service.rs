@@ -16,14 +16,15 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
-use slog::{crit, debug, info, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
+use ssz_types::typenum::Unsigned;
 use std::fs::File;
 use std::io::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec, SubnetId};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -53,7 +54,7 @@ pub struct Service<TSpec: EthSpec> {
     pub local_peer_id: PeerId,
 
     /// The libp2p logger handle.
-    pub log: slog::Logger,
+    pub log: Logger,
 }
 
 impl<TSpec: EthSpec> Service<TSpec> {
@@ -61,7 +62,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         executor: task_executor::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
-        log: &slog::Logger,
+        log: &Logger,
         chain_spec: &ChainSpec,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
@@ -206,6 +207,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         }
 
         let mut subscribed_topics: Vec<GossipKind> = vec![];
+
         for topic_kind in &config.topics {
             if swarm.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());
@@ -213,6 +215,18 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
             }
         }
+
+        if config.subscribe_all_subnets {
+            for subnet in 0..TSpec::SubnetBitfieldLength::to_u64() {
+                let topic_kind = GossipKind::Attestation(SubnetId::new(subnet));
+                if swarm.subscribe_kind(topic_kind.clone()) {
+                    subscribed_topics.push(topic_kind);
+                } else {
+                    warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                }
+            }
+        }
+
         if !subscribed_topics.is_empty() {
             info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
         }

@@ -31,6 +31,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Network parameters.
          */
         .arg(
+            Arg::with_name("subscribe-all-subnets")
+                .long("subscribe-all-subnets")
+                .help("Subscribe to all subnets regardless of validator count. \
+                       This will also advertise the beacon node as being long-lived subscribed to all subnets.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
                 .short("z")

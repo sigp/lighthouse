@@ -81,6 +81,9 @@ pub struct Config {
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
 
+    /// Subscribe to all subnets for the duration of the runtime.
+    pub subscribe_all_subnets: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -88,7 +91,7 @@ pub struct Config {
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
-        // WARNING: this directory default should be always overrided with parameters
+        // WARNING: this directory default should be always overwritten with parameters
         // from cli for specific networks.
         let network_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -181,6 +184,7 @@ impl Default for Config {
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             upnp_enabled: true,
+            subscribe_all_subnets: false,
             topics: Vec::new(),
         }
     }
