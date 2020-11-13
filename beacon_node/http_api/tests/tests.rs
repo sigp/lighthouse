@@ -625,14 +625,12 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let mut state_opt = self.get_state(state_id);
 
-            let epoch = state_opt
+            let epoch_opt = state_opt
                 .as_ref()
-                .map(|state| state.current_epoch())
-                .unwrap_or_else(|| Epoch::new(0));
-
+                .map(|state| state.current_epoch());
             let results = self
                 .client
-                .get_beacon_states_committees(state_id, None, None, Some(epoch))
+                .get_beacon_states_committees(state_id, None, None, epoch_opt)
                 .await
                 .unwrap()
                 .map(|res| res.data);
@@ -642,11 +640,10 @@ impl ApiTester {
             }
 
             let state = state_opt.as_mut().expect("result should be none");
+
             state.build_all_committee_caches(&self.chain.spec).unwrap();
             let committees = state
-                .get_beacon_committees_at_epoch(
-                    RelativeEpoch::from_epoch(state.current_epoch(), epoch).unwrap(),
-                )
+                .get_beacon_committees_at_epoch(RelativeEpoch::Current)
                 .unwrap();
 
             for (i, result) in results.unwrap().into_iter().enumerate() {
