@@ -27,6 +27,7 @@ pub struct TestCase {
 pub struct TestBlock {
     pub pubkey: PublicKey,
     pub slot: Slot,
+    pub signing_root: Hash256,
     pub should_succeed: bool,
 }
 
@@ -35,6 +36,7 @@ pub struct TestAttestation {
     pub pubkey: PublicKey,
     pub source_epoch: Epoch,
     pub target_epoch: Epoch,
+    pub signing_root: Hash256,
     pub should_succeed: bool,
 }
 
@@ -93,7 +95,7 @@ impl MultiTestCase {
                 match slashing_db.check_and_insert_block_signing_root(
                     &block.pubkey,
                     block.slot,
-                    SigningRoot::default(),
+                    SigningRoot::from(block.signing_root),
                 ) {
                     Ok(safe) if !block.should_succeed => {
                         panic!(
@@ -116,7 +118,7 @@ impl MultiTestCase {
                     &att.pubkey,
                     att.source_epoch,
                     att.target_epoch,
-                    SigningRoot::default(),
+                    SigningRoot::from(att.signing_root),
                 ) {
                     Ok(safe) if !att.should_succeed => {
                         panic!(
@@ -158,14 +160,25 @@ impl TestCase {
         self
     }
 
-    // FIXME(sproul): add signing roots
-    pub fn with_blocks(mut self, blocks: impl IntoIterator<Item = (usize, u64, bool)>) -> Self {
+    pub fn with_blocks(self, blocks: impl IntoIterator<Item = (usize, u64, bool)>) -> Self {
+        self.with_signing_root_blocks(
+            blocks
+                .into_iter()
+                .map(|(index, slot, should_succeed)| (index, slot, 0, should_succeed)),
+        )
+    }
+
+    pub fn with_signing_root_blocks(
+        mut self,
+        blocks: impl IntoIterator<Item = (usize, u64, u64, bool)>,
+    ) -> Self {
         self.blocks.extend(
             blocks
                 .into_iter()
-                .map(|(pk, slot, should_succeed)| TestBlock {
+                .map(|(pk, slot, signing_root, should_succeed)| TestBlock {
                     pubkey: pubkey(pk),
                     slot: Slot::new(slot),
+                    signing_root: Hash256::from_low_u64_be(signing_root),
                     should_succeed,
                 }),
         );
@@ -173,14 +186,26 @@ impl TestCase {
     }
 
     pub fn with_attestations(
-        mut self,
+        self,
         attestations: impl IntoIterator<Item = (usize, u64, u64, bool)>,
     ) -> Self {
+        self.with_signing_root_attestations(
+            attestations
+                .into_iter()
+                .map(|(id, source, target, succeed)| (id, source, target, 0, succeed)),
+        )
+    }
+
+    pub fn with_signing_root_attestations(
+        mut self,
+        attestations: impl IntoIterator<Item = (usize, u64, u64, u64, bool)>,
+    ) -> Self {
         self.attestations.extend(attestations.into_iter().map(
-            |(pk, source, target, should_succeed)| TestAttestation {
+            |(pk, source, target, signing_root, should_succeed)| TestAttestation {
                 pubkey: pubkey(pk),
                 source_epoch: Epoch::new(source),
                 target_epoch: Epoch::new(target),
+                signing_root: Hash256::from_low_u64_be(signing_root),
                 should_succeed,
             },
         ));

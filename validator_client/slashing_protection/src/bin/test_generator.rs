@@ -218,10 +218,15 @@ fn main() {
             "multiple_interchanges_single_validator_single_message_out_of_order",
             vec![
                 TestCase::new(interchange(vec![(0, vec![40], vec![])])),
-                TestCase::new(interchange(vec![(0, vec![20], vec![])])).allow_partial_import(),
+                TestCase::new(interchange(vec![(0, vec![20], vec![])]))
+                    .allow_partial_import()
+                    .with_blocks(vec![(0, 20, false)]),
             ],
         ),
-        // TODO: multiple interchanges, multiple messages, multiple validators
+        MultiTestCase::single(
+            "single_validator_source_greater_than_target",
+            TestCase::new(interchange(vec![(0, vec![], vec![(8, 7)])])).allow_partial_import(),
+        ),
         MultiTestCase::single(
             "single_validator_out_of_order_blocks",
             TestCase::new(interchange(vec![(0, vec![6, 5], vec![])])).with_blocks(vec![
@@ -247,6 +252,49 @@ fn main() {
             "single_validator_two_blocks_no_signing_root",
             TestCase::new(interchange(vec![(0, vec![10, 20], vec![])]))
                 .with_blocks(vec![(0, 20, false)]),
+        ),
+        MultiTestCase::single(
+            "single_validator_multiple_block_attempts",
+            TestCase::new(interchange(vec![(0, vec![15, 16, 17], vec![])]))
+                .with_signing_root_blocks(vec![
+                    (0, 16, 0, false),
+                    (0, 16, 1, false),
+                    (0, 16, u64::MAX, false),
+                ]),
+        ),
+        MultiTestCase::single(
+            "single_validator_resign_block",
+            TestCase::new(interchange_with_signing_roots(vec![(
+                0,
+                vec![(15, Some(151)), (16, Some(161)), (17, Some(171))],
+                vec![],
+            )]))
+            .with_signing_root_blocks(vec![
+                (0, 15, 151, true),
+                (0, 16, 161, true),
+                (0, 17, 171, true),
+                (0, 15, 152, false),
+                (0, 15, 0, false),
+                (0, 16, 151, false),
+                (0, 17, 151, false),
+                (0, 18, 151, true),
+                (0, 14, 171, false),
+            ]),
+        ),
+        MultiTestCase::single(
+            "single_validator_resign_attestation",
+            TestCase::new(interchange_with_signing_roots(vec![(
+                0,
+                vec![],
+                vec![(5, 15, Some(515))],
+            )]))
+            .with_signing_root_attestations(vec![
+                (0, 5, 15, 0, false),
+                (0, 5, 15, 1, false),
+                (0, 5, 15, 515, true),
+                (0, 6, 15, 615, false),
+                (0, 5, 14, 515, false),
+            ]),
         ),
         MultiTestCase::single(
             "single_validator_slashable_blocks",
