@@ -594,6 +594,21 @@ fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
     }
 }
 
+/// A work-around to reduce temporary allocation when updating gossip metrics.
+pub struct ToStringCache<T>(HashMap<T, String>);
+
+impl<T: Clone + std::hash::Hash + std::fmt::Display + Eq> ToStringCache<T> {
+    pub fn with_capacity(c: usize) -> Self {
+        Self(HashMap::with_capacity(c))
+    }
+
+    pub fn get(&mut self, item: T) -> &str {
+        self.0
+            .entry(item.clone())
+            .or_insert_with(|| item.to_string())
+    }
+}
+
 fn update_gossip_metrics<T: EthSpec>(
     gossipsub: &Gossipsub,
     network_globals: &Arc<NetworkGlobals<T>>,
@@ -648,23 +663,28 @@ fn update_gossip_metrics<T: EthSpec>(
         .as_ref()
         .map(|gauge| gauge.reset());
 
+    let mut subnet_ids: ToStringCache<u64> =
+        ToStringCache::with_capacity(T::default_spec().attestation_subnet_count as usize);
+    let mut gossip_kinds: ToStringCache<GossipKind> =
+        ToStringCache::with_capacity(T::default_spec().attestation_subnet_count as usize);
+
     // reset the mesh peers, showing all subnets
     for subnet_id in 0..T::default_spec().attestation_subnet_count {
         let _ = metrics::get_int_gauge(
             &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
-            &[&subnet_id.to_string()],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = metrics::get_int_gauge(
             &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
-            &[&subnet_id.to_string()],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = metrics::get_int_gauge(
             &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
-            &[&subnet_id.to_string()],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
     }
@@ -675,7 +695,7 @@ fn update_gossip_metrics<T: EthSpec>(
             if let GossipKind::Attestation(subnet_id) = topic.kind() {
                 let _ = metrics::get_int_gauge(
                     &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
-                    &[&subnet_id.to_string()],
+                    &[subnet_ids.get(subnet_id.into())],
                 )
                 .map(|v| v.set(1));
             }
@@ -693,7 +713,7 @@ fn update_gossip_metrics<T: EthSpec>(
                     GossipKind::Attestation(subnet_id) => {
                         if let Some(v) = metrics::get_int_gauge(
                             &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
-                            &[&subnet_id.to_string()],
+                            &[subnet_ids.get(subnet_id.into())],
                         ) {
                             v.inc()
                         };
@@ -702,7 +722,7 @@ fn update_gossip_metrics<T: EthSpec>(
                         if let Some(score) = gossipsub.peer_score(peer_id) {
                             if let Some(v) = metrics::get_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
-                                &[&subnet_id.to_string()],
+                                &[subnet_ids.get(subnet_id.into())],
                             ) {
                                 v.add(score)
                             };
@@ -713,7 +733,7 @@ fn update_gossip_metrics<T: EthSpec>(
                         if let Some(score) = gossipsub.peer_score(peer_id) {
                             if let Some(v) = metrics::get_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
-                                &[&format!("{:?}", kind)],
+                                &[gossip_kinds.get(kind.clone())],
                             ) {
                                 v.add(score)
                             };
@@ -731,7 +751,7 @@ fn update_gossip_metrics<T: EthSpec>(
                     // average peer scores
                     if let Some(v) = metrics::get_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
-                        &[&subnet_id.to_string()],
+                        &[subnet_ids.get(subnet_id.into())],
                     ) {
                         v.set(v.get() / (*peers as f64))
                     };
@@ -757,7 +777,7 @@ fn update_gossip_metrics<T: EthSpec>(
                 GossipKind::Attestation(subnet_id) => {
                     if let Some(v) = metrics::get_int_gauge(
                         &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
-                        &[&subnet_id.to_string()],
+                        &[subnet_ids.get(subnet_id.into())],
                     ) {
                         v.set(peers as i64)
                     };
@@ -766,7 +786,7 @@ fn update_gossip_metrics<T: EthSpec>(
                     // main topics
                     if let Some(v) = metrics::get_int_gauge(
                         &metrics::MESH_PEERS_PER_MAIN_TOPIC,
-                        &[&format!("{:?}", kind)],
+                        &[gossip_kinds.get(kind.clone())],
                     ) {
                         v.set(peers as i64)
                     };
@@ -796,9 +816,9 @@ fn update_gossip_metrics<T: EthSpec>(
         for (peer_id, _) in gossipsub.all_peers() {
             let client = peers
                 .peer_info(peer_id)
-                .map_or("Unknown".to_string(), |peer_info| {
-                    peer_info.client.kind.to_string()
-                });
+                .map(|peer_info| peer_info.client.kind.to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+
             peer_to_client.insert(peer_id, client.clone());
             let score = gossipsub.peer_score(peer_id).unwrap_or(0.0);
             if (client == "Prysm" || client == "Lighthouse") && score < 0.0 {
