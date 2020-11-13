@@ -75,3 +75,9 @@ impl Into<u64> for SubnetId {
         self.0
     }
 }
+
+impl Into<u64> for &SubnetId {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
