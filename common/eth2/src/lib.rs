@@ -479,7 +479,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/pool/attestations`
     pub async fn post_beacon_pool_attestations<T: EthSpec>(
         &self,
-        attestation: &Attestation<T>,
+        attestations: &[Attestation<T>],
     ) -> Result<(), Error> {
         let mut path = self.eth_path()?;
 
@@ -489,7 +489,14 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attestations");
 
-        self.post(path, attestation).await?;
+        let response = self
+            .client
+            .post(path)
+            .json(attestations)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_indexed_error(response).await?;
 
         Ok(())
     }

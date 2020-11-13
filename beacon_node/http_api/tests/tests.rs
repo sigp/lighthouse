@@ -6,6 +6,7 @@ use beacon_chain::{
 };
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
+use eth2::Error;
 use eth2::{types::*, BeaconNodeHttpClient, Url};
 use eth2_libp2p::{
     rpc::methods::MetaData,
@@ -886,37 +887,52 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_pool_attestations_valid(mut self) -> Self {
-        for attestation in &self.attestations {
-            self.client
-                .post_beacon_pool_attestations(attestation)
-                .await
-                .unwrap();
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
 
-            assert!(
-                self.network_rx.try_recv().is_ok(),
-                "valid attestation should be sent to network"
-            );
-        }
+        assert!(
+            self.network_rx.try_recv().is_ok(),
+            "valid attestation should be sent to network"
+        );
 
         self
     }
 
     pub async fn test_post_beacon_pool_attestations_invalid(mut self) -> Self {
+        let mut attestations = Vec::new();
         for attestation in &self.attestations {
-            let mut attestation = attestation.clone();
-            attestation.data.slot += 1;
+            let mut invalid_attestation = attestation.clone();
+            invalid_attestation.data.slot += 1;
 
-            assert!(self
-                .client
-                .post_beacon_pool_attestations(&attestation)
-                .await
-                .is_err());
-
-            assert!(
-                self.network_rx.try_recv().is_err(),
-                "invalid attestation should not be sent to network"
-            );
+            // add both to ensure we only fail on invalid attestations
+            attestations.push(attestation.clone());
+            attestations.push(invalid_attestation);
         }
+
+        let err = self
+            .client
+            .post_beacon_pool_attestations(attestations.as_slice())
+            .await
+            .unwrap_err();
+
+        match err {
+            Error::ServerIndexedMessage(IndexedErrorMessage {
+                code,
+                message: _,
+                failures,
+            }) => {
+                assert_eq!(code, 400);
+                assert_eq!(failures.len(), self.attestations.len());
+            }
+            _ => panic!("query did not fail correctly"),
+        }
+
+        assert!(
+            self.network_rx.try_recv().is_ok(),
+            "if some attestations are valid, we should send them to the network"
+        );
 
         self
     }
