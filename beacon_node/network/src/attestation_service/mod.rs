@@ -202,7 +202,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 if subscription.slot > *slot {
                     subnets_to_discover.insert(subnet_id, subscription.slot);
                 }
-            } else {
+            } else if !self.discovery_disabled {
                 subnets_to_discover.insert(subnet_id, subscription.slot);
             }
 

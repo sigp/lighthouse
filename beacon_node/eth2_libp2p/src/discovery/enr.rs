@@ -146,16 +146,7 @@ pub fn build_enr<T: EthSpec>(
     builder.add_value(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes());
 
     // set the "attnets" field on our ENR
-    let mut bitfield = BitVector::<T::SubnetBitfieldLength>::new();
-
-    // If we are subscribing to all subnets, add this to the bitfield ENR
-    if config.subscribe_all_subnets {
-        for x in 0..bitfield.len() {
-            bitfield
-                .set(x, true)
-                .map_err(|_| format!("Could not set bitfield bit: {}", x))?;
-        }
-    }
+    let bitfield = BitVector::<T::SubnetBitfieldLength>::new();
 
     builder.add_value(BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 

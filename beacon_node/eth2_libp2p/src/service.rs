@@ -18,13 +18,12 @@ use libp2p::{
 };
 use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
-use ssz_types::typenum::Unsigned;
 use std::fs::File;
 use std::io::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, EnrForkId, EthSpec, SubnetId};
+use types::{ChainSpec, EnrForkId, EthSpec};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -213,17 +212,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 subscribed_topics.push(topic_kind.clone());
             } else {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
-            }
-        }
-
-        if config.subscribe_all_subnets {
-            for subnet in 0..TSpec::SubnetBitfieldLength::to_u64() {
-                let topic_kind = GossipKind::Attestation(SubnetId::new(subnet));
-                if swarm.subscribe_kind(topic_kind.clone()) {
-                    subscribed_topics.push(topic_kind);
-                } else {
-                    warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
-                }
             }
         }
 
