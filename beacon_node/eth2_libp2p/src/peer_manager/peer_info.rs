@@ -103,15 +103,6 @@ impl<T: EthSpec> PeerInfo<T> {
         &self.connection_status
     }
 
-    /// Returns true if the peer is an inbound-connected peer.
-    pub fn is_inbound(&self) -> bool {
-        if let PeerConnectionStatus::Connected { n_in, n_out } = self.connection_status {
-            n_in > n_out
-        } else {
-            false
-        }
-    }
-
     /// Reports if this peer has some future validator duty in which case it is valuable to keep it.
     pub fn has_future_duty(&self) -> bool {
         self.min_ttl.map_or(false, |i| i >= Instant::now())

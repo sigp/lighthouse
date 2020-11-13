@@ -11,7 +11,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::multiaddr::Protocol as MProtocol;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error};
+use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     net::SocketAddr,
@@ -443,10 +443,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // received a ping
             // reset the to-ping timer for this peer
             debug!(self.log, "Received a ping request"; "peer_id" => peer_id.to_string(), "seq_no" => seq);
-            if peer_info.is_inbound() {
-                self.inbound_ping_peers.insert(peer_id.clone());
-            } else {
-                self.outbound_ping_peers.insert(peer_id.clone());
+            match peer_info.connection_direction {
+                Some(ConnectionDirection::Incoming) => {
+                    self.inbound_ping_peers.insert(peer_id.clone());
+                }
+                Some(ConnectionDirection::Outgoing) => {
+                    self.outbound_ping_peers.insert(peer_id.clone());
+                }
+                None => {
+                    warn!(self.log, "Received a ping from a peer with an unknown connection direction"; "peer_id" => %peer_id);
+                }
             }
 
             // if the sequence number is unknown send an update the meta data of the peer.
