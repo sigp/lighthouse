@@ -195,7 +195,11 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         let irrelevant_reason = if local.fork_digest != remote.fork_digest {
             // The node is on a different network/fork
-            Some("Incompatible forks")
+            Some(format!(
+                "Incompatible forks Ours:{} Theirs:{}",
+                hex::encode(local.fork_digest),
+                hex::encode(remote.fork_digest)
+            ))
         } else if remote.head_slot
             > self
                 .chain
@@ -206,7 +210,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             // The remote's head is on a slot that is significantly ahead of what we consider the
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
-            Some("Different system clocks or genesis time")
+            Some("Different system clocks or genesis time".to_string())
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
@@ -218,7 +222,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             // The remote's finalized epoch is less than or equal to ours, but the block root is
             // different to the one in our chain. Therefore, the node is on a different chain and we
             // should not communicate with them.
-            Some("Different finalized chain")
+            Some("Different finalized chain".to_string())
         } else {
             None
         };
