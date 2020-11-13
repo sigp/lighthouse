@@ -16,7 +16,7 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
-use slog::{crit, debug, info, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
 use std::fs::File;
 use std::io::prelude::*;
@@ -53,7 +53,7 @@ pub struct Service<TSpec: EthSpec> {
     pub local_peer_id: PeerId,
 
     /// The libp2p logger handle.
-    pub log: slog::Logger,
+    pub log: Logger,
 }
 
 impl<TSpec: EthSpec> Service<TSpec> {
@@ -61,7 +61,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         executor: task_executor::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
-        log: &slog::Logger,
+        log: &Logger,
         chain_spec: &ChainSpec,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
@@ -206,6 +206,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         }
 
         let mut subscribed_topics: Vec<GossipKind> = vec![];
+
         for topic_kind in &config.topics {
             if swarm.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());
@@ -213,6 +214,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
             }
         }
+
         if !subscribed_topics.is_empty() {
             info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
         }

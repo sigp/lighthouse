@@ -11,7 +11,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::multiaddr::Protocol as MProtocol;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error};
+use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     net::SocketAddr,
@@ -40,7 +40,11 @@ use std::collections::HashMap;
 const STATUS_INTERVAL: u64 = 300;
 /// The time in seconds between PING events. We do not send a ping if the other peer has PING'd us
 /// within this time frame (Seconds)
-const PING_INTERVAL: u64 = 30;
+/// This is asymmetric to avoid simultaneous pings.
+/// The interval for outbound connections.
+const PING_INTERVAL_OUTBOUND: u64 = 30;
+/// The interval for inbound connections.
+const PING_INTERVAL_INBOUND: u64 = 35;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
 /// requests. This defines the interval in seconds.
@@ -61,8 +65,10 @@ pub struct PeerManager<TSpec: EthSpec> {
     network_globals: Arc<NetworkGlobals<TSpec>>,
     /// A queue of events that the `PeerManager` is waiting to produce.
     events: SmallVec<[PeerManagerEvent; 16]>,
-    /// A collection of peers awaiting to be Ping'd.
-    ping_peers: HashSetDelay<PeerId>,
+    /// A collection of inbound-connected peers awaiting to be Ping'd.
+    inbound_ping_peers: HashSetDelay<PeerId>,
+    /// A collection of outbound-connected peers awaiting to be Ping'd.
+    outbound_ping_peers: HashSetDelay<PeerId>,
     /// A collection of peers awaiting to be Status'd.
     status_peers: HashSetDelay<PeerId>,
     /// The target number of peers we would like to connect to.
@@ -112,7 +118,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         Ok(PeerManager {
             network_globals,
             events: SmallVec::new(),
-            ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL)),
+            inbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_INBOUND)),
+            outbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_OUTBOUND)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
             target_peers: config.target_peers,
             max_peers: (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize,
@@ -203,6 +210,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A request to find peers on a given subnet.
     pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
+        // If discovery is not started or disabled, ignore the request
+        if !self.discovery.started {
+            return;
+        }
+
         let filtered: Vec<SubnetDiscovery> = subnets_to_discover
             .into_iter()
             .filter(|s| {
@@ -263,7 +275,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .notify_disconnect(peer_id);
 
         // remove the ping and status timer for the peer
-        self.ping_peers.remove(peer_id);
+        self.inbound_ping_peers.remove(peer_id);
+        self.outbound_ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
     }
 
@@ -410,7 +423,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // received a ping
             // reset the to-ping timer for this peer
             debug!(self.log, "Received a ping request"; "peer_id" => peer_id.to_string(), "seq_no" => seq);
-            self.ping_peers.insert(peer_id.clone());
+            match peer_info.connection_direction {
+                Some(ConnectionDirection::Incoming) => {
+                    self.inbound_ping_peers.insert(peer_id.clone());
+                }
+                Some(ConnectionDirection::Outgoing) => {
+                    self.outbound_ping_peers.insert(peer_id.clone());
+                }
+                None => {
+                    warn!(self.log, "Received a ping from a peer with an unknown connection direction"; "peer_id" => %peer_id);
+                }
+            }
 
             // if the sequence number is unknown send an update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
@@ -656,16 +679,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     return true;
                 }
                 ConnectingType::IngoingConnected { multiaddr } => {
-                    peerdb.connect_outgoing(peer_id, multiaddr, enr)
+                    peerdb.connect_ingoing(peer_id, multiaddr, enr);
+                    // start a timer to ping inbound peers.
+                    self.inbound_ping_peers.insert(peer_id.clone());
                 }
                 ConnectingType::OutgoingConnected { multiaddr } => {
-                    peerdb.connect_ingoing(peer_id, multiaddr, enr)
+                    peerdb.connect_outgoing(peer_id, multiaddr, enr);
+                    // start a timer for to ping outbound peers.
+                    self.outbound_ping_peers.insert(peer_id.clone());
                 }
             }
         }
 
         // start a ping and status timer for the peer
-        self.ping_peers.insert(peer_id.clone());
         self.status_peers.insert(peer_id.clone());
 
         // increment prometheus metrics
@@ -833,8 +859,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let peer_count = self.network_globals.connected_or_dialing_peers();
         if peer_count < self.target_peers {
             // If we need more peers, queue a discovery lookup.
-            debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
-            self.discovery.discover_peers();
+            if self.discovery.started {
+                debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
+                self.discovery.discover_peers();
+            }
         }
 
         // Updates peer's scores.
@@ -892,13 +920,26 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
 
         // poll the timeouts for pings and status'
         loop {
-            match self.ping_peers.poll_next_unpin(cx) {
+            match self.inbound_ping_peers.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(peer_id))) => {
-                    self.ping_peers.insert(peer_id.clone());
+                    self.inbound_ping_peers.insert(peer_id.clone());
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
+                    error!(self.log, "Failed to check for inbound peers to ping"; "error" => e.to_string())
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
+        }
+
+        loop {
+            match self.outbound_ping_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
+                    self.outbound_ping_peers.insert(peer_id.clone());
+                    self.events.push(PeerManagerEvent::Ping(peer_id));
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for outbound peers to ping"; "error" => e.to_string())
                 }
                 Poll::Ready(None) | Poll::Pending => break,
             }

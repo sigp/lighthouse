@@ -20,7 +20,7 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
-use types::{EthSpec, RelativeEpoch, ValidatorSubscription};
+use types::{EthSpec, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
 
 mod tests;
 
@@ -110,6 +110,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Option<Delay>,
+    /// Subscribe to all the subnets once synced.
+    subscribe_all_subnets: bool,
     /// A timer for updating various network metrics.
     metrics_update: tokio::time::Interval,
     /// gossipsub_parameter_update timer
@@ -186,7 +188,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         // attestation service
-        let attestation_service = AttestationService::new(beacon_chain.clone(), &network_log);
+        let attestation_service =
+            AttestationService::new(beacon_chain.clone(), &config, &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -207,6 +210,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             upnp_mappings: (None, None),
             discovery_auto_update: config.discv5_config.enr_update,
             next_fork_update,
+            subscribe_all_subnets: config.subscribe_all_subnets,
             metrics_update,
             gossipsub_parameter_update,
             log: network_log,
@@ -397,6 +401,22 @@ fn spawn_service<T: BeaconChainTypes>(
                                     warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
                                 }
                             }
+
+                            // if we are to subscribe to all subnets we do it here
+                            if service.subscribe_all_subnets {
+                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
+                                    let subnet_id = SubnetId::new(subnet_id);
+                                    let topic_kind = eth2_libp2p::types::GossipKind::Attestation(subnet_id);
+                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
+                                    // Update the ENR bitfield.
+                                    service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                                    subscribed_topics.push(topic_kind.clone());
+                                } else {
+                                    warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                                }
+                                }
+                            }
+
                             if !subscribed_topics.is_empty() {
                                 info!(service.log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
                             }
