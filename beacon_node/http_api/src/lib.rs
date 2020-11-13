@@ -607,7 +607,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
-
                 // the api spec says if the epoch is not present then the epoch of the state should be used
                 let query_state_id = query.epoch.map_or(state_id, |epoch| {
                     StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
