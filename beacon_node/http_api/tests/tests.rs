@@ -625,9 +625,7 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let mut state_opt = self.get_state(state_id);
 
-            let epoch_opt = state_opt
-                .as_ref()
-                .map(|state| state.current_epoch());
+            let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
             let results = self
                 .client
                 .get_beacon_states_committees(state_id, None, None, epoch_opt)
