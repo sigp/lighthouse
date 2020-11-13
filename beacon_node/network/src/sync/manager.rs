@@ -277,7 +277,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
 
         if matches!(sync_type, PeerSyncType::Advanced) {
-            self.range_sync.add_peer(&mut self.network, local, peer_id, remote);
+            self.range_sync
+                .add_peer(&mut self.network, local, peer_id, remote);
         }
 
         self.update_sync_state();
