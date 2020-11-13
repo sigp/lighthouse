@@ -78,7 +78,7 @@ impl std::fmt::Display for PeerAction {
 }
 
 /// The expected state of the peer given the peer's score.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum ScoreState {
     /// We are content with the peers performance. We permit connections and messages.
     Healthy,
@@ -267,7 +267,6 @@ macro_rules! apply {
 }
 
 apply!(apply_peer_action, peer_action: PeerAction);
-apply!(add, delta: f64);
 apply!(update);
 apply!(update_gossipsub_score, new_score: f64, ignore: bool);
 #[cfg(test)]
@@ -336,25 +335,25 @@ mod tests {
         // 0 change does not change de reputation
         //
         let change = 0.0;
-        score.add(change);
+        score.test_add(change);
         assert_eq!(score.score(), DEFAULT_SCORE);
 
         // underflowing change is capped
         let mut score = Score::default();
         let change = MIN_SCORE - 50.0;
-        score.add(change);
+        score.test_add(change);
         assert_eq!(score.score(), MIN_SCORE);
 
         // overflowing change is capped
         let mut score = Score::default();
         let change = MAX_SCORE + 50.0;
-        score.add(change);
+        score.test_add(change);
         assert_eq!(score.score(), MAX_SCORE);
 
         // Score adjusts
         let mut score = Score::default();
         let change = 1.32;
-        score.add(change);
+        score.test_add(change);
         assert_eq!(score.score(), DEFAULT_SCORE + change);
     }
 
@@ -364,7 +363,7 @@ mod tests {
         let now = Instant::now();
 
         let change = MIN_SCORE_BEFORE_BAN;
-        score.add(change);
+        score.test_add(change);
         assert_eq!(score.score(), MIN_SCORE_BEFORE_BAN);
 
         score.update_at(now + BANNED_BEFORE_DECAY);
@@ -381,7 +380,7 @@ mod tests {
         assert!(!score.is_good_gossipsub_peer());
         assert!(score.score() < 0.0);
         assert_eq!(score.state(), ScoreState::Healthy);
-        score.add(-1.0001);
+        score.test_add(-1.0001);
         assert_eq!(score.state(), ScoreState::Disconnected);
     }
 
