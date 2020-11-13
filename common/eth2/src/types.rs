@@ -351,6 +351,12 @@ pub struct CommitteesQuery {
     pub index: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct AttestationPoolQuery {
+    pub slot: Option<Slot>,
+    pub committee_index: Option<u64>,
+}
+
 #[derive(Deserialize)]
 pub struct ValidatorsQuery {
     pub id: Option<QueryVec<ValidatorId>>,

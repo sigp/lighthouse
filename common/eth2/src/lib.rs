@@ -497,6 +497,8 @@ impl BeaconNodeHttpClient {
     /// `GET beacon/pool/attestations`
     pub async fn get_beacon_pool_attestations<T: EthSpec>(
         &self,
+        slot: Option<Slot>,
+        committee_index: Option<u64>,
     ) -> Result<GenericResponse<Vec<Attestation<T>>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -505,6 +507,16 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("pool")
             .push("attestations");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(index) = committee_index {
+            path.query_pairs_mut()
+                .append_pair("committee_index", &index.to_string());
+        }
 
         self.get(path).await
     }

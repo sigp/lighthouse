@@ -924,7 +924,7 @@ impl ApiTester {
     pub async fn test_get_beacon_pool_attestations(self) -> Self {
         let result = self
             .client
-            .get_beacon_pool_attestations()
+            .get_beacon_pool_attestations(None, None)
             .await
             .unwrap()
             .data;

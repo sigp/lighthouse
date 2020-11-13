@@ -599,6 +599,8 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    //TODO: move epoch from path to query, 400 if slot does not match epoch
+    //TODO: add historical
     // GET beacon/states/{state_id}/committees/{epoch}
     let get_beacon_state_committees = beacon_states_path
         .clone()
@@ -899,6 +901,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("pool"))
         .and(chain_filter.clone());
 
+    //TODO: fix error handling, update to accept an array
     // POST beacon/pool/attestations
     let post_beacon_pool_attestations = beacon_pool_path
         .clone()
@@ -956,13 +959,32 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and_then(|chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || {
-                let mut attestations = chain.op_pool.get_all_attestations();
-                attestations.extend(chain.naive_aggregation_pool.read().iter().cloned());
-                Ok(api_types::GenericResponse::from(attestations))
-            })
-        });
+        .and(warp::query::<api_types::AttestationPoolQuery>())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>, query: api_types::AttestationPoolQuery| {
+                blocking_json_task(move || {
+                    let query_filter = |attestation: &Attestation<T::EthSpec>| {
+                        query
+                            .slot
+                            .map_or(true, |slot| slot == attestation.data.slot)
+                            && query
+                                .committee_index
+                                .map_or(true, |index| index == attestation.data.index)
+                    };
+
+                    let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
+                    attestations.extend(
+                        chain
+                            .naive_aggregation_pool
+                            .read()
+                            .iter()
+                            .cloned()
+                            .filter(query_filter),
+                    );
+                    Ok(api_types::GenericResponse::from(attestations))
+                })
+            },
+        );
 
     // POST beacon/pool/attester_slashings
     let post_beacon_pool_attester_slashings = beacon_pool_path
