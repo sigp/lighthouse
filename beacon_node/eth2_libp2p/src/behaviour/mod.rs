@@ -1,3 +1,4 @@
+use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
@@ -9,6 +10,7 @@ use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
 use libp2p::gossipsub::subscription_filter::{
     MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
 };
+use libp2p::gossipsub::PeerScoreThresholds;
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
@@ -38,11 +40,13 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
+use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, Slot, SubnetId};
 
+mod gossipsub_scoring_parameters;
 mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
+pub const GOSSIPSUB_GREYLIST_THRESHOLD: f64 = -16000.0;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -131,6 +135,11 @@ pub struct Behaviour<TSpec: EthSpec> {
     network_dir: PathBuf,
     /// Logger for behaviour actions.
     log: slog::Logger,
+
+    score_settings: PeerScoreSettings<TSpec>,
+
+    /// The interval for updating gossipsub scores
+    update_gossipsub_scores: tokio::time::Interval,
 }
 
 /// Implements the combined behaviour for the libp2p service.
@@ -140,6 +149,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
+        chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
 
@@ -161,19 +171,42 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             max_subscriptions_per_request: 100, //this is according to the current go implementation
         };
 
-        let gossipsub = Gossipsub::new_with_subscription_filter(
+        let mut gossipsub = Gossipsub::new_with_subscription_filter(
             MessageAuthenticity::Anonymous,
             net_conf.gs_config.clone(),
             filter,
         )
         .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
-        // Temporarily disable scoring until parameters are tested.
-        /*
+        //we don't know the number of active validators and the current slot yet
+        let active_validators = TSpec::minimum_validator_count();
+        let current_slot = Slot::new(0);
+
+        let thresholds = PeerScoreThresholds {
+            gossip_threshold: -4000.0,
+            publish_threshold: -8000.0,
+            graylist_threshold: GOSSIPSUB_GREYLIST_THRESHOLD,
+            accept_px_threshold: 100.0,
+            opportunistic_graft_threshold: 5.0,
+        };
+
+        let score_settings = PeerScoreSettings::new(chain_spec, &net_conf.gs_config);
+
+        //Prepare scoring parameters
+        let params = score_settings.get_peer_score_params(
+            active_validators,
+            &thresholds,
+            &enr_fork_id,
+            current_slot,
+        )?;
+
+        trace!(behaviour_log, "Using peer score params"; "params" => format!("{:?}", params));
+
+        let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
+
         gossipsub
-            .with_peer_score(PeerScoreParams::default(), PeerScoreThresholds::default())
+            .with_peer_score(params.clone(), thresholds)
             .expect("Valid score params and thresholds");
-        */
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
@@ -188,7 +221,49 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             waker: None,
             network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
+            score_settings,
+            update_gossipsub_scores,
         })
+    }
+
+    pub fn update_gossipsub_parameters(
+        &mut self,
+        active_validators: usize,
+        current_slot: Slot,
+    ) -> error::Result<()> {
+        let (beacon_block_params, beacon_aggregate_proof_params, beacon_attestation_subnet_params) =
+            self.score_settings
+                .get_dynamic_topic_params(active_validators, current_slot)?;
+
+        let fork_digest = self.enr_fork_id.fork_digest;
+        let get_topic = |kind: GossipKind| -> Topic {
+            GossipTopic::new(kind, GossipEncoding::default(), fork_digest).into()
+        };
+
+        debug!(self.log, "Updating gossipsub score parameters";
+            "active_validators" => active_validators);
+        trace!(self.log, "Updated gossipsub score parameters";
+            "beacon_block_params" => format!("{:?}", beacon_block_params),
+            "beacon_aggregate_proof_params" => format!("{:?}", beacon_aggregate_proof_params),
+            "beacon_attestation_subnet_params" => format!("{:?}", beacon_attestation_subnet_params),
+        );
+
+        self.gossipsub
+            .set_topic_params(get_topic(GossipKind::BeaconBlock), beacon_block_params)?;
+
+        self.gossipsub.set_topic_params(
+            get_topic(GossipKind::BeaconAggregateAndProof),
+            beacon_aggregate_proof_params,
+        )?;
+
+        for i in 0..self.score_settings.attestation_subnet_count() {
+            self.gossipsub.set_topic_params(
+                get_topic(GossipKind::Attestation(SubnetId::new(i))),
+                beacon_attestation_subnet_params.clone(),
+            )?;
+        }
+
+        Ok(())
     }
 
     /// Attempts to connect to a libp2p peer.
@@ -308,7 +383,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
                         if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
-                            slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
+                            slog::warn!(self.log, "Could not publish message";
+                                        "error" => format!("{:?}", e));
 
                             // add to metrics
                             match topic.kind() {
@@ -770,6 +846,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(NBAction::GenerateEvent(event));
+        }
+
+        // perform gossipsub score updates when necessary
+        while let Poll::Ready(Some(_)) = self.update_gossipsub_scores.poll_next_unpin(cx) {
+            self.peer_manager.update_gossipsub_scores(&self.gossipsub);
         }
 
         Poll::Pending

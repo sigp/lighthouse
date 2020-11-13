@@ -118,8 +118,8 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Returns score of the peer.
-    pub fn score(&self) -> Score {
-        self.score
+    pub fn score(&self) -> &Score {
+        &self.score
     }
 
     /// Returns the state of the peer based on the score.
@@ -139,6 +139,14 @@ impl<T: EthSpec> PeerInfo<T> {
         if !self.is_trusted {
             self.score.apply_peer_action(peer_action)
         }
+    }
+
+    pub(crate) fn update_gossipsub_score(&mut self, new_score: f64, ignore: bool) {
+        self.score.update_gossipsub_score(new_score, ignore);
+    }
+
+    pub fn is_good_gossipsub_peer(&self) -> bool {
+        self.score.is_good_gossipsub_peer()
     }
 
     #[cfg(test)]

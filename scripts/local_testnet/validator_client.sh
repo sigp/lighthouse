@@ -12,7 +12,7 @@ DEBUG_LEVEL=${1:-info}
 exec lighthouse \
 	--debug-level $DEBUG_LEVEL \
 	vc \
-	--datadir $VALIDATORS_DIR \
-	--secrets-dir $SECRETS_DIR \
+	--datadir $DATADIR \
 	--testnet-dir $TESTNET_DIR \
-	--init-slashing-protection
+	--init-slashing-protection \
+	--allow-unsynced
