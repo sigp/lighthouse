@@ -1,6 +1,6 @@
 [package]
 name = "boot_node"
-version = "0.3.3"
+version = "0.3.4"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
