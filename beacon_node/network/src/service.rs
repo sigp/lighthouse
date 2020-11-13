@@ -816,9 +816,9 @@ fn update_gossip_metrics<T: EthSpec>(
         for (peer_id, _) in gossipsub.all_peers() {
             let client = peers
                 .peer_info(peer_id)
-                .map_or("Unknown".to_string(), |peer_info| {
-                    peer_info.client.kind.to_string()
-                });
+                .map(|peer_info| peer_info.client.kind.to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+
             peer_to_client.insert(peer_id, client.clone());
             let score = gossipsub.peer_score(peer_id).unwrap_or(0.0);
             if (client == "Prysm" || client == "Lighthouse") && score < 0.0 {
