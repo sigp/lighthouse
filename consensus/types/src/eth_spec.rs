@@ -110,15 +110,27 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         active_validator_count: usize,
         spec: &ChainSpec,
     ) -> Result<usize, Error> {
+        Self::get_committee_count_per_slot_with(
+            active_validator_count,
+            spec.max_committees_per_slot,
+            spec.target_committee_size,
+        )
+    }
+
+    fn get_committee_count_per_slot_with(
+        active_validator_count: usize,
+        max_committees_per_slot: usize,
+        target_committee_size: usize,
+    ) -> Result<usize, Error> {
         let slots_per_epoch = Self::SlotsPerEpoch::to_usize();
 
         Ok(std::cmp::max(
             1,
             std::cmp::min(
-                spec.max_committees_per_slot,
+                max_committees_per_slot,
                 active_validator_count
                     .safe_div(slots_per_epoch)?
-                    .safe_div(spec.target_committee_size)?,
+                    .safe_div(target_committee_size)?,
             ),
         ))
     }
