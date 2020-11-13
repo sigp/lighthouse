@@ -509,13 +509,30 @@ pub struct BeaconCommitteeSubscription {
     pub is_aggregator: bool,
 }
 
+#[derive(Deserialize)]
+pub struct PeersQuery {
+    pub state: Option<QueryVec<PeerState>>,
+    pub direction: Option<QueryVec<PeerDirection>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PeerData {
     pub peer_id: String,
     pub enr: Option<String>,
-    pub address: String,
+    pub last_seen_p2p_address: String,
     pub state: PeerState,
     pub direction: PeerDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeersData {
+    pub data: Vec<PeerData>,
+    pub meta: PeersMetaData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeersMetaData {
+    pub count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -554,6 +571,17 @@ impl FromStr for PeerState {
     }
 }
 
+impl fmt::Display for PeerState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PeerState::Connected => write!(f, "connected"),
+            PeerState::Connecting => write!(f, "connecting"),
+            PeerState::Disconnected => write!(f, "disconnected"),
+            PeerState::Disconnecting => write!(f, "disconnecting"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PeerDirection {
@@ -580,6 +608,27 @@ impl FromStr for PeerDirection {
             _ => Err("peer direction cannot be parsed.".to_string()),
         }
     }
+}
+
+impl fmt::Display for PeerDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PeerDirection::Inbound => write!(f, "inbound"),
+            PeerDirection::Outbound => write!(f, "outbound"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeerCount {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub connected: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub connecting: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub disconnected: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub disconnecting: u64,
 }
 
 #[cfg(test)]

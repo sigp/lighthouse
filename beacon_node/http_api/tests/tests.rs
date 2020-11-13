@@ -1178,7 +1178,7 @@ impl ApiTester {
         let expected = PeerData {
             peer_id: self.external_peer_id.to_string(),
             enr: None,
-            address: EXTERNAL_ADDR.to_string(),
+            last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
         };
@@ -1189,18 +1189,66 @@ impl ApiTester {
     }
 
     pub async fn test_get_node_peers(self) -> Self {
-        let result = self.client.get_node_peers().await.unwrap().data;
+        let peer_states: Vec<Option<&[PeerState]>> = vec![
+            Some(&[PeerState::Connected]),
+            Some(&[PeerState::Connecting]),
+            Some(&[PeerState::Disconnected]),
+            Some(&[PeerState::Disconnecting]),
+            None,
+            Some(&[PeerState::Connected, PeerState::Connecting]),
+        ];
+        let peer_dirs: Vec<Option<&[PeerDirection]>> = vec![
+            Some(&[PeerDirection::Outbound]),
+            Some(&[PeerDirection::Inbound]),
+            Some(&[PeerDirection::Inbound, PeerDirection::Outbound]),
+            None,
+        ];
 
-        let expected = PeerData {
-            peer_id: self.external_peer_id.to_string(),
-            enr: None,
-            address: EXTERNAL_ADDR.to_string(),
-            state: PeerState::Connected,
-            direction: PeerDirection::Inbound,
-        };
+        for states in peer_states {
+            for dirs in peer_dirs.clone() {
+                let result = self.client.get_node_peers(states, dirs).await.unwrap();
+                let expected_peer = PeerData {
+                    peer_id: self.external_peer_id.to_string(),
+                    enr: None,
+                    last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
+                    state: PeerState::Connected,
+                    direction: PeerDirection::Inbound,
+                };
 
-        assert_eq!(result, vec![expected]);
+                let state_match =
+                    states.map_or(true, |states| states.contains(&PeerState::Connected));
+                let dir_match = dirs.map_or(true, |dirs| dirs.contains(&PeerDirection::Inbound));
 
+                let mut expected_peers = Vec::new();
+                if state_match && dir_match {
+                    expected_peers.push(expected_peer);
+                }
+
+                assert_eq!(
+                    result,
+                    PeersData {
+                        meta: PeersMetaData {
+                            count: expected_peers.len() as u64
+                        },
+                        data: expected_peers,
+                    }
+                );
+            }
+        }
+        self
+    }
+
+    pub async fn test_get_node_peer_count(self) -> Self {
+        let result = self.client.get_node_peer_count().await.unwrap().data;
+        assert_eq!(
+            result,
+            PeerCount {
+                connected: 1,
+                connecting: 0,
+                disconnected: 0,
+                disconnecting: 0,
+            }
+        );
         self
     }
 
@@ -1899,6 +1947,8 @@ async fn node_get() {
         .test_get_node_peers_by_id()
         .await
         .test_get_node_peers()
+        .await
+        .test_get_node_peer_count()
         .await;
 }
 
