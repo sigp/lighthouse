@@ -301,15 +301,15 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
-    /// `GET beacon/states/{state_id}/committees?slot,index`
+    /// `GET beacon/states/{state_id}/committees?slot,index,epoch`
     ///
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_beacon_states_committees(
         &self,
         state_id: StateId,
-        epoch: Epoch,
         slot: Option<Slot>,
         index: Option<u64>,
+        epoch: Option<Epoch>,
     ) -> Result<Option<GenericResponse<Vec<CommitteeData>>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -318,8 +318,7 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("states")
             .push(&state_id.to_string())
-            .push("committees")
-            .push(&epoch.to_string());
+            .push("committees");
 
         if let Some(slot) = slot {
             path.query_pairs_mut()
@@ -329,6 +328,11 @@ impl BeaconNodeHttpClient {
         if let Some(index) = index {
             path.query_pairs_mut()
                 .append_pair("index", &index.to_string());
+        }
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
         }
 
         self.get_opt(path).await

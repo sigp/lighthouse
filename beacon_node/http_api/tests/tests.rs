@@ -632,7 +632,7 @@ impl ApiTester {
 
             let results = self
                 .client
-                .get_beacon_states_committees(state_id, epoch, None, None)
+                .get_beacon_states_committees(state_id, None, None, Some(epoch))
                 .await
                 .unwrap()
                 .map(|res| res.data);

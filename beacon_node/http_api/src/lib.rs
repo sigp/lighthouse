@@ -599,41 +599,35 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    //TODO: move epoch from path to query, 400 if slot does not match epoch
-    //TODO: add historical
-    // GET beacon/states/{state_id}/committees/{epoch}
+    // GET beacon/states/{state_id}/committees?slot,index,epoch
     let get_beacon_state_committees = beacon_states_path
         .clone()
         .and(warp::path("committees"))
-        .and(warp::path::param::<Epoch>())
         .and(warp::query::<api_types::CommitteesQuery>())
         .and(warp::path::end())
         .and_then(
-            |state_id: StateId,
-             chain: Arc<BeaconChain<T>>,
-             epoch: Epoch,
-             query: api_types::CommitteesQuery| {
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
+
+                // the api spec says if the epoch is not present then the epoch of the state should be used
+                let query_state_id = query.epoch.map_or(state_id, |epoch| {
+                    StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                });
+
                 blocking_json_task(move || {
-                    state_id.map_state(&chain, |state| {
-                        let relative_epoch =
-                            RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(
-                                |_| {
-                                    warp_utils::reject::custom_bad_request(format!(
-                                        "state is epoch {} and only previous, current and next epochs are supported",
-                                        state.current_epoch()
-                                    ))
-                                },
-                            )?;
+                    query_state_id.map_state(&chain, |state| {
+                        let epoch = state.slot.epoch(T::EthSpec::slots_per_epoch());
 
                         let committee_cache = if state
-                            .committee_cache_is_initialized(relative_epoch)
+                            .committee_cache_is_initialized(RelativeEpoch::Current)
                         {
-                            state.committee_cache(relative_epoch).map(Cow::Borrowed)
+                            state
+                                .committee_cache(RelativeEpoch::Current)
+                                .map(Cow::Borrowed)
                         } else {
                             CommitteeCache::initialized(state, epoch, &chain.spec).map(Cow::Owned)
                         }
-                            .map_err(BeaconChainError::BeaconStateError)
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(BeaconChainError::BeaconStateError)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
 
                         // Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {
@@ -661,11 +655,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 let committee = committee_cache
                                     .get_beacon_committee(slot, index)
                                     .ok_or_else(|| {
-                                        warp_utils::reject::custom_bad_request(format!(
-                                            "committee index {} does not exist in epoch {}",
-                                            index, epoch
-                                        ))
-                                    })?;
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "committee index {} does not exist in epoch {}",
+                                        index, epoch
+                                    ))
+                                })?;
 
                                 response.push(api_types::CommitteeData {
                                     index,
