@@ -3,7 +3,7 @@
 //! Stores the various syncing methods for the beacon chain.
 pub mod manager;
 mod network_context;
-pub mod peer_sync_info;
+mod peer_sync_info;
 mod range_sync;
 
 pub use manager::{BatchProcessResult, SyncMessage};
