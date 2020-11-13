@@ -71,14 +71,13 @@ pub fn remote_sync_type<T: BeaconChainTypes>(
             }
         }
         Ordering::Greater => {
-            if local.finalized_epoch + 1 == remote.finalized_epoch
+            if (local.finalized_epoch + 1 == remote.finalized_epoch
                 && near_range_start <= remote.head_slot
-                && remote.head_slot <= near_range_end
+                && remote.head_slot <= near_range_end)
+                || chain.fork_choice.read().contains_block(&remote.head_root)
             {
-                // This peer is near enough to us to be considered synced.
-                PeerSyncType::FullySynced
-            } else if chain.fork_choice.read().contains_block(&remote.head_root) {
-                // We have already synced up to this peer's head
+                // This peer is near enough to us to be considered synced, or
+                // we have already synced up to this peer's head
                 PeerSyncType::FullySynced
             } else {
                 PeerSyncType::Advanced
