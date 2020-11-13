@@ -52,15 +52,25 @@ pub enum GossipKind {
     AttesterSlashing,
 }
 
+impl AsRef<str> for GossipKind {
+    fn as_ref(&self) -> &str {
+        use GossipKind::*;
+        match self {
+            BeaconBlock => "beacon_block",
+            BeaconAggregateAndProof => "beacon_aggregate_and_proof",
+            Attestation(_) => "beacon_attestation",
+            VoluntaryExit => "voluntary_exit",
+            ProposerSlashing => "proposer_slashing",
+            AttesterSlashing => "attester_slashing",
+        }
+    }
+}
+
 impl std::fmt::Display for GossipKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GossipKind::BeaconBlock => write!(f, "beacon_block"),
-            GossipKind::BeaconAggregateAndProof => write!(f, "beacon_aggregate_and_proof"),
             GossipKind::Attestation(subnet_id) => write!(f, "beacon_attestation_{}", **subnet_id),
-            GossipKind::VoluntaryExit => write!(f, "voluntary_exit"),
-            GossipKind::ProposerSlashing => write!(f, "proposer_slashing"),
-            GossipKind::AttesterSlashing => write!(f, "attester_slashing"),
+            x => f.write_str(x.as_ref()),
         }
     }
 }

@@ -9,6 +9,14 @@ use std::ops::{Deref, DerefMut};
 #[serde(transparent)]
 pub struct SubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
+mod int_to_str {
+    include!(concat!(env!("OUT_DIR"), "/subnet_id_map.rs"));
+}
+
+pub fn subnet_id_to_string(i: u64) -> &'static str {
+    int_to_str::int_to_str(i)
+}
+
 impl SubnetId {
     pub fn new(id: u64) -> Self {
         id.into()
@@ -79,5 +87,11 @@ impl Into<u64> for SubnetId {
 impl Into<u64> for &SubnetId {
     fn into(self) -> u64 {
         self.0
+    }
+}
+
+impl AsRef<str> for SubnetId {
+    fn as_ref(&self) -> &str {
+        subnet_id_to_string(self.0)
     }
 }
