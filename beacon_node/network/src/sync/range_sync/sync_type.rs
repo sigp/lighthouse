@@ -1,7 +1,6 @@
 //! Contains logic about identifying which Sync to perform given PeerSyncInfo of ourselves and
 //! of a remote.
 
-// use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::SyncInfo;
 use std::sync::Arc;
