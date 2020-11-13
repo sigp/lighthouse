@@ -62,7 +62,7 @@ impl PeerSyncStatus {
             false // state was not updated
         } else {
             *self = new_state;
-            false
+            true
         }
     }
 }
