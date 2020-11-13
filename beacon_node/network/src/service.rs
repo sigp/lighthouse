@@ -672,19 +672,19 @@ fn update_gossip_metrics<T: EthSpec>(
     for subnet_id in 0..T::default_spec().attestation_subnet_count {
         let _ = metrics::get_int_gauge(
             &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
-            &[subnet_ids.get(subnet_id.into())],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = metrics::get_int_gauge(
             &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
-            &[subnet_ids.get(subnet_id.into())],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = metrics::get_int_gauge(
             &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
-            &[subnet_ids.get(subnet_id.into())],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
     }
