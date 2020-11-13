@@ -354,6 +354,10 @@ pub fn set_network_config(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
+    if cli_args.is_present("subscribe-all-subnets") {
+        config.subscribe_all_subnets = true;
+    }
+
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
         let listen_address = listen_address_str
             .parse()

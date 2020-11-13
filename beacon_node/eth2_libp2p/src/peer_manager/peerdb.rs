@@ -462,7 +462,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         });
 
         // Ban the peer if the score is not already low enough.
-        match info.score().state() {
+        match info.score_state() {
             ScoreState::Banned => {}
             _ => {
                 // If score isn't low enough to ban, this function has been called incorrectly.
@@ -522,7 +522,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             return Err("Unbanning peer that is not banned");
         }
 
-        if let ScoreState::Banned = info.score().state() {
+        if let ScoreState::Banned = info.score_state() {
             return Err("Attempted to unban (connection status) a banned peer");
         }
 
