@@ -494,7 +494,7 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `GET beacon/pool/attestations`
+    /// `GET beacon/pool/attestations?slot,committee_index`
     pub async fn get_beacon_pool_attestations<T: EthSpec>(
         &self,
         slot: Option<Slot>,

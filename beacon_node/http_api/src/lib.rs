@@ -954,7 +954,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET beacon/pool/attestations
+    // GET beacon/pool/attestations?committee_index,slot
     let get_beacon_pool_attestations = beacon_pool_path
         .clone()
         .and(warp::path("attestations"))
