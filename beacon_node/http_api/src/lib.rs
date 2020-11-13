@@ -901,7 +901,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("pool"))
         .and(chain_filter.clone());
 
-    //TODO: fix error handling, update to accept an array
     // POST beacon/pool/attestations
     let post_beacon_pool_attestations = beacon_pool_path
         .clone()
@@ -990,72 +989,6 @@ pub fn serve<T: BeaconChainTypes>(
                 })
             },
         );
-
-    // // Verify that all messages in the post are valid before processing further
-    // for (index, aggregate) in aggregates.as_slice().iter().enumerate() {
-    //     match chain.verify_aggregated_attestation_for_gossip(aggregate.clone()) {
-    //         Ok(verified_aggregate) => {
-    //             messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
-    //                 verified_aggregate.aggregate().clone(),
-    //             )));
-    //             verified_aggregates.push((index, verified_aggregate));
-    //         }
-    //         // If we already know the attestation, don't broadcast it or attempt to
-    //         // further verify it. Return success.
-    //         //
-    //         // It's reasonably likely that two different validators produce
-    //         // identical aggregates, especially if they're using the same beacon
-    //         // node.
-    //         Err(AttnError::AttestationAlreadyKnown(_)) => continue,
-    //         Err(e) => {
-    //             error!(log,
-    //                                 "Failure verifying aggregate and proofs";
-    //                                 "error" => format!("{:?}", e),
-    //                                 "request_index" => index,
-    //                                 "aggregator_index" => aggregate.message.aggregator_index,
-    //                                 "attestation_index" => aggregate.message.aggregate.data.index,
-    //                                 "attestation_slot" => aggregate.message.aggregate.data.slot,
-    //                             );
-    //             failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
-    //         },
-    //     }
-    // }
-    //
-    // // Publish aggregate attestations to the libp2p network
-    // if !messages.is_empty() {
-    //     publish_network_message(&network_tx, NetworkMessage::Publish { messages })?;
-    // }
-    //
-    // // Import aggregate attestations
-    // for (index, verified_aggregate) in verified_aggregates {
-    //     if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
-    //         error!(log,
-    //                                 "Failure applying verified aggregate attestation to fork choice";
-    //                                 "error" => format!("{:?}", e),
-    //                                 "request_index" => index,
-    //                                 "aggregator_index" => verified_aggregate.aggregate().message.aggregator_index,
-    //                                 "attestation_index" => verified_aggregate.attestation().data.index,
-    //                                 "attestation_slot" => verified_aggregate.attestation().data.slot,
-    //                             );
-    //         failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
-    //     }
-    //     if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
-    //         warn!(log,
-    //                                 "Could not add verified aggregate attestation to the inclusion pool";
-    //                                 "error" => format!("{:?}", e),
-    //                                 "request_index" => index,
-    //                             );
-    //         failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
-    //     }
-    // }
-    //
-    // if !failures.is_empty() {
-    //     Err(warp_utils::reject::indexed_bad_request("error processing aggregate and proofs".to_string(),
-    //                                                 failures
-    //     ))
-    // } else {
-    //     Ok(())
-    // }
 
     // GET beacon/pool/attestations?committee_index,slot
     let get_beacon_pool_attestations = beacon_pool_path
