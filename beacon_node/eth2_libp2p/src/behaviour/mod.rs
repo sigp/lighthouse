@@ -1,5 +1,5 @@
 use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
-use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
+use crate::peer_manager::{score::PeerAction, ConnectionDirection, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetDiscovery};
@@ -70,8 +70,6 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         id: RequestId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
-        /// The error that occurred.
-        error: RPCError,
     },
     RequestReceived {
         /// The peer that sent the request.
@@ -681,25 +679,31 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         match message.event {
             Err(handler_err) => {
                 match handler_err {
-                    HandlerErr::Inbound {
-                        id: _,
-                        proto,
-                        error,
-                    } => {
+                    HandlerErr::Inbound { id, proto, error } => {
                         if matches!(error, RPCError::HandlerRejected) {
                             // this peer's request got canceled
                         }
                         // Inform the peer manager of the error.
                         // An inbound error here means we sent an error to the peer, or the stream
                         // timed out.
-                        self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
+                        self.peer_manager.handle_rpc_error(
+                            &peer_id,
+                            proto,
+                            &error,
+                            ConnectionDirection::Incoming,
+                        );
                     }
                     HandlerErr::Outbound { id, proto, error } => {
                         // Inform the peer manager that a request we sent to the peer failed
-                        self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
+                        self.peer_manager.handle_rpc_error(
+                            &peer_id,
+                            proto,
+                            &error,
+                            ConnectionDirection::Outgoing,
+                        );
                         // inform failures of requests comming outside the behaviour
                         if !matches!(id, RequestId::Behaviour) {
-                            self.add_event(BehaviourEvent::RPCFailed { peer_id, id, error });
+                            self.add_event(BehaviourEvent::RPCFailed { peer_id, id });
                         }
                     }
                 }

@@ -354,10 +354,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// An error has occured in the RPC.
     ///
     /// This adjusts a peer's score based on the error.
-    pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
+    pub fn handle_rpc_error(
+        &mut self,
+        peer_id: &PeerId,
+        protocol: Protocol,
+        err: &RPCError,
+        direction: ConnectionDirection,
+    ) {
         let client = self.network_globals.client(peer_id);
         let score = self.network_globals.peers.read().score(peer_id);
-        debug!(self.log, "RPC Error"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string(), "peer_id" => peer_id.to_string(), "score" => score.to_string());
+        debug!(self.log, "RPC Error"; "protocol" => %protocol, "err" => %err, "client" => %client,
+            "peer_id" => %peer_id, "score" => %score, "direction" => ?direction);
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
