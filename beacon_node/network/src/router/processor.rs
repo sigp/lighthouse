@@ -2,7 +2,7 @@ use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::service::NetworkMessage;
-use crate::sync::{peer_sync_info, SyncMessage};
+use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{
@@ -18,6 +18,10 @@ use types::{
     Attestation, AttesterSlashing, ChainSpec, Epoch, EthSpec, Hash256, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
 };
+
+/// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
+/// Otherwise we queue it.
+pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -197,11 +201,11 @@ impl<T: BeaconChainTypes> Processor<T> {
                 .chain
                 .slot()
                 .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
-                + peer_sync_info::FUTURE_SLOT_TOLERANCE
+                + FUTURE_SLOT_TOLERANCE
         {
             // The remote's head is on a slot that is significantly ahead of what we consider the
             // current slot. This could be because they are using a different genesis time, or that
-            // theirs or our system's clock is incorrect.
+            // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time")
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
@@ -225,10 +229,10 @@ impl<T: BeaconChainTypes> Processor<T> {
                 .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else {
             let info = SyncInfo {
-                status_head_slot: remote.head_slot,
-                status_head_root: remote.head_root,
-                status_finalized_epoch: remote.finalized_epoch,
-                status_finalized_root: remote.finalized_root,
+                head_slot: remote.head_slot,
+                head_root: remote.head_root,
+                finalized_epoch: remote.finalized_epoch,
+                finalized_root: remote.finalized_root,
             };
             self.send_to_sync(SyncMessage::AddPeer(peer_id, info));
         }

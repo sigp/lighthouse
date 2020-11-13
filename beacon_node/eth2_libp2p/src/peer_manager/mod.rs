@@ -136,7 +136,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
             if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
-                info.sync_status.update_irrelevant();
+                info.sync_status.update(PeerSyncStatus::IrrelevantPeer);
             }
 
             // Goodbye's are fatal

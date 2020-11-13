@@ -1,148 +1,88 @@
 use super::manager::SLOT_IMPORT_TOLERANCE;
-use crate::router::processor::status_message as local_status;
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2_libp2p::{rpc::StatusMessage, SyncInfo};
-use slot_clock::SlotClock;
-use std::ops::Sub;
-use types::{Epoch, EthSpec, Hash256, Slot};
-
-/// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
-/// Otherwise we queue it.
-pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
-
-type IrrelevantPeerReason = String;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2_libp2p::{PeerSyncStatus, SyncInfo};
+use std::cmp::Ordering;
 
 /// The type of peer relative to our current state.
 pub enum PeerSyncType {
     /// The peer is on our chain and is fully synced with respect to our chain.
     FullySynced,
     /// The peer has a greater knowledge of the chain than us that warrants a full sync.
-    AdvancedHead,
-    /// TODO: docs
-    AdvancedFinalized,
+    Advanced,
     /// A peer is behind in the sync and not useful to us for downloading blocks.
     Behind,
 }
 
-pub fn remote_sync_status<T: BeaconChainTypes>(
+impl PeerSyncType {
+    pub fn as_sync_status(&self, info: &SyncInfo) -> PeerSyncStatus {
+        match self {
+            PeerSyncType::FullySynced => PeerSyncStatus::Synced { info: info.clone() },
+            PeerSyncType::Behind => PeerSyncStatus::Behind { info: info.clone() },
+            PeerSyncType::Advanced => PeerSyncStatus::Advanced { info: info.clone() },
+        }
+    }
+}
+
+pub fn remote_sync_type<T: BeaconChainTypes>(
+    local: &SyncInfo,
+    remote: &SyncInfo,
     chain: &BeaconChain<T>,
-    remote: StatusMessage,
-) -> Result<Result<(SyncInfo, PeerSyncType), IrrelevantPeerReason>, BeaconChainError> {
-    let local = local_status(chain)?;
+) -> PeerSyncType {
+    // auxiliary variables for clarity: Inclusive boundaries of the range in which we consider a peer's
+    // head "near" ours.
+    let near_range_start = local.head_slot - SLOT_IMPORT_TOLERANCE as u64;
+    let near_range_end = local.head_slot + SLOT_IMPORT_TOLERANCE as u64;
 
-    if let Some(irrelevant_reason) = remote_irrelevant_reason(&local, &remote, chain)? {
-        return Ok(Err(irrelevant_reason));
+    match remote.finalized_epoch.cmp(&local.finalized_epoch) {
+        Ordering::Less => {
+            // The node has a lower finalized epoch, their chain is not useful to us. There are two
+            // cases where a node can have a lower finalized epoch:
+            //
+            // ## The node is on the same chain
+            //
+            // If a node is on the same chain but has a lower finalized epoch, their head must be
+            // lower than ours. Therefore, we have nothing to request from them.
+            //
+            // ## The node is on a fork
+            //
+            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
+            // cause us to revert a finalized block. This is not permitted, therefore we have no
+            // interest in their blocks.
+            //
+            // We keep these peers to allow them to sync from us.
+            PeerSyncType::Behind
+        }
+        Ordering::Equal => {
+            // NOTE: if a peer has our same `finalized_epoch` with a different `finalized_root`
+            // they are not considered relevant and won't be propagated to sync.
+            // Check if the peer is the peer is inside the tolerance range to be considered synced.
+            if remote.head_slot < near_range_start {
+                PeerSyncType::Behind
+            } else if remote.head_slot > near_range_end
+                && !chain.fork_choice.read().contains_block(&remote.head_root)
+            {
+                // This peer has a head ahead enough of ours and we have no knowledge of their best
+                // block.
+                PeerSyncType::Advanced
+            } else {
+                // This peer is either in the tolerance range, or ahead us with an already rejected
+                // block.
+                PeerSyncType::FullySynced
+            }
+        }
+        Ordering::Greater => {
+            if local.finalized_epoch + 1 == remote.finalized_epoch
+                && near_range_start <= remote.head_slot
+                && remote.head_slot <= near_range_end
+            {
+                // This peer is near enough to us to be considered synced.
+                PeerSyncType::FullySynced
+            } else if chain.fork_choice.read().contains_block(&remote.head_root) {
+                // We have already synced up to this peer's head
+                PeerSyncType::FullySynced
+            } else {
+                PeerSyncType::Advanced
+            }
+        }
     }
-
-    // at this point we are sure that the peer has either a finalized epoch ahead of ours or a
-    // finalized epoch less of equal than ours for which we agree on the root
-    let sync_type = if is_synced_peer(&local, &remote, chain) {
-        PeerSyncType::FullySynced
-    } else if is_advanced_peer(&local, &remote) {
-        PeerSyncType::AdvancedFinalized
-    } else {
-        PeerSyncType::Behind
-    };
-
-    let sync_info = SyncInfo {
-        status_head_slot: remote.head_slot,
-        status_head_root: remote.head_root,
-        status_finalized_epoch: remote.finalized_epoch,
-        status_finalized_root: remote.finalized_root,
-    };
-
-    Ok(Ok((sync_info, sync_type)))
-}
-
-/// Verify that a peer is relevant to
-pub fn remote_irrelevant_reason<T: BeaconChainTypes>(
-    local: &StatusMessage,
-    remote: &StatusMessage,
-    chain: &BeaconChain<T>,
-) -> Result<Option<IrrelevantPeerReason>, BeaconChainError> {
-    let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
-
-    let reason = if local.fork_digest != remote.fork_digest {
-        // The node is on a different network/fork
-        Some(format!(
-            "Incompatible forks: ours:{} theirs:{}",
-            hex::encode(local.fork_digest),
-            hex::encode(remote.fork_digest)
-        ))
-    } else if remote.head_slot
-        > chain
-            .slot()
-            .unwrap_or_else(|_| chain.slot_clock.genesis_slot())
-            + FUTURE_SLOT_TOLERANCE
-    {
-        // The remotes head is on a slot that is significantly ahead of what we consider the
-        // current slot. This could be because they are using a different genesis time, or that
-        // theirs or our systems' clock is incorrect.
-        Some("Different system clocks or genesis time".to_string())
-    } else if remote.finalized_epoch <= local.finalized_epoch
-        && remote.finalized_root != Hash256::zero()
-        && local.finalized_root != Hash256::zero()
-        && chain
-            .root_at_slot(start_slot(remote.finalized_epoch))
-            .map(|root_opt| root_opt != Some(remote.finalized_root))?
-    {
-        // The remotes finalized epoch is less than or equal to ours, but the block root is
-        // different to the one in our chain. Therefore, the node is on a different chain and we
-        // should not communicate with them.
-        Some("Different finalized chain".to_string())
-    } else {
-        None
-    };
-
-    Ok(reason)
-}
-
-fn is_inside_tolerance_range(local: &Slot, remote: &Slot) -> bool {
-    // Either we are slightly ahead of this peer
-    (local >= remote
-     && local.sub(*remote) <= SLOT_IMPORT_TOLERANCE as u64)
-    // Or this peer is slightly ahead of us
-    || (local < remote
-        && remote.sub(*local) <= SLOT_IMPORT_TOLERANCE as u64)
-}
-
-fn is_synced_peer<T: BeaconChainTypes>(
-    local: &StatusMessage,
-    remote: &StatusMessage,
-    chain: &BeaconChain<T>,
-) -> bool {
-    // we consider synced a peer that is near our head or for which we have already synced their
-    // best slot
-
-    // CASE 1: The peer shares our finalized info and is near our head
-    if local.finalized_epoch == remote.finalized_epoch
-        && local.finalized_root == remote.finalized_root
-        && is_inside_tolerance_range(&local.head_slot, &remote.head_slot)
-    {
-        return true;
-    }
-
-    // CASE 2: The peer is ahead of us by just 1 epoch but still near enough to our head
-    if local.finalized_epoch + 1 == remote.finalized_epoch
-        && is_inside_tolerance_range(&local.head_slot, &remote.head_slot)
-    {
-        return true;
-    }
-
-    // CASE 3: The peer is ahead of us, but we have already synced this peer's best block and fork
-    // choice has rejected their version of the chain. We have nothing to sync from them
-    if is_advanced_peer(local, remote) && chain.fork_choice.read().contains_block(&remote.head_root)
-    {
-        return true;
-    }
-
-    false
-}
-
-fn is_advanced_peer(local: &StatusMessage, remote: &StatusMessage) -> bool {
-    // CASE 1: The peer could have a head slot that is greater than SLOT_IMPORT_TOLERANCE of our
-    // current head.
-    // CASE 2: The peer has a greater finalized slot/epoch than our own.
-    remote.head_slot.sub(local.head_slot) > SLOT_IMPORT_TOLERANCE as u64
-        || (remote.finalized_epoch > local.finalized_epoch)
 }

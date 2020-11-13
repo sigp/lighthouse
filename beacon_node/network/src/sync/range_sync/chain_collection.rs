@@ -185,42 +185,27 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     pub fn update(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
+        local: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
         beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     ) {
-        /*
-        let (local_finalized_epoch, local_head_epoch) =
-            match SyncInfo::from_chain(&self.beacon_chain) {
-                None => {
-                    return error!(
-                        self.log,
-                        "Failed to get peer sync info";
-                        "msg" => "likely due to head lock contention"
-                    )
-                }
-                Some(local) => (
-                    local.finalized_epoch,
-                    local.head_slot.epoch(T::EthSpec::slots_per_epoch()),
-                ),
-            };
-
         // Remove any outdated finalized/head chains
-        self.purge_outdated_chains(awaiting_head_peers);
+        self.purge_outdated_chains(local, awaiting_head_peers);
 
+        let local_head_epoch = local.head_slot.epoch(T::EthSpec::slots_per_epoch());
         // Choose the best finalized chain if one needs to be selected.
-        self.update_finalized_chains(network, local_finalized_epoch, local_head_epoch);
+        self.update_finalized_chains(network, local.finalized_epoch, local_head_epoch);
 
         if !matches!(self.state, RangeSyncState::Finalized(_)) {
             // Handle head syncing chains if there are no finalized chains left.
             self.update_head_chains(
                 network,
-                local_finalized_epoch,
+                local.finalized_epoch,
                 local_head_epoch,
                 awaiting_head_peers,
                 beacon_processor_send,
             );
         }
-        */
     }
 
     pub fn state(&self) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, String> {
@@ -339,8 +324,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             debug!(self.log, "including head peer");
             self.add_peer_or_create_chain(
                 local_epoch,
-                peer_sync_info.status_head_root,
-                peer_sync_info.status_head_slot,
+                peer_sync_info.head_root,
+                peer_sync_info.head_slot,
                 peer_id,
                 RangeSyncType::Head,
                 beacon_processor_send,
@@ -404,19 +389,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Removes any outdated finalized or head chains.
     /// This removes chains with no peers, or chains whose start block slot is less than our current
     /// finalized block slot. Peers that would create outdated chains are removed too.
-    pub fn purge_outdated_chains(&mut self, awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>) {
-        /*
-        let local_info = match SyncInfo::from_chain(&self.beacon_chain) {
-            Some(local) => local,
-            None => {
-                return error!(
-                    self.log,
-                    "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention"
-                )
-            }
-        };
-
+    pub fn purge_outdated_chains(
+        &mut self,
+        local_info: &SyncInfo,
+        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
+    ) {
         let local_finalized_slot = local_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
@@ -463,7 +440,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         for (id, was_syncing) in removed_chains {
             self.on_chain_removed(&id, was_syncing);
         }
-        */
     }
 
     /// Adds a peer to a chain with the given target, or creates a new syncing chain if it doesn't

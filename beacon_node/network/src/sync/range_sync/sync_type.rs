@@ -29,11 +29,11 @@ impl RangeSyncType {
         // -  The remotes finalized epoch is greater than our current finalized epoch and we have
         //    not seen the finalized hash before.
 
-        if remote_info.status_finalized_epoch > local_info.status_finalized_epoch
+        if remote_info.finalized_epoch > local_info.finalized_epoch
             && !chain
                 .fork_choice
                 .read()
-                .contains_block(&remote_info.status_finalized_root)
+                .contains_block(&remote_info.finalized_root)
         {
             RangeSyncType::Finalized
         } else {

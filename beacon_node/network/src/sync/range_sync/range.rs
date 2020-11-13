@@ -43,6 +43,7 @@ use super::chain::{ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::router::processor::status_message;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
 use crate::sync::RequestId;
@@ -100,6 +101,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
+        local_info: SyncInfo,
         peer_id: PeerId,
         remote_info: SyncInfo,
     ) {
@@ -108,87 +110,79 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // determine if we need to run a sync to the nearest finalized state or simply sync to
         // its current head
 
-        /*
-            let local_info = match SyncInfo::from_chain(&self.beacon_chain) {
-                Some(local) => local,
-                None => {
-                    return error!(self.log, "Failed to get peer sync info";
-                        "msg" => "likely due to head lock contention")
-                }
-            };
+        // convenience variable
+        let remote_finalized_slot = remote_info
+            .finalized_epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
 
-            // convenience variable
-            let remote_finalized_slot = remote_info
-                .finalized_epoch
-                .start_slot(T::EthSpec::slots_per_epoch());
+        // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains. This
+        // is OK since we since only one finalized chain at a time.
 
-            // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains. This
-            // is OK since we since only one finalized chain at a time.
+        // determine which kind of sync to perform and set up the chains
+        match RangeSyncType::new(&self.beacon_chain, &local_info, &remote_info) {
+            RangeSyncType::Finalized => {
+                // Finalized chain search
+                debug!(self.log, "Finalization sync peer joined"; "peer_id" => %peer_id);
+                self.awaiting_head_peers.remove(&peer_id);
 
-            // determine which kind of sync to perform and set up the chains
-            match RangeSyncType::new(&self.beacon_chain, &local_info, &remote_info) {
-                RangeSyncType::Finalized => {
-                    // Finalized chain search
-                    debug!(self.log, "Finalization sync peer joined"; "peer_id" => %peer_id);
-                    self.awaiting_head_peers.remove(&peer_id);
+                // Note: We keep current head chains. These can continue syncing whilst we complete
+                // this new finalized chain.
 
-                    // Note: We keep current head chains. These can continue syncing whilst we complete
-                    // this new finalized chain.
+                self.chains.add_peer_or_create_chain(
+                    local_info.finalized_epoch,
+                    remote_info.finalized_root,
+                    remote_finalized_slot,
+                    peer_id,
+                    RangeSyncType::Finalized,
+                    &self.beacon_processor_send,
+                    network,
+                );
 
-                    self.chains.add_peer_or_create_chain(
-                        local_info.finalized_epoch,
-                        remote_info.finalized_root,
-                        remote_finalized_slot,
-                        peer_id,
-                        RangeSyncType::Finalized,
-                        &self.beacon_processor_send,
-                        network,
-                    );
-
-                    self.chains.update(
-                        network,
-                        &mut self.awaiting_head_peers,
-                        &self.beacon_processor_send,
-                    );
-                }
-                RangeSyncType::Head => {
-                    // This peer requires a head chain sync
-
-                    if self.chains.is_finalizing_sync() {
-                        // If there are finalized chains to sync, finish these first, before syncing head
-                        // chains.
-                        trace!(self.log, "Waiting for finalized sync to complete";
-                            "peer_id" => %peer_id, "awaiting_head_peers" => &self.awaiting_head_peers.len());
-                        self.awaiting_head_peers.insert(peer_id, remote_info);
-                        return;
-                    }
-
-                    // if the peer existed in any other head chain, remove it.
-                    self.remove_peer(network, &peer_id);
-                    self.awaiting_head_peers.remove(&peer_id);
-
-                    // The new peer has the same finalized (earlier filters should prevent a peer with an
-                    // earlier finalized chain from reaching here).
-
-                    let start_epoch = std::cmp::min(local_info.head_slot, remote_finalized_slot)
-                        .epoch(T::EthSpec::slots_per_epoch());
-                    self.chains.add_peer_or_create_chain(
-                        start_epoch,
-                        remote_info.head_root,
-                        remote_info.head_slot,
-                        peer_id,
-                        RangeSyncType::Head,
-                        &self.beacon_processor_send,
-                        network,
-                    );
-                    self.chains.update(
-                        network,
-                        &mut self.awaiting_head_peers,
-                        &self.beacon_processor_send,
-                    );
-                }
+                self.chains.update(
+                    network,
+                    &local_info,
+                    &mut self.awaiting_head_peers,
+                    &self.beacon_processor_send,
+                );
             }
-        */
+            RangeSyncType::Head => {
+                // This peer requires a head chain sync
+
+                if self.chains.is_finalizing_sync() {
+                    // If there are finalized chains to sync, finish these first, before syncing head
+                    // chains.
+                    trace!(self.log, "Waiting for finalized sync to complete";
+                        "peer_id" => %peer_id, "awaiting_head_peers" => &self.awaiting_head_peers.len());
+                    self.awaiting_head_peers.insert(peer_id, remote_info);
+                    return;
+                }
+
+                // if the peer existed in any other head chain, remove it.
+                self.remove_peer(network, &peer_id);
+                self.awaiting_head_peers.remove(&peer_id);
+
+                // The new peer has the same finalized (earlier filters should prevent a peer with an
+                // earlier finalized chain from reaching here).
+
+                let start_epoch = std::cmp::min(local_info.head_slot, remote_finalized_slot)
+                    .epoch(T::EthSpec::slots_per_epoch());
+                self.chains.add_peer_or_create_chain(
+                    start_epoch,
+                    remote_info.head_root,
+                    remote_info.head_slot,
+                    peer_id,
+                    RangeSyncType::Head,
+                    &self.beacon_processor_send,
+                    network,
+                );
+                self.chains.update(
+                    network,
+                    &local_info,
+                    &mut self.awaiting_head_peers,
+                    &self.beacon_processor_send,
+                );
+            }
+        }
     }
 
     /// A `BlocksByRange` response has been received from the network.
@@ -347,9 +341,23 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
         network.status_peers(self.beacon_chain.clone(), chain.peers());
 
+        let local = match status_message(&self.beacon_chain) {
+            Ok(status) => SyncInfo {
+                head_slot: status.head_slot,
+                head_root: status.head_root,
+                finalized_epoch: status.finalized_epoch,
+                finalized_root: status.finalized_root,
+            },
+            Err(e) => {
+                return error!(self.log, "Failed to get peer sync info";
+                    "msg" => "likely due to head lock contention", "err" => ?e)
+            }
+        };
+
         // update the state of the collection
         self.chains.update(
             network,
+            &local,
             &mut self.awaiting_head_peers,
             &self.beacon_processor_send,
         );
