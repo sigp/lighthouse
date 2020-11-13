@@ -249,7 +249,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         self.swarm.report_peer(peer_id, action);
     }
 
-    // Disconnect and ban a peer, providing a reason.
+    /// Disconnect and ban a peer, providing a reason.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
         self.swarm.goodbye_peer(peer_id, reason);
     }

@@ -147,7 +147,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
         // get the peer info
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            debug!(self.log, "Sending goodbye to peer"; "peer_id" => peer_id.to_string(), "reason" => reason.to_string(), "score" => info.score().to_string());
+            debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
+            if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
+                info.sync_status.update(PeerSyncStatus::IrrelevantPeer);
+            }
+
             // Goodbye's are fatal
             info.apply_peer_action_to_score(PeerAction::Fatal);
         }

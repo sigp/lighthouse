@@ -2,11 +2,11 @@ use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::service::NetworkMessage;
-use crate::sync::{PeerSyncInfo, SyncMessage};
+use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{
-    MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
+    MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response, SyncInfo,
 };
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
@@ -113,7 +113,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Called when we first connect to a peer, or when the PeerManager determines we need to
     /// re-status.
     pub fn send_status(&mut self, peer_id: PeerId) {
-        if let Some(status_message) = status_message(&self.chain) {
+        if let Ok(status_message) = status_message(&self.chain) {
             debug!(
                 self.log,
                 "Sending Status Request";
@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         );
 
         // ignore status responses if we are shutting down
-        if let Some(status_message) = status_message(&self.chain) {
+        if let Ok(status_message) = status_message(&self.chain) {
             // Say status back.
             self.network.send_response(
                 peer_id.clone(),
@@ -183,41 +183,23 @@ impl<T: BeaconChainTypes> Processor<T> {
         }
     }
 
-    /// Process a `Status` message, requesting new blocks if appropriate.
-    ///
-    /// Disconnects the peer if required.
+    /// Process a `Status` message to determine if a peer is relevant to us. Irrelevant peers are
+    /// disconnected; relevant peers are sent to the SyncManager
     fn process_status(
         &mut self,
         peer_id: PeerId,
-        status: StatusMessage,
+        remote: StatusMessage,
     ) -> Result<(), BeaconChainError> {
-        let remote = PeerSyncInfo::from(status);
-        let local = match PeerSyncInfo::from_chain(&self.chain) {
-            Some(local) => local,
-            None => {
-                error!(
-                    self.log,
-                    "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention"
-                );
-                return Err(BeaconChainError::CannotAttestToFutureState);
-            }
-        };
-
+        let local = status_message(&self.chain)?;
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        if local.fork_digest != remote.fork_digest {
-            // The node is on a different network/fork, disconnect them.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer_id" => peer_id.to_string(),
-                "reason" => "incompatible forks",
-                "our_fork" => hex::encode(local.fork_digest),
-                "their_fork" => hex::encode(remote.fork_digest)
-            );
-
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
+        let irrelevant_reason = if local.fork_digest != remote.fork_digest {
+            // The node is on a different network/fork
+            Some(format!(
+                "Incompatible forks Ours:{} Theirs:{}",
+                hex::encode(local.fork_digest),
+                hex::encode(remote.fork_digest)
+            ))
         } else if remote.head_slot
             > self
                 .chain
@@ -225,19 +207,10 @@ impl<T: BeaconChainTypes> Processor<T> {
                 .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
                 + FUTURE_SLOT_TOLERANCE
         {
-            // Note: If the slot_clock cannot be read, this will not error. Other system
-            // components will deal with an invalid slot clock error.
-
-            // The remotes head is on a slot that is significantly ahead of ours. This could be
-            // because they are using a different genesis time, or that theirs or our system
-            // clock is incorrect.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer" => peer_id.to_string(),
-                "reason" => "different system clocks or genesis time"
-            );
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
+            // The remote's head is on a slot that is significantly ahead of what we consider the
+            // current slot. This could be because they are using a different genesis time, or that
+            // their or our system's clock is incorrect.
+            Some("Different system clocks or genesis time".to_string())
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
@@ -246,64 +219,26 @@ impl<T: BeaconChainTypes> Processor<T> {
                 .root_at_slot(start_slot(remote.finalized_epoch))
                 .map(|root_opt| root_opt != Some(remote.finalized_root))?
         {
-            // The remotes finalized epoch is less than or greater than ours, but the block root is
-            // different to the one in our chain.
-            //
-            // Therefore, the node is on a different chain and we should not communicate with them.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer" => peer_id.to_string(),
-                "reason" => "different finalized chain"
-            );
+            // The remote's finalized epoch is less than or equal to ours, but the block root is
+            // different to the one in our chain. Therefore, the node is on a different chain and we
+            // should not communicate with them.
+            Some("Different finalized chain".to_string())
+        } else {
+            None
+        };
+
+        if let Some(irrelevant_reason) = irrelevant_reason {
+            debug!(self.log, "Handshake Failure"; "peer" => %peer_id, "reason" => irrelevant_reason);
             self.network
                 .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.finalized_epoch < local.finalized_epoch {
-            // The node has a lower finalized epoch, their chain is not useful to us. There are two
-            // cases where a node can have a lower finalized epoch:
-            //
-            // ## The node is on the same chain
-            //
-            // If a node is on the same chain but has a lower finalized epoch, their head must be
-            // lower than ours. Therefore, we have nothing to request from them.
-            //
-            // ## The node is on a fork
-            //
-            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
-            // cause us to revert a finalized block. This is not permitted, therefore we have no
-            // interest in their blocks.
-            debug!(
-                self.log,
-                "NaivePeer";
-                "peer" => peer_id.to_string(),
-                "reason" => "lower finalized epoch"
-            );
-        } else if self
-            .chain
-            .store
-            .item_exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)?
-        {
-            debug!(
-                self.log, "Peer with known chain found";
-                "peer" => peer_id.to_string(),
-                "remote_head_slot" => remote.head_slot,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
-
-            // If the node's best-block is already known to us and they are close to our current
-            // head, treat them as a fully sync'd peer.
-            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
         } else {
-            // The remote node has an equal or great finalized epoch and we don't know it's head.
-            //
-            // Therefore, there are some blocks between the local finalized epoch and the remote
-            // head that are worth downloading.
-            debug!(
-                self.log, "UsefulPeer";
-                "peer" => peer_id.to_string(),
-                "local_finalized_epoch" => local.finalized_epoch,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
-            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
+            let info = SyncInfo {
+                head_slot: remote.head_slot,
+                head_root: remote.head_root,
+                finalized_epoch: remote.finalized_epoch,
+                finalized_root: remote.finalized_root,
+            };
+            self.send_to_sync(SyncMessage::AddPeer(peer_id, info));
         }
 
         Ok(())
@@ -679,14 +614,14 @@ impl<T: BeaconChainTypes> Processor<T> {
 /// Build a `StatusMessage` representing the state of the given `beacon_chain`.
 pub(crate) fn status_message<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
-) -> Option<StatusMessage> {
-    let head_info = beacon_chain.head_info().ok()?;
+) -> Result<StatusMessage, BeaconChainError> {
+    let head_info = beacon_chain.head_info()?;
     let genesis_validators_root = beacon_chain.genesis_validators_root;
 
     let fork_digest =
         ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
 
-    Some(StatusMessage {
+    Ok(StatusMessage {
         fork_digest,
         finalized_root: head_info.finalized_checkpoint.root,
         finalized_epoch: head_info.finalized_checkpoint.epoch,
