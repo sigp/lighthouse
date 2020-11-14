@@ -10,6 +10,7 @@ use directory::ensure_dir_exists;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
+use rayon::prelude::*;
 use std::path::PathBuf;
 use validator_dir::Builder as ValidatorDirBuilder;
 pub const CMD: &str = "recover";
@@ -102,47 +103,52 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
     let seed = Seed::new(&mnemonic, "");
 
-    for index in first_index..first_index + count {
-        let voting_password = random_password();
-        let withdrawal_password = random_password();
+    (first_index..first_index + count)
+        // Use the `rayon` library to generate the validator keys in parallel threads.
+        .into_par_iter()
+        .try_for_each(|index| {
+            let voting_password = random_password();
+            let withdrawal_password = random_password();
 
-        let derive = |key_type: KeyType, password: &[u8]| -> Result<Keystore, String> {
-            let (secret, path) =
-                recover_validator_secret_from_mnemonic(seed.as_bytes(), index, key_type)
-                    .map_err(|e| format!("Unable to recover validator keys: {:?}", e))?;
+            let derive = |key_type: KeyType, password: &[u8]| -> Result<Keystore, String> {
+                let (secret, path) =
+                    recover_validator_secret_from_mnemonic(seed.as_bytes(), index, key_type)
+                        .map_err(|e| format!("Unable to recover validator keys: {:?}", e))?;
 
-            let keypair = keypair_from_secret(secret.as_bytes())
-                .map_err(|e| format!("Unable build keystore: {:?}", e))?;
+                let keypair = keypair_from_secret(secret.as_bytes())
+                    .map_err(|e| format!("Unable build keystore: {:?}", e))?;
 
-            KeystoreBuilder::new(&keypair, password, format!("{}", path))
-                .map_err(|e| format!("Unable build keystore: {:?}", e))?
+                KeystoreBuilder::new(&keypair, password, format!("{}", path))
+                    .map_err(|e| format!("Unable build keystore: {:?}", e))?
+                    .build()
+                    .map_err(|e| format!("Unable build keystore: {:?}", e))
+            };
+
+            let keystores = ValidatorKeystores {
+                voting: derive(KeyType::Voting, voting_password.as_bytes())?,
+                withdrawal: derive(KeyType::Withdrawal, withdrawal_password.as_bytes())?,
+            };
+
+            let voting_pubkey = keystores.voting.pubkey().to_string();
+
+            ValidatorDirBuilder::new(validator_dir.clone())
+                .password_dir(secrets_dir.clone())
+                .voting_keystore(keystores.voting, voting_password.as_bytes())
+                .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+                .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
                 .build()
-                .map_err(|e| format!("Unable build keystore: {:?}", e))
-        };
+                .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
-        let keystores = ValidatorKeystores {
-            voting: derive(KeyType::Voting, voting_password.as_bytes())?,
-            withdrawal: derive(KeyType::Withdrawal, withdrawal_password.as_bytes())?,
-        };
+            println!(
+                "{}/{}\tIndex: {}\t0x{}",
+                index - first_index,
+                count - first_index,
+                index,
+                voting_pubkey
+            );
 
-        let voting_pubkey = keystores.voting.pubkey().to_string();
-
-        ValidatorDirBuilder::new(validator_dir.clone())
-            .password_dir(secrets_dir.clone())
-            .voting_keystore(keystores.voting, voting_password.as_bytes())
-            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
-            .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
-            .build()
-            .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
-
-        println!(
-            "{}/{}\tIndex: {}\t0x{}",
-            index - first_index,
-            count - first_index,
-            index,
-            voting_pubkey
-        );
-    }
+            Ok::<_, String>(())
+        })?;
 
     Ok(())
 }
