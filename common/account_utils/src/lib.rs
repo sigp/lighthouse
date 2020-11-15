@@ -140,11 +140,23 @@ fn trim_newline(s: &mut String) {
     }
 }
 
+/// According to unicode, every byte that starts with 0b10xxxxxx continues encoding of character
+/// Therefore the number of characters equals number of bytes minus number of 0b10xxxxxx bytes
+fn count_unicode_characters(bits: &[u8]) -> usize {
+    let mut len = 0;
+    for bit in bits {
+        if bit >> 6 != 2 {
+            len += 1;
+        }
+    }
+    len
+}
+
 /// Takes a string password and checks that it meets minimum requirements.
 ///
 /// The current minimum password requirement is a 12 character length character length.
 pub fn is_password_sufficiently_complex(password: &[u8]) -> Result<(), String> {
-    if password.len() >= MINIMUM_PASSWORD_LEN {
+    if count_unicode_characters(password) >= MINIMUM_PASSWORD_LEN {
         Ok(())
     } else {
         Err(format!(
