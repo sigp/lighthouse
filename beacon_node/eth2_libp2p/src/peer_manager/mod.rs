@@ -405,13 +405,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Status => PeerAction::LowToleranceError,
                 }
             }
-            RPCError::StreamTimeout => match protocol {
-                Protocol::Ping => PeerAction::LowToleranceError,
-                Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                Protocol::Goodbye => return,
-                Protocol::MetaData => return,
-                Protocol::Status => return,
+            RPCError::StreamTimeout => match direction {
+                ConnectionDirection::Incoming => {
+                    // we timed out
+                    warn!(self.log, "Timed out to a peer's request. Likely too many resources, reduce peer count");
+                    return;
+                }
+                ConnectionDirection::Outgoing => match protocol {
+                    Protocol::Ping => PeerAction::LowToleranceError,
+                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::Goodbye => return,
+                    Protocol::MetaData => return,
+                    Protocol::Status => return,
+                },
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
             RPCError::RateLimited => match protocol {

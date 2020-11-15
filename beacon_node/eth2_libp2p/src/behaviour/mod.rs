@@ -679,7 +679,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         match message.event {
             Err(handler_err) => {
                 match handler_err {
-                    HandlerErr::Inbound { id, proto, error } => {
+                    HandlerErr::Inbound {
+                        id: _,
+                        proto,
+                        error,
+                    } => {
                         if matches!(error, RPCError::HandlerRejected) {
                             // this peer's request got canceled
                         }

@@ -14,7 +14,7 @@ use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
 use libp2p::swarm::NegotiatedSubstream;
-use slog::{crit, debug, warn};
+use slog::{crit, debug, trace, warn};
 use smallvec::SmallVec;
 use std::{
     collections::hash_map::Entry,
@@ -287,9 +287,8 @@ where
         } else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
-                warn!(self.log, "Inbound stream has expired, response not sent";
-                    "response" => %response, "id" => inbound_id,
-                    "msg" => "Likely too many resources, reduce peer count");
+                trace!(self.log, "Inbound stream has expired, response not sent";
+                    "response" => %response, "id" => inbound_id);
             }
             return;
         };

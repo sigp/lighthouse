@@ -129,7 +129,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: PeerRequestId,
         status: StatusMessage,
     ) {
-        debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status, "req_id" => ?request_id);
+        debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status);
 
         // ignore status responses if we are shutting down
         if let Ok(status_message) = status_message(&self.chain) {
@@ -248,7 +248,6 @@ impl<T: BeaconChainTypes> Processor<T> {
             "peer" => peer_id.to_string(),
             "requested" => request.block_roots.len(),
             "returned" => send_block_count,
-            "req_id" => ?request_id,
         );
 
         // send stream termination
@@ -270,7 +269,6 @@ impl<T: BeaconChainTypes> Processor<T> {
             "count" => req.count,
             "start_slot" => req.start_slot,
             "step" => req.step,
-            "req_id" => ?request_id,
         );
 
         // Should not send more than max request blocks
