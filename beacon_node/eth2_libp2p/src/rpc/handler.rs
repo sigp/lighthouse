@@ -629,6 +629,7 @@ where
                             // if we can't close right now, put the substream back and try again later
                             Poll::Pending => info.state = InboundState::Idle(substream),
                             Poll::Ready(res) => {
+                                // The substream closed, we remove it
                                 substreams_to_remove.push(*id);
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay.remove(delay_key);
@@ -670,6 +671,15 @@ where
                                     substreams_to_remove.push(*id);
                                     if let Some(ref delay_key) = info.delay_key {
                                         self.inbound_substreams_delay.remove(delay_key);
+                                    }
+                                } else {
+                                    // If we are not removing this substream, we reset the timer.
+                                    // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
+                                    if let Some(ref delay_key) = info.delay_key {
+                                        self.inbound_substreams_delay.reset(
+                                            delay_key,
+                                            Duration::from_secs(RESPONSE_TIMEOUT),
+                                        );
                                     }
                                 }
 

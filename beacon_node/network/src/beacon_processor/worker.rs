@@ -215,7 +215,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::RepeatProposal { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. })
             | Err(e @ BlockError::BeaconChainError(_)) => {
-                warn!(self.log, "Could not verify block for gossip, ignoring the block";
+                debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => e.to_string());
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;

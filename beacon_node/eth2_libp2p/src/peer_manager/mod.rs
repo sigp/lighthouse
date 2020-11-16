@@ -191,7 +191,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     &mut self.events,
                     &self.log,
                 );
-                if previous_state != info.score_state() {
+                if previous_state == info.score_state() {
                     debug!(self.log, "Peer score adjusted"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
                 }
             }
