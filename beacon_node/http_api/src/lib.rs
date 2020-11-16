@@ -1582,6 +1582,18 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
+                    let current_slot = chain
+                        .slot()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    // allow a tolerance of one slot to account for clock skew
+                    if query.slot > current_slot + 1 {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request slot {} is more than one slot past the current slot {}",
+                            query.slot, current_slot
+                        )));
+                    }
+
                     chain
                         .produce_unaggregated_attestation(query.slot, query.committee_index)
                         .map(|attestation| attestation.data)
