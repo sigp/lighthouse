@@ -19,7 +19,7 @@ use types::{
 };
 
 /// Compact approx every few days by default (every 1024 epochs).
-const COMPACTION_MODULO_THRESHOLD: u64 = 1024;
+const COMPACTION_PERIOD: u64 = 1024;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
@@ -216,8 +216,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let old_finalized_epoch = old_finalized_checkpoint.epoch;
         let new_finalized_epoch = notif.finalized_checkpoint.epoch;
         if db.compact_on_prune()
-            && (new_finalized_epoch % COMPACTION_MODULO_THRESHOLD == 0
-                || new_finalized_epoch - old_finalized_epoch > COMPACTION_MODULO_THRESHOLD)
+            && old_finalized_epoch / COMPACTION_PERIOD < new_finalized_epoch / COMPACTION_PERIOD
         {
             info!(log, "Starting database compaction");
             if let Err(e) = db.compact() {

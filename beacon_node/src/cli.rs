@@ -307,7 +307,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("compact-db")
                 .long("compact-db")
-                .help("If present, apply compaction to the database on start-up. Use with caution.")
+                .help("If present, apply compaction to the database on start-up. Use with caution. \
+                       It is generally not recommended unless auto-compaction is disabled.")
         )
         .arg(
             Arg::with_name("auto-compact-db")
