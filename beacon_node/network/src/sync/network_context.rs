@@ -63,7 +63,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         chain: Arc<BeaconChain<U>>,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Some(status_message) = status_message(&chain) {
+        if let Ok(status_message) = status_message(&chain) {
             for peer_id in peers {
                 debug!(
                     self.log,

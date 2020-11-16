@@ -722,13 +722,47 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/peers`
-    pub async fn get_node_peers(&self) -> Result<GenericResponse<Vec<PeerData>>, Error> {
+    pub async fn get_node_peers(
+        &self,
+        states: Option<&[PeerState]>,
+        directions: Option<&[PeerDirection]>,
+    ) -> Result<PeersData, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("peers");
+
+        if let Some(states) = states {
+            let state_string = states
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("state", &state_string);
+        }
+
+        if let Some(directions) = directions {
+            let dir_string = directions
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("direction", &dir_string);
+        }
+
+        self.get(path).await
+    }
+
+    /// `GET node/peer_count`
+    pub async fn get_node_peer_count(&self) -> Result<GenericResponse<PeerCount>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("peer_count");
 
         self.get(path).await
     }

@@ -20,7 +20,7 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
-use types::{EthSpec, ValidatorSubscription};
+use types::{EthSpec, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
 
 mod tests;
 
@@ -110,8 +110,12 @@ pub struct NetworkService<T: BeaconChainTypes> {
     discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Option<Delay>,
+    /// Subscribe to all the subnets once synced.
+    subscribe_all_subnets: bool,
     /// A timer for updating various network metrics.
     metrics_update: tokio::time::Interval,
+    /// gossipsub_parameter_update timer
+    gossipsub_parameter_update: tokio::time::Interval,
     /// The logger for the network service.
     log: slog::Logger,
 }
@@ -153,8 +157,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let next_fork_update = next_fork_delay(&beacon_chain);
 
         // launch libp2p service
-        let (network_globals, mut libp2p) =
-            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log).await?;
+        let (network_globals, mut libp2p) = LibP2PService::new(
+            executor.clone(),
+            config,
+            enr_fork_id,
+            &network_log,
+            &beacon_chain.spec,
+        )
+        .await?;
 
         // Repopulate the DHT with stored ENR's.
         let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
@@ -178,10 +188,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         // attestation service
-        let attestation_service = AttestationService::new(beacon_chain.clone(), &network_log);
+        let attestation_service =
+            AttestationService::new(beacon_chain.clone(), &config, &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
+
+        // create a timer for updating gossipsub parameters
+        let gossipsub_parameter_update = tokio::time::interval(Duration::from_secs(60));
 
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
@@ -196,7 +210,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             upnp_mappings: (None, None),
             discovery_auto_update: config.discv5_config.enr_update,
             next_fork_update,
+            subscribe_all_subnets: config.subscribe_all_subnets,
             metrics_update,
+            gossipsub_parameter_update,
             log: network_log,
         };
 
@@ -256,7 +272,51 @@ fn spawn_service<T: BeaconChainTypes>(
                             .as_ref()
                             .map(|gauge| gauge.reset());
                     }
-                    update_gossip_metrics::<T::EthSpec>(&service.libp2p.swarm.gs());
+                    update_gossip_metrics::<T::EthSpec>(
+                        &service.libp2p.swarm.gs(),
+                        &service.network_globals,
+                        &service.log
+                    );
+                }
+                _ = service.gossipsub_parameter_update.next() => {
+                    if let Ok(slot) = service.beacon_chain.slot() {
+                        if let Some(active_validators) = service.beacon_chain.with_head(|head| {
+                                Ok(
+                                    head
+                                    .beacon_state
+                                    .get_cached_active_validator_indices(RelativeEpoch::Current)
+                                    .map(|indices| indices.len())
+                                    .ok()
+                                    .or_else(|| {
+                                        // if active validator cached was not build we count the
+                                        // active validators
+                                        service
+                                            .beacon_chain
+                                            .epoch()
+                                            .ok()
+                                            .map(|current_epoch| {
+                                                head
+                                                .beacon_state
+                                                .validators
+                                                .iter()
+                                                .filter(|validator|
+                                                    validator.is_active_at(current_epoch)
+                                                )
+                                                .count()
+                                            })
+                                    })
+                                )
+                            }).unwrap_or(None) {
+                            if (*service.libp2p.swarm)
+                                .update_gossipsub_parameters(active_validators, slot).is_err() {
+                                error!(
+                                    service.log,
+                                    "Failed to update gossipsub parameters";
+                                    "active_validators" => active_validators
+                                );
+                            }
+                        }
+                    }
                 }
                 // handle a message sent to the network
                 Some(message) = service.network_recv.recv() => {
@@ -296,6 +356,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 trace!(service.log, "Propagating gossipsub message";
                                     "propagation_peer" => format!("{:?}", propagation_source),
                                     "message_id" => message_id.to_string(),
+                                    "validation_result" => format!("{:?}", validation_result)
                                 );
                                 service
                                     .libp2p
@@ -340,6 +401,22 @@ fn spawn_service<T: BeaconChainTypes>(
                                     warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
                                 }
                             }
+
+                            // if we are to subscribe to all subnets we do it here
+                            if service.subscribe_all_subnets {
+                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
+                                    let subnet_id = SubnetId::new(subnet_id);
+                                    let topic_kind = eth2_libp2p::types::GossipKind::Attestation(subnet_id);
+                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
+                                    // Update the ENR bitfield.
+                                    service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                                    subscribed_topics.push(topic_kind.clone());
+                                } else {
+                                    warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                                }
+                                }
+                            }
+
                             if !subscribed_topics.is_empty() {
                                 info!(service.log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
                             }
@@ -407,10 +484,10 @@ fn spawn_service<T: BeaconChainTypes>(
                                     });
 
                             }
-                            BehaviourEvent::RPCFailed{id, peer_id, error} => {
+                            BehaviourEvent::RPCFailed{id, peer_id} => {
                                 let _ = service
                                     .router_send
-                                    .send(RouterMessage::RPCFailed{ peer_id, request_id: id, error })
+                                    .send(RouterMessage::RPCFailed{ peer_id, request_id: id})
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
@@ -537,7 +614,26 @@ fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
     }
 }
 
-fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
+/// A work-around to reduce temporary allocation when updating gossip metrics.
+pub struct ToStringCache<T>(HashMap<T, String>);
+
+impl<T: Clone + std::hash::Hash + std::fmt::Display + Eq> ToStringCache<T> {
+    pub fn with_capacity(c: usize) -> Self {
+        Self(HashMap::with_capacity(c))
+    }
+
+    pub fn get(&mut self, item: T) -> &str {
+        self.0
+            .entry(item.clone())
+            .or_insert_with(|| item.to_string())
+    }
+}
+
+fn update_gossip_metrics<T: EthSpec>(
+    gossipsub: &Gossipsub,
+    network_globals: &Arc<NetworkGlobals<T>>,
+    logger: &slog::Logger,
+) {
     // Clear the metrics
     let _ = metrics::PEERS_PER_PROTOCOL
         .as_ref()
@@ -555,23 +651,60 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
         .as_ref()
         .map(|gauge| gauge.reset());
 
+    let _ = metrics::SCORES_BELOW_ZERO_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::SCORES_BELOW_GOSSIP_THRESHOLD_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::SCORES_BELOW_PUBLISH_THRESHOLD_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::SCORES_BELOW_GREYLIST_THRESHOLD_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::MIN_SCORES_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::MEDIAN_SCORES_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::MEAN_SCORES_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::MAX_SCORES_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+
+    let _ = metrics::BEACON_BLOCK_MESH_PEERS_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = metrics::BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT
+        .as_ref()
+        .map(|gauge| gauge.reset());
+
+    let mut subnet_ids: ToStringCache<u64> =
+        ToStringCache::with_capacity(T::default_spec().attestation_subnet_count as usize);
+    let mut gossip_kinds: ToStringCache<GossipKind> =
+        ToStringCache::with_capacity(T::default_spec().attestation_subnet_count as usize);
+
     // reset the mesh peers, showing all subnets
     for subnet_id in 0..T::default_spec().attestation_subnet_count {
         let _ = metrics::get_int_gauge(
             &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
-            &[&subnet_id.to_string()],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = metrics::get_int_gauge(
             &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
-            &[&subnet_id.to_string()],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = metrics::get_int_gauge(
             &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
-            &[&subnet_id.to_string()],
+            &[subnet_ids.get(subnet_id)],
         )
         .map(|v| v.set(0));
     }
@@ -582,7 +715,7 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
             if let GossipKind::Attestation(subnet_id) = topic.kind() {
                 let _ = metrics::get_int_gauge(
                     &metrics::GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
-                    &[&subnet_id.to_string()],
+                    &[subnet_ids.get(subnet_id.into())],
                 )
                 .map(|v| v.set(1));
             }
@@ -600,29 +733,29 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
                     GossipKind::Attestation(subnet_id) => {
                         if let Some(v) = metrics::get_int_gauge(
                             &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
-                            &[&subnet_id.to_string()],
+                            &[subnet_ids.get(subnet_id.into())],
                         ) {
                             v.inc()
                         };
 
                         // average peer scores
                         if let Some(score) = gossipsub.peer_score(peer_id) {
-                            if let Some(v) = metrics::get_int_gauge(
+                            if let Some(v) = metrics::get_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
-                                &[&subnet_id.to_string()],
+                                &[subnet_ids.get(subnet_id.into())],
                             ) {
-                                v.add(score as i64)
+                                v.add(score)
                             };
                         }
                     }
                     kind => {
                         // main topics
                         if let Some(score) = gossipsub.peer_score(peer_id) {
-                            if let Some(v) = metrics::get_int_gauge(
+                            if let Some(v) = metrics::get_gauge(
                                 &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
-                                &[&format!("{:?}", kind)],
+                                &[gossip_kinds.get(kind.clone())],
                             ) {
-                                v.add(score as i64)
+                                v.add(score)
                             };
                         }
                     }
@@ -636,20 +769,20 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
                     // average peer scores
-                    if let Some(v) = metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
-                        &[&subnet_id.to_string()],
+                        &[subnet_ids.get(subnet_id.into())],
                     ) {
-                        v.set(v.get() / (*peers as i64))
+                        v.set(v.get() / (*peers as f64))
                     };
                 }
                 kind => {
                     // main topics
-                    if let Some(v) = metrics::get_int_gauge(
+                    if let Some(v) = metrics::get_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
                         &[&format!("{:?}", kind)],
                     ) {
-                        v.set(v.get() / (*peers as i64))
+                        v.set(v.get() / (*peers as f64))
                     };
                 }
             }
@@ -664,7 +797,7 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
                 GossipKind::Attestation(subnet_id) => {
                     if let Some(v) = metrics::get_int_gauge(
                         &metrics::MESH_PEERS_PER_SUBNET_TOPIC,
-                        &[&subnet_id.to_string()],
+                        &[subnet_ids.get(subnet_id.into())],
                     ) {
                         v.set(peers as i64)
                     };
@@ -673,7 +806,7 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
                     // main topics
                     if let Some(v) = metrics::get_int_gauge(
                         &metrics::MESH_PEERS_PER_MAIN_TOPIC,
-                        &[&format!("{:?}", kind)],
+                        &[gossip_kinds.get(kind.clone())],
                     ) {
                         v.set(peers as i64)
                     };
@@ -694,5 +827,133 @@ fn update_gossip_metrics<T: EthSpec>(gossipsub: &Gossipsub) {
         {
             v.set(*peers)
         };
+    }
+
+    let mut peer_to_client = HashMap::new();
+    let mut scores_per_client: HashMap<String, Vec<f64>> = HashMap::new();
+    {
+        let peers = network_globals.peers.read();
+        for (peer_id, _) in gossipsub.all_peers() {
+            let client = peers
+                .peer_info(peer_id)
+                .map(|peer_info| peer_info.client.kind.to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            peer_to_client.insert(peer_id, client.clone());
+            let score = gossipsub.peer_score(peer_id).unwrap_or(0.0);
+            if (client == "Prysm" || client == "Lighthouse") && score < 0.0 {
+                trace!(logger, "Peer has negative score"; "peer" => format!("{:?}", peer_id),
+                       "client" => &client, "score" => score);
+            }
+            scores_per_client.entry(client).or_default().push(score);
+        }
+    }
+
+    // mesh peers per client
+    for topic_hash in gossipsub.topics() {
+        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+            match topic.kind() {
+                GossipKind::BeaconBlock => {
+                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::BEACON_BLOCK_MESH_PEERS_PER_CLIENT,
+                                &[client],
+                            ) {
+                                v.inc()
+                            };
+                        }
+                    }
+                }
+                GossipKind::BeaconAggregateAndProof => {
+                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
+                                &[client],
+                            ) {
+                                v.inc()
+                            };
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
+    for (client, scores) in scores_per_client.into_iter() {
+        let c = &[client.as_ref()];
+        let len = scores.len();
+        if len > 0 {
+            let mut below0 = 0;
+            let mut below_gossip_threshold = 0;
+            let mut below_publish_threshold = 0;
+            let mut below_greylist_threshold = 0;
+            let mut min = f64::INFINITY;
+            let mut sum = 0.0;
+            let mut max = f64::NEG_INFINITY;
+
+            let count = scores.len() as f64;
+
+            for &score in &scores {
+                if score < 0.0 {
+                    below0 += 1;
+                }
+                if score < -4000.0 {
+                    //TODO not hardcode
+                    below_gossip_threshold += 1;
+                }
+                if score < -8000.0 {
+                    //TODO not hardcode
+                    below_publish_threshold += 1;
+                }
+                if score < -16000.0 {
+                    //TODO not hardcode
+                    below_greylist_threshold += 1;
+                }
+                if score < min {
+                    min = score;
+                }
+                if score > max {
+                    max = score;
+                }
+                sum += score;
+            }
+
+            let median = if len == 0 {
+                0.0
+            } else if len % 2 == 0 {
+                (scores[len / 2 - 1] + scores[len / 2]) / 2.0
+            } else {
+                scores[len / 2]
+            };
+
+            metrics::set_gauge_entry(
+                &metrics::SCORES_BELOW_ZERO_PER_CLIENT,
+                c,
+                below0 as f64 / count,
+            );
+            metrics::set_gauge_entry(
+                &metrics::SCORES_BELOW_GOSSIP_THRESHOLD_PER_CLIENT,
+                c,
+                below_gossip_threshold as f64 / count,
+            );
+            metrics::set_gauge_entry(
+                &metrics::SCORES_BELOW_PUBLISH_THRESHOLD_PER_CLIENT,
+                c,
+                below_publish_threshold as f64 / count,
+            );
+            metrics::set_gauge_entry(
+                &metrics::SCORES_BELOW_GREYLIST_THRESHOLD_PER_CLIENT,
+                c,
+                below_greylist_threshold as f64 / count,
+            );
+
+            metrics::set_gauge_entry(&metrics::MIN_SCORES_PER_CLIENT, c, min);
+            metrics::set_gauge_entry(&metrics::MEDIAN_SCORES_PER_CLIENT, c, median);
+            metrics::set_gauge_entry(&metrics::MEAN_SCORES_PER_CLIENT, c, sum / count);
+            metrics::set_gauge_entry(&metrics::MAX_SCORES_PER_CLIENT, c, max);
+        }
     }
 }

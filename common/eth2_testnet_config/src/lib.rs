@@ -7,10 +7,7 @@
 //!
 //! https://github.com/sigp/lighthouse/pull/605
 //!
-use eth2_config::{
-    include_altona_file, include_mainnet_file, include_medalla_file, include_spadina_file,
-    include_zinken_file, testnets_dir,
-};
+use eth2_config::{testnets_dir, *};
 
 use enr::{CombinedKey, Enr};
 use ssz::Decode;
@@ -55,10 +52,11 @@ macro_rules! define_net {
 const ALTONA: HardcodedNet = define_net!(altona, include_altona_file);
 const MEDALLA: HardcodedNet = define_net!(medalla, include_medalla_file);
 const SPADINA: HardcodedNet = define_net!(spadina, include_spadina_file);
-const ZINKEN: HardcodedNet = define_net!(zinken, include_zinken_file);
+const PYRMONT: HardcodedNet = define_net!(pyrmont, include_pyrmont_file);
 const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
+const TOLEDO: HardcodedNet = define_net!(toledo, include_toledo_file);
 
-const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, ZINKEN, MAINNET];
+const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO];
 pub const DEFAULT_HARDCODED_TESTNET: &str = "medalla";
 
 /// Specifies an Eth2 testnet.
@@ -283,7 +281,7 @@ mod tests {
             let config =
                 Eth2TestnetConfig::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
 
-            if net.name == "mainnet" {
+            if net.name == "mainnet" || net.name == "toledo" || net.name == "pyrmont" {
                 // Ensure we can parse the YAML config to a chain spec.
                 config
                     .yaml_config

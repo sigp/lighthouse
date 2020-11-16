@@ -1,21 +1,7 @@
 use super::manager::SLOT_IMPORT_TOLERANCE;
-use crate::router::processor::status_message;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::rpc::*;
-use eth2_libp2p::SyncInfo;
-use std::ops::Sub;
-use std::sync::Arc;
-use types::{Epoch, Hash256, Slot};
-
-/// Keeps track of syncing information for known connected peers.
-#[derive(Clone, Copy, Debug)]
-pub struct PeerSyncInfo {
-    pub fork_digest: [u8; 4],
-    pub finalized_root: Hash256,
-    pub finalized_epoch: Epoch,
-    pub head_root: Hash256,
-    pub head_slot: Slot,
-}
+use eth2_libp2p::{PeerSyncStatus, SyncInfo};
+use std::cmp::Ordering;
 
 /// The type of peer relative to our current state.
 pub enum PeerSyncType {
@@ -27,82 +13,75 @@ pub enum PeerSyncType {
     Behind,
 }
 
-impl From<StatusMessage> for PeerSyncInfo {
-    fn from(status: StatusMessage) -> PeerSyncInfo {
-        PeerSyncInfo {
-            fork_digest: status.fork_digest,
-            finalized_root: status.finalized_root,
-            finalized_epoch: status.finalized_epoch,
-            head_root: status.head_root,
-            head_slot: status.head_slot,
+impl PeerSyncType {
+    pub fn as_sync_status(&self, info: &SyncInfo) -> PeerSyncStatus {
+        match self {
+            PeerSyncType::FullySynced => PeerSyncStatus::Synced { info: info.clone() },
+            PeerSyncType::Behind => PeerSyncStatus::Behind { info: info.clone() },
+            PeerSyncType::Advanced => PeerSyncStatus::Advanced { info: info.clone() },
         }
     }
 }
 
-impl Into<SyncInfo> for PeerSyncInfo {
-    fn into(self) -> SyncInfo {
-        SyncInfo {
-            status_head_slot: self.head_slot,
-            status_head_root: self.head_root,
-            status_finalized_epoch: self.finalized_epoch,
-            status_finalized_root: self.finalized_root,
-        }
-    }
-}
+pub fn remote_sync_type<T: BeaconChainTypes>(
+    local: &SyncInfo,
+    remote: &SyncInfo,
+    chain: &BeaconChain<T>,
+) -> PeerSyncType {
+    // auxiliary variables for clarity: Inclusive boundaries of the range in which we consider a peer's
+    // head "near" ours.
+    let near_range_start = local.head_slot - SLOT_IMPORT_TOLERANCE as u64;
+    let near_range_end = local.head_slot + SLOT_IMPORT_TOLERANCE as u64;
 
-impl PeerSyncInfo {
-    /// Derives the peer sync information from a beacon chain.
-    pub fn from_chain<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>) -> Option<PeerSyncInfo> {
-        Some(Self::from(status_message(chain)?))
-    }
-
-    /// Given another peer's `PeerSyncInfo` this will determine how useful that peer is to us in
-    /// regards to syncing. This returns the peer sync type that can then be handled by the
-    /// `SyncManager`.
-    pub fn peer_sync_type(&self, remote_peer_sync_info: &PeerSyncInfo) -> PeerSyncType {
-        // check if the peer is fully synced with our current chain
-        if self.is_fully_synced_peer(remote_peer_sync_info) {
-            PeerSyncType::FullySynced
-        }
-        // if not, check if the peer is ahead of our chain
-        else if self.is_advanced_peer(remote_peer_sync_info) {
-            PeerSyncType::Advanced
-        } else {
-            // the peer must be behind and not useful
+    match remote.finalized_epoch.cmp(&local.finalized_epoch) {
+        Ordering::Less => {
+            // The node has a lower finalized epoch, their chain is not useful to us. There are two
+            // cases where a node can have a lower finalized epoch:
+            //
+            // ## The node is on the same chain
+            //
+            // If a node is on the same chain but has a lower finalized epoch, their head must be
+            // lower than ours. Therefore, we have nothing to request from them.
+            //
+            // ## The node is on a fork
+            //
+            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
+            // cause us to revert a finalized block. This is not permitted, therefore we have no
+            // interest in their blocks.
+            //
+            // We keep these peers to allow them to sync from us.
             PeerSyncType::Behind
         }
-    }
-
-    /// Determines if another peer is fully synced with the current peer.
-    ///
-    /// A fully synced peer is a peer whose finalized epoch and hash match our own and their
-    /// head is within SLOT_IMPORT_TOLERANCE of our own.
-    /// In this case we ignore any batch/range syncing.
-    fn is_fully_synced_peer(&self, remote: &PeerSyncInfo) -> bool {
-        // ensure we are on the same chain, with minor differing heads
-        if remote.finalized_epoch == self.finalized_epoch
-            && remote.finalized_root == self.finalized_root
-        {
-            // that we are within SLOT_IMPORT_TOLERANCE of our two heads
-            if (self.head_slot >= remote.head_slot
-                && self.head_slot.sub(remote.head_slot).as_usize() <= SLOT_IMPORT_TOLERANCE)
-                || (self.head_slot < remote.head_slot
-                    && remote.head_slot.sub(self.head_slot).as_usize() <= SLOT_IMPORT_TOLERANCE)
+        Ordering::Equal => {
+            // NOTE: if a peer has our same `finalized_epoch` with a different `finalized_root`
+            // they are not considered relevant and won't be propagated to sync.
+            // Check if the peer is the peer is inside the tolerance range to be considered synced.
+            if remote.head_slot < near_range_start {
+                PeerSyncType::Behind
+            } else if remote.head_slot > near_range_end
+                && !chain.fork_choice.read().contains_block(&remote.head_root)
             {
-                return true;
+                // This peer has a head ahead enough of ours and we have no knowledge of their best
+                // block.
+                PeerSyncType::Advanced
+            } else {
+                // This peer is either in the tolerance range, or ahead us with an already rejected
+                // block.
+                PeerSyncType::FullySynced
             }
         }
-        false
-    }
-
-    /// Determines if a peer has more knowledge about the current chain than we do.
-    ///
-    /// There are two conditions here.
-    /// 1) The peer could have a head slot that is greater
-    /// than SLOT_IMPORT_TOLERANCE of our current head.
-    /// 2) The peer has a greater finalized slot/epoch than our own.
-    fn is_advanced_peer(&self, remote: &PeerSyncInfo) -> bool {
-        remote.head_slot.sub(self.head_slot).as_usize() > SLOT_IMPORT_TOLERANCE
-            || self.finalized_epoch < remote.finalized_epoch
+        Ordering::Greater => {
+            if (local.finalized_epoch + 1 == remote.finalized_epoch
+                && near_range_start <= remote.head_slot
+                && remote.head_slot <= near_range_end)
+                || chain.fork_choice.read().contains_block(&remote.head_root)
+            {
+                // This peer is near enough to us to be considered synced, or
+                // we have already synced up to this peer's head
+                PeerSyncType::FullySynced
+            } else {
+                PeerSyncType::Advanced
+            }
+        }
     }
 }

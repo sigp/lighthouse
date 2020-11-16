@@ -11,8 +11,8 @@ use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
-    rpc::{RPCError, RequestId},
-    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
+    rpc::RequestId, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request,
+    Response,
 };
 use futures::prelude::*;
 use processor::Processor;
@@ -26,8 +26,6 @@ use types::EthSpec;
 /// passing them to the internal message processor. The message processor spawns a syncing thread
 /// which manages which blocks need to be requested and processed.
 pub struct Router<T: BeaconChainTypes> {
-    /// Access to the peer db for logging.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// Processes validated and decoded messages from the network. Has direct access to the
     /// sync manager.
     processor: Processor<T>,
@@ -58,7 +56,6 @@ pub enum RouterMessage<T: EthSpec> {
     RPCFailed {
         peer_id: PeerId,
         request_id: RequestId,
-        error: RPCError,
     },
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message, the message itself and a bool which indicates if the message should be processed
@@ -86,14 +83,13 @@ impl<T: BeaconChainTypes> Router<T> {
         let processor = Processor::new(
             executor.clone(),
             beacon_chain,
-            network_globals.clone(),
+            network_globals,
             network_send,
             &log,
         );
 
         // generate the Message handler
         let mut handler = Router {
-            network_globals,
             processor,
             log: message_handler_log,
         };
@@ -141,13 +137,7 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::RPCFailed {
                 peer_id,
                 request_id,
-                error,
             } => {
-                debug!(self.log, "RPC Error";
-                    "peer_id" => peer_id.to_string(),
-                    "request_id" => request_id,
-                    "error" => error.to_string(),
-                    "client" => self.network_globals.client(&peer_id).to_string());
                 self.processor.on_rpc_error(peer_id, request_id);
             }
             RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
