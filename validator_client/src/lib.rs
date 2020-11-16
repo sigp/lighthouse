@@ -384,9 +384,15 @@ async fn init_from_beacon_node<E: EthSpec>(
         // Start polling the node for pre-genesis information, cancelling the polling as soon as the
         // timer runs out.
         tokio::select! {
-            result = poll_whilst_waiting_for_genesis(beacon_node, context.log()) => result?,
+            result = poll_whilst_waiting_for_genesis(beacon_node, genesis_time, context.log()) => result?,
             () = delay_for(genesis_time - now) => ()
         };
+
+        info!(
+            context.log(),
+            "Genesis has occurred";
+            "ms_since_genesis" => (genesis_time - now).as_millis()
+        );
     } else {
         info!(
             context.log(),
@@ -440,24 +446,32 @@ async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Resu
 /// has been contacted.
 async fn poll_whilst_waiting_for_genesis(
     beacon_node: &BeaconNodeHttpClient,
+    genesis_time: Duration,
     log: &Logger,
 ) -> Result<(), String> {
     loop {
-        match beacon_node.get_beacon_genesis().await {
-            Ok(genesis) => {
+        match beacon_node.get_lighthouse_staking().await {
+            Ok(is_staking) => {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map_err(|e| format!("Unable to read system time: {:?}", e))?;
-                let genesis_time = Duration::from_secs(genesis.data.genesis_time);
+
+                if !is_staking {
+                    error!(
+                        log,
+                        "Staking is disabled for beacon node";
+                        "msg" => "this will caused missed duties",
+                        "info" => "see the --staking CLI flag on the beacon node"
+                    );
+                }
 
                 if now < genesis_time {
                     info!(
                         log,
                         "Waiting for genesis";
+                        "bn_staking_enabled" => is_staking,
                         "seconds_to_wait" => (genesis_time - now).as_secs()
                     );
-
-                    delay_for(genesis_time - now).await;
                 } else {
                     break Ok(());
                 }
