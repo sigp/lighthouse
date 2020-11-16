@@ -282,7 +282,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         self.executor.spawn_blocking(move || {
 
             debug!(
-                self.log,
+                log,
                 "Received BlocksByRange Request";
                 "peer_id" => %peer_id,
                 "count" => req.count,
