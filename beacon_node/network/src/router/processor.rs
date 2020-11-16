@@ -308,136 +308,135 @@ impl<T: BeaconChainTypes> Processor<T> {
         // Shift the db reads to a blocking thread.
         self.executor.spawn_blocking(move || {
 
-        debug!(
-            log,
-            "Received BlocksByRange Request";
-            "peer" => format!("{:?}", peer_id),
-            "count" => req.count,
-            "start_slot" => req.start_slot,
-            "step" => req.step,
-        );
+            debug!(
+                log,
+                "Received BlocksByRange Request";
+                "peer" => format!("{:?}", peer_id),
+                "count" => req.count,
+                "start_slot" => req.start_slot,
+                "step" => req.step,
+            );
 
-        // Should not send more than max request blocks
-        if req.count > MAX_REQUEST_BLOCKS {
-            req.count = MAX_REQUEST_BLOCKS;
-        }
-        if req.step == 0 {
-            warn!(log,
-                "Peer sent invalid range request";
-                "error" => "Step sent was 0");
-            network.goodbye_peer(peer_id, GoodbyeReason::Fault);
-            return;
-        }
-
-        let forwards_block_root_iter = match
-            chain
-            .forwards_iter_block_roots(Slot::from(req.start_slot))
-        {
-            Ok(iter) => iter,
-            Err(e) => {
-                return error!(
-                    log,
-                    "Unable to obtain root iter";
-                    "error" => format!("{:?}", e)
-                )
+            // Should not send more than max request blocks
+            if req.count > MAX_REQUEST_BLOCKS {
+                req.count = MAX_REQUEST_BLOCKS;
             }
-        };
-
-        // Pick out the required blocks, ignoring skip-slots and stepping by the step parameter.
-        //
-        // NOTE: We don't mind if req.count * req.step overflows as it just ends the iterator early and
-        // the peer will get less blocks.
-        // The step parameter is quadratically weighted in the filter, so large values should be
-        // prevented before reaching this point.
-        let mut last_block_root = None;
-        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| {
-                slot.as_u64() < req.start_slot.saturating_add(req.count * req.step)
-            })
-            // map skip slots to None
-            .map(|(root, _)| {
-                let result = if Some(root) == last_block_root {
-                    None
-                } else {
-                    Some(root)
-                };
-                last_block_root = Some(root);
-                result
-            })
-            .step_by(req.step as usize)
-            .collect::<Vec<Option<Hash256>>>()
-        });
-
-        let block_roots = match maybe_block_roots {
-            Ok(block_roots) => block_roots,
-            Err(e) => {
-                error!(log, "Error during iteration over blocks"; "error" => format!("{:?}", e));
+            if req.step == 0 {
+                warn!(log,
+                    "Peer sent invalid range request";
+                    "error" => "Step sent was 0");
+                network.goodbye_peer(peer_id, GoodbyeReason::Fault);
                 return;
             }
-        };
 
-        // remove all skip slots
-        let block_roots = block_roots
-            .into_iter()
-            .filter_map(|root| root)
-            .collect::<Vec<_>>();
+            let forwards_block_root_iter = match
+                chain
+                .forwards_iter_block_roots(Slot::from(req.start_slot))
+            {
+                Ok(iter) => iter,
+                Err(e) => {
+                    return error!(
+                        log,
+                        "Unable to obtain root iter";
+                        "error" => format!("{:?}", e)
+                    )
+                }
+            };
 
-        let mut blocks_sent = 0;
-        for root in block_roots {
-            if let Ok(Some(block)) = chain.store.get_block(&root) {
-                // Due to skip slots, blocks could be out of the range, we ensure they are in the
-                // range before sending
-                if block.slot() >= req.start_slot
-                    && block.slot() < req.start_slot + req.count * req.step
-                {
-                    blocks_sent += 1;
-                    network.send_response(
-                        peer_id.clone(),
-                        Response::BlocksByRange(Some(Box::new(block))),
-                        request_id,
+            // Pick out the required blocks, ignoring skip-slots and stepping by the step parameter.
+            //
+            // NOTE: We don't mind if req.count * req.step overflows as it just ends the iterator early and
+            // the peer will get less blocks.
+            // The step parameter is quadratically weighted in the filter, so large values should be
+            // prevented before reaching this point.
+            let mut last_block_root = None;
+            let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
+                iter.take_while(|(_, slot)| {
+                    slot.as_u64() < req.start_slot.saturating_add(req.count * req.step)
+                })
+                // map skip slots to None
+                .map(|(root, _)| {
+                    let result = if Some(root) == last_block_root {
+                        None
+                    } else {
+                        Some(root)
+                    };
+                    last_block_root = Some(root);
+                    result
+                })
+                .step_by(req.step as usize)
+                .collect::<Vec<Option<Hash256>>>()
+            });
+
+            let block_roots = match maybe_block_roots {
+                Ok(block_roots) => block_roots,
+                Err(e) => {
+                    error!(log, "Error during iteration over blocks"; "error" => format!("{:?}", e));
+                    return;
+                }
+            };
+
+            // remove all skip slots
+            let block_roots = block_roots
+                .into_iter()
+                .filter_map(|root| root)
+                .collect::<Vec<_>>();
+
+            let mut blocks_sent = 0;
+            for root in block_roots {
+                if let Ok(Some(block)) = chain.store.get_block(&root) {
+                    // Due to skip slots, blocks could be out of the range, we ensure they are in the
+                    // range before sending
+                    if block.slot() >= req.start_slot
+                        && block.slot() < req.start_slot + req.count * req.step
+                    {
+                        blocks_sent += 1;
+                        network.send_response(
+                            peer_id.clone(),
+                            Response::BlocksByRange(Some(Box::new(block))),
+                            request_id,
+                        );
+                    }
+                } else {
+                    error!(
+                        log,
+                        "Block in the chain is not in the store";
+                        "request_root" => format!("{:}", root),
                     );
                 }
-            } else {
-                error!(
-                    log,
-                    "Block in the chain is not in the store";
-                    "request_root" => format!("{:}", root),
-                );
             }
-        }
 
-        let current_slot =
-            chain
-            .slot()
-            .unwrap_or_else(|_| chain.slot_clock.genesis_slot());
+            let current_slot =
+                chain
+                .slot()
+                .unwrap_or_else(|_| chain.slot_clock.genesis_slot());
 
-        if blocks_sent < (req.count as usize) {
-            debug!(
-                log,
-                "BlocksByRange Response Sent";
-                "peer" => peer_id.to_string(),
-                "msg" => "Failed to return all requested blocks",
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blocks_sent);
-        } else {
-            debug!(
-                log,
-                "Sending BlocksByRange Response";
-                "peer" => peer_id.to_string(),
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blocks_sent);
-        }
+            if blocks_sent < (req.count as usize) {
+                debug!(
+                    log,
+                    "BlocksByRange Response Sent";
+                    "peer" => peer_id.to_string(),
+                    "msg" => "Failed to return all requested blocks",
+                    "start_slot" => req.start_slot,
+                    "current_slot" => current_slot,
+                    "requested" => req.count,
+                    "returned" => blocks_sent);
+            } else {
+                debug!(
+                    log,
+                    "Sending BlocksByRange Response";
+                    "peer" => peer_id.to_string(),
+                    "start_slot" => req.start_slot,
+                    "current_slot" => current_slot,
+                    "requested" => req.count,
+                    "returned" => blocks_sent);
+            }
 
-        // send the stream terminator
-        network
-            .send_response(peer_id, Response::BlocksByRange(None), request_id);
+            // send the stream terminator
+            network
+                .send_response(peer_id, Response::BlocksByRange(None), request_id);
 
-                }, "blocks_by_range_request"
-        );
+        }, "blocks_by_range_request");
     }
 
     /// Handle a `BlocksByRange` response from the peer.
