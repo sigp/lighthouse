@@ -6519,6 +6519,7 @@ dependencies = [
  "ethereum-types",
  "hex",
  "int_to_bytes",
+ "lazy_static",
  "log 0.4.11",
  "merkle_proof",
  "rand 0.7.3",
