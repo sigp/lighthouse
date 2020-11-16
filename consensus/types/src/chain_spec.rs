@@ -379,7 +379,7 @@ impl ChainSpec {
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
     ///
     /// This method only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
-    /// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
+    /// (e.g., Medalla, Pyrmont, Spadina, Altona, etc.).
     pub fn v012_legacy() -> Self {
         let boot_nodes = vec![];
 
@@ -603,7 +603,7 @@ impl YamlConfig {
             "mainnet" => EthSpecId::Mainnet,
             "minimal" => EthSpecId::Minimal,
             "toledo" => EthSpecId::Mainnet,
-            "zinken" => EthSpecId::V012Legacy,
+            "pyrmont" => EthSpecId::Mainnet,
             "spadina" => EthSpecId::V012Legacy,
             "medalla" => EthSpecId::V012Legacy,
             "altona" => EthSpecId::V012Legacy,
