@@ -109,6 +109,22 @@ pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, 
     .map_err(|e| format!("Failed to get block number: {}", e))
 }
 
+#[macro_export]
+macro_rules! fallback_on_err {
+    ( $new_func_name: ident, $old_func_name: ident, $($p: ident: $t: ty= $e: expr),*; $res: ty) => {
+        pub async fn $new_func_name<S: AsRef<str>>(endpoints: &[S], $($p: $t,)*) -> $res {
+            let mut result = None;
+            for endpoint in endpoints {
+                result = match $old_func_name(endpoint.as_ref(), $($e,)*).await {
+                    Ok(t) => return Ok(t),
+                    Err(t) => Some(Err(t))
+                }
+            }
+            result.expect("At least one endpoint is given")
+        }
+    };
+}
+
 /// Gets a block hash by block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
@@ -171,6 +187,12 @@ pub async fn get_block(
     .map_err(|e| format!("Failed to get block number: {}", e))
 }
 
+fallback_on_err!(try_fallback_get_block, get_block,
+    query: BlockQuery= query,
+    timeout: Duration= timeout;
+    Result<Block, String>
+);
+
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given
 /// `block_number`.
 ///
@@ -210,6 +232,13 @@ pub async fn get_deposit_count(
     }
 }
 
+fallback_on_err!(try_fallback_get_deposit_count, get_deposit_count,
+    address: &str= address,
+    block_number: u64= block_number,
+    timeout: Duration= timeout;
+    Result<Option<u64>, String>
+);
+
 /// Returns the value of the `get_hash_tree_root()` call at the given `block_number`.
 ///
 /// Assumes that the `address` has the same ABI as the eth2 deposit contract.
@@ -245,6 +274,13 @@ pub async fn get_deposit_root(
         }
     }
 }
+
+fallback_on_err!(try_fallback_get_deposit_root, get_deposit_root,
+    address: &str= address,
+    block_number: u64= block_number,
+    timeout: Duration= timeout;
+    Result<Option<Hash256>, String>
+);
 
 /// Performs a instant, no-transaction call to the contract `address` with the given `0x`-prefixed
 /// `hex_data`.
@@ -335,6 +371,13 @@ pub async fn get_deposit_logs_in_range(
         .collect::<Result<Vec<Log>, String>>()
         .map_err(|e| format!("Failed to get logs in range: {}", e))
 }
+
+fallback_on_err!(try_fallback_get_deposit_logs_in_range, get_deposit_logs_in_range,
+    address: &str= address,
+    block_height_range: Range<u64>= block_height_range.clone(),
+    timeout: Duration= timeout;
+    Result<Vec<Log>, String>
+);
 
 /// Sends an RPC request to `endpoint`, using a POST with the given `body`.
 ///

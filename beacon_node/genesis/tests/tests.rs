@@ -44,7 +44,7 @@ fn basic() {
 
         let service = Eth1GenesisService::new(
             Eth1Config {
-                endpoint: eth1.endpoint(),
+                endpoints: vec![eth1.endpoint()],
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,

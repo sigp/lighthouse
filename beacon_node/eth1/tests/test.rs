@@ -116,7 +116,7 @@ mod eth1_cache {
 
             let service = Service::new(
                 Config {
-                    endpoint: eth1.endpoint(),
+                    endpoints: vec![eth1.endpoint()],
                     deposit_contract_address: deposit_contract.address(),
                     lowest_cached_block_number: initial_block_number,
                     follow_distance,
@@ -191,7 +191,7 @@ mod eth1_cache {
 
         let service = Service::new(
             Config {
-                endpoint: eth1.endpoint(),
+                endpoints: vec![eth1.endpoint()],
                 deposit_contract_address: deposit_contract.address(),
                 lowest_cached_block_number: get_block_number(&web3).await,
                 follow_distance: 0,
@@ -240,7 +240,7 @@ mod eth1_cache {
 
         let service = Service::new(
             Config {
-                endpoint: eth1.endpoint(),
+                endpoints: vec![eth1.endpoint()],
                 deposit_contract_address: deposit_contract.address(),
                 lowest_cached_block_number: get_block_number(&web3).await,
                 follow_distance: 0,
@@ -286,7 +286,7 @@ mod eth1_cache {
 
         let service = Service::new(
             Config {
-                endpoint: eth1.endpoint(),
+                endpoints: vec![eth1.endpoint()],
                 deposit_contract_address: deposit_contract.address(),
                 lowest_cached_block_number: get_block_number(&web3).await,
                 follow_distance: 0,
@@ -333,7 +333,7 @@ mod deposit_tree {
 
         let service = Service::new(
             Config {
-                endpoint: eth1.endpoint(),
+                endpoints: vec![eth1.endpoint()],
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: start_block,
                 follow_distance: 0,
@@ -408,7 +408,7 @@ mod deposit_tree {
 
         let service = Service::new(
             Config {
-                endpoint: eth1.endpoint(),
+                endpoints: vec![eth1.endpoint()],
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: start_block,
                 lowest_cached_block_number: start_block,
@@ -653,7 +653,7 @@ mod fast {
         let now = get_block_number(&web3).await;
         let service = Service::new(
             Config {
-                endpoint: eth1.endpoint(),
+                endpoints: vec![eth1.endpoint()],
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,
@@ -725,7 +725,7 @@ mod persist {
 
         let now = get_block_number(&web3).await;
         let config = Config {
-            endpoint: eth1.endpoint(),
+            endpoints: vec![eth1.endpoint()],
             deposit_contract_address: deposit_contract.address(),
             deposit_contract_deploy_block: now,
             lowest_cached_block_number: now,

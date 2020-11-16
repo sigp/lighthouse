@@ -194,7 +194,10 @@ pub fn get_config<E: EthSpec>(
     // Defines the URL to reach the eth1 node.
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoint = val.to_string();
+        client_config.eth1.endpoints = vec![val.to_string()];
+    } else if let Some(val) = cli_args.value_of("eth1-endpoints") {
+        client_config.sync_eth1_chain = true;
+        client_config.eth1.endpoints = val.split(',').map(String::from).collect();
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {

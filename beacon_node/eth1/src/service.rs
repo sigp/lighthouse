@@ -3,15 +3,15 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
     http::{
-        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, BlockQuery,
-        Eth1NetworkId, Log,
+        get_block_number, get_network_id, try_fallback_get_block,
+        try_fallback_get_deposit_logs_in_range, BlockQuery, Eth1NetworkId, Log,
     },
     inner::{DepositUpdater, Inner},
 };
 use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,6 +31,46 @@ const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
+
+/// Returns Ok if at least one endpoint was ok, else returns Error.
+async fn test_endpoint(
+    endpoint: &str,
+    config_network: Eth1NetworkId,
+    log: &Logger,
+) -> Result<(), ()> {
+    let result = get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+    match result {
+        Ok(network_id) => {
+            if network_id != config_network {
+                warn!(
+                    log,
+                    "Invalid eth1 network. Please switch to correct network. Trying \
+                     fallbacks ...";
+                     "endpoint" => endpoint,
+                    "expected" => format!("{:?}",config_network),
+                    "received" => format!("{:?}",network_id),
+                );
+                Err(())
+            } else {
+                Ok(())
+            }
+        }
+        Err(_) => {
+            warn!(
+                log,
+                "Error connecting to eth1 node. Trying fallbacks ...";
+                "endpoint" => endpoint,
+            );
+            Err(())
+        }
+    }
+}
+
+fallback_on_err!(try_fallback_test_endpoint, test_endpoint,
+    config_network: Eth1NetworkId= config_network.clone(),
+    log: &Logger= log;
+    Result<(), ()>
+);
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -80,7 +120,7 @@ pub struct DepositCacheUpdateOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
-    pub endpoint: String,
+    pub endpoints: Vec<String>,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
     /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
@@ -112,7 +152,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            endpoint: "http://localhost:8545".into(),
+            endpoints: vec!["http://localhost:8545".into()],
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
             network_id: DEFAULT_NETWORK_ID,
             deposit_contract_deploy_block: 1,
@@ -317,9 +357,11 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
+        trace!(self.log, "Start downloading block");
         let remote_head_block = download_eth1_block(self.inner.clone(), None)
             .map_err(|e| format!("Failed to update Eth1 service: {:?}", e))
             .await?;
+        trace!(self.log, "Finished downloading block");
         let remote_head_block_number = Some(remote_head_block.number);
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
@@ -341,10 +383,12 @@ impl Service {
         };
 
         let update_block_cache = async {
+            trace!(self.log, "Start update_block_cache");
             let outcome = self
                 .update_block_cache(remote_head_block_number)
                 .await
                 .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
+            trace!(self.log, "Finish update_block_cache");
 
             trace!(
                 self.log,
@@ -372,6 +416,9 @@ impl Service {
     ///
     /// Emits logs for debugging and errors.
     pub fn auto_update(self, handle: task_executor::TaskExecutor) {
+        trace!(self.log, "Start auto_update";
+            "interval" => self.config().auto_update_interval_millis
+        );
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
         let mut interval = interval_at(Instant::now(), update_interval);
@@ -386,35 +433,27 @@ impl Service {
     }
 
     async fn do_update(&self, update_interval: Duration) -> Result<(), ()> {
-        let endpoint = self.config().endpoint.clone();
+        let endpoints = self.config().endpoints.clone();
         let config_network = self.config().network_id.clone();
-        let result =
-            get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
-        match result {
-            Ok(network_id) => {
-                if network_id != config_network {
-                    crit!(
-                        self.log,
-                        "Invalid eth1 network. Please switch to correct network";
-                        "expected" => format!("{:?}",config_network),
-                        "received" => format!("{:?}",network_id),
-                        "warning" => WARNING_MSG,
-                    );
-                    return Ok(());
-                }
-            }
-            Err(_) => {
-                crit!(
-                    self.log,
-                    "Error connecting to eth1 node. Please ensure that you have an eth1 http server running locally on http://localhost:8545 or \
-                    pass an external endpoint using `--eth1-endpoint <SERVER-ADDRESS>`. Also ensure that `eth` and `net` apis are enabled on the eth1 http server";
-                    "warning" => WARNING_MSG,
-                );
-                return Ok(());
-            }
+        trace!(self.log, "Do eth1 update");
+        if try_fallback_test_endpoint(&endpoints, config_network, &self.log)
+            .await
+            .is_err()
+        {
+            crit!(
+                self.log,
+                "Couldn't connect to any eth1 node. Please ensure that you have an eth1 http \
+                 server running locally on http://localhost:8545 or pass an external endpoint \
+                 using `--eth1-endpoint <SERVER-ADDRESS>` or \
+                 `--eth1-endpoints <COMMA-SEPARATED-SERVER-ADDRESSES>`. Also ensure that `eth` \
+                 and `net` apis are enabled on the eth1 http server";
+                 "warning" => WARNING_MSG
+            );
+            return Ok(());
         }
-
+        trace!(self.log, "Start update");
         let update_result = self.update().await;
+        trace!(self.log, "Finished update");
         match update_result {
             Err(e) => error!(
                 self.log,
@@ -430,6 +469,7 @@ impl Service {
                 "deposits" => format!("{:?}", deposit),
             ),
         };
+        trace!(self.log, "Finish eth1 update");
         Ok(())
     }
 
@@ -452,7 +492,7 @@ impl Service {
         &self,
         remote_highest_block_opt: Option<u64>,
     ) -> Result<DepositCacheUpdateOutcome, Error> {
-        let endpoint = self.config().endpoint.clone();
+        let endpoints = self.config().endpoints.clone();
         let follow_distance = self.config().follow_distance;
         let deposit_contract_address = self.config().deposit_contract_address.clone();
 
@@ -469,8 +509,8 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
 
-        let range = get_new_block_numbers(
-            &endpoint,
+        let range = try_fallback_get_new_block_numbers(
+            &endpoints,
             remote_highest_block_opt,
             next_required_block,
             follow_distance,
@@ -497,8 +537,19 @@ impl Service {
                 match chunks.next() {
                     Some(chunk) => {
                         let chunk_1 = chunk.clone();
-                        match get_deposit_logs_in_range(
-                            &endpoint,
+                        trace!(
+                            self.log,
+                            "try_fallback_get_deposit_logs_in_range";
+                            "endpoints" => format!("{:?}", endpoints),
+                            "deposit_contract_address" => format!("{:?}", deposit_contract_address),
+                            "chunk" => format!("{:?}", chunk),
+                            "fromBlock" => format!("0x{:x}", chunk.start),
+                            "toBlock" => format!("0x{:x}", chunk.end),
+                            "timeout" => format!("{:?}",
+                                Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS))
+                        );
+                        match try_fallback_get_deposit_logs_in_range(
+                            &endpoints,
                             &deposit_contract_address,
                             chunk,
                             Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
@@ -613,11 +664,11 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| self.config().lowest_cached_block_number);
 
-        let endpoint = self.config().endpoint.clone();
+        let endpoints = self.config().endpoints.clone();
         let follow_distance = self.config().follow_distance;
 
-        let range = get_new_block_numbers(
-            &endpoint,
+        let range = try_fallback_get_new_block_numbers(
+            &endpoints,
             remote_highest_block_opt,
             next_required_block,
             follow_distance,
@@ -673,6 +724,7 @@ impl Service {
             |mut block_numbers| async {
                 match block_numbers.next() {
                     Some(block_number) => {
+                        trace!(self.log, "Downloading eth1 block"; "block_number" => block_number);
                         match download_eth1_block(self.inner.clone(), Some(block_number)).await {
                             Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
                             Err(e) => Err(e),
@@ -756,7 +808,7 @@ impl Service {
 
 /// Determine the range of blocks that need to be downloaded, given the remotes best block and
 /// the locally stored best block.
-async fn get_new_block_numbers<'a>(
+async fn get_new_block_numbers(
     endpoint: &str,
     remote_highest_block_opt: Option<u64>,
     next_required_block: u64,
@@ -790,6 +842,13 @@ async fn get_new_block_numbers<'a>(
     }
 }
 
+fallback_on_err!(try_fallback_get_new_block_numbers, get_new_block_numbers,
+    remote_highest_block_opt: Option<u64>=remote_highest_block_opt,
+    next_required_block: u64=next_required_block,
+    follow_distance: u64=follow_distance;
+    Result<Option<RangeInclusive<u64>>, Error>
+);
+
 /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given
 /// `block_number`.
 ///
@@ -800,7 +859,7 @@ async fn download_eth1_block(
     cache: Arc<Inner>,
     block_number_opt: Option<u64>,
 ) -> Result<Eth1Block, Error> {
-    let endpoint = cache.config.read().endpoint.clone();
+    let endpoints = cache.config.read().endpoints.clone();
 
     let deposit_root = block_number_opt.and_then(|block_number| {
         cache
@@ -819,8 +878,8 @@ async fn download_eth1_block(
     });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
-    let http_block = get_block(
-        &endpoint,
+    let http_block = try_fallback_get_block(
+        &endpoints,
         block_number_opt
             .map(BlockQuery::Number)
             .unwrap_or_else(|| BlockQuery::Latest),

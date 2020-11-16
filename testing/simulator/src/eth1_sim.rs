@@ -101,7 +101,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let mut beacon_config = testing_client_config();
 
         beacon_config.genesis = ClientGenesis::DepositContract;
-        beacon_config.eth1.endpoint = eth1_endpoint;
+        beacon_config.eth1.endpoints = vec![eth1_endpoint];
         beacon_config.eth1.deposit_contract_address = deposit_contract_address;
         beacon_config.eth1.deposit_contract_deploy_block = 0;
         beacon_config.eth1.lowest_cached_block_number = 0;
