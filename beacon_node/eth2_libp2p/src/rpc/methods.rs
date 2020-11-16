@@ -392,6 +392,22 @@ impl std::fmt::Display for BlocksByRangeRequest {
     }
 }
 
+impl slog::KV for StatusMessage {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        use slog::Value;
+        serializer.emit_str("fork_digest", &format!("{:?}", self.fork_digest))?;
+        Value::serialize(&self.finalized_epoch, record, "finalized_epoch", serializer)?;
+        serializer.emit_str("finalized_root", &self.finalized_root.to_string())?;
+        Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
+        serializer.emit_str("head_root", &self.head_root.to_string())?;
+        slog::Result::Ok(())
+    }
+}
+
 impl slog::Value for RequestId {
     fn serialize(
         &self,

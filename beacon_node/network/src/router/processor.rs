@@ -78,7 +78,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
             beacon_processor_send,
-            log: log.clone(),
+            log: log.new(o!("service" => "router")),
         }
     }
 
@@ -114,16 +114,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// re-status.
     pub fn send_status(&mut self, peer_id: PeerId) {
         if let Ok(status_message) = status_message(&self.chain) {
-            debug!(
-                self.log,
-                "Sending Status Request";
-                "peer" => peer_id.to_string(),
-                "fork_digest" => format!("{:?}", status_message.fork_digest),
-                "finalized_root" => format!("{:?}", status_message.finalized_root),
-                "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
-                "head_root" => format!("{}", status_message.head_root),
-                "head_slot" => format!("{}", status_message.head_slot),
-            );
+            debug!(self.log, "Sending Status Request"; "peer" => %peer_id, &status_message);
             self.network
                 .send_processor_request(peer_id, Request::Status(status_message));
         }
@@ -138,16 +129,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: PeerRequestId,
         status: StatusMessage,
     ) {
-        debug!(
-            self.log,
-            "Received Status Request";
-            "peer" => peer_id.to_string(),
-            "fork_digest" => format!("{:?}", status.fork_digest),
-            "finalized_root" => format!("{:?}", status.finalized_root),
-            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
-            "head_root" => format!("{}", status.head_root),
-            "head_slot" => format!("{}", status.head_slot),
-        );
+        debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status);
 
         // ignore status responses if we are shutting down
         if let Ok(status_message) = status_message(&self.chain) {
@@ -166,16 +148,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Process a `Status` response from a peer.
     pub fn on_status_response(&mut self, peer_id: PeerId, status: StatusMessage) {
-        debug!(
-            self.log,
-            "Received Status Response";
-            "peer_id" => peer_id.to_string(),
-            "fork_digest" => format!("{:?}", status.fork_digest),
-            "finalized_root" => format!("{:?}", status.finalized_root),
-            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
-            "head_root" => format!("{}", status.head_root),
-            "head_slot" => format!("{}", status.head_slot),
-        );
+        debug!(self.log, "Received Status Response"; "peer_id" => %peer_id, &status);
 
         // Process the status message, without sending back another status.
         if let Err(e) = self.process_status(peer_id, status) {
@@ -292,7 +265,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         debug!(
             self.log,
             "Received BlocksByRange Request";
-            "peer" => format!("{:?}", peer_id),
+            "peer_id" => %peer_id,
             "count" => req.count,
             "start_slot" => req.start_slot,
             "step" => req.step,

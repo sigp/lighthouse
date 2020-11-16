@@ -354,10 +354,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// An error has occured in the RPC.
     ///
     /// This adjusts a peer's score based on the error.
-    pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
+    pub fn handle_rpc_error(
+        &mut self,
+        peer_id: &PeerId,
+        protocol: Protocol,
+        err: &RPCError,
+        direction: ConnectionDirection,
+    ) {
         let client = self.network_globals.client(peer_id);
         let score = self.network_globals.peers.read().score(peer_id);
-        debug!(self.log, "RPC Error"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string(), "peer_id" => peer_id.to_string(), "score" => score.to_string());
+        debug!(self.log, "RPC Error"; "protocol" => %protocol, "err" => %err, "client" => %client,
+            "peer_id" => %peer_id, "score" => %score, "direction" => ?direction);
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -398,13 +405,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Status => PeerAction::LowToleranceError,
                 }
             }
-            RPCError::StreamTimeout => match protocol {
-                Protocol::Ping => PeerAction::LowToleranceError,
-                Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                Protocol::Goodbye => return,
-                Protocol::MetaData => return,
-                Protocol::Status => return,
+            RPCError::StreamTimeout => match direction {
+                ConnectionDirection::Incoming => {
+                    // we timed out
+                    warn!(self.log, "Timed out to a peer's request. Likely too many resources, reduce peer count");
+                    return;
+                }
+                ConnectionDirection::Outgoing => match protocol {
+                    Protocol::Ping => PeerAction::LowToleranceError,
+                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::Goodbye => return,
+                    Protocol::MetaData => return,
+                    Protocol::Status => return,
+                },
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
             RPCError::RateLimited => match protocol {
