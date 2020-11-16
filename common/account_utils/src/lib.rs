@@ -143,13 +143,7 @@ fn trim_newline(s: &mut String) {
 /// According to unicode, every byte that starts with 0b10xxxxxx continues encoding of character
 /// Therefore the number of characters equals number of bytes minus number of 0b10xxxxxx bytes
 fn count_unicode_characters(bits: &[u8]) -> usize {
-    let mut len = 0;
-    for bit in bits {
-        if bit >> 6 != 2 {
-            len += 1;
-        }
-    }
-    len
+    bits.iter().filter(|bit| *bit >> 6 != 2).count()
 }
 
 /// Takes a string password and checks that it meets minimum requirements.
@@ -204,8 +198,7 @@ impl AsRef<[u8]> for ZeroizeString {
 
 #[cfg(test)]
 mod test {
-    use super::is_password_sufficiently_complex;
-    use super::strip_off_newlines;
+    use super::*;
 
     #[test]
     fn test_strip_off() {
@@ -255,5 +248,19 @@ mod test {
     #[should_panic]
     fn test_password_too_short() {
         is_password_sufficiently_complex(b"TestPass").unwrap();
+    }
+
+    #[test]
+    fn unicode_characters() {
+        assert_eq!(count_unicode_characters(b""), 0);
+        assert_eq!(count_unicode_characters("🐱".to_string().as_bytes()), 1);
+        assert_eq!(count_unicode_characters("🐱🐱".to_string().as_bytes()), 2);
+
+        assert_eq!(count_unicode_characters(b"cats"), 4);
+        assert_eq!(count_unicode_characters("cats🐱".to_string().as_bytes()), 5);
+        assert_eq!(
+            count_unicode_characters("cats🐱🐱".to_string().as_bytes()),
+            6
+        );
     }
 }
