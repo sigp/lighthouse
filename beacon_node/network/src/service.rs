@@ -759,7 +759,7 @@ fn update_gossip_metrics<T: EthSpec>(
                     // main topics
                     if let Some(v) = metrics::get_gauge(
                         &metrics::AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC,
-                        &[&format!("{:?}", kind)],
+                        &[kind.as_ref()],
                     ) {
                         v.set(v.get() / (*peers as f64))
                     };
@@ -795,15 +795,15 @@ fn update_gossip_metrics<T: EthSpec>(
     }
 
     // protocol peers
-    let mut peers_per_protocol: HashMap<String, i64> = HashMap::new();
+    let mut peers_per_protocol: HashMap<&'static str, i64> = HashMap::new();
     for (_peer, protocol) in gossipsub.peer_protocol() {
-        *peers_per_protocol.entry(protocol.to_string()).or_default() += 1;
+        *peers_per_protocol
+            .entry(protocol.as_static_ref())
+            .or_default() += 1;
     }
 
     for (protocol, peers) in peers_per_protocol.iter() {
-        if let Some(v) =
-            metrics::get_int_gauge(&metrics::PEERS_PER_PROTOCOL, &[&protocol.to_string()])
-        {
+        if let Some(v) = metrics::get_int_gauge(&metrics::PEERS_PER_PROTOCOL, &[protocol]) {
             v.set(*peers)
         };
     }
