@@ -14,7 +14,7 @@ use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
 use libp2p::swarm::NegotiatedSubstream;
-use slog::{crit, debug, warn};
+use slog::{crit, debug, trace, warn};
 use smallvec::SmallVec;
 use std::{
     collections::hash_map::Entry,
@@ -238,7 +238,9 @@ where
     /// Initiates the handler's shutdown process, sending an optional last message to the peer.
     pub fn shutdown(&mut self, final_msg: Option<(RequestId, RPCRequest<TSpec>)>) {
         if matches!(self.state, HandlerState::Active) {
-            debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
+            if !self.dial_queue.is_empty() {
+                debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
+            }
             // we now drive to completion communications already dialed/established
             while let Some((id, req)) = self.dial_queue.pop() {
                 self.pending_errors.push(HandlerErr::Outbound {
@@ -283,8 +285,11 @@ where
         let inbound_info = if let Some(info) = self.inbound_substreams.get_mut(&inbound_id) {
             info
         } else {
-            warn!(self.log, "Inbound stream has expired, response not sent";
-                "response" => response.to_string(), "id" => inbound_id, "msg" => "Likely too many resources, reduce peer count");
+            if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
+                // the stream is closed after sending the expected number of responses
+                trace!(self.log, "Inbound stream has expired, response not sent";
+                    "response" => %response, "id" => inbound_id);
+            }
             return;
         };
 
