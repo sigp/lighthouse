@@ -306,8 +306,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         let log = self.log.clone();
 
         // Shift the db reads to a blocking thread.
-        self.executor.spawn_blocking(
-            move || {
+        self.executor.spawn_blocking(move || {
 
         debug!(
             log,
