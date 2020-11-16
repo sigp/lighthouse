@@ -34,6 +34,8 @@ pub struct Processor<T: BeaconChainTypes> {
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    /// The current task executor.
+    executor: task_executor::TaskExecutor,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -66,7 +68,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
             network_globals,
-            executor,
+            executor: executor.clone(),
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
             log: log.clone(),
@@ -78,6 +80,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
             beacon_processor_send,
+            executor,
             log: log.clone(),
         }
     }
@@ -246,40 +249,49 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn on_blocks_by_root_request(
-        &mut self,
+        &self,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     ) {
-        let mut send_block_count = 0;
-        for root in request.block_roots.iter() {
-            if let Ok(Some(block)) = self.chain.store.get_block(root) {
-                self.network.send_response(
-                    peer_id.clone(),
-                    Response::BlocksByRoot(Some(Box::new(block))),
-                    request_id,
-                );
-                send_block_count += 1;
-            } else {
-                debug!(
-                    self.log,
-                    "Peer requested unknown block";
-                    "peer" => peer_id.to_string(),
-                    "request_root" => format!("{:}", root),
-                );
-            }
-        }
-        debug!(
-            self.log,
-            "Received BlocksByRoot Request";
-            "peer" => peer_id.to_string(),
-            "requested" => request.block_roots.len(),
-            "returned" => send_block_count,
-        );
+        let chain = self.chain.clone();
+        let mut network = self.network.clone();
+        let log = self.log.clone();
 
-        // send stream termination
-        self.network
-            .send_response(peer_id, Response::BlocksByRoot(None), request_id);
+        // Shift the db reads to a blocking thread.
+        self.executor.spawn_blocking(
+            move || {
+                let mut send_block_count = 0;
+                for root in request.block_roots.iter() {
+                    if let Ok(Some(block)) = chain.store.get_block(root) {
+                        network.send_response(
+                            peer_id.clone(),
+                            Response::BlocksByRoot(Some(Box::new(block))),
+                            request_id,
+                        );
+                        send_block_count += 1;
+                    } else {
+                        debug!(
+                            log,
+                            "Peer requested unknown block";
+                            "peer" => peer_id.to_string(),
+                            "request_root" => format!("{:}", root),
+                        );
+                    }
+                }
+                debug!(
+                    log,
+                    "Received BlocksByRoot Request";
+                    "peer" => peer_id.to_string(),
+                    "requested" => request.block_roots.len(),
+                    "returned" => send_block_count,
+                );
+
+                // send stream termination
+                network.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+            },
+            "blocks_by_root_request",
+        );
     }
 
     /// Handle a `BlocksByRange` request from the peer.
@@ -289,8 +301,16 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: PeerRequestId,
         mut req: BlocksByRangeRequest,
     ) {
+        let chain = self.chain.clone();
+        let mut network = self.network.clone();
+        let log = self.log.clone();
+
+        // Shift the db reads to a blocking thread.
+        self.executor.spawn_blocking(
+            move || {
+
         debug!(
-            self.log,
+            log,
             "Received BlocksByRange Request";
             "peer" => format!("{:?}", peer_id),
             "count" => req.count,
@@ -303,21 +323,21 @@ impl<T: BeaconChainTypes> Processor<T> {
             req.count = MAX_REQUEST_BLOCKS;
         }
         if req.step == 0 {
-            warn!(self.log,
+            warn!(log,
                 "Peer sent invalid range request";
                 "error" => "Step sent was 0");
-            self.network.goodbye_peer(peer_id, GoodbyeReason::Fault);
+            network.goodbye_peer(peer_id, GoodbyeReason::Fault);
             return;
         }
 
-        let forwards_block_root_iter = match self
-            .chain
+        let forwards_block_root_iter = match
+            chain
             .forwards_iter_block_roots(Slot::from(req.start_slot))
         {
             Ok(iter) => iter,
             Err(e) => {
                 return error!(
-                    self.log,
+                    log,
                     "Unable to obtain root iter";
                     "error" => format!("{:?}", e)
                 )
@@ -352,7 +372,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
             Err(e) => {
-                error!(self.log, "Error during iteration over blocks"; "error" => format!("{:?}", e));
+                error!(log, "Error during iteration over blocks"; "error" => format!("{:?}", e));
                 return;
             }
         };
@@ -365,14 +385,14 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         let mut blocks_sent = 0;
         for root in block_roots {
-            if let Ok(Some(block)) = self.chain.store.get_block(&root) {
+            if let Ok(Some(block)) = chain.store.get_block(&root) {
                 // Due to skip slots, blocks could be out of the range, we ensure they are in the
                 // range before sending
                 if block.slot() >= req.start_slot
                     && block.slot() < req.start_slot + req.count * req.step
                 {
                     blocks_sent += 1;
-                    self.network.send_response(
+                    network.send_response(
                         peer_id.clone(),
                         Response::BlocksByRange(Some(Box::new(block))),
                         request_id,
@@ -380,21 +400,21 @@ impl<T: BeaconChainTypes> Processor<T> {
                 }
             } else {
                 error!(
-                    self.log,
+                    log,
                     "Block in the chain is not in the store";
                     "request_root" => format!("{:}", root),
                 );
             }
         }
 
-        let current_slot = self
-            .chain
+        let current_slot =
+            chain
             .slot()
-            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
+            .unwrap_or_else(|_| chain.slot_clock.genesis_slot());
 
         if blocks_sent < (req.count as usize) {
             debug!(
-                self.log,
+                log,
                 "BlocksByRange Response Sent";
                 "peer" => peer_id.to_string(),
                 "msg" => "Failed to return all requested blocks",
@@ -404,7 +424,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 "returned" => blocks_sent);
         } else {
             debug!(
-                self.log,
+                log,
                 "Sending BlocksByRange Response";
                 "peer" => peer_id.to_string(),
                 "start_slot" => req.start_slot,
@@ -414,8 +434,11 @@ impl<T: BeaconChainTypes> Processor<T> {
         }
 
         // send the stream terminator
-        self.network
+        network
             .send_response(peer_id, Response::BlocksByRange(None), request_id);
+
+                }, "blocks_by_range_request"
+        );
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -632,6 +655,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 
 /// Wraps a Network Channel to employ various RPC related network functionality for the
 /// processor.
+#[derive(Clone)]
 pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
