@@ -18,6 +18,9 @@ use types::{
     SignedBeaconBlockHash, Slot,
 };
 
+/// Compact approx every few days by default (every 1024 epochs).
+const COMPACTION_MODULO_THRESHOLD: u64 = 1024;
+
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
 pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
@@ -49,7 +52,10 @@ impl MigratorConfig {
 /// Pruning can be successful, or in rare cases deferred to a later point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PruningOutcome {
-    Successful,
+    /// The pruning succeeded and updated the pruning checkpoint from `old_finalized_checkpoint`.
+    Successful {
+        old_finalized_checkpoint: Checkpoint,
+    },
     DeferredConcurrentMutation,
 }
 
@@ -159,7 +165,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let finalized_state_root = notif.finalized_state_root;
         let finalized_state = notif.finalized_state;
 
-        match Self::prune_abandoned_forks(
+        let old_finalized_checkpoint = match Self::prune_abandoned_forks(
             db.clone(),
             notif.head_tracker,
             finalized_state_root,
@@ -168,7 +174,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             notif.genesis_block_root,
             log,
         ) {
-            Ok(PruningOutcome::Successful) => {}
+            Ok(PruningOutcome::Successful {
+                old_finalized_checkpoint,
+            }) => old_finalized_checkpoint,
             Ok(PruningOutcome::DeferredConcurrentMutation) => {
                 warn!(
                     log,
@@ -203,15 +211,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         };
 
         // Finally, compact the database so that new free space is properly reclaimed.
-        debug!(log, "Starting database compaction");
-        if let Err(e) = db.compact() {
-            error!(
-                log,
-                "Database compaction failed";
-                "error" => format!("{:?}", e)
-            );
+        // We use a heuristic to avoid compacting too often, as it's potentially costly and puts
+        // wear on the disk.
+        let old_finalized_epoch = old_finalized_checkpoint.epoch;
+        let new_finalized_epoch = notif.finalized_checkpoint.epoch;
+        if db.compact_on_prune()
+            && (new_finalized_epoch % COMPACTION_MODULO_THRESHOLD == 0
+                || new_finalized_epoch - old_finalized_epoch > COMPACTION_MODULO_THRESHOLD)
+        {
+            info!(log, "Starting database compaction");
+            if let Err(e) = db.compact() {
+                error!(
+                    log,
+                    "Database compaction failed";
+                    "error" => format!("{:?}", e)
+                );
+            } else {
+                info!(log, "Database compaction complete");
+            }
         }
-        debug!(log, "Database compaction complete");
     }
 
     /// Spawn a new child thread to run the migration process.
@@ -272,7 +290,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .into());
         }
 
-        info!(
+        debug!(
             log,
             "Starting database pruning";
             "old_finalized_epoch" => old_finalized_checkpoint.epoch,
@@ -469,8 +487,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint));
 
         store.hot_db.do_atomically(kv_batch)?;
-        info!(log, "Database pruning complete");
+        debug!(log, "Database pruning complete");
 
-        Ok(PruningOutcome::Successful)
+        Ok(PruningOutcome::Successful {
+            old_finalized_checkpoint,
+        })
     }
 }
