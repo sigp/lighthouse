@@ -43,6 +43,9 @@ use validator_store::ValidatorStore;
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 
+/// The time between polls when waiting for genesis.
+const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
+
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -378,7 +381,12 @@ async fn init_from_beacon_node<E: EthSpec>(
             "seconds_to_wait" => (genesis_time - now).as_secs()
         );
 
-        delay_for(genesis_time - now).await;
+        // Start polling the node for pre-genesis information, cancelling the polling as soon as the
+        // timer runs out.
+        tokio::select! {
+            result = poll_whilst_waiting_for_genesis(beacon_node, context.log()) => result?,
+            () = delay_for(genesis_time - now) => ()
+        };
     } else {
         info!(
             context.log(),
@@ -425,5 +433,44 @@ async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Resu
                 delay_for(RETRY_DELAY).await;
             }
         }
+    }
+}
+
+/// Request the version from the node, looping back and trying again on failure. Exit once the node
+/// has been contacted.
+async fn poll_whilst_waiting_for_genesis(
+    beacon_node: &BeaconNodeHttpClient,
+    log: &Logger,
+) -> Result<(), String> {
+    loop {
+        match beacon_node.get_beacon_genesis().await {
+            Ok(genesis) => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| format!("Unable to read system time: {:?}", e))?;
+                let genesis_time = Duration::from_secs(genesis.data.genesis_time);
+
+                if now < genesis_time {
+                    info!(
+                        log,
+                        "Waiting for genesis";
+                        "seconds_to_wait" => (genesis_time - now).as_secs()
+                    );
+
+                    delay_for(genesis_time - now).await;
+                } else {
+                    break Ok(());
+                }
+            }
+            Err(e) => {
+                error!(
+                    log,
+                    "Error polling beacon node";
+                    "error" => format!("{:?}", e)
+                );
+            }
+        }
+
+        delay_for(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }
