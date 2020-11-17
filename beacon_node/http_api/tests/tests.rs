@@ -6,6 +6,7 @@ use beacon_chain::{
 };
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
+use eth2::StatusCode;
 use eth2::{types::*, BeaconNodeHttpClient, Url};
 use eth2_libp2p::{
     rpc::methods::MetaData,
@@ -25,7 +26,6 @@ use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
     EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
-use eth2::StatusCode;
 
 type E = MainnetEthSpec;
 
