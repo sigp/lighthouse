@@ -218,6 +218,13 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
+    client_config.store.compact_on_init = cli_args.is_present("compact-db");
+    if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
+        client_config.store.compact_on_prune = compact_on_prune
+            .parse()
+            .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
+    }
+
     /*
      * Zero-ports
      *
