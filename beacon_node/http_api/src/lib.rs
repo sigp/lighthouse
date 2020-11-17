@@ -2157,7 +2157,7 @@ pub fn serve<T: BeaconChainTypes>(
                             stream_map.insert(topic.to_string(), receiver);
                         }
                     } else {
-                        Err(warp_utils::reject::custom_server_error(
+                        return Err(warp_utils::reject::custom_server_error(
                             "event handler was not initialized".to_string(),
                         ))
                     }
