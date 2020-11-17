@@ -3,7 +3,7 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use slog::{debug, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::{mpsc, Arc};
