@@ -56,6 +56,11 @@ where
         }
     }
 
+    /// Returns the timeout duration.
+    pub fn timeout(&self) -> Duration {
+        self.default_entry_timeout
+    }
+
     /// Insert an entry into the mapping. Entries will expire after the `default_entry_timeout`.
     pub fn insert(&mut self, key: K) {
         self.insert_at(key, self.default_entry_timeout);

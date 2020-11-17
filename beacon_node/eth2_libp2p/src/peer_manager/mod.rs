@@ -223,12 +223,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .into_iter()
             .filter(|s| {
                 // Extend min_ttl of connected peers on required subnets
-                if let Some(min_ttl) = s.min_ttl {
-                    self.network_globals
-                        .peers
-                        .write()
-                        .extend_peers_on_subnet(s.subnet_id, min_ttl);
-                }
+                self.network_globals
+                    .peers
+                    .write()
+                    .extend_peers_on_subnet(s.subnet_id, s.min_ttl);
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
                     .network_globals

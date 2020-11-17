@@ -291,11 +291,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 {
                     // if the slot is more than epoch away, add an event to start looking for peers
                     // add one slot to ensure we keep the peer for the subscription slot
-                    let min_ttl = self
-                        .beacon_chain
-                        .slot_clock
-                        .duration_to_slot(exact_subnet.slot + 1)
-                        .map(|duration| std::time::Instant::now() + duration);
+                    let min_ttl = std::time::Instant::now()
+                        + self
+                            .beacon_chain
+                            .slot_clock
+                            .duration_to_slot(exact_subnet.slot + 1)
+                            .unwrap_or(Duration::from_secs(0));
                     Some(SubnetDiscovery {
                         subnet_id: exact_subnet.subnet_id,
                         min_ttl,
@@ -441,7 +442,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.events
                 .push_back(AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
                     subnet_id,
-                    min_ttl: None,
+                    min_ttl: Instant::now() + self.random_subnets.timeout(),
                 }]));
 
             // if we are not already subscribed, then subscribe
