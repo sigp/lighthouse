@@ -81,6 +81,7 @@ impl ApiTester {
         let initialized_validators = validator_store.initialized_validators();
 
         let context: Arc<Context<TestingSlotClock, E>> = Arc::new(Context {
+            runtime: Default::default(),
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
             validator_store: Some(validator_store),
@@ -421,7 +422,7 @@ struct KeystoreValidatorScenario {
     correct_password: bool,
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_pubkey() {
     ApiTester::new()
         .await
@@ -430,7 +431,7 @@ async fn invalid_pubkey() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn simple_getters() {
     ApiTester::new()
         .await
@@ -442,7 +443,7 @@ async fn simple_getters() {
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hd_validator_creation() {
     ApiTester::new()
         .await
@@ -477,7 +478,7 @@ async fn hd_validator_creation() {
         .assert_validators_count(3);
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn validator_enabling() {
     ApiTester::new()
         .await
@@ -500,7 +501,7 @@ async fn validator_enabling() {
         .assert_validators_count(2);
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn keystore_validator_creation() {
     ApiTester::new()
         .await

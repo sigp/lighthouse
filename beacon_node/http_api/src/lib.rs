@@ -17,10 +17,7 @@ use beacon_chain::{
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
-use eth2::{
-    types::{self as api_types, ValidatorId},
-    StatusCode,
-};
+use eth2::types::{self as api_types, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
@@ -42,6 +39,7 @@ use types::{
     Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
+use warp::http::StatusCode;
 use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
 

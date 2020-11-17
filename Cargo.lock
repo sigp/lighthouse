@@ -334,7 +334,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf13118df3e3dce4b5ac930641343b91b656e4e72c8f8325838b01a4b1c9d45"
 dependencies = [
- "http 0.2.1",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.11",
  "url 2.1.1",
 ]
@@ -2053,6 +2053,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "form_urlencoded"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ece68d15c92e84fa4f19d3780f1294e5ca82a78a6d515f1efaabcc144688be00"
+dependencies = [
+ "matches",
+ "percent-encoding 2.1.0",
+]
+
+[[package]]
 name = "fuchsia-cprng"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2361,11 +2371,30 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http 0.2.1",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "indexmap",
  "slab 0.4.2",
  "tokio 0.2.22",
  "tokio-util 0.3.1",
+ "tracing",
+ "tracing-futures",
+]
+
+[[package]]
+name = "h2"
+version = "0.3.0"
+source = "git+https://github.com/agemanning/h2?branch=lighthouse#a59d6eba170ffaa7d9504b95c98b7321f459581b"
+dependencies = [
+ "bytes 0.6.0",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "futures-util",
+ "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
+ "indexmap",
+ "slab 0.4.2",
+ "tokio 0.3.3",
+ "tokio-util 0.5.0",
  "tracing",
  "tracing-futures",
 ]
@@ -2412,8 +2441,23 @@ dependencies = [
  "base64 0.12.3",
  "bitflags 1.2.1",
  "bytes 0.5.6",
- "headers-core",
- "http 0.2.1",
+ "headers-core 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mime 0.3.16",
+ "sha-1 0.8.2",
+ "time 0.1.44",
+]
+
+[[package]]
+name = "headers"
+version = "0.3.2"
+source = "git+https://github.com/blacktemplar/headers?branch=lighthouse#8bffbd8aa2e170745a81e62fc0d7e98c0a23a69a"
+dependencies = [
+ "base64 0.13.0",
+ "bitflags 1.2.1",
+ "bytes 0.6.0",
+ "headers-core 0.2.0 (git+https://github.com/blacktemplar/headers?branch=lighthouse)",
+ "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
  "mime 0.3.16",
  "sha-1 0.8.2",
  "time 0.1.44",
@@ -2425,7 +2469,15 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
- "http 0.2.1",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "headers-core"
+version = "0.2.0"
+source = "git+https://github.com/blacktemplar/headers?branch=lighthouse#8bffbd8aa2e170745a81e62fc0d7e98c0a23a69a"
+dependencies = [
+ "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
 ]
 
 [[package]]
@@ -2532,6 +2584,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "http"
+version = "0.2.1"
+source = "git+https://github.com/agemanning/http?branch=lighthouse#144a8ad6334f40bf4f84e26cf582ff164795024a"
+dependencies = [
+ "bytes 0.6.0",
+ "fnv",
+ "itoa",
+]
+
+[[package]]
 name = "http-body"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2550,7 +2612,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13d5ff830006f7646652e057693569bfe0d51760c0085a071769d142a205111b"
 dependencies = [
  "bytes 0.5.6",
- "http 0.2.1",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "http-body"
+version = "0.3.1"
+source = "git+https://github.com/agemanning/http-body?branch=lighthouse#a10365c24eaee8eab881519accad48b695b88ccf"
+dependencies = [
+ "bytes 0.6.0",
+ "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
 ]
 
 [[package]]
@@ -2688,14 +2759,37 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.2.7",
- "http 0.2.1",
- "http-body 0.3.1",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "http-body 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "httparse",
  "httpdate",
  "itoa",
  "pin-project 1.0.1",
  "socket2",
  "tokio 0.2.22",
+ "tower-service",
+ "tracing",
+ "want 0.3.0",
+]
+
+[[package]]
+name = "hyper"
+version = "0.14.0-dev"
+source = "git+https://github.com/sigp/hyper?branch=lighthouse#6e24636c115108711fc2ac0c1cf81d4b3dce2277"
+dependencies = [
+ "bytes 0.6.0",
+ "futures-channel",
+ "futures-core",
+ "futures-util",
+ "h2 0.3.0",
+ "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
+ "http-body 0.3.1 (git+https://github.com/agemanning/http-body?branch=lighthouse)",
+ "httparse",
+ "httpdate",
+ "itoa",
+ "pin-project 1.0.1",
+ "socket2",
+ "tokio 0.3.3",
  "tower-service",
  "tracing",
  "want 0.3.0",
@@ -4824,8 +4918,8 @@ dependencies = [
  "encoding_rs",
  "futures-core",
  "futures-util",
- "http 0.2.1",
- "http-body 0.3.1",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "http-body 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper 0.13.9",
  "hyper-tls 0.4.3",
  "ipnet",
@@ -4839,7 +4933,7 @@ dependencies = [
  "pin-project-lite",
  "serde",
  "serde_json",
- "serde_urlencoded",
+ "serde_urlencoded 0.6.1",
  "tokio 0.2.22",
  "tokio-tls 0.3.1",
  "url 2.1.1",
@@ -5179,6 +5273,18 @@ dependencies = [
  "itoa",
  "serde",
  "url 2.1.1",
+]
+
+[[package]]
+name = "serde_urlencoded"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edfa57a7f8d9c1d260a549e7224100f6c43d43f9103e06dd8b4095a9b2b43ce9"
+dependencies = [
+ "form_urlencoded",
+ "itoa",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
@@ -6244,14 +6350,14 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d9e878ad426ca286e4dcae09cbd4e1973a7f8987d97570e2469703dd7f5720c"
+checksum = "0381c1e6e08908317cee104781ca48afe03f37cc857792b85f01f9828fb55ba3"
 dependencies = [
  "futures-util",
  "log 0.4.11",
- "pin-project 0.4.27",
- "tokio 0.2.22",
+ "pin-project 1.0.1",
+ "tokio 0.3.3",
  "tungstenite",
 ]
 
@@ -6332,6 +6438,20 @@ dependencies = [
  "log 0.4.11",
  "pin-project-lite",
  "slab 0.4.2",
+ "tokio 0.3.3",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73af76301319bcacf00d26d3c75534ef248dcad7ceaf36d93ec902453c3b1706"
+dependencies = [
+ "bytes 0.6.0",
+ "futures-core",
+ "futures-sink",
+ "log 0.4.11",
+ "pin-project-lite",
  "tokio 0.3.3",
 ]
 
@@ -6498,7 +6618,7 @@ dependencies = [
  "base64 0.12.3",
  "byteorder",
  "bytes 0.5.6",
- "http 0.2.1",
+ "http 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "httparse",
  "input_buffer",
  "log 0.4.11",
@@ -6700,12 +6820,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "urlencoding"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9232eb53352b4442e40d7900465dfc534e8cb2dc8f18656fcb2ac16112b5593"
-
-[[package]]
 name = "utf-8"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6854,28 +6968,28 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.2.5"
-source = "git+https://github.com/paulhauner/warp?branch=cors-wildcard#a7685b76d70c3e5628e31d60aee510acec3c5c30"
+source = "git+https://github.com/sigp/warp?branch=lighthouse#21b36a987ecc1b3c50c1314578ded64d12f742c6"
 dependencies = [
- "bytes 0.5.6",
+ "bytes 0.6.0",
  "futures 0.3.7",
- "headers",
- "http 0.2.1",
- "hyper 0.13.9",
+ "headers 0.3.2 (git+https://github.com/blacktemplar/headers?branch=lighthouse)",
+ "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
+ "hyper 0.14.0-dev",
  "log 0.4.11",
  "mime 0.3.16",
  "mime_guess",
  "multipart",
- "pin-project 0.4.27",
+ "percent-encoding 2.1.0",
+ "pin-project 1.0.1",
  "scoped-tls 1.0.0",
  "serde",
  "serde_json",
- "serde_urlencoded",
- "tokio 0.2.22",
+ "serde_urlencoded 0.7.0",
+ "tokio 0.3.3",
  "tokio-tungstenite",
  "tower-service",
  "tracing",
  "tracing-futures",
- "urlencoding",
 ]
 
 [[package]]
@@ -6884,7 +6998,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "eth2",
- "headers",
+ "headers 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "safe_arith",
  "serde",
  "state_processing",
