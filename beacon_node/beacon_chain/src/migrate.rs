@@ -3,12 +3,12 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::{migrate_database, HotColdDBError};
 use store::iter::RootsIterator;
 use store::{Error, ItemStore, StoreItem, StoreOp};
@@ -18,8 +18,8 @@ use types::{
     SignedBeaconBlockHash, Slot,
 };
 
-/// Compact approx every few days by default (every 1024 epochs).
-const COMPACTION_PERIOD: u64 = 1024;
+/// Compact roughly every 7 days by default.
+const COMPACTION_PERIOD_SECONDS: u64 = 604800;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
@@ -52,10 +52,7 @@ impl MigratorConfig {
 /// Pruning can be successful, or in rare cases deferred to a later point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PruningOutcome {
-    /// The pruning succeeded and updated the pruning checkpoint from `old_finalized_checkpoint`.
-    Successful {
-        old_finalized_checkpoint: Checkpoint,
-    },
+    Successful,
     DeferredConcurrentMutation,
 }
 
@@ -165,7 +162,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let finalized_state_root = notif.finalized_state_root;
         let finalized_state = notif.finalized_state;
 
-        let old_finalized_checkpoint = match Self::prune_abandoned_forks(
+        match Self::prune_abandoned_forks(
             db.clone(),
             notif.head_tracker,
             finalized_state_root,
@@ -174,9 +171,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             notif.genesis_block_root,
             log,
         ) {
-            Ok(PruningOutcome::Successful {
-                old_finalized_checkpoint,
-            }) => old_finalized_checkpoint,
+            Ok(PruningOutcome::Successful) => {}
             Ok(PruningOutcome::DeferredConcurrentMutation) => {
                 warn!(
                     log,
@@ -211,23 +206,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         };
 
         // Finally, compact the database so that new free space is properly reclaimed.
-        // We use a heuristic to avoid compacting too often, as it's potentially costly and puts
-        // wear on the disk.
-        let old_finalized_epoch = old_finalized_checkpoint.epoch;
-        let new_finalized_epoch = notif.finalized_checkpoint.epoch;
-        if db.compact_on_prune()
-            && old_finalized_epoch / COMPACTION_PERIOD < new_finalized_epoch / COMPACTION_PERIOD
-        {
-            info!(log, "Starting database compaction");
-            if let Err(e) = db.compact() {
-                error!(
-                    log,
-                    "Database compaction failed";
-                    "error" => format!("{:?}", e)
-                );
-            } else {
-                info!(log, "Database compaction complete");
-            }
+        if let Err(e) = Self::run_compaction(db, log) {
+            warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
         }
     }
 
@@ -488,8 +468,32 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         store.hot_db.do_atomically(kv_batch)?;
         debug!(log, "Database pruning complete");
 
-        Ok(PruningOutcome::Successful {
-            old_finalized_checkpoint,
-        })
+        Ok(PruningOutcome::Successful)
+    }
+
+    /// Compact the database if it has been more than `COMPACTION_PERIOD_SECONDS` since it
+    /// was last compacted.
+    pub fn run_compaction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) -> Result<(), Error> {
+        let last_compaction_timestamp = db
+            .load_compaction_timestamp()?
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(last_compaction_timestamp);
+
+        if db.compact_on_prune()
+            && now
+                .checked_sub(last_compaction_timestamp)
+                .as_ref()
+                .map_or(0, Duration::as_secs)
+                > COMPACTION_PERIOD_SECONDS
+        {
+            info!(log, "Starting database compaction");
+            db.compact()?;
+            db.store_compaction_timestamp(now)?;
+            info!(log, "Database compaction complete");
+        }
+        Ok(())
     }
 }
