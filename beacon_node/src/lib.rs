@@ -27,7 +27,6 @@ pub type ProductionClient<E> = Client<
         SystemTimeSlotClock,
         CachingEth1Backend<E>,
         E,
-        ServerSentEventHandler<E>,
         LevelDB<E>,
         LevelDB<E>,
     >,
@@ -112,8 +111,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         };
 
         let builder = builder
-            .system_time_slot_clock()?
-            .server_sent_event_handler()?;
+            .system_time_slot_clock()?;
 
         // Inject the executor into the discv5 network config.
         let discv5_executor = Discv5Executor(executor);

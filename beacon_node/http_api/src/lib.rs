@@ -14,7 +14,7 @@ mod validator_inclusion;
 use beacon_chain::events::EventKind;
 use beacon_chain::{
     observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
-    BeaconChainError, BeaconChainTypes, EventHandler,
+    BeaconChainError, BeaconChainTypes, ServerSentEventHandler,
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
@@ -2139,22 +2139,19 @@ pub fn serve<T: BeaconChainTypes>(
                     // for each topic subscribed spawn a new subscription
                     let mut stream_map = StreamMap::with_capacity(topics.topics.0.len());
 
-                    for topic in topics.topics.0.clone() {
-                        let receiver = match topic {
-                            api_types::EventTopic::State => chain.event_handler.subscribe_head(),
-                            api_types::EventTopic::Block => chain.event_handler.subscribe_block(),
-                            api_types::EventTopic::Attestation => {
-                                chain.event_handler.subscribe_attestation()
-                            }
-                            api_types::EventTopic::VoluntaryExit => {
-                                chain.event_handler.subscribe_exit()
-                            }
-                            api_types::EventTopic::FinalizedCheckpoint => {
-                                chain.event_handler.subscribe_finalized()
-                            }
-                        };
-                        stream_map.insert(topic.to_string(), receiver);
+                    if let Some(event_handler) = chain.event_handler.as_ref() {
+                        for topic in topics.topics.0.clone() {
+                            let receiver = match topic {
+                                api_types::EventTopic::State => event_handler.subscribe_head(),
+                                api_types::EventTopic::Block => event_handler.subscribe_block(),
+                                api_types::EventTopic::Attestation => event_handler.subscribe_attestation(),
+                                api_types::EventTopic::VoluntaryExit => event_handler.subscribe_exit(),
+                                api_types::EventTopic::FinalizedCheckpoint => event_handler.subscribe_finalized(),
+                            };
+                            stream_map.insert(topic.to_string(), receiver);
+                        }
                     }
+
                     let stream = merge_streams(stream_map);
 
                     Ok::<_, warp::Rejection>(warp::sse::reply(

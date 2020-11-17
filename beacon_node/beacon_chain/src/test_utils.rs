@@ -4,12 +4,7 @@ pub use crate::{
     migrate::MigratorConfig,
     BeaconChainError,
 };
-use crate::{
-    builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
-    events::NullEventHandler,
-    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, StateSkipConfig,
-};
+use crate::{builder::{BeaconChainBuilder, Witness}, eth1_chain::CachingEth1Backend, BeaconChain, BeaconChainTypes, BlockError, ChainConfig, StateSkipConfig, ServerSentEventHandler};
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
 use parking_lot::Mutex;
@@ -46,7 +41,6 @@ pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> = Witness<
     TestingSlotClock,
     CachingEth1Backend<TEthSpec>,
     TEthSpec,
-    NullEventHandler<TEthSpec>,
     THotStore,
     TColdStore,
 >;
@@ -200,7 +194,6 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
-            .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
@@ -246,7 +239,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
-            .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
@@ -288,7 +280,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .expect("should resume beacon chain from db")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
-            .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)

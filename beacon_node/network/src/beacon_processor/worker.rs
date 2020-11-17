@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
-use beacon_chain::events::{EventHandler, EventKind};
+use beacon_chain::events::{ServerSentEventHandler, EventKind};
 use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -63,9 +63,11 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
-        self.chain
-            .event_handler
-            .register(EventKind::Attestation(attestation.attestation().clone()));
+        if let Some(event_handler) = self.chain.event_handler.as_ref() {
+            if event_handler.attestation_receiver_count() > 0 {
+                event_handler.register(EventKind::Attestation(attestation.attestation().clone()));
+            }
+        }
 
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
@@ -145,9 +147,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-        self.chain
-            .event_handler
-            .register(EventKind::Attestation(aggregate.attestation().clone()));
+        if let Some(event_handler) = self.chain.event_handler.as_ref() {
+            if event_handler.attestation_receiver_count() > 0 {
+                event_handler
+                    .register(EventKind::Attestation(aggregate.attestation().clone()));;
+            }
+        }
 
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
@@ -364,13 +369,20 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-        self.chain.import_voluntary_exit(exit);
-        debug!(self.log, "Successfully imported voluntary exit");
-
         // this method is called for both API and gossip exits, so this covers all exit events
-        self.chain
-            .event_handler
-            .register(EventKind::VoluntaryExit(exit.clone().into_inner()));
+        if let Some(event_handler) = self.chain.event_handler.as_ref() {
+            if event_handler.exit_receiver_count() > 1 {
+                self.chain.import_voluntary_exit(exit.clone());
+                event_handler
+                    .register(EventKind::VoluntaryExit(exit.into_inner()));
+            } else {
+                self.chain.import_voluntary_exit(exit);
+            }
+        } else {
+            self.chain.import_voluntary_exit(exit);
+        }
+
+        debug!(self.log, "Successfully imported voluntary exit");
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_IMPORTED_TOTAL);
     }

@@ -1,15 +1,13 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
-use beacon_chain::events::ServerSentEventHandler;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
+    BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
 };
-
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
@@ -55,7 +53,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
-    event_handler: Option<T::EventHandler>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
     db_path: Option<PathBuf>,
@@ -65,13 +62,12 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
@@ -87,7 +83,6 @@ where
             beacon_chain_builder: None,
             beacon_chain: None,
             eth1_service: None,
-            event_handler: None,
             network_globals: None,
             network_send: None,
             db_path: None,
@@ -133,6 +128,11 @@ where
             .service_context("beacon".into());
         let spec = chain_spec
             .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
+        let event_handler = if self.http_api_config.enabled {
+            Some(ServerSentEventHandler::new(context.log().clone()))
+        } else {
+            None
+        };
 
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
@@ -141,7 +141,8 @@ where
             .custom_spec(spec.clone())
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
-            .graffiti(graffiti);
+            .graffiti(graffiti)
+            .event_handler(event_handler);
 
         let chain_exists = builder
             .store_contains_beacon_chain()
@@ -215,7 +216,6 @@ where
                                 TSlotClock,
                                 TEth1Backend,
                                 TEthSpec,
-                                TEventHandler,
                                 THotStore,
                                 TColdStore,
                             >,
@@ -380,7 +380,7 @@ where
     pub fn build(
         self,
     ) -> Result<
-        Client<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>,
+        Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
         String,
     > {
         let runtime_context = self
@@ -448,13 +448,12 @@ where
     }
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
@@ -469,10 +468,6 @@ where
         let chain = self
             .beacon_chain_builder
             .ok_or_else(|| "beacon_chain requires a beacon_chain_builder")?
-            .event_handler(
-                self.event_handler
-                    .ok_or_else(|| "beacon_chain requires an event handler")?,
-            )
             .slot_clock(
                 self.slot_clock
                     .clone()
@@ -484,54 +479,18 @@ where
 
         self.beacon_chain = Some(Arc::new(chain));
         self.beacon_chain_builder = None;
-        self.event_handler = None;
 
         // a beacon chain requires a timer
         self.timer()
     }
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+impl<TSlotClock, TEth1Backend, TEthSpec>
     ClientBuilder<
         Witness<
             TSlotClock,
             TEth1Backend,
             TEthSpec,
-            ServerSentEventHandler<TEthSpec>,
-            THotStore,
-            TColdStore,
-        >,
-    >
-where
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-{
-    #[allow(clippy::type_complexity)]
-    /// Specifies that the `BeaconChain` should publish server sent events on the HTTP server.
-    pub fn server_sent_event_handler(mut self) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "server_sent_event_handler requires a runtime_context")?
-            .service_context("ws".into());
-
-        let log = context.log().clone();
-        let event_handler = ServerSentEventHandler::new(log);
-        self.event_handler = Some(event_handler);
-        Ok(self)
-    }
-}
-
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
-    ClientBuilder<
-        Witness<
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
             LevelDB<TEthSpec>,
             LevelDB<TEthSpec>,
         >,
@@ -540,7 +499,6 @@ where
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
@@ -569,13 +527,12 @@ where
     }
 }
 
-impl<TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEthSpec, THotStore, TColdStore>
     ClientBuilder<
         Witness<
             TSlotClock,
             CachingEth1Backend<TEthSpec>,
             TEthSpec,
-            TEventHandler,
             THotStore,
             TColdStore,
         >,
@@ -583,7 +540,6 @@ impl<TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
@@ -680,14 +636,13 @@ where
     }
 }
 
-impl<TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
     ClientBuilder<
-        Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
+        Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
     >
 where
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
