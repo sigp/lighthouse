@@ -374,7 +374,7 @@ where
 
     /// Sets the `BeaconChain` event handler backend.
     ///
-    /// For example, provide `WebSocketSender` as a `handler`.
+    /// For example, provide `ServerSentEventHandler` as a `handler`.
     pub fn event_handler(mut self, handler: TEventHandler) -> Self {
         self.event_handler = Some(handler);
         self

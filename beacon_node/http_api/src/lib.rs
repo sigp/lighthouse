@@ -824,15 +824,6 @@ pub fn serve<T: BeaconChainTypes>(
                         PubsubMessage::BeaconBlock(Box::new(block.clone())),
                     )?;
 
-                    // send an event to the `events` endpoint before verification
-                    chain
-                        .event_handler
-                        .register(EventKind::Block(api_types::SseBlock {
-                            slot: block.message.slot,
-                            //TODO: is there a better way to get the block root?
-                            block: block.canonical_root(),
-                        }));
-
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
                             info!(
@@ -2150,7 +2141,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     for topic in topics.topics.0.clone() {
                         let receiver = match topic {
-                            api_types::EventTopic::State => chain.event_handler.subscribe_state(),
+                            api_types::EventTopic::State => chain.event_handler.subscribe_head(),
                             api_types::EventTopic::Block => chain.event_handler.subscribe_block(),
                             api_types::EventTopic::Attestation => {
                                 chain.event_handler.subscribe_attestation()
@@ -2224,7 +2215,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_events.boxed()),
-    )
+        )
         .or(warp::post().and(
             post_beacon_blocks
                 .boxed()

@@ -12,7 +12,6 @@ members = [
     "beacon_node/network",
     "beacon_node/store",
     "beacon_node/timer",
-    "beacon_node/websocket_server",
 
 	"boot_node",
 

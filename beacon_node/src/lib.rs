@@ -113,7 +113,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let builder = builder
             .system_time_slot_clock()?
-            .server_sent_event_handler(client_config.websocket_server.clone())?;
+            .server_sent_event_handler()?;
 
         // Inject the executor into the discv5 network config.
         let discv5_executor = Discv5Executor(executor);

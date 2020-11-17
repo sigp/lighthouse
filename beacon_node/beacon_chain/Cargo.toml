@@ -42,7 +42,6 @@ tree_hash = "0.1.1"
 types = { path = "../../consensus/types" }
 tokio = "0.2.22"
 eth1 = { path = "../eth1" }
-websocket_server = { path = "../websocket_server" }
 futures = "0.3.5"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1.5"

@@ -40,17 +40,14 @@
 //!            END
 //!
 //! ```
-use crate::events::EventKind;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     beacon_chain::{
         BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    events::EventHandler,
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
 };
-use eth2::types::SseBlock;
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use slog::{error, Logger};
@@ -391,11 +388,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         let block_root = get_block_root(&block);
-
-        chain.event_handler.register(EventKind::Block(SseBlock {
-            block: block_root,
-            slot: block.slot(),
-        }));
 
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain

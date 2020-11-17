@@ -47,7 +47,6 @@ Current development overview:
 - Specification `v1.0.0` implemented, optimized and passing test vectors.
 - Rust-native libp2p with Gossipsub and Discv5.
 - RESTful JSON API via HTTP server.
-- Events via WebSocket.
 - Metrics via Prometheus.
 
 ### Roadmap

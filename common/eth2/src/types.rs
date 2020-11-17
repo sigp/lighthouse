@@ -582,48 +582,6 @@ impl fmt::Display for PeerState {
     }
 }
 
-#[derive(Clone, Deserialize)]
-pub struct EventQuery {
-    pub topics: QueryVec<EventTopic>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventTopic {
-    State,
-    Block,
-    Attestation,
-    VoluntaryExit,
-    FinalizedCheckpoint,
-}
-
-impl FromStr for EventTopic {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "state" => Ok(EventTopic::State),
-            "block" => Ok(EventTopic::Block),
-            "attestation" => Ok(EventTopic::Attestation),
-            "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
-            "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
-            _ => Err("event topic cannot be parsed.".to_string()),
-        }
-    }
-}
-
-impl fmt::Display for EventTopic {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EventTopic::State => write!(f, "state"),
-            EventTopic::Block => write!(f, "block"),
-            EventTopic::Attestation => write!(f, "attestation"),
-            EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
-            EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PeerDirection {
@@ -689,14 +647,55 @@ pub struct SseFinalizedCheckpoint {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SseState {
+pub struct SseHead {
     pub slot: Slot,
     pub block: Hash256,
     pub state: Hash256,
-    pub distance: Slot,
+    pub target_root: Hash256,
+    pub previous_target_root: Hash256,
     pub epoch_transition: bool,
-    pub reorg: bool,
-    pub reorg_distance: Slot,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct EventQuery {
+    pub topics: QueryVec<EventTopic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventTopic {
+    State,
+    Block,
+    Attestation,
+    VoluntaryExit,
+    FinalizedCheckpoint,
+}
+
+impl FromStr for EventTopic {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "state" => Ok(EventTopic::State),
+            "block" => Ok(EventTopic::Block),
+            "attestation" => Ok(EventTopic::Attestation),
+            "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
+            "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
+            _ => Err("event topic cannot be parsed.".to_string()),
+        }
+    }
+}
+
+impl fmt::Display for EventTopic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EventTopic::State => write!(f, "state"),
+            EventTopic::Block => write!(f, "block"),
+            EventTopic::Attestation => write!(f, "attestation"),
+            EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
+            EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -29,7 +29,6 @@ use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     SignedBeaconBlockHash,
 };
-use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
@@ -63,7 +62,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     freezer_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
-    websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -96,7 +94,6 @@ where
             freezer_db_path: None,
             http_api_config: <_>::default(),
             http_metrics_config: <_>::default(),
-            websocket_listen_addr: None,
             eth_spec_instance,
         }
     }
@@ -447,7 +444,6 @@ where
             network_globals: self.network_globals,
             http_api_listen_addr,
             http_metrics_listen_addr,
-            websocket_listen_addr: self.websocket_listen_addr,
         })
     }
 }
@@ -515,7 +511,7 @@ where
 {
     #[allow(clippy::type_complexity)]
     /// Specifies that the `BeaconChain` should publish server sent events on the HTTP server.
-    pub fn server_sent_event_handler(mut self, config: WebSocketConfig) -> Result<Self, String> {
+    pub fn server_sent_event_handler(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -523,15 +519,6 @@ where
             .service_context("ws".into());
 
         let log = context.log().clone();
-        let (_sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
-            let (sender, listening_addr) =
-                websocket_server::start_server(context.executor, &config)?;
-            (sender, Some(listening_addr))
-        } else {
-            (WebSocketSender::dummy(), None)
-        };
-
-        self.websocket_listen_addr = listening_addr;
         let event_handler = ServerSentEventHandler::new(log);
         self.event_handler = Some(event_handler);
         Ok(self)
