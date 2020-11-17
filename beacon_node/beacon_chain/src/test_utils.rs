@@ -4,7 +4,11 @@ pub use crate::{
     migrate::MigratorConfig,
     BeaconChainError,
 };
-use crate::{builder::{BeaconChainBuilder, Witness}, eth1_chain::CachingEth1Backend, BeaconChain, BeaconChainTypes, BlockError, ChainConfig, StateSkipConfig, ServerSentEventHandler};
+use crate::{
+    builder::{BeaconChainBuilder, Witness},
+    eth1_chain::CachingEth1Backend,
+    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, StateSkipConfig,
+};
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
 use parking_lot::Mutex;
@@ -37,13 +41,8 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
-pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> = Witness<
-    TestingSlotClock,
-    CachingEth1Backend<TEthSpec>,
-    TEthSpec,
-    THotStore,
-    TColdStore,
->;
+pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
+    Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
 
 pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;

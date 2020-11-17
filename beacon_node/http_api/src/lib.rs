@@ -14,7 +14,7 @@ mod validator_inclusion;
 use beacon_chain::events::EventKind;
 use beacon_chain::{
     observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
-    BeaconChainError, BeaconChainTypes, ServerSentEventHandler,
+    BeaconChainError, BeaconChainTypes,
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
@@ -2124,7 +2124,7 @@ pub fn serve<T: BeaconChainTypes>(
     {
         // Convert messages into Server-Sent Events and return resulting stream.
         stream_map.map(move |(topic_name, msg)| match msg {
-            Ok(data) => Ok((warp::sse::event(topic_name.clone()), warp::sse::json(data)).into_a()),
+            Ok(data) => Ok((warp::sse::event(topic_name), warp::sse::json(data)).into_a()),
             _ => Ok(warp::sse::json("test".to_string()).into_b()),
         })
     }
@@ -2144,9 +2144,15 @@ pub fn serve<T: BeaconChainTypes>(
                             let receiver = match topic {
                                 api_types::EventTopic::State => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
-                                api_types::EventTopic::Attestation => event_handler.subscribe_attestation(),
-                                api_types::EventTopic::VoluntaryExit => event_handler.subscribe_exit(),
-                                api_types::EventTopic::FinalizedCheckpoint => event_handler.subscribe_finalized(),
+                                api_types::EventTopic::Attestation => {
+                                    event_handler.subscribe_attestation()
+                                }
+                                api_types::EventTopic::VoluntaryExit => {
+                                    event_handler.subscribe_exit()
+                                }
+                                api_types::EventTopic::FinalizedCheckpoint => {
+                                    event_handler.subscribe_finalized()
+                                }
                             };
                             stream_map.insert(topic.to_string(), receiver);
                         }

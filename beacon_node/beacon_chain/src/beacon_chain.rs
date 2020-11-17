@@ -10,7 +10,7 @@ use crate::block_verification::{
 use crate::chain_config::ChainConfig;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
-use crate::events::{ServerSentEventHandler, EventKind};
+use crate::events::{EventKind, ServerSentEventHandler};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
@@ -1978,7 +1978,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
         // These fields are used for server-sent events
-        let state_root = new_head.beacon_state_root.clone();
+        let state_root = new_head.beacon_state_root;
         let head_slot = new_head.beacon_state.slot;
         let target_epoch_start_slot = new_head
             .beacon_state
@@ -2020,7 +2020,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.head_receiver_count() > 0 {
                 if let Ok(Some(target_root)) = self.root_at_slot(target_epoch_start_slot) {
-                    if let Ok(Some(previous_target_root)) = self.root_at_slot(prev_target_epoch_start_slot)
+                    if let Ok(Some(previous_target_root)) =
+                        self.root_at_slot(prev_target_epoch_start_slot)
                     {
                         event_handler.register(EventKind::Head(SseHead {
                             slot: head_slot,

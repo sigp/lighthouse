@@ -13,20 +13,15 @@ use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
-use parking_lot::Mutex;
 use slog::{debug, info, warn};
 use ssz::Decode;
-use std::net::SocketAddr;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
-    SignedBeaconBlockHash,
-};
+use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
@@ -212,13 +207,7 @@ where
                     #[allow(clippy::type_complexity)]
                     let ctx: Arc<
                         http_api::Context<
-                            Witness<
-                                TSlotClock,
-                                TEth1Backend,
-                                TEthSpec,
-                                THotStore,
-                                TColdStore,
-                            >,
+                            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
                         >,
                     > = Arc::new(http_api::Context {
                         config: self.http_api_config.clone(),
@@ -379,10 +368,8 @@ where
     #[allow(clippy::type_complexity)]
     pub fn build(
         self,
-    ) -> Result<
-        Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
-        String,
-    > {
+    ) -> Result<Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>, String>
+    {
         let runtime_context = self
             .runtime_context
             .as_ref()
@@ -486,15 +473,7 @@ where
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec>
-    ClientBuilder<
-        Witness<
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            LevelDB<TEthSpec>,
-            LevelDB<TEthSpec>,
-        >,
-    >
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>>>
 where
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
@@ -529,13 +508,7 @@ where
 
 impl<TSlotClock, TEthSpec, THotStore, TColdStore>
     ClientBuilder<
-        Witness<
-            TSlotClock,
-            CachingEth1Backend<TEthSpec>,
-            TEthSpec,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>,
     >
 where
     TSlotClock: SlotClock + 'static,
@@ -637,9 +610,7 @@ where
 }
 
 impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
-    >
+    ClientBuilder<Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,

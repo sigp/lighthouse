@@ -1,8 +1,8 @@
 use eth2::types::{SseBlock, SseFinalizedCheckpoint, SseHead};
 use serde_derive::{Deserialize, Serialize};
-use slog::{Logger, trace};
+use slog::{trace, Logger};
 use tokio::sync::broadcast;
-use tokio::sync::broadcast::{Receiver, Sender, SendError};
+use tokio::sync::broadcast::{Receiver, SendError, Sender};
 use types::{Attestation, EthSpec, SignedVoluntaryExit};
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 10;

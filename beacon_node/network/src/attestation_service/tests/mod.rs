@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use beacon_chain::{builder::{BeaconChainBuilder, Witness}, eth1_chain::CachingEth1Backend, ServerSentEventHandler};
+    use beacon_chain::{
+        builder::{BeaconChainBuilder, Witness},
+        eth1_chain::CachingEth1Backend,
+    };
     use futures::Stream;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use lazy_static::lazy_static;

@@ -37,13 +37,7 @@ pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
 pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>(
-    PhantomData<(
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        THotStore,
-        TColdStore,
-    )>,
+    PhantomData<(TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore)>,
 );
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore> BeaconChainTypes
@@ -98,9 +92,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
-    >
+    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
@@ -417,9 +409,7 @@ where
     pub fn build(
         self,
     ) -> Result<
-        BeaconChain<
-            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
-        >,
+        BeaconChain<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
         String,
     > {
         let log = self
@@ -605,13 +595,7 @@ where
 
 impl<TSlotClock, TEthSpec, THotStore, TColdStore>
     BeaconChainBuilder<
-        Witness<
-            TSlotClock,
-            CachingEth1Backend<TEthSpec>,
-            TEthSpec,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>,
     >
 where
     THotStore: ItemStore<TEthSpec> + 'static,
@@ -641,9 +625,7 @@ where
 }
 
 impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<TestingSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
-    >
+    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,

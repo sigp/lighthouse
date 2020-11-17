@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
-use beacon_chain::events::{ServerSentEventHandler, EventKind};
+use beacon_chain::events::EventKind;
 use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -149,8 +149,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This method is called for API and gossip attestations, so this covers all aggregated attestation events
         if let Some(event_handler) = self.chain.event_handler.as_ref() {
             if event_handler.attestation_receiver_count() > 0 {
-                event_handler
-                    .register(EventKind::Attestation(aggregate.attestation().clone()));;
+                event_handler.register(EventKind::Attestation(aggregate.attestation().clone()));
             }
         }
 
@@ -373,8 +372,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         if let Some(event_handler) = self.chain.event_handler.as_ref() {
             if event_handler.exit_receiver_count() > 1 {
                 self.chain.import_voluntary_exit(exit.clone());
-                event_handler
-                    .register(EventKind::VoluntaryExit(exit.into_inner()));
+                event_handler.register(EventKind::VoluntaryExit(exit.into_inner()));
             } else {
                 self.chain.import_voluntary_exit(exit);
             }
