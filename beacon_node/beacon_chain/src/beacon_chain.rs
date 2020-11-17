@@ -1985,7 +1985,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // State root of the finalized state on the epoch boundary, NOT the state
             // of the finalized block. We need to use an iterator in case the state is beyond
             // the reach of the new head's `state_roots` array.
-            let new_finalized_slot = new_finalized_checkpoint
+            let new_finalized_slot = head
+                .beacon_state
+                .finalized_checkpoint
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch());
             let new_finalized_state_root = process_results(
