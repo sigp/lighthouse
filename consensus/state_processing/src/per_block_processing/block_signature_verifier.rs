@@ -1,6 +1,6 @@
 #![allow(clippy::integer_arithmetic)]
 
-use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetResult, *};
+use super::signature_sets::{Error as SignatureSetError, *};
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use bls::{verify_signature_sets, PublicKey, SignatureSet};
@@ -203,31 +203,34 @@ where
 
     /// Includes all signatures in `self.block.body.proposer_slashings` for verification.
     pub fn include_proposer_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
-        let mut sets: Vec<SignatureSet> = block
+        self.sets
+            .reserve(block.message.body.proposer_slashings.len() * 2);
+
+        block
             .message
             .body
             .proposer_slashings
             .iter()
-            .map(|proposer_slashing| {
+            .try_for_each(|proposer_slashing| {
                 let (set_1, set_2) = proposer_slashing_signature_set(
                     self.state,
                     self.get_pubkey.clone(),
                     proposer_slashing,
                     self.spec,
                 )?;
-                Ok(vec![set_1, set_2])
-            })
-            .collect::<SignatureSetResult<Vec<Vec<SignatureSet>>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
 
-        self.sets.append(&mut sets);
-        Ok(())
+                self.sets.push(set_1);
+                self.sets.push(set_2);
+
+                Ok(())
+            })
     }
 
     /// Includes all signatures in `self.block.body.attester_slashings` for verification.
     pub fn include_attester_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
+        self.sets
+            .reserve(block.message.body.attester_slashings.len() * 2);
+
         block
             .message
             .body
@@ -253,44 +256,54 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T>,
     ) -> Result<Vec<IndexedAttestation<T>>> {
+        self.sets.reserve(block.message.body.attestations.len());
+
         block
             .message
             .body
             .attestations
             .iter()
-            .map(|attestation| {
-                let committee = self
-                    .state
-                    .get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-                let indexed_attestation =
-                    get_indexed_attestation(committee.committee, attestation)?;
+            .try_fold(
+                Vec::with_capacity(block.message.body.attestations.len()),
+                |mut vec, attestation| {
+                    let committee = self
+                        .state
+                        .get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+                    let indexed_attestation =
+                        get_indexed_attestation(committee.committee, attestation)?;
 
-                self.sets.push(indexed_attestation_signature_set(
-                    &self.state,
-                    self.get_pubkey.clone(),
-                    &attestation.signature,
-                    &indexed_attestation,
-                    &self.spec,
-                )?);
+                    self.sets.push(indexed_attestation_signature_set(
+                        &self.state,
+                        self.get_pubkey.clone(),
+                        &attestation.signature,
+                        &indexed_attestation,
+                        &self.spec,
+                    )?);
 
-                Ok(indexed_attestation)
-            })
-            .collect::<Result<_>>()
-            .map_err(Into::into)
+                    vec.push(indexed_attestation);
+
+                    Ok(vec)
+                },
+            )
+            .map_err(Error::into)
     }
 
     /// Includes all signatures in `self.block.body.voluntary_exits` for verification.
     pub fn include_exits(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
-        let mut sets = block
+        self.sets.reserve(block.message.body.voluntary_exits.len());
+
+        block
             .message
             .body
             .voluntary_exits
             .iter()
-            .map(|exit| exit_signature_set(&self.state, self.get_pubkey.clone(), exit, &self.spec))
-            .collect::<SignatureSetResult<_>>()?;
+            .try_for_each(|exit| {
+                let exit =
+                    exit_signature_set(&self.state, self.get_pubkey.clone(), exit, &self.spec)?;
 
-        self.sets.append(&mut sets);
+                self.sets.push(exit);
 
-        Ok(())
+                Ok(())
+            })
     }
 }

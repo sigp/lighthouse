@@ -247,8 +247,10 @@ where
 
             bytes
                 .chunks(T::ssz_fixed_len())
-                .map(|chunk| T::from_ssz_bytes(chunk))
-                .collect::<Result<Vec<_>, _>>()
+                .try_fold(Vec::with_capacity(num_items), |mut vec, chunk| {
+                    vec.push(T::from_ssz_bytes(chunk)?);
+                    Ok(vec)
+                })
                 .map(Into::into)
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len)).map(|vec| vec.into())

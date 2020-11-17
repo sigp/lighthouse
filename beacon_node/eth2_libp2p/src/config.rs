@@ -17,6 +17,7 @@ use std::time::Duration;
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
+pub const MESH_N_LOW: usize = 6;
 
 pub type GossipsubConfig = GenericGossipsubConfig<MessageData>;
 pub type GossipsubConfigBuilder = GenericGossipsubConfigBuilder<MessageData>;
@@ -80,6 +81,9 @@ pub struct Config {
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
 
+    /// Subscribe to all subnets for the duration of the runtime.
+    pub subscribe_all_subnets: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -87,7 +91,7 @@ pub struct Config {
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
-        // WARNING: this directory default should be always overrided with parameters
+        // WARNING: this directory default should be always overwritten with parameters
         // from cli for specific networks.
         let network_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -130,7 +134,7 @@ impl Default for Config {
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_millis(700))
             .mesh_n(8)
-            .mesh_n_low(6)
+            .mesh_n_low(MESH_N_LOW)
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
@@ -180,6 +184,7 @@ impl Default for Config {
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             upnp_enabled: true,
+            subscribe_all_subnets: false,
             topics: Vec::new(),
         }
     }

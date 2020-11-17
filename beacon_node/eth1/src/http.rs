@@ -32,8 +32,9 @@ pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
 /// Number of bytes in deposit contract deposit root (value only).
 pub const DEPOSIT_ROOT_BYTES: usize = 32;
 
+/// Represents an eth1 chain/network id.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum Eth1NetworkId {
+pub enum Eth1Id {
     Goerli,
     Mainnet,
     Custom(u64),
@@ -46,28 +47,28 @@ pub enum BlockQuery {
     Latest,
 }
 
-impl Into<u64> for Eth1NetworkId {
+impl Into<u64> for Eth1Id {
     fn into(self) -> u64 {
         match self {
-            Eth1NetworkId::Mainnet => 1,
-            Eth1NetworkId::Goerli => 5,
-            Eth1NetworkId::Custom(id) => id,
+            Eth1Id::Mainnet => 1,
+            Eth1Id::Goerli => 5,
+            Eth1Id::Custom(id) => id,
         }
     }
 }
 
-impl From<u64> for Eth1NetworkId {
+impl From<u64> for Eth1Id {
     fn from(id: u64) -> Self {
-        let into = |x: Eth1NetworkId| -> u64 { x.into() };
+        let into = |x: Eth1Id| -> u64 { x.into() };
         match id {
-            id if id == into(Eth1NetworkId::Mainnet) => Eth1NetworkId::Mainnet,
-            id if id == into(Eth1NetworkId::Goerli) => Eth1NetworkId::Goerli,
-            id => Eth1NetworkId::Custom(id),
+            id if id == into(Eth1Id::Mainnet) => Eth1Id::Mainnet,
+            id if id == into(Eth1Id::Goerli) => Eth1Id::Goerli,
+            id => Eth1Id::Custom(id),
         }
     }
 }
 
-impl FromStr for Eth1NetworkId {
+impl FromStr for Eth1Id {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -78,14 +79,26 @@ impl FromStr for Eth1NetworkId {
 }
 
 /// Get the eth1 network id of the given endpoint.
-pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1NetworkId, String> {
+pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
     let response_body = send_rpc_request(endpoint, "net_version", json!([]), timeout).await?;
-    Eth1NetworkId::from_str(
+    Eth1Id::from_str(
         response_result(&response_body)?
-            .ok_or_else(|| "No result was returned for block number".to_string())?
+            .ok_or_else(|| "No result was returned for network id".to_string())?
             .as_str()
             .ok_or_else(|| "Data was not string")?,
     )
+}
+
+/// Get the eth1 chain id of the given endpoint.
+pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
+    let response_body = send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
+    hex_to_u64_be(
+        response_result(&response_body)?
+            .ok_or_else(|| "No result was returned for chain id".to_string())?
+            .as_str()
+            .ok_or_else(|| "Data was not string")?,
+    )
+    .map(Into::into)
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -3,8 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
     http::{
-        get_block_number, get_network_id, try_fallback_get_block,
-        try_fallback_get_deposit_logs_in_range, BlockQuery, Eth1NetworkId, Log,
+        get_block_number, get_chain_id, get_network_id, try_fallback_get_block,
+        try_fallback_get_deposit_logs_in_range, BlockQuery, Eth1Id, Log,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -18,8 +18,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{interval_at, Duration, Instant};
 use types::ChainSpec;
 
-/// Indicates the default eth1 network we use for the deposit contract.
-pub const DEFAULT_NETWORK_ID: Eth1NetworkId = Eth1NetworkId::Goerli;
+/// Indicates the default eth1 network id we use for the deposit contract.
+pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
+/// Indicates the default eth1 chain id we use for the deposit contract.
+pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
@@ -32,30 +34,45 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
 
-/// Returns `Ok` if the endpoint is reachable, else returns `Error`.
+/// Returns `Ok` if the endpoint is reachable and has a correct network id and chain id, else
+/// returns `Err`.
 async fn test_endpoint(
     endpoint: &str,
-    config_network: Eth1NetworkId,
+    config_network_id: Eth1Id,
+    config_chain_id: Eth1Id,
     log: &Logger,
 ) -> Result<(), ()> {
-    let result = get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
-    match result {
-        Ok(network_id) => {
-            if network_id != config_network {
+    let network_id_result =
+        get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+    let chain_id_result =
+        get_chain_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+    match (network_id_result, chain_id_result) {
+        (Ok(network_id), Ok(chain_id)) => {
+            if network_id != config_network_id {
                 warn!(
                     log,
-                    "Invalid eth1 network. Please switch to correct network. Trying \
+                    "Invalid eth1 network id. Please switch to correct network id. Trying \
                      fallbacks ...";
-                     "endpoint" => endpoint,
-                    "expected" => format!("{:?}",config_network),
+                    "endpoint" => endpoint,
+                    "expected" => format!("{:?}",config_network_id),
                     "received" => format!("{:?}",network_id),
+                );
+                Err(())
+            } else if chain_id != config_chain_id {
+                warn!(
+                    log,
+                    "Invalid eth1 chain id. Please switch to correct chain id. Trying \
+                     fallbacks ...";
+                    "endpoint" => endpoint,
+                    "expected" => format!("{:?}",config_chain_id),
+                    "received" => format!("{:?}", chain_id),
                 );
                 Err(())
             } else {
                 Ok(())
             }
         }
-        Err(_) => {
+        _ => {
             warn!(
                 log,
                 "Error connecting to eth1 node. Trying fallbacks ...";
@@ -68,7 +85,8 @@ async fn test_endpoint(
 
 // Returns `Ok` if at least one endpoint was ok, else returns `Error`.
 fallback_on_err!(try_fallback_test_endpoint, test_endpoint,
-    config_network: Eth1NetworkId= config_network.clone(),
+    config_network: Eth1Id= config_network.clone(),
+    config_chain_id: Eth1Id= config_chain_id.clone(),
     log: &Logger= log;
     Result<(), ()>
 );
@@ -125,7 +143,9 @@ pub struct Config {
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
     /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
-    pub network_id: Eth1NetworkId,
+    pub network_id: Eth1Id,
+    /// The eth1 chain id where the deposit contract is deployed (Goerli/Mainnet).
+    pub chain_id: Eth1Id,
     /// Defines the first block that the `DepositCache` will start searching for deposit logs.
     ///
     /// Setting too high can result in missed logs. Setting too low will result in unnecessary
@@ -156,6 +176,7 @@ impl Default for Config {
             endpoints: vec!["http://localhost:8545".into()],
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
             network_id: DEFAULT_NETWORK_ID,
+            chain_id: DEFAULT_CHAIN_ID,
             deposit_contract_deploy_block: 1,
             lowest_cached_block_number: 1,
             follow_distance: 128,
@@ -358,11 +379,9 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
-        trace!(self.log, "Start downloading block");
         let remote_head_block = download_eth1_block(self.inner.clone(), None)
             .map_err(|e| format!("Failed to update Eth1 service: {:?}", e))
             .await?;
-        trace!(self.log, "Finished downloading block");
         let remote_head_block_number = Some(remote_head_block.number);
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
@@ -384,12 +403,10 @@ impl Service {
         };
 
         let update_block_cache = async {
-            trace!(self.log, "Start update_block_cache");
             let outcome = self
                 .update_block_cache(remote_head_block_number)
                 .await
                 .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
-            trace!(self.log, "Finish update_block_cache");
 
             trace!(
                 self.log,
@@ -417,9 +434,6 @@ impl Service {
     ///
     /// Emits logs for debugging and errors.
     pub fn auto_update(self, handle: task_executor::TaskExecutor) {
-        trace!(self.log, "Start auto_update";
-            "interval" => self.config().auto_update_interval_millis
-        );
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
         let mut interval = interval_at(Instant::now(), update_interval);
@@ -435,9 +449,10 @@ impl Service {
 
     async fn do_update(&self, update_interval: Duration) -> Result<(), ()> {
         let endpoints = self.config().endpoints.clone();
-        let config_network = self.config().network_id.clone();
-        trace!(self.log, "Do eth1 update");
-        if try_fallback_test_endpoint(&endpoints, config_network, &self.log)
+        let config_network_id = self.config().network_id.clone();
+        let config_chain_id = self.config().chain_id.clone();
+
+        if try_fallback_test_endpoint(&endpoints, config_network_id, config_chain_id, &self.log)
             .await
             .is_err()
         {
@@ -452,9 +467,8 @@ impl Service {
             );
             return Ok(());
         }
-        trace!(self.log, "Start update");
+
         let update_result = self.update().await;
-        trace!(self.log, "Finished update");
         match update_result {
             Err(e) => error!(
                 self.log,
@@ -470,7 +484,6 @@ impl Service {
                 "deposits" => format!("{:?}", deposit),
             ),
         };
-        trace!(self.log, "Finish eth1 update");
         Ok(())
     }
 
@@ -538,17 +551,6 @@ impl Service {
                 match chunks.next() {
                     Some(chunk) => {
                         let chunk_1 = chunk.clone();
-                        trace!(
-                            self.log,
-                            "try_fallback_get_deposit_logs_in_range";
-                            "endpoints" => format!("{:?}", endpoints),
-                            "deposit_contract_address" => format!("{:?}", deposit_contract_address),
-                            "chunk" => format!("{:?}", chunk),
-                            "fromBlock" => format!("0x{:x}", chunk.start),
-                            "toBlock" => format!("0x{:x}", chunk.end),
-                            "timeout" => format!("{:?}",
-                                Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS))
-                        );
                         match try_fallback_get_deposit_logs_in_range(
                             &endpoints,
                             &deposit_contract_address,
@@ -725,7 +727,6 @@ impl Service {
             |mut block_numbers| async {
                 match block_numbers.next() {
                     Some(block_number) => {
-                        trace!(self.log, "Downloading eth1 block"; "block_number" => block_number);
                         match download_eth1_block(self.inner.clone(), Some(block_number)).await {
                             Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
                             Err(e) => Err(e),

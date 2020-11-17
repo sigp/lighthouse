@@ -120,7 +120,7 @@ define_net!(medalla, include_medalla_file, "medalla", true);
 
 define_net!(spadina, include_spadina_file, "spadina", true);
 
-define_net!(zinken, include_zinken_file, "zinken", true);
+define_net!(pyrmont, include_pyrmont_file, "pyrmont", true);
 
 define_net!(mainnet, include_mainnet_file, "mainnet", false);
 

@@ -221,6 +221,13 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
+    client_config.store.compact_on_init = cli_args.is_present("compact-db");
+    if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
+        client_config.store.compact_on_prune = compact_on_prune
+            .parse()
+            .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
+    }
+
     /*
      * Zero-ports
      *
@@ -261,6 +268,7 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
     client_config.eth1.network_id = spec.deposit_network_id.into();
+    client_config.eth1.chain_id = spec.deposit_chain_id.into();
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
@@ -356,6 +364,10 @@ pub fn set_network_config(
     } else {
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
+
+    if cli_args.is_present("subscribe-all-subnets") {
+        config.subscribe_all_subnets = true;
+    }
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
         let listen_address = listen_address_str
