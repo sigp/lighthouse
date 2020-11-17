@@ -13,7 +13,8 @@ use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices, verify_attestation_for_block_inclusion, verify_exit, VerifySignatures,
+    get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
+    VerifySignatures,
 };
 use state_processing::SigVerifiedOp;
 use std::collections::{hash_map, HashMap, HashSet};
@@ -235,31 +236,40 @@ impl<T: EthSpec> OperationPool<T> {
         (proposer_slashings, attester_slashings)
     }
 
-    /// Prune proposer slashings for all slashed or withdrawn validators.
-    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState<T>) {
+    /// Prune proposer slashings for validators which are exited in the finalized epoch.
+    pub fn prune_proposer_slashings(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |validator| {
-                validator.slashed || validator.is_withdrawable_at(finalized_state.current_epoch())
-            },
-            finalized_state,
+            |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
+            head_state,
         );
     }
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<T>, head_fork: Fork) {
+    pub fn prune_attester_slashings(&self, head_state: &BeaconState<T>) {
         self.attester_slashings
             .write()
             .retain(|(slashing, fork_version)| {
-                // Any slashings for forks older than the finalized state's previous fork can be
-                // discarded. We allow the head_fork's current version too in case a fork has
-                // occurred between the finalized state and the head.
-                let fork_ok = *fork_version == finalized_state.fork.previous_version
-                    || *fork_version == finalized_state.fork.current_version
-                    || *fork_version == head_fork.current_version;
+                let previous_fork_is_finalized =
+                    head_state.finalized_checkpoint.epoch >= head_state.fork.epoch;
+                // Prune any slashings which don't match the current fork version, or the previous
+                // fork version if it is not finalized yet.
+                let fork_ok = (fork_version == &head_state.fork.current_version)
+                    || (fork_version == &head_state.fork.previous_version
+                        && !previous_fork_is_finalized);
                 // Slashings that don't slash any validators can also be dropped.
-                let slashing_ok = get_slashable_indices(finalized_state, slashing).is_ok();
+                let slashing_ok =
+                    get_slashable_indices_modular(head_state, slashing, |_, validator| {
+                        // Declare that a validator is still slashable if they have not exited prior
+                        // to the finalized epoch.
+                        //
+                        // We cannot check the `slashed` field since the `head` is not finalized and
+                        // a fork could un-slash someone.
+                        validator.exit_epoch > head_state.finalized_checkpoint.epoch
+                    })
+                    .map_or(false, |indices| !indices.is_empty());
+
                 fork_ok && slashing_ok
             });
     }
@@ -295,27 +305,26 @@ impl<T: EthSpec> OperationPool<T> {
         )
     }
 
-    /// Prune if validator has already exited at the last finalized state.
-    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
+    /// Prune if validator has already exited at or before the finalized checkpoint of the head.
+    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
-            |validator| validator.exit_epoch != spec.far_future_epoch,
-            finalized_state,
+            // This condition is slightly too loose, since there will be some finalized exits that
+            // are missed here.
+            //
+            // We choose simplicity over the gain of pruning more exits since they are small and
+            // should not be seen frequently.
+            |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
+            head_state,
         );
     }
 
-    /// Prune all types of transactions given the latest finalized state and head fork.
-    pub fn prune_all(
-        &self,
-        finalized_state: &BeaconState<T>,
-        current_epoch: Epoch,
-        head_fork: Fork,
-        spec: &ChainSpec,
-    ) {
+    /// Prune all types of transactions given the latest head state and head fork.
+    pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch) {
         self.prune_attestations(current_epoch);
-        self.prune_proposer_slashings(finalized_state);
-        self.prune_attester_slashings(finalized_state, head_fork);
-        self.prune_voluntary_exits(finalized_state, spec);
+        self.prune_proposer_slashings(head_state);
+        self.prune_attester_slashings(head_state);
+        self.prune_voluntary_exits(head_state);
     }
 
     /// Total number of voluntary exits in the pool.
@@ -392,12 +401,12 @@ where
 fn prune_validator_hash_map<T, F, E: EthSpec>(
     map: &mut HashMap<u64, T>,
     prune_if: F,
-    finalized_state: &BeaconState<E>,
+    head_state: &BeaconState<E>,
 ) where
     F: Fn(&Validator) -> bool,
 {
     map.retain(|&validator_index, _| {
-        finalized_state
+        head_state
             .validators
             .get(validator_index as usize)
             .map_or(true, |validator| !prune_if(validator))
@@ -1012,7 +1021,7 @@ mod release_tests {
         let slashing = ctxt.attester_slashing(&[1, 3, 5, 7, 9]);
         op_pool
             .insert_attester_slashing(slashing.clone().validate(state, spec).unwrap(), state.fork);
-        op_pool.prune_attester_slashings(state, state.fork);
+        op_pool.prune_attester_slashings(state);
         assert_eq!(op_pool.get_slashings(state, spec).1, vec![slashing]);
     }
 
