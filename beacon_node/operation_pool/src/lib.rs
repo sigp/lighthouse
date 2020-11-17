@@ -260,7 +260,7 @@ impl<T: EthSpec> OperationPool<T> {
                 // fork version if it is not finalized yet.
                 let fork_ok = (fork_version == &head_state.fork.current_version)
                     || (fork_version == &head_state.fork.previous_version
-                        && previous_fork_is_finalized);
+                        && !previous_fork_is_finalized);
                 // Slashings that don't slash any validators can also be dropped.
                 let slashing_ok =
                     get_slashable_indices_modular(head_state, slashing, |_, validator| {
