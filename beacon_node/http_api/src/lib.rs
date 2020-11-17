@@ -19,7 +19,6 @@ use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
 use eth2::{
     types::{self as api_types, ValidatorId},
-    StatusCode,
 };
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -44,6 +43,7 @@ use types::{
 };
 use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
+use warp::http::StatusCode;
 
 const API_PREFIX: &str = "eth";
 const API_VERSION: &str = "v1";

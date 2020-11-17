@@ -25,7 +25,7 @@ use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
     EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
-use warp::http::StatusCode;
+use eth2::StatusCode;
 
 type E = MainnetEthSpec;
 
