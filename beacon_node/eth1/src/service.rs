@@ -32,7 +32,7 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
 
-/// Returns Ok if at least one endpoint was ok, else returns Error.
+/// Returns `Ok` if the endpoint is reachable, else returns `Error`.
 async fn test_endpoint(
     endpoint: &str,
     config_network: Eth1NetworkId,
@@ -66,6 +66,7 @@ async fn test_endpoint(
     }
 }
 
+// Returns `Ok` if at least one endpoint was ok, else returns `Error`.
 fallback_on_err!(try_fallback_test_endpoint, test_endpoint,
     config_network: Eth1NetworkId= config_network.clone(),
     log: &Logger= log;
