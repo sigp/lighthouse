@@ -309,8 +309,8 @@ impl<T: EthSpec> OperationPool<T> {
             // This condition is slightly too loose, since there will be some finalized exits that
             // are missed here.
             //
-            // We choose simplicity over the gain of pruning exits, which are small and should be
-            // infrequent.
+            // We choose simplicity over the gain of pruning more exits since they are small and
+            // should not be seen frequently.
             |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
             head_state,
         );
