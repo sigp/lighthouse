@@ -2159,7 +2159,7 @@ pub fn serve<T: BeaconChainTypes>(
                     } else {
                         return Err(warp_utils::reject::custom_server_error(
                             "event handler was not initialized".to_string(),
-                        ))
+                        ));
                     }
 
                     let stream = merge_streams(stream_map);
