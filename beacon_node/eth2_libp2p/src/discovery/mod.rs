@@ -819,7 +819,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                                 *old_ttl = query.min_ttl();
                                             }
                                         })
-                                        .or_insert(query.min_ttl());
+                                        .or_insert_with(|| query.min_ttl());
                                 });
                         });
 
@@ -846,7 +846,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// Drives the queries returning any results from completed queries.
     fn poll_queries(&mut self, cx: &mut Context) -> Option<HashMap<PeerId, Option<Instant>>> {
         while let Poll::Ready(Some(query_result)) = self.active_queries.poll_next_unpin(cx) {
-            self.process_completed_queries(query_result);
+            let result = self.process_completed_queries(query_result);
+            if result.is_some() {
+                return result;
+            }
         }
         None
     }
