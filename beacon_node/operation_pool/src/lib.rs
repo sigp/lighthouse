@@ -236,30 +236,31 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune proposer slashings for all slashed or withdrawn validators.
-    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState<T>) {
+    pub fn prune_proposer_slashings(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
             |validator| {
-                validator.slashed || validator.is_withdrawable_at(finalized_state.current_epoch())
+                validator.slashed
+                    || validator.is_withdrawable_at(head_state.finalized_checkpoint.epoch)
             },
-            finalized_state,
+            head_state,
         );
     }
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<T>, head_fork: Fork) {
+    pub fn prune_attester_slashings(&self, head_state: &BeaconState<T>, head_fork: Fork) {
         self.attester_slashings
             .write()
             .retain(|(slashing, fork_version)| {
                 // Any slashings for forks older than the finalized state's previous fork can be
                 // discarded. We allow the head_fork's current version too in case a fork has
                 // occurred between the finalized state and the head.
-                let fork_ok = *fork_version == finalized_state.fork.previous_version
-                    || *fork_version == finalized_state.fork.current_version
+                let fork_ok = *fork_version == head_state.fork.previous_version
+                    || *fork_version == head_state.fork.current_version
                     || *fork_version == head_fork.current_version;
                 // Slashings that don't slash any validators can also be dropped.
-                let slashing_ok = get_slashable_indices(finalized_state, slashing).is_ok();
+                let slashing_ok = get_slashable_indices(head_state, slashing).is_ok();
                 fork_ok && slashing_ok
             });
     }
@@ -296,11 +297,11 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune if validator has already exited at the last finalized state.
-    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
+    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<T>, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
-            |validator| validator.exit_epoch != spec.far_future_epoch,
-            finalized_state,
+            |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
+            head_state,
         );
     }
 
