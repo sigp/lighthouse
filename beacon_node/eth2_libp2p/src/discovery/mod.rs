@@ -904,3 +904,89 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         Poll::Pending
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rpc::methods::MetaData;
+    use slog::{o, Drain};
+    use types::MinimalEthSpec;
+
+    type E = MinimalEthSpec;
+
+    pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+
+        if enabled {
+            slog::Logger::root(drain.filter_level(level).fuse(), o!())
+        } else {
+            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
+    }
+
+    async fn build_discovery() -> Discovery<E> {
+        let keypair = libp2p::identity::Keypair::generate_secp256k1();
+        let config = NetworkConfig::default();
+        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let log = build_log(slog::Level::Debug, false);
+        let globals = NetworkGlobals::new(
+            enr,
+            9000,
+            9000,
+            MetaData {
+                seq_number: 0,
+                attnets: Default::default(),
+            },
+            vec![],
+            &log,
+        );
+        Discovery::new(&keypair, &config, Arc::new(globals), &log)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_add_subnet_query() {
+        let mut discovery = build_discovery().await;
+        let now = Instant::now();
+        let mut subnet_query = SubnetQuery {
+            subnet_id: SubnetId::new(1),
+            min_ttl: Some(now),
+            retries: 0,
+        };
+        discovery.add_subnet_query(
+            subnet_query.subnet_id,
+            subnet_query.min_ttl,
+            subnet_query.retries,
+        );
+        assert_eq!(
+            discovery.queued_queries.back(),
+            Some(&QueryType::Subnet(subnet_query.clone()))
+        );
+
+        // New query should replace old query
+        subnet_query.min_ttl = Some(now + Duration::from_secs(1));
+        discovery.add_subnet_query(subnet_query.subnet_id, subnet_query.min_ttl, 1);
+
+        subnet_query.retries += 1;
+
+        assert_eq!(discovery.queued_queries.len(), 1);
+        assert_eq!(
+            discovery.queued_queries.pop_back(),
+            Some(QueryType::Subnet(subnet_query.clone()))
+        );
+
+        // Retries > MAX_DISCOVERY_RETRY must return immediately without adding
+        // anything.
+        discovery.add_subnet_query(
+            subnet_query.subnet_id,
+            subnet_query.min_ttl,
+            MAX_DISCOVERY_RETRY + 1,
+        );
+
+        assert_eq!(discovery.queued_queries.len(), 0);
+    }
+}
