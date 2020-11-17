@@ -2109,12 +2109,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             });
 
-        self.op_pool.prune_all(
-            head_state,
-            self.epoch()?,
-            self.head_info()?.fork,
-            &self.spec,
-        );
+        self.op_pool
+            .prune_all(head_state, self.epoch()?, self.head_info()?.fork);
 
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),

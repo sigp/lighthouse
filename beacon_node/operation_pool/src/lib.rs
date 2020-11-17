@@ -297,26 +297,25 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune if validator has already exited at the last finalized state.
-    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<T>, spec: &ChainSpec) {
+    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
+            // This condition is slightly too loose, since there will be some finalized exits that
+            // are missed here.
+            //
+            // We choose simplicity over the gain of pruning exits, which are small and should be
+            // infrequent.
             |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
             head_state,
         );
     }
 
     /// Prune all types of transactions given the latest finalized state and head fork.
-    pub fn prune_all(
-        &self,
-        finalized_state: &BeaconState<T>,
-        current_epoch: Epoch,
-        head_fork: Fork,
-        spec: &ChainSpec,
-    ) {
+    pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch, head_fork: Fork) {
         self.prune_attestations(current_epoch);
-        self.prune_proposer_slashings(finalized_state);
-        self.prune_attester_slashings(finalized_state, head_fork);
-        self.prune_voluntary_exits(finalized_state, spec);
+        self.prune_proposer_slashings(head_state);
+        self.prune_attester_slashings(head_state, head_fork);
+        self.prune_voluntary_exits(head_state);
     }
 
     /// Total number of voluntary exits in the pool.
@@ -393,12 +392,12 @@ where
 fn prune_validator_hash_map<T, F, E: EthSpec>(
     map: &mut HashMap<u64, T>,
     prune_if: F,
-    finalized_state: &BeaconState<E>,
+    head_state: &BeaconState<E>,
 ) where
     F: Fn(&Validator) -> bool,
 {
     map.retain(|&validator_index, _| {
-        finalized_state
+        head_state
             .validators
             .get(validator_index as usize)
             .map_or(true, |validator| !prune_if(validator))
