@@ -234,7 +234,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     ) -> (mpsc::Sender<MigrationNotification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
-            while let Ok(notif) = rx.recv() {
+            while let Ok(mut notif) = rx.recv() {
+                // Read the rest of the messages in the channel, ultimately choosing the `notif`
+                // with the highest finalized epoch.
+                rx.try_iter().for_each(|other: MigrationNotification| {
+                    if other.finalized_checkpoint.epoch > notif.finalized_checkpoint.epoch {
+                        notif = other
+                    }
+                });
+
                 Self::run_migration(db.clone(), notif, &log);
             }
         });
