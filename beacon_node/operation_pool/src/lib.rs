@@ -236,14 +236,11 @@ impl<T: EthSpec> OperationPool<T> {
         (proposer_slashings, attester_slashings)
     }
 
-    /// Prune proposer slashings for all slashed or withdrawn validators.
+    /// Prune proposer slashings for validators which are exited in the finalized epoch.
     pub fn prune_proposer_slashings(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |validator| {
-                validator.slashed
-                    || validator.is_withdrawable_at(head_state.finalized_checkpoint.epoch)
-            },
+            |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
             head_state,
         );
     }
@@ -269,7 +266,7 @@ impl<T: EthSpec> OperationPool<T> {
                         //
                         // We cannot check the `slashed` field since the `head` is not finalized and
                         // a fork could un-slash someone.
-                        validator.exit_epoch <= head_state.finalized_checkpoint.epoch
+                        validator.exit_epoch > head_state.finalized_checkpoint.epoch
                     })
                     .map_or(false, |indices| !indices.is_empty());
 
