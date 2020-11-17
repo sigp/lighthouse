@@ -958,6 +958,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         PruningCheckpoint { checkpoint }.as_kv_store_op(PRUNING_CHECKPOINT_KEY)
     }
 
+    /// Load the timestamp of the last compaction as a `Duration` since the UNIX epoch.
     pub fn load_compaction_timestamp(&self) -> Result<Option<Duration>, Error> {
         Ok(self
             .hot_db
@@ -965,6 +966,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|c: CompactionTimestamp| Duration::from_secs(c.0)))
     }
 
+    /// Store the timestamp of the last compaction as a `Duration` since the UNIX epoch.
     pub fn store_compaction_timestamp(&self, compaction_timestamp: Duration) -> Result<(), Error> {
         self.hot_db.put(
             &COMPACTION_TIMESTAMP_KEY,
