@@ -26,6 +26,8 @@ use types::EthSpec;
 /// passing them to the internal message processor. The message processor spawns a syncing thread
 /// which manages which blocks need to be requested and processed.
 pub struct Router<T: BeaconChainTypes> {
+    /// Access to the peer db.
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// Processes validated and decoded messages from the network. Has direct access to the
     /// sync manager.
     processor: Processor<T>,
@@ -83,13 +85,14 @@ impl<T: BeaconChainTypes> Router<T> {
         let processor = Processor::new(
             executor.clone(),
             beacon_chain,
-            network_globals,
+            network_globals.clone(),
             network_send,
             &log,
         );
 
         // generate the Message handler
         let mut handler = Router {
+            network_globals,
             processor,
             log: message_handler_log,
         };
@@ -150,6 +153,10 @@ impl<T: BeaconChainTypes> Router<T> {
 
     /// A new RPC request has been received from the network.
     fn handle_rpc_request(&mut self, peer_id: PeerId, id: PeerRequestId, request: Request) {
+        if !self.network_globals.peers.read().is_connected(&peer_id) {
+            debug!(self.log, "Dropping request of disconnected peer"; "peer_id" => %peer_id, "request" => ?request);
+            return;
+        }
         match request {
             Request::Status(status_message) => {
                 self.processor
