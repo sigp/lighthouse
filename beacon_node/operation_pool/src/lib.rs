@@ -264,9 +264,15 @@ impl<T: EthSpec> OperationPool<T> {
                 // Slashings that don't slash any validators can also be dropped.
                 let slashing_ok =
                     get_slashable_indices_modular(head_state, slashing, |_, validator| {
-                        validator.is_slashable_at(head_state.finalized_checkpoint.epoch)
+                        // Declare that a validator is still slashable if they have not exited prior
+                        // to the finalized epoch.
+                        //
+                        // We cannot check the `slashed` field since the `head` is not finalized and
+                        // a fork could un-slash someone.
+                        validator.exit_epoch <= head_state.finalized_checkpoint.epoch
                     })
                     .map_or(false, |indices| !indices.is_empty());
+
                 fork_ok && slashing_ok
             });
     }
