@@ -556,13 +556,14 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// Consume the discovery queue and initiate queries when applicable.
     ///
     /// This also sanitizes the queue removing out-dated queries.
-    fn process_queue(&mut self) {
+    /// Returns `true` if any of the queued queries is processed and a query is started.
+    fn process_queue(&mut self) -> bool {
         // Sanitize the queue, removing any out-dated subnet queries
         self.queued_queries.retain(|query| !query.expired());
 
         // use this to group subnet queries together for a single discovery request
         let mut subnet_queries: Vec<SubnetQuery> = Vec::new();
-
+        let mut processed = false;
         // Check that we are within our query concurrency limit
         while !self.at_capacity() && !self.queued_queries.is_empty() {
             // consume and process the query queue
@@ -579,6 +580,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             FIND_NODE_QUERY_CLOSEST_PEERS,
                             |_| true,
                         );
+                        processed = true;
                     } else {
                         self.queued_queries.push_back(QueryType::FindPeers);
                     }
@@ -604,6 +606,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             "subnets" => format!("{:?}", grouped_queries.iter().map(|q| q.subnet_id).collect::<Vec<_>>()),
                         );
                         self.start_subnet_query(grouped_queries);
+                        processed = true;
                     }
                 }
                 None => {} // Queue is empty
@@ -611,6 +614,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
         // Update the queue metric
         metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+        processed
     }
 
     // Returns a boolean indicating if we are currently processing the maximum number of
@@ -988,5 +992,38 @@ mod tests {
         );
 
         assert_eq!(discovery.queued_queries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_process_queue() {
+        let mut discovery = build_discovery().await;
+
+        // FindPeers query is processed if there is no subnet query
+        discovery.queued_queries.push_back(QueryType::FindPeers);
+        assert!(discovery.process_queue());
+
+        let now = Instant::now();
+        let mut subnet_query = SubnetQuery {
+            subnet_id: SubnetId::new(1),
+            min_ttl: Some(now + Duration::from_secs(10)),
+            retries: 0,
+        };
+
+        // Refresh active queries
+        discovery.active_queries = Default::default();
+
+        // SubnetQuery is processed if it's the only queued query
+        discovery
+            .queued_queries
+            .push_back(QueryType::Subnet(subnet_query.clone()));
+        assert!(discovery.process_queue());
+
+        // SubnetQuery is processed if it's there is also 1 queued discovery query
+        discovery.queued_queries.push_back(QueryType::FindPeers);
+        discovery
+            .queued_queries
+            .push_back(QueryType::Subnet(subnet_query.clone()));
+        // Process Subnet query and FindPeers afterwards.
+        assert!(discovery.process_queue());
     }
 }
