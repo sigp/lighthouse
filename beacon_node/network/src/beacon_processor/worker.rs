@@ -497,8 +497,8 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Send a message on `message_tx` that the `message_id` sent by `peer_id` should be propagated on
     /// the gossip network.
     ///
-    /// Creates a log if there is an interal error.
-    /// Propagates the result of the validation fot the given message to the network. If the result
+    /// Creates a log if there is an internal error.
+    /// Propagates the result of the validation for the given message to the network. If the result
     /// is valid the message gets forwarded to other peers.
     fn propagate_validation_result(
         &self,
@@ -534,7 +534,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Send a message to `sync_tx`.
     ///
-    /// Creates a log if there is an interal error.
+    /// Creates a log if there is an internal error.
     fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
         self.sync_tx.send(message).unwrap_or_else(|e| {
             error!(self.log, "Could not send message to the sync service";

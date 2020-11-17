@@ -1,4 +1,4 @@
-//! Provides the `BeaconProcessor`, a mutli-threaded processor for messages received on the network
+//! Provides the `BeaconProcessor`, a multi-threaded processor for messages received on the network
 //! that need to be processed by the `BeaconChain`.
 //!
 //! Uses `tokio` tasks (instead of raw threads) to provide the following tasks:
@@ -26,7 +26,7 @@
 //!
 //! Then, there is a maximum of `n` "worker" blocking threads, where `n` is the CPU count.
 //!
-//! Whenever the manager receives a new parcel of work, it either:
+//! Whenever the manager receives a new parcel of work, it is either:
 //!
 //! - Provided to a newly-spawned worker tasks (if we are not already at `n` workers).
 //! - Added to a queue.
