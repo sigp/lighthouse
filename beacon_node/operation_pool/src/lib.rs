@@ -1024,7 +1024,7 @@ mod release_tests {
         let slashing = ctxt.attester_slashing(&[1, 3, 5, 7, 9]);
         op_pool
             .insert_attester_slashing(slashing.clone().validate(state, spec).unwrap(), state.fork);
-        op_pool.prune_attester_slashings(state, state.fork);
+        op_pool.prune_attester_slashings(state);
         assert_eq!(op_pool.get_slashings(state, spec).1, vec![slashing]);
     }
 
