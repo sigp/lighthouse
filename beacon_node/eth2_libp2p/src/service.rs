@@ -342,15 +342,15 @@ fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId,
 
     // mplex config
     let mut mplex_config = libp2p::mplex::MplexConfig::new();
-    mplex_config.max_buffer_len(256);
-    mplex_config.max_buffer_len_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
+    mplex_config.set_max_buffer_size(256);
+    mplex_config.set_max_buffer_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
 
     // Authentication
     Ok(transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
         .multiplex(core::upgrade::SelectUpgrade::new(
-            libp2p::yamux::Config::default(),
+            libp2p::yamux::YamuxConfig::default(),
             mplex_config,
         ))
         .timeout(Duration::from_secs(10))
