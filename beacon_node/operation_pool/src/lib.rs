@@ -250,16 +250,17 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, head_state: &BeaconState<T>, head_fork: Fork) {
+    pub fn prune_attester_slashings(&self, head_state: &BeaconState<T>) {
         self.attester_slashings
             .write()
             .retain(|(slashing, fork_version)| {
-                // Any slashings for forks older than the finalized state's previous fork can be
-                // discarded. We allow the head_fork's current version too in case a fork has
-                // occurred between the finalized state and the head.
-                let fork_ok = *fork_version == head_state.fork.previous_version
-                    || *fork_version == head_state.fork.current_version
-                    || *fork_version == head_fork.current_version;
+                let previous_fork_is_finalized =
+                    head_state.finalized_checkpoint.epoch <= head_state.fork.epoch;
+                // Prune any slashings which don't match the current fork version, or the previous
+                // fork version if it is not finalized yet.
+                let fork_ok = (fork_version == &head_state.fork.current_version)
+                    || (fork_version == &head_state.fork.previous_version
+                        && previous_fork_is_finalized);
                 // Slashings that don't slash any validators can also be dropped.
                 let slashing_ok =
                     get_slashable_indices_modular(head_state, slashing, |_, validator| {
@@ -301,7 +302,7 @@ impl<T: EthSpec> OperationPool<T> {
         )
     }
 
-    /// Prune if validator has already exited at the last finalized state.
+    /// Prune if validator has already exited at or before the finalized checkpoint of the head.
     pub fn prune_voluntary_exits(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
@@ -315,11 +316,11 @@ impl<T: EthSpec> OperationPool<T> {
         );
     }
 
-    /// Prune all types of transactions given the latest finalized state and head fork.
-    pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch, head_fork: Fork) {
+    /// Prune all types of transactions given the latest head state and head fork.
+    pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch) {
         self.prune_attestations(current_epoch);
         self.prune_proposer_slashings(head_state);
-        self.prune_attester_slashings(head_state, head_fork);
+        self.prune_attester_slashings(head_state);
         self.prune_voluntary_exits(head_state);
     }
 
