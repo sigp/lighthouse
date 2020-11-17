@@ -252,7 +252,7 @@ impl<T: EthSpec> OperationPool<T> {
             .write()
             .retain(|(slashing, fork_version)| {
                 let previous_fork_is_finalized =
-                    head_state.finalized_checkpoint.epoch <= head_state.fork.epoch;
+                    head_state.finalized_checkpoint.epoch >= head_state.fork.epoch;
                 // Prune any slashings which don't match the current fork version, or the previous
                 // fork version if it is not finalized yet.
                 let fork_ok = (fork_version == &head_state.fork.current_version)
