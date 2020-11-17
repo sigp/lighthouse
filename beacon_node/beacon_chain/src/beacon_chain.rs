@@ -2110,7 +2110,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),
-            finalized_state,
             new_finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
