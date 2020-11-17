@@ -13,7 +13,8 @@ use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices, verify_attestation_for_block_inclusion, verify_exit, VerifySignatures,
+    get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
+    VerifySignatures,
 };
 use state_processing::SigVerifiedOp;
 use std::collections::{hash_map, HashMap, HashSet};
@@ -260,7 +261,11 @@ impl<T: EthSpec> OperationPool<T> {
                     || *fork_version == head_state.fork.current_version
                     || *fork_version == head_fork.current_version;
                 // Slashings that don't slash any validators can also be dropped.
-                let slashing_ok = get_slashable_indices(head_state, slashing).is_ok();
+                let slashing_ok =
+                    get_slashable_indices_modular(head_state, slashing, |_, validator| {
+                        validator.is_slashable_at(head_state.finalized_checkpoint.epoch)
+                    })
+                    .map_or(false, |indices| !indices.is_empty());
                 fork_ok && slashing_ok
             });
     }
