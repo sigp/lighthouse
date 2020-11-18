@@ -18,6 +18,9 @@ pub enum Error {
         chunk_size: usize,
         history_length: usize,
     },
+    ConfigInvalidZeroParameter {
+        config: Config,
+    },
     ConfigIncompatible {
         on_disk_config: Config,
         config: Config,

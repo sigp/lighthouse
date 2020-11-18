@@ -39,13 +39,9 @@ use bls::verify_signature_sets;
 use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
-use state_processing::per_block_processing::is_valid_indexed_attestation;
 use state_processing::{
     common::get_indexed_attestation,
-    per_block_processing::{
-        errors::{AttestationValidationError, BlockOperationError, IndexedAttestationInvalid},
-        VerifySignatures,
-    },
+    per_block_processing::errors::AttestationValidationError,
     signature_sets::{
         indexed_attestation_signature_set_from_pubkeys,
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
@@ -259,19 +255,6 @@ impl From<BeaconChainError> for Error {
     }
 }
 
-/// Errors that may occur while verifying an attestation for consumption by the slasher.
-#[derive(Debug)]
-enum SlasherVerificationError {
-    SignatureError(BlockOperationError<IndexedAttestationInvalid>),
-    BeaconChainError(BeaconChainError),
-}
-
-impl From<BeaconChainError> for SlasherVerificationError {
-    fn from(e: BeaconChainError) -> Self {
-        Self::BeaconChainError(e)
-    }
-}
-
 /// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
 pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
     signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
@@ -361,15 +344,7 @@ fn process_slash_info<T: BeaconChainTypes>(
         };
 
         if check_signature {
-            if let Err(e) = chain.with_head(|head| {
-                is_valid_indexed_attestation(
-                    &head.beacon_state,
-                    &indexed_attestation,
-                    VerifySignatures::True,
-                    &chain.spec,
-                )
-                .map_err(SlasherVerificationError::SignatureError)
-            }) {
+            if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
                 debug!(
                     chain.log,
                     "Signature verification for slasher failed";

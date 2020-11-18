@@ -18,7 +18,7 @@ of the immaturity of the slasher UX and the extra resources required.
 The slasher runs inside the same process as the beacon node, when enabled via the `--slasher` flag:
 
 ```
-lighthouse bn --slasher --debug-level=debug
+lighthouse bn --slasher --debug-level debug
 ```
 
 The slasher hooks into Lighthouse's block and attestation processing, and pushes messages into an
@@ -47,7 +47,7 @@ directory.
 
 * Flag: `--slasher-history-length EPOCHS`
 * Argument: number of epochs
-* Default: 8192 epochs
+* Default: 4096 epochs
 
 The slasher stores data for the `history-length` most recent epochs. By default the history length
 is set high in order to catch all validator misbehaviour since the last weak subjectivity
@@ -66,8 +66,23 @@ changed after initialization.
 * Default: 256 GB
 
 The slasher uses LMDB as its backing store, and LMDB will consume up to the maximum amount of disk
-space allocated to it. By default the limit is set to accomodate the default history
-length, but you can set it lower if running with a reduced history length.
+space allocated to it. By default the limit is set to accomodate the default history length and
+around 150K validators but you can set it lower if running with a reduced history length. The space
+required scales approximately linearly in validator count and history length, i.e. if you halve
+either you can halve the space required.
+
+If you want a better estimate you can use this formula:
+
+```
+352 * V * N + (16 * V * N)/(C * K) + 15000 * N
+```
+
+where
+
+* `V` is the validator count
+* `N` is the history length
+* `C` is the chunk size
+* `K` is the validator chunk size
 
 ### Update Period
 
@@ -103,10 +118,10 @@ If you would like to run a lightweight slasher that just checks blocks and attes
 the last day or so, you can use this combination of arguments:
 
 ```
-lighthouse bn --slasher --slasher-history-length 256 --slasher-max-db-size 4 --debug-level=debug
+lighthouse bn --slasher --slasher-history-length 256 --slasher-max-db-size 16 --debug-level debug
 ```
 
 ## Stability Warning
 
-The slasher code is currently unstable, so we may update the schema of the slasher database in a
+The slasher code is still quite new, so we may update the schema of the slasher database in a
 backwards-incompatible way which will require re-initialization.

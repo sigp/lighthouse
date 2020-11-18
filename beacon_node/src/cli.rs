@@ -329,7 +329,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher")
                 .long("slasher")
                 .help(
-                    "Run a slasher alongside the beacon node [EXPERIMENTAL]."
+                    "Run a slasher alongside the beacon node. It is currently only recommended for \
+                     expert users because of the immaturity of the slasher UX and the extra \
+                     resources required."
                 )
                 .takes_value(false)
         )

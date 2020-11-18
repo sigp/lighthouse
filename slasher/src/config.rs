@@ -5,7 +5,7 @@ use types::{Epoch, EthSpec, IndexedAttestation};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
 pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
-pub const DEFAULT_HISTORY_LENGTH: usize = 8192;
+pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256;
 
@@ -35,7 +35,15 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), Error> {
-        if self.history_length % self.chunk_size != 0 {
+        if self.chunk_size == 0
+            || self.validator_chunk_size == 0
+            || self.history_length == 0
+            || self.max_db_size_gbs == 0
+        {
+            Err(Error::ConfigInvalidZeroParameter {
+                config: self.clone(),
+            })
+        } else if self.history_length % self.chunk_size != 0 {
             Err(Error::ConfigInvalidChunkSize {
                 chunk_size: self.chunk_size,
                 history_length: self.history_length,

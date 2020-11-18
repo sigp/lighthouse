@@ -618,7 +618,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         }
     }
 
-    /// As for `new` above but prodcuding `BlockSlashInfo`.
+    /// As for `new` above but producing `BlockSlashInfo`.
     pub fn check_slashable(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
