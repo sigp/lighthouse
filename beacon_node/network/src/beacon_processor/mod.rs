@@ -51,9 +51,11 @@ use types::{
 use worker::Worker;
 
 mod chain_segment;
+mod status;
 mod worker;
 
 pub use chain_segment::ProcessId;
+pub use status::ToStatusMessage;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///

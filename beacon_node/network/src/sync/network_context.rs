@@ -3,7 +3,7 @@
 
 use super::range_sync::{BatchId, ChainId};
 use super::RequestId as SyncRequestId;
-use crate::router::processor::status_message;
+use crate::beacon_processor::ToStatusMessage;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
@@ -63,7 +63,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         chain: Arc<BeaconChain<U>>,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Ok(status_message) = status_message(&chain) {
+        if let Ok(status_message) = &chain.status_message() {
             for peer_id in peers {
                 debug!(
                     self.log,
