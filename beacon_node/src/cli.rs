@@ -280,6 +280,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("eth1-blocks-per-log-query")
+                .long("eth1-blocks-per-log-query")
+                .value_name("BLOCKS")
+                .help("Specifies the number of blocks that a deposit log query should span.")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
