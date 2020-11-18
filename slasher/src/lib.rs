@@ -7,6 +7,7 @@ mod block_queue;
 pub mod config;
 mod database;
 mod error;
+mod metrics;
 mod slasher;
 mod slasher_server;
 pub mod test_utils;

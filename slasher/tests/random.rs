@@ -2,20 +2,21 @@ use rand::prelude::*;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use slasher::{
     test_utils::{
-        indexed_att, logger, slashed_validators_from_attestations,
+        block, indexed_att, logger, slashed_validators_from_attestations,
         slashed_validators_from_slashings, E,
     },
     Config, Slasher,
 };
 use std::cmp::max;
 use tempdir::TempDir;
-use types::Epoch;
+use types::{Epoch, EthSpec};
 
 #[derive(Debug)]
 struct TestConfig {
     num_validators: usize,
     max_attestations: usize,
     check_slashings: bool,
+    add_blocks: bool,
 }
 
 impl Default for TestConfig {
@@ -24,6 +25,7 @@ impl Default for TestConfig {
             num_validators: 4,
             max_attestations: 50,
             check_slashings: false,
+            add_blocks: false,
         }
     }
 }
@@ -87,6 +89,14 @@ fn random_test(seed: u64, test_config: TestConfig) {
         // Supply to slasher
         slasher.accept_attestation(attestation);
 
+        // Maybe add a random block too
+        if test_config.add_blocks && rng.gen_bool(0.1) {
+            let slot = rng.gen_range(0, 1 + 3 * current_epoch.as_u64() * E::slots_per_epoch() / 2);
+            let proposer = rng.gen_range(0, num_validators as u64);
+            let block_root = rng.gen_range(0, 2);
+            slasher.accept_block_header(block(slot, proposer, block_root));
+        }
+
         // Maybe process
         if rng.gen_bool(0.1) {
             slasher.process_queued(current_epoch).unwrap();
@@ -126,6 +136,22 @@ fn no_crash() {
     let mut rng = thread_rng();
     loop {
         random_test(rng.gen(), TestConfig::default());
+    }
+}
+
+// Fuzz-like test that runs forever on different seeds looking for crashes.
+#[test]
+#[ignore]
+fn no_crash_with_blocks() {
+    let mut rng = thread_rng();
+    loop {
+        random_test(
+            rng.gen(),
+            TestConfig {
+                add_blocks: true,
+                ..TestConfig::default()
+            },
+        );
     }
 }
 
@@ -193,4 +219,15 @@ fn no_crash_example2() {
 #[test]
 fn no_crash_example3() {
     random_test(3, TestConfig::default());
+}
+
+#[test]
+fn no_crash_blocks_example1() {
+    random_test(
+        1,
+        TestConfig {
+            add_blocks: true,
+            ..TestConfig::default()
+        },
+    );
 }

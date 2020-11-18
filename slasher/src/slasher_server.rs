@@ -1,3 +1,4 @@
+use crate::metrics::{self, SLASHER_RUN_TIME};
 use crate::Slasher;
 use slog::{debug, error, info, trace};
 use slot_clock::SlotClock;
@@ -51,6 +52,8 @@ impl SlasherServer {
                     let t = Instant::now();
                     let num_attestations = slasher.attestation_queue.len();
                     let num_blocks = slasher.block_queue.len();
+
+                    let batch_timer = metrics::start_timer(&SLASHER_RUN_TIME);
                     if let Err(e) = slasher.process_queued(current_epoch) {
                         error!(
                             slasher.log,
@@ -59,6 +62,8 @@ impl SlasherServer {
                             "error" => format!("{:?}", e)
                         );
                     }
+                    drop(batch_timer);
+
                     // Prune the database, even in the case where batch processing failed.
                     // If the LMDB database is full then pruning could help to free it up.
                     if let Err(e) = slasher.prune_database(current_epoch) {

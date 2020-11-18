@@ -5366,6 +5366,8 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "flate2",
+ "lazy_static",
+ "lighthouse_metrics",
  "lmdb",
  "lmdb-sys",
  "maplit",

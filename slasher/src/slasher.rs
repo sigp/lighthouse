@@ -1,3 +1,7 @@
+use crate::metrics::{
+    self, SLASHER_NUM_ATTESTATIONS_DEFERRED, SLASHER_NUM_ATTESTATIONS_DROPPED,
+    SLASHER_NUM_ATTESTATIONS_VALID,
+};
 use crate::{
     array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
     ProposerSlashingStatus, SlasherDB,
@@ -121,6 +125,10 @@ impl<E: EthSpec> Slasher<E> {
             "num_deferred" => num_deferred,
             "num_dropped" => num_dropped,
         );
+        metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_VALID, snapshot.len() as i64);
+        metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_DEFERRED, num_deferred as i64);
+        metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_DROPPED, num_dropped as i64);
+
         for attestation in snapshot.attestations.iter() {
             self.db.store_indexed_attestation(
                 txn,

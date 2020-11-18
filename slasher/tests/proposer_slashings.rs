@@ -1,23 +1,16 @@
-use slasher::{test_utils::logger, Config, Slasher};
-use tempdir::TempDir;
-use types::{
-    BeaconBlockHeader, Epoch, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlockHeader,
-    Slot,
+use slasher::{
+    test_utils::{block as test_block, logger, E},
+    Config, Slasher,
 };
+use tempdir::TempDir;
+use types::{Epoch, EthSpec};
 
-type E = MainnetEthSpec;
-
-fn test_block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlockHeader {
-    SignedBeaconBlockHeader {
-        message: BeaconBlockHeader {
-            slot: Slot::new(slot),
-            proposer_index,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
-            body_root: Hash256::from_low_u64_be(block_root),
-        },
-        signature: Signature::empty(),
-    }
+#[test]
+fn empty_pruning() {
+    let tempdir = TempDir::new("slasher").unwrap();
+    let config = Config::new(tempdir.path().into());
+    let slasher = Slasher::<E>::open(config.clone(), logger()).unwrap();
+    slasher.prune_database(Epoch::new(0)).unwrap();
 }
 
 #[test]

@@ -443,10 +443,12 @@ impl<E: EthSpec> SlasherDB<E> {
         let mut cursor = txn.open_rw_cursor(self.proposers_db)?;
 
         // Position cursor at first key, bailing out if the database is empty.
-        match cursor.get(None, None, lmdb_sys::MDB_FIRST) {
-            Ok(_) => (),
-            Err(lmdb::Error::NotFound) => return Ok(()),
-            Err(e) => return Err(e.into()),
+        if cursor
+            .get(None, None, lmdb_sys::MDB_FIRST)
+            .optional()?
+            .is_none()
+        {
+            return Ok(());
         }
 
         loop {
@@ -458,7 +460,15 @@ impl<E: EthSpec> SlasherDB<E> {
             let (slot, _) = ProposerKey::parse(key_bytes)?;
             if slot < min_slot {
                 cursor.del(Self::write_flags())?;
-                cursor.get(None, None, lmdb_sys::MDB_NEXT)?;
+
+                // End the loop if there is no next entry.
+                if cursor
+                    .get(None, None, lmdb_sys::MDB_NEXT)
+                    .optional()?
+                    .is_none()
+                {
+                    break;
+                }
             } else {
                 break;
             }

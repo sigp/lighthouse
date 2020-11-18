@@ -3,8 +3,8 @@ use sloggers::Build;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use types::{
-    AggregateSignature, AttestationData, AttesterSlashing, Checkpoint, Epoch, Hash256,
-    IndexedAttestation, MainnetEthSpec, Slot,
+    AggregateSignature, AttestationData, AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch,
+    Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
@@ -99,4 +99,17 @@ pub fn slashed_validators_from_attestations(
         }
     }
     slashed_validators
+}
+
+pub fn block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlockHeader {
+    SignedBeaconBlockHeader {
+        message: BeaconBlockHeader {
+            slot: Slot::new(slot),
+            proposer_index,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body_root: Hash256::from_low_u64_be(block_root),
+        },
+        signature: Signature::empty(),
+    }
 }
