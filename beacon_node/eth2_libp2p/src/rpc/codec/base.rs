@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_decode_status_message() {
-        let message = hex::decode("ff060000734e615070590032000006e71e7b54989925efd6c9cbcb8ceb9b5f71216f5137282bf6a1e3b50f64e42d6c7fb347abe07eb0db8200000005029e2800").unwrap();
+        let message = hex::decode("0054ff060000734e615070590032000006e71e7b54989925efd6c9cbcb8ceb9b5f71216f5137282bf6a1e3b50f64e42d6c7fb347abe07eb0db8200000005029e2800").unwrap();
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&message);
 
@@ -199,19 +199,21 @@ mod tests {
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
 
+        // remove response code
+        let mut snappy_buf = buf.clone();
+        let _ = snappy_buf.split_to(1);
+
         // decode message just as snappy message
-        let snappy_decoded_message = snappy_outbound_codec.decode(&mut buf.clone());
-        // decode message just a ssz message
+        let snappy_decoded_message = snappy_outbound_codec.decode(&mut snappy_buf).unwrap();
 
         // build codecs for entire chunk
         let mut snappy_base_outbound_codec = BaseOutboundCodec::new(snappy_outbound_codec);
 
         // decode message as ssz snappy chunk
-        let snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf.clone());
-        // decode message just a ssz chunk
+        let snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf).unwrap();
 
-        let _ = dbg!(snappy_decoded_message);
-        let _ = dbg!(snappy_decoded_chunk);
+        dbg!(snappy_decoded_message);
+        dbg!(snappy_decoded_chunk);
     }
 
     #[test]
