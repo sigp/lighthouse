@@ -439,10 +439,10 @@ pub fn log2_int(x: u32) -> u32 {
 //
 // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
 fn validate_aes_iv(iv: &[u8]) -> Result<(), Error> {
-    if iv.len() == 0 {
+    if iv.is_empty() {
         return Err(Error::IncorrectIvSize{expected: IV_SIZE, len: iv.len()});
     } else if iv.len() != IV_SIZE {
-        eprintln!("WARN: AES IV length incorrect {}, should be {}", iv.len(), IV_SIZE);
+        eprintln!("WARN: AES IV length incorrect is {}, should be {}", iv.len(), IV_SIZE);
     }
     Ok(())
 }

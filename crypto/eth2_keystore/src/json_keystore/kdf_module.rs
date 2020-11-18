@@ -92,7 +92,7 @@ impl Kdf {
                 }
 
                 // Validate `salt` length
-                if params.salt.len() == 0 {
+                if params.salt.is_empty() {
                     return Err(Error::InvalidScryptParam);
                 } else if params.salt.len() < SALT_SIZE / 2 {
                     eprintln!(
@@ -155,7 +155,7 @@ impl Kdf {
                 }
 
                 // Validate `salt` length
-                if params.salt.len() == 0 {
+                if params.salt.is_empty() {
                     return Err(Error::InvalidScryptParam);
                 } else if params.salt.len() < SALT_SIZE / 2 {
                     eprintln!(
