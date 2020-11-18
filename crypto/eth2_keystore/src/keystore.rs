@@ -159,7 +159,7 @@ impl Keystore {
         path: String,
         description: String,
     ) -> Result<Self, Error> {
-        validate_password_utf8_chracters(password)?;
+        validate_password_utf8_characters(password)?;
 
         let secret: ZeroizeHash = keypair.sk.serialize();
 
@@ -389,7 +389,7 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
 }
 
 /// Verifies that a password does not contain UTF-8 control characters.
-pub fn validate_password_utf8_chracters(password: &[u8]) -> Result<(), Error> {
+pub fn validate_password_utf8_characters(password: &[u8]) -> Result<(), Error> {
     for (i, char) in password.iter().enumerate() {
         // C0 - 0x00 to 0x1F
         if *char <= 0x1F {
