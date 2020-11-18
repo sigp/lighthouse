@@ -59,7 +59,7 @@ pub const HASH_SIZE: usize = 32;
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
-    InvalidPasswordCharacters { character: u8, index: usize },
+    InvalidPasswordCharacter { character: u8, index: usize },
     InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
     EmptyPassword,
@@ -325,7 +325,8 @@ pub fn default_kdf(salt: Vec<u8>) -> Kdf {
 ///
 /// ## Errors
 ///
-/// - The `kdf` is badly formed (e.g., has some values set to zero).
+/// - If `kdf` is badly formed (e.g., has some values set to zero).
+/// - If `password` uses utf-8 control characters.
 pub fn encrypt(
     plain_text: &[u8],
     password: &[u8],
