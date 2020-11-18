@@ -331,6 +331,10 @@ pub fn encrypt(
     let mut cipher_text = plain_text.to_vec();
     match &cipher {
         Cipher::Aes128Ctr(params) => {
+            // Validate IV
+            validate_aes_iv(params.iv.as_bytes())?;
+
+            // AES Encrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
             let mut cipher = AesCtr::new(&key, &nonce);
@@ -367,13 +371,11 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     let mut plain_text = PlainText::from(cipher_message.as_bytes().to_vec());
     match &crypto.cipher.params {
         Cipher::Aes128Ctr(params) => {
+            // Validate IV
+            validate_aes_iv(params.iv.as_bytes())?;
+
+            // AES Decrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
-            // NOTE: we do not check the size of the `iv` as there is no guidance about
-            // this on EIP-2335.
-            //
-            // Reference:
-            //
-            // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
             let mut cipher = AesCtr::new(&key, &nonce);
             cipher.apply_keystream(plain_text.as_mut_bytes());
@@ -428,4 +430,19 @@ pub fn log2_int(x: u32) -> u32 {
         return 0;
     }
     31 - x.leading_zeros()
+}
+
+// We only check the size of the `iv` is non-zero as there is no guidance about
+// this on EIP-2335.
+//
+// Reference:
+//
+// - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
+fn validate_aes_iv(iv: &[u8]) -> Result<(), Error> {
+    if iv.len() == 0 {
+        return Err(Error::IncorrectIvSize{expected: IV_SIZE, len: iv.len()});
+    } else if iv.len() != IV_SIZE {
+        eprintln!("WARN: AES IV length incorrect {}, should be {}", iv.len(), IV_SIZE);
+    }
+    Ok(())
 }
