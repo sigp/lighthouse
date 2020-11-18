@@ -2999,7 +2999,7 @@ checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 [[package]]
 name = "libp2p"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "atomic",
  "bytes 0.5.6",
@@ -3061,7 +3061,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "asn1_der",
  "bs58 0.3.1",
@@ -3094,7 +3094,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core-derive"
 version = "0.20.2"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "quote",
  "syn",
@@ -3103,7 +3103,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "futures 0.3.8",
  "libp2p-core 0.24.0",
@@ -3113,7 +3113,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "base64 0.13.0",
  "byteorder",
@@ -3137,7 +3137,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "futures 0.3.8",
  "libp2p-core 0.24.0",
@@ -3152,7 +3152,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "bytes 0.5.6",
  "futures 0.3.8",
@@ -3169,7 +3169,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.26.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "bytes 0.5.6",
  "curve25519-dalek",
@@ -3190,7 +3190,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "either",
  "futures 0.3.8",
@@ -3205,7 +3205,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "futures 0.3.8",
  "futures-timer",
@@ -3220,7 +3220,7 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.25.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "async-tls",
  "either",
@@ -3239,7 +3239,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.27.0"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "futures 0.3.8",
  "libp2p-core 0.24.0",
@@ -3658,7 +3658,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.8.4"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "bytes 0.5.6",
  "futures 0.3.8",
@@ -3971,7 +3971,7 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.9.3"
-source = "git+https://github.com/sigp/rust-libp2p?rev=b6278e1ba7b6bcfad1eef300f72148705da5d8d2#b6278e1ba7b6bcfad1eef300f72148705da5d8d2"
+source = "git+https://github.com/sigp/rust-libp2p?rev=f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c#f53d02bc873fef2bf52cd31e3d5ce366a41d8a8c"
 dependencies = [
  "arrayref",
  "bs58 0.3.1",
@@ -6519,6 +6519,7 @@ dependencies = [
  "ethereum-types",
  "hex",
  "int_to_bytes",
+ "lazy_static",
  "log 0.4.11",
  "merkle_proof",
  "rand 0.7.3",
