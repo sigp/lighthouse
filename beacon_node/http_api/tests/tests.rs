@@ -12,26 +12,33 @@ use eth2_libp2p::{
     types::{EnrBitfield, SyncState},
     Enr, EnrExt, NetworkGlobals, PeerId,
 };
+use futures::executor::block_on;
+use futures::stream::ForEach;
+use futures::stream::Iter;
+use futures::stream::{Stream, StreamExt};
 use http_api::{Config, Context};
 use network::NetworkMessage;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
+use std::iter::Iterator;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
     EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
 use warp::http::StatusCode;
+use warp::hyper::body::Bytes;
 
 type E = MainnetEthSpec;
 
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
-const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5;
+const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
 const JUSTIFIED_EPOCH: u64 = 4;
 const FINALIZED_EPOCH: u64 = 3;
 const TCP_PORT: u16 = 42;
@@ -129,7 +136,7 @@ impl ApiTester {
 
         assert_eq!(
             chain.head_info().unwrap().finalized_checkpoint.epoch,
-            3,
+            2,
             "precondition: finality"
         );
         assert_eq!(
@@ -138,7 +145,7 @@ impl ApiTester {
                 .unwrap()
                 .current_justified_checkpoint
                 .epoch,
-            4,
+            3,
             "precondition: justification"
         );
 
@@ -1804,6 +1811,138 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_get_events(self) -> Self {
+        // Subscribe to all events
+        let topics = vec![
+            EventTopic::Attestation,
+            EventTopic::VoluntaryExit,
+            EventTopic::Block,
+            EventTopic::Head,
+            EventTopic::FinalizedCheckpoint,
+        ];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        // Produce one event per attesatation
+        let mut expected_attestation_events = Vec::new();
+        let expected_attestation_len = self.attestations.len();
+
+        for attestation in &self.attestations {
+            self.client
+                .post_beacon_pool_attestations(attestation)
+                .await
+                .unwrap();
+            expected_attestation_events.push(EventKind::Attestation(attestation.clone()));
+        }
+
+        let attestation_events = poll_events(
+            &mut events_future,
+            expected_attestation_len,
+            Duration::from_millis(10000),
+        )
+        .await;
+        assert_eq!(
+            attestation_events.as_slice(),
+            expected_attestation_events.as_slice()
+        );
+
+        // Produce a voluntary exit event
+        self.client
+            .post_beacon_pool_voluntary_exits(&self.voluntary_exit)
+            .await
+            .unwrap();
+
+        let exit_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        assert_eq!(
+            exit_events.as_slice(),
+            &[EventKind::VoluntaryExit(self.voluntary_exit.clone())]
+        );
+
+        // Submit the next block, which is on an epoch boundary, so this will produce a finalized
+        // checkpoint event, head event, and block event
+        let block_root = self.next_block.canonical_root();
+        let slot = self.next_block.slot();
+        let finalization_distance = E::slots_per_epoch() * 2;
+
+        let expected_block = EventKind::Block(SseBlock {
+            block: block_root,
+            slot,
+        });
+
+        let expected_head = EventKind::Head(SseHead {
+            block: block_root,
+            slot,
+            state: self.next_block.state_root(),
+            // target root = block root because this is the first slot of the epoch
+            target_root: block_root,
+            previous_target_root: self
+                .chain
+                .root_at_slot(slot - E::slots_per_epoch())
+                .unwrap()
+                .unwrap(),
+            epoch_transition: true,
+        });
+
+        let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
+            block: self
+                .chain
+                .root_at_slot(slot - finalization_distance)
+                .unwrap()
+                .unwrap(),
+            state: self
+                .chain
+                .state_root_at_slot(slot - finalization_distance)
+                .unwrap()
+                .unwrap(),
+            epoch: Epoch::new(3),
+        });
+
+        self.client
+            .post_beacon_blocks(&self.next_block)
+            .await
+            .unwrap();
+
+        let block_events = poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
+        assert_eq!(
+            block_events.as_slice(),
+            &[expected_block, expected_finalized, expected_head]
+        );
+
+        self
+    }
+}
+
+async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin, T: EthSpec>(
+    stream: &mut S,
+    num_events: usize,
+    timeout: Duration,
+) -> Vec<EventKind<T>> {
+    let mut events = Vec::new();
+
+    let collect_stream_fut = async {
+        loop {
+            if let Some(result) = stream.next().await {
+                events.push(result.unwrap());
+                if events.len() == num_events {
+                    return;
+                }
+            }
+        }
+    };
+
+    tokio::select! {
+            _ = collect_stream_fut => {return events}
+            _ = tokio::time::delay_for(timeout) => { return events; }
+    }
+}
+
+#[tokio::test(core_threads = 2)]
+async fn test_events() {
+    ApiTester::new().test_get_events().await;
 }
 
 #[tokio::test(core_threads = 2)]

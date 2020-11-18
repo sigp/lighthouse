@@ -1,4 +1,4 @@
-use eth2::types::{SseBlock, SseFinalizedCheckpoint, SseHead};
+pub use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
 use serde_derive::{Deserialize, Serialize};
 use slog::{trace, Logger};
 use tokio::sync::broadcast;
@@ -92,33 +92,23 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         self.exit_tx.subscribe()
     }
 
-    pub fn attestation_receiver_count(&self) -> usize {
-        self.attestation_tx.receiver_count()
+    pub fn has_attestation_subscribers(&self) -> bool {
+        self.attestation_tx.receiver_count() > 0
     }
 
-    pub fn block_receiver_count(&self) -> usize {
-        self.block_tx.receiver_count()
+    pub fn has_block_subscribers(&self) -> bool {
+        self.block_tx.receiver_count() > 0
     }
 
-    pub fn finalized_receiver_count(&self) -> usize {
-        self.finalized_tx.receiver_count()
+    pub fn has_finalized_subscribers(&self) -> bool {
+        self.finalized_tx.receiver_count() > 0
     }
 
-    pub fn head_receiver_count(&self) -> usize {
-        self.head_tx.receiver_count()
+    pub fn has_head_subscribers(&self) -> bool {
+        self.head_tx.receiver_count() > 0
     }
 
-    pub fn exit_receiver_count(&self) -> usize {
-        self.exit_tx.receiver_count()
+    pub fn has_exit_subscribers(&self) -> bool {
+        self.exit_tx.receiver_count() > 0
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(bound = "T: EthSpec", rename_all = "snake_case")]
-pub enum EventKind<T: EthSpec> {
-    Attestation(Attestation<T>),
-    Block(SseBlock),
-    FinalizedCheckpoint(SseFinalizedCheckpoint),
-    Head(SseHead),
-    VoluntaryExit(SignedVoluntaryExit),
 }

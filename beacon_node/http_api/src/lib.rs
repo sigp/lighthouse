@@ -11,13 +11,14 @@ mod metrics;
 mod state_id;
 mod validator_inclusion;
 
-use beacon_chain::events::EventKind;
 use beacon_chain::{
     observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
     BeaconChainError, BeaconChainTypes,
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
+use eth2::types::EventKind;
+use eth2::Error as ServerError;
 use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
@@ -34,7 +35,6 @@ use state_id::StateId;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
 use std::convert::TryInto;
-
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
@@ -48,6 +48,7 @@ use types::{
 };
 use warp::sse::ServerSentEvent;
 use warp::{http::Response, Filter, Stream};
+use warp_utils::reject::ServerSentEventError;
 use warp_utils::task::{blocking_json_task, blocking_task};
 
 const API_PREFIX: &str = "eth";
@@ -2120,16 +2121,21 @@ pub fn serve<T: BeaconChainTypes>(
 
     fn merge_streams<T: EthSpec>(
         stream_map: StreamMap<String, Receiver<EventKind<T>>>,
-    ) -> impl Stream<Item = Result<impl ServerSentEvent + Send + 'static, warp::Error>> + Send + 'static
-    {
+    ) -> impl Stream<Item = Result<impl ServerSentEvent + Send + 'static, ServerSentEventError>>
+           + Send
+           + 'static {
         // Convert messages into Server-Sent Events and return resulting stream.
         stream_map.map(move |(topic_name, msg)| match msg {
-            Ok(data) => Ok((warp::sse::event(topic_name), warp::sse::json(data)).into_a()),
-            _ => Ok(warp::sse::json("test".to_string()).into_b()),
+            Ok(data) => Ok((warp::sse::event(topic_name), warp::sse::json(data)).boxed()),
+            Err(e) => Err(warp_utils::reject::server_sent_event_error(format!(
+                "{:?}",
+                e
+            ))),
         })
     }
 
-    let get_events = warp::path("events")
+    let get_events = eth1_v1
+        .and(warp::path("events"))
         .and(warp::path::end())
         .and(warp::query::<api_types::EventQuery>())
         .and(chain_filter)
@@ -2142,7 +2148,7 @@ pub fn serve<T: BeaconChainTypes>(
                     if let Some(event_handler) = chain.event_handler.as_ref() {
                         for topic in topics.topics.0.clone() {
                             let receiver = match topic {
-                                api_types::EventTopic::State => event_handler.subscribe_head(),
+                                api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()

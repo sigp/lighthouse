@@ -7,7 +7,8 @@ pub use crate::{
 use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
-    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, StateSkipConfig,
+    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
+    StateSkipConfig,
 };
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
@@ -181,7 +182,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
 
         let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log)
+            .logger(log.clone())
             .custom_spec(spec.clone())
             .store(Arc::new(store))
             .store_migrator_config(MigratorConfig::default().blocking())
@@ -197,6 +198,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(log, 1)))
             .build()
             .expect("should build");
 

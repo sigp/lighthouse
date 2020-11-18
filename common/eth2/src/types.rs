@@ -1,12 +1,12 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
+use crate::Error as ServerError;
 use eth2_libp2p::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
-use std::str::FromStr;
-
+use std::str::{from_utf8, FromStr};
 pub use types::*;
 
 /// An API error serializable to JSON.
@@ -633,20 +633,20 @@ pub struct PeerCount {
 
 // --------- Server Sent Event Types -----------
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseBlock {
     pub slot: Slot,
     pub block: Hash256,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
     pub epoch: Epoch,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseHead {
     pub slot: Slot,
     pub block: Hash256,
@@ -654,6 +654,62 @@ pub struct SseHead {
     pub target_root: Hash256,
     pub previous_target_root: Hash256,
     pub epoch_transition: bool,
+}
+
+#[derive(PartialEq, Debug, Serialize, Clone)]
+#[serde(bound = "T: EthSpec", untagged)]
+pub enum EventKind<T: EthSpec> {
+    Attestation(Attestation<T>),
+    Block(SseBlock),
+    FinalizedCheckpoint(SseFinalizedCheckpoint),
+    Head(SseHead),
+    VoluntaryExit(SignedVoluntaryExit),
+}
+
+impl<T: EthSpec> EventKind<T> {
+    pub fn from_sse_bytes(message: &[u8]) -> Result<Self, ServerError> {
+        let s = from_utf8(message)
+            .map_err(|e| ServerError::InvalidServerSentEvent(format!("{:?}", e)))?;
+
+        let mut split = s.split("\n");
+        let event = split
+            .next()
+            .ok_or(ServerError::InvalidServerSentEvent(
+                "Could not parse event tag".to_string(),
+            ))?
+            .trim_start_matches("event:");
+        let data = split
+            .next()
+            .ok_or(ServerError::InvalidServerSentEvent(
+                "Could not parse data tag".to_string(),
+            ))?
+            .trim_start_matches("data:");
+
+        match event {
+            "attestation" => Ok(EventKind::Attestation(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Attestation: {:?}", e)),
+            )?)),
+            "block" => Ok(EventKind::Block(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Block: {:?}", e)),
+            )?)),
+            "finalized_checkpoint" => Ok(EventKind::FinalizedCheckpoint(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Finalized Checkpoint: {:?}", e))
+                })?,
+            )),
+            "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
+            )?)),
+            "voluntary_exit" => Ok(EventKind::VoluntaryExit(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
+                })?,
+            )),
+            _ => Err(ServerError::InvalidServerSentEvent(
+                "Could not parse event tag".to_string(),
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -664,7 +720,7 @@ pub struct EventQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventTopic {
-    State,
+    Head,
     Block,
     Attestation,
     VoluntaryExit,
@@ -676,7 +732,7 @@ impl FromStr for EventTopic {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "state" => Ok(EventTopic::State),
+            "head" => Ok(EventTopic::Head),
             "block" => Ok(EventTopic::Block),
             "attestation" => Ok(EventTopic::Attestation),
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
@@ -689,7 +745,7 @@ impl FromStr for EventTopic {
 impl fmt::Display for EventTopic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EventTopic::State => write!(f, "state"),
+            EventTopic::Head => write!(f, "head"),
             EventTopic::Block => write!(f, "block"),
             EventTopic::Attestation => write!(f, "attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),

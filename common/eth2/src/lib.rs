@@ -13,14 +13,19 @@ pub mod lighthouse_vc;
 pub mod types;
 
 use self::types::*;
+use account_utils::strip_off_newlines;
+use bytes::Bytes;
+use eth2_libp2p::PeerId;
+use futures::{Stream, TryFuture, TryStream};
+use futures_util::{StreamExt, TryStreamExt};
+pub use reqwest;
 use reqwest::{IntoUrl, Response};
+pub use reqwest::{StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
-
-use eth2_libp2p::PeerId;
-pub use reqwest;
-pub use reqwest::{StatusCode, Url};
+use std::iter::Iterator;
+use std::str::from_utf8;
 
 #[derive(Debug)]
 pub enum Error {
@@ -42,6 +47,8 @@ pub enum Error {
     MissingSignatureHeader,
     /// The server returned an invalid JSON response.
     InvalidJson(serde_json::Error),
+    /// The server returned an invalid server-sent event.
+    InvalidServerSentEvent(String),
     /// The server returned an invalid SSZ response.
     InvalidSsz(ssz::DecodeError),
 }
@@ -59,6 +66,7 @@ impl Error {
             Error::InvalidSignatureHeader => None,
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
+            Error::InvalidServerSentEvent(_) => None,
             Error::InvalidSsz(_) => None,
         }
     }
@@ -942,6 +950,36 @@ impl BeaconNodeHttpClient {
         self.post(path, &subscriptions).await?;
 
         Ok(())
+    }
+
+    /// `GET events?topics`
+    pub async fn get_events<T: EthSpec>(
+        &self,
+        topic: &[EventTopic],
+    ) -> Result<impl Stream<Item = Result<EventKind<T>, Error>>, Error> {
+        let mut path = self.eth_path()?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("events");
+
+        let topic_string = topic
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        path.query_pairs_mut().append_pair("topics", &topic_string);
+
+        Ok(self
+            .client
+            .get(path)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?
+            .bytes_stream()
+            .map(|next| match next {
+                Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
+                Err(e) => Err(Error::Reqwest(e)),
+            }))
     }
 }
 

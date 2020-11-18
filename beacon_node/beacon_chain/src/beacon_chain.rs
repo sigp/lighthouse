@@ -10,7 +10,7 @@ use crate::block_verification::{
 use crate::chain_config::ChainConfig;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
-use crate::events::{EventKind, ServerSentEventHandler};
+use crate::events::ServerSentEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
@@ -27,7 +27,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{SseBlock, SseFinalizedCheckpoint, SseHead};
+use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -972,6 +972,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).map(
             |v| {
+                // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
+                if let Some(event_handler) = self.event_handler.as_ref() {
+                    if event_handler.has_attestation_subscribers() {
+                        event_handler.register(EventKind::Attestation(v.attestation().clone()));
+                    }
+                }
                 metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
                 v
             },
@@ -989,6 +995,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
         VerifiedAggregatedAttestation::verify(signed_aggregate, self).map(|v| {
+            // This method is called for API and gossip attestations, so this covers all aggregated attestation events
+            if let Some(event_handler) = self.event_handler.as_ref() {
+                if event_handler.has_attestation_subscribers() {
+                    event_handler.register(EventKind::Attestation(v.attestation().clone()));
+                }
+            }
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
             v
         })
@@ -1177,7 +1189,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self
             .observed_voluntary_exits
-            .verify_and_observe(exit, &wall_clock_state, &self.spec)?)
+            .verify_and_observe(exit, &wall_clock_state, &self.spec)
+            .map(|exit| {
+                // this method is called for both API and gossip exits, so this covers all exit events
+                if let Some(event_handler) = self.event_handler.as_ref() {
+                    if event_handler.has_exit_subscribers() {
+                        if let ObservationOutcome::New(exit) = exit.clone() {
+                            event_handler.register(EventKind::VoluntaryExit(exit.into_inner()));
+                        }
+                    }
+                }
+                exit
+            })?)
     }
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
@@ -1665,7 +1688,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // send an event to the `events` endpoint after fully processing the block
         if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.block_receiver_count() > 0 {
+            if event_handler.has_block_subscribers() {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
@@ -2018,7 +2041,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Register a server-sent event if necessary
         if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.head_receiver_count() > 0 {
+            if event_handler.has_head_subscribers() {
                 if let Ok(Some(target_root)) = self.root_at_slot(target_epoch_start_slot) {
                     if let Ok(Some(previous_target_root)) =
                         self.root_at_slot(prev_target_epoch_start_slot)
@@ -2162,7 +2185,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.finalized_receiver_count() > 0 {
+            if event_handler.has_finalized_subscribers() {
                 event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
                     epoch: new_finalized_checkpoint.epoch,
                     block: new_finalized_checkpoint.root,
