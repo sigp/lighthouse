@@ -172,7 +172,7 @@ fn utf8_control_characters() {
         .build();
     assert_eq!(
         keystore,
-        Err(Error::InvalidPasswordCharacters {
+        Err(Error::InvalidPasswordCharacter {
             character: invalid_character,
             index: 0
         })
@@ -185,7 +185,7 @@ fn utf8_control_characters() {
         .build();
     assert_eq!(
         keystore,
-        Err(Error::InvalidPasswordCharacters {
+        Err(Error::InvalidPasswordCharacter {
             character: invalid_character,
             index: 1
         })
@@ -198,7 +198,7 @@ fn utf8_control_characters() {
         .build();
     assert_eq!(
         keystore,
-        Err(Error::InvalidPasswordCharacters {
+        Err(Error::InvalidPasswordCharacter {
             character: invalid_character,
             index: 2
         })
@@ -211,7 +211,7 @@ fn utf8_control_characters() {
         .build();
     assert_eq!(
         keystore,
-        Err(Error::InvalidPasswordCharacters {
+        Err(Error::InvalidPasswordCharacter {
             character: invalid_character,
             index: 6
         })

@@ -393,7 +393,7 @@ pub fn validate_password_utf8_chracters(password: &[u8]) -> Result<(), Error> {
     for (i, char) in password.iter().enumerate() {
         // C0 - 0x00 to 0x1F
         if *char <= 0x1F {
-            return Err(Error::InvalidPasswordCharacters {
+            return Err(Error::InvalidPasswordCharacter {
                 character: *char,
                 index: i,
             });
@@ -401,7 +401,7 @@ pub fn validate_password_utf8_chracters(password: &[u8]) -> Result<(), Error> {
 
         // C1 - 0x80 to 0x9F
         if *char >= 0x80 && *char <= 0x9F {
-            return Err(Error::InvalidPasswordCharacters {
+            return Err(Error::InvalidPasswordCharacter {
                 character: *char,
                 index: i,
             });
@@ -409,7 +409,7 @@ pub fn validate_password_utf8_chracters(password: &[u8]) -> Result<(), Error> {
 
         // Backspace
         if *char == 0x7F {
-            return Err(Error::InvalidPasswordCharacters {
+            return Err(Error::InvalidPasswordCharacter {
                 character: *char,
                 index: i,
             });
