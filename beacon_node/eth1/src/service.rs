@@ -43,9 +43,10 @@ async fn test_endpoint(
     log: &Logger,
 ) -> Result<(), ()> {
     let network_id_result =
-        get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+        get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+    crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[endpoint]);
     let chain_id_result =
-        get_chain_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+        get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
     match (network_id_result, chain_id_result) {
         (Ok(network_id), Ok(chain_id)) => {
             if network_id != config_network_id {
@@ -523,7 +524,7 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
 
-        let range = try_fallback_get_new_block_numbers(
+        let range = get_new_block_numbers(
             &endpoints,
             remote_highest_block_opt,
             next_required_block,
@@ -670,7 +671,7 @@ impl Service {
         let endpoints = self.config().endpoints.clone();
         let follow_distance = self.config().follow_distance;
 
-        let range = try_fallback_get_new_block_numbers(
+        let range = get_new_block_numbers(
             &endpoints,
             remote_highest_block_opt,
             next_required_block,
@@ -808,21 +809,33 @@ impl Service {
     }
 }
 
-/// Determine the range of blocks that need to be downloaded, given the remotes best block and
-/// the locally stored best block.
-async fn get_new_block_numbers(
+async fn get_new_block_range(
     endpoint: &str,
-    remote_highest_block_opt: Option<u64>,
     next_required_block: u64,
     follow_distance: u64,
 ) -> Result<Option<RangeInclusive<u64>>, Error> {
-    let remote_highest_block = if let Some(block_number) = remote_highest_block_opt {
-        block_number
-    } else {
+    let remote_highest_block =
         get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
             .map_err(Error::GetBlockNumberFailed)
-            .await?
-    };
+            .await?;
+    get_new_block_range_from_highest_block(
+        remote_highest_block,
+        next_required_block,
+        follow_distance,
+    )
+}
+
+fallback_on_err!(try_fallback_get_new_block_range, get_new_block_range,
+    next_required_block: u64=next_required_block,
+    follow_distance: u64=follow_distance;
+    Result<Option<RangeInclusive<u64>>, Error>
+);
+
+fn get_new_block_range_from_highest_block(
+    remote_highest_block: u64,
+    next_required_block: u64,
+    follow_distance: u64,
+) -> Result<Option<RangeInclusive<u64>>, Error> {
     let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
 
     if next_required_block <= remote_follow_block {
@@ -844,12 +857,25 @@ async fn get_new_block_numbers(
     }
 }
 
-fallback_on_err!(try_fallback_get_new_block_numbers, get_new_block_numbers,
-    remote_highest_block_opt: Option<u64>=remote_highest_block_opt,
-    next_required_block: u64=next_required_block,
-    follow_distance: u64=follow_distance;
-    Result<Option<RangeInclusive<u64>>, Error>
-);
+/// Determine the range of blocks that need to be downloaded, given the remotes best block and
+/// the locally stored best block.
+async fn get_new_block_numbers<S: AsRef<str>>(
+    endpoints: &[S],
+    remote_highest_block_opt: Option<u64>,
+    next_required_block: u64,
+    follow_distance: u64,
+) -> Result<Option<RangeInclusive<u64>>, Error> {
+    match remote_highest_block_opt {
+        Some(remote_highest_block) => get_new_block_range_from_highest_block(
+            remote_highest_block,
+            next_required_block,
+            follow_distance,
+        ),
+        None => {
+            try_fallback_get_new_block_range(endpoints, next_required_block, follow_distance).await
+        }
+    }
+}
 
 /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given
 /// `block_number`.

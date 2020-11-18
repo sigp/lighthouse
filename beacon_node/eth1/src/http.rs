@@ -128,9 +128,19 @@ macro_rules! fallback_on_err {
         pub async fn $new_func_name<S: AsRef<str>>(endpoints: &[S], $($p: $t,)*) -> $res {
             let mut result = None;
             for endpoint in endpoints {
+                crate::metrics::inc_counter_vec(
+                    &crate::metrics::ENDPOINT_REQUESTS,
+                    &[endpoint.as_ref()]
+                );
                 result = match $old_func_name(endpoint.as_ref(), $($e,)*).await {
                     Ok(t) => return Ok(t),
-                    Err(t) => Some(Err(t))
+                    Err(t) => {
+                        crate::metrics::inc_counter_vec(
+                            &crate::metrics::ENDPOINT_ERRORS,
+                            &[endpoint.as_ref()]
+                        );
+                        Some(Err(t))
+                    }
                 }
             }
             result.expect("At least one endpoint is given")
