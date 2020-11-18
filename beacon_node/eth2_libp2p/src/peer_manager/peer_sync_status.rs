@@ -12,18 +12,32 @@ pub enum PeerSyncStatus {
     Advanced { info: SyncInfo },
     /// Is behind our current head and not useful for block downloads.
     Behind { info: SyncInfo },
+    /// This peer is in an incompatible network.
+    IrrelevantPeer,
     /// Not currently known as a STATUS handshake has not occurred.
     Unknown,
 }
 
-/// This is stored inside the PeerSyncStatus and is very similar to `PeerSyncInfo` in the
-/// `Network` crate.
+/// A relevant peer's sync information.
 #[derive(Clone, Debug, Serialize)]
 pub struct SyncInfo {
-    pub status_head_slot: Slot,
-    pub status_head_root: Hash256,
-    pub status_finalized_epoch: Epoch,
-    pub status_finalized_root: Hash256,
+    pub head_slot: Slot,
+    pub head_root: Hash256,
+    pub finalized_epoch: Epoch,
+    pub finalized_root: Hash256,
+}
+
+impl std::cmp::PartialEq for PeerSyncStatus {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PeerSyncStatus::Synced { .. }, PeerSyncStatus::Synced { .. }) => true,
+            (PeerSyncStatus::Advanced { .. }, PeerSyncStatus::Advanced { .. }) => true,
+            (PeerSyncStatus::Behind { .. }, PeerSyncStatus::Behind { .. }) => true,
+            (PeerSyncStatus::IrrelevantPeer, PeerSyncStatus::IrrelevantPeer) => true,
+            (PeerSyncStatus::Unknown, PeerSyncStatus::Unknown) => true,
+            _ => false,
+        }
+    }
 }
 
 impl PeerSyncStatus {
@@ -42,54 +56,26 @@ impl PeerSyncStatus {
         matches!(self, PeerSyncStatus::Behind { .. })
     }
 
-    /// Updates the sync state given a fully synced peer.
-    /// Returns true if the state has changed.
-    pub fn update_synced(&mut self, info: SyncInfo) -> bool {
-        let new_state = PeerSyncStatus::Synced { info };
-
-        match self {
-            PeerSyncStatus::Synced { .. } | PeerSyncStatus::Unknown => {
-                *self = new_state;
-                false // state was not updated
-            }
-            _ => {
-                *self = new_state;
-                true
-            }
+    pub fn update(&mut self, new_state: PeerSyncStatus) -> bool {
+        if *self == new_state {
+            *self = new_state;
+            false // state was not updated
+        } else {
+            *self = new_state;
+            true
         }
     }
+}
 
-    /// Updates the sync state given a peer that is further ahead in the chain than us.
-    /// Returns true if the state has changed.
-    pub fn update_advanced(&mut self, info: SyncInfo) -> bool {
-        let new_state = PeerSyncStatus::Advanced { info };
-
-        match self {
-            PeerSyncStatus::Advanced { .. } | PeerSyncStatus::Unknown => {
-                *self = new_state;
-                false // state was not updated
-            }
-            _ => {
-                *self = new_state;
-                true
-            }
-        }
-    }
-
-    /// Updates the sync state given a peer that is behind us in the chain.
-    /// Returns true if the state has changed.
-    pub fn update_behind(&mut self, info: SyncInfo) -> bool {
-        let new_state = PeerSyncStatus::Behind { info };
-
-        match self {
-            PeerSyncStatus::Behind { .. } | PeerSyncStatus::Unknown => {
-                *self = new_state;
-                false // state was not updated
-            }
-            _ => {
-                *self = new_state;
-                true
-            }
-        }
+impl std::fmt::Display for PeerSyncStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let rpr = match self {
+            PeerSyncStatus::Behind { .. } => "Behind",
+            PeerSyncStatus::Advanced { .. } => "Advanced",
+            PeerSyncStatus::Synced { .. } => "Synced",
+            PeerSyncStatus::Unknown => "Unknown",
+            PeerSyncStatus::IrrelevantPeer => "IrrelevantPeer",
+        };
+        f.write_str(rpr)
     }
 }

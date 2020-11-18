@@ -12,7 +12,7 @@ DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
 Lighthouse supports four testnets:
 
 - [Medalla](https://github.com/goerli/medalla/tree/master/medalla) (default)
-- [Zinken](https://github.com/goerli/medalla/tree/master/zinken)
+- [Pyrmont](https://github.com/protolambda/pyrmont)
 - [Spadina](https://github.com/goerli/medalla/tree/master/spadina) (deprecated)
 - [Altona](https://github.com/goerli/medalla/tree/master/altona) (deprecated)
 
@@ -20,7 +20,7 @@ When using Lighthouse, the `--testnet` flag selects a testnet. E.g.,
 
 - `lighthouse` (no flag): Medalla.
 - `lighthouse --testnet medalla`: Medalla.
-- `lighthouse --testnet zinken`: Zinken.
+- `lighthouse --testnet pyrmont`: Pyrmont.
 
 Using the correct `--testnet` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, always
@@ -48,7 +48,7 @@ setting aside one or two hours for this process.
 The Ethereum Foundation provides an "Eth2 launch pad" for each active testnet:
 
 - [Medalla launchpad](https://medalla.launchpad.ethereum.org/)
-- [Zinken launchpad](https://zinken.launchpad.ethereum.org/)
+- [Pyrmont launchpad](https://pyrmont.launchpad.ethereum.org/)
 
 Please follow the steps on the appropriate launch pad site to generate
 validator keys and submit deposits. Make sure you select "Lighthouse" as your
@@ -120,7 +120,7 @@ lighthouse --testnet MY_TESTNET vc
 ```
 
 > Note: `~/.lighthouse/{testnet}` is the default directory which contains the keys and databases.
-> To specify a custom dir, see [this](#custom-directories) section 
+> To specify a custom dir, see [this](#custom-directories) section
 
 #### Docker users
 
@@ -173,7 +173,7 @@ Happy staking!
 
 Users can override the default Lighthouse data directories (`~/.lighthouse/{testnet}`) using the `--datadir` flag. The custom data directory mirrors the structure of any testnet specific default directory (e.g. `~/.lighthouse/medalla`).
 
-> Note: Users should specify different custom directories for different testnets. 
+> Note: Users should specify different custom directories for different testnets.
 
 Below is an example flow for importing validator keys, running a beacon node and validator client using a custom data directory `/var/lib/my-custom-dir` for the medalla testnet.
 
@@ -182,5 +182,5 @@ lighthouse --testnet medalla --datadir /var/lib/my-custom-dir account validator 
 lighthouse --testnet medalla --datadir /var/lib/my-custom-dir bn --staking
 lighthouse --testnet medalla --datadir /var/lib/my-custom-dir vc
 ```
-The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md). 
-After that, we simply run the beacon chain and validator client with the custom dir path. 
+The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md).
+After that, we simply run the beacon chain and validator client with the custom dir path.

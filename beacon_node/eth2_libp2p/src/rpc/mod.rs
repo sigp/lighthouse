@@ -119,7 +119,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
                 Duration::from_secs(10),
             )
             .build()
-            .unwrap();
+            .expect("Configuration parameters are valid");
         RPC {
             limiter,
             events: Vec::new(),

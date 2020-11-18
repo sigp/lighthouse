@@ -43,12 +43,13 @@ use super::chain::{ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::router::processor::status_message;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
-use crate::sync::PeerSyncInfo;
 use crate::sync::RequestId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
+use eth2_libp2p::SyncInfo;
 use slog::{crit, debug, error, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -63,7 +64,7 @@ pub struct RangeSync<T: BeaconChainTypes> {
     beacon_chain: Arc<BeaconChain<T>>,
     /// Last known sync info of our useful connected peers. We use this information to create Head
     /// chains after all finalized chains have ended.
-    awaiting_head_peers: HashMap<PeerId, PeerSyncInfo>,
+    awaiting_head_peers: HashMap<PeerId, SyncInfo>,
     /// A collection of chains that need to be downloaded. This stores any head or finalized chains
     /// that need to be downloaded.
     chains: ChainCollection<T>,
@@ -100,21 +101,14 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
+        local_info: SyncInfo,
         peer_id: PeerId,
-        remote_info: PeerSyncInfo,
+        remote_info: SyncInfo,
     ) {
         // evaluate which chain to sync from
 
         // determine if we need to run a sync to the nearest finalized state or simply sync to
         // its current head
-
-        let local_info = match PeerSyncInfo::from_chain(&self.beacon_chain) {
-            Some(local) => local,
-            None => {
-                return error!(self.log, "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention")
-            }
-        };
 
         // convenience variable
         let remote_finalized_slot = remote_info
@@ -146,6 +140,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
                 self.chains.update(
                     network,
+                    &local_info,
                     &mut self.awaiting_head_peers,
                     &self.beacon_processor_send,
                 );
@@ -182,6 +177,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 );
                 self.chains.update(
                     network,
+                    &local_info,
                     &mut self.awaiting_head_peers,
                     &self.beacon_processor_send,
                 );
@@ -345,9 +341,23 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
         network.status_peers(self.beacon_chain.clone(), chain.peers());
 
+        let local = match status_message(&self.beacon_chain) {
+            Ok(status) => SyncInfo {
+                head_slot: status.head_slot,
+                head_root: status.head_root,
+                finalized_epoch: status.finalized_epoch,
+                finalized_root: status.finalized_root,
+            },
+            Err(e) => {
+                return error!(self.log, "Failed to get peer sync info";
+                    "msg" => "likely due to head lock contention", "err" => ?e)
+            }
+        };
+
         // update the state of the collection
         self.chains.update(
             network,
+            &local,
             &mut self.awaiting_head_peers,
             &self.beacon_processor_send,
         );
