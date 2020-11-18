@@ -842,7 +842,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// Drives the queries returning any results from completed queries.
     fn poll_queries(&mut self, cx: &mut Context) -> Option<HashMap<PeerId, Option<Instant>>> {
         while let Poll::Ready(Some(query_result)) = self.active_queries.poll_next_unpin(cx) {
-            self.process_completed_queries(query_result);
+            let result = self.process_completed_queries(query_result);
+            if result.is_some() {
+                return result;
+            }
         }
         None
     }
@@ -924,9 +927,16 @@ mod tests {
     use crate::rpc::methods::MetaData;
     use enr::EnrBuilder;
     use slog::{o, Drain};
+    use std::net::UdpSocket;
     use types::MinimalEthSpec;
 
     type E = MinimalEthSpec;
+
+    pub fn unused_port() -> u16 {
+        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
+        let local_addr = socket.local_addr().expect("should read udp socket");
+        local_addr.port()
+    }
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -940,11 +950,10 @@ mod tests {
         }
     }
 
-    async fn build_discovery(port: u16) -> Discovery<E> {
+    async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let mut config = NetworkConfig::default();
-        // TODO: use unused_ports() if tests fail here
-        config.discovery_port = port;
+        config.discovery_port = unused_port();
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
         let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
@@ -966,7 +975,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_subnet_query() {
-        let mut discovery = build_discovery(9000).await;
+        let mut discovery = build_discovery().await;
         let now = Instant::now();
         let mut subnet_query = SubnetQuery {
             subnet_id: SubnetId::new(1),
@@ -1008,7 +1017,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_queue() {
-        let mut discovery = build_discovery(9001).await;
+        let mut discovery = build_discovery().await;
 
         // FindPeers query is processed if there is no subnet query
         discovery.queued_queries.push_back(QueryType::FindPeers);
@@ -1056,7 +1065,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_completed_subnet_queries() {
-        let mut discovery = build_discovery(9002).await;
+        let mut discovery = build_discovery().await;
         let now = Instant::now();
         let instant1 = Some(now + Duration::from_secs(10));
         let instant2 = Some(now + Duration::from_secs(5));
