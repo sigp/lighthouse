@@ -283,7 +283,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("eth1-blocks-per-log-query")
                 .long("eth1-blocks-per-log-query")
                 .value_name("BLOCKS")
-                .help("Specifies the number of blocks that a deposit log query should span.")
+                .help("Specifies the number of blocks that a deposit log query should span. \
+                    This will reduce the size of responses from the Eth1 endpoint.")
+                .default_value("1000")
                 .takes_value(true)
         )
         .arg(
