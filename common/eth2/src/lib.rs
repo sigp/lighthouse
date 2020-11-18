@@ -13,11 +13,9 @@ pub mod lighthouse_vc;
 pub mod types;
 
 use self::types::*;
-use account_utils::strip_off_newlines;
-use bytes::Bytes;
 use eth2_libp2p::PeerId;
-use futures::{Stream, TryFuture, TryStream};
-use futures_util::{StreamExt, TryStreamExt};
+use futures::Stream;
+use futures_util::StreamExt;
 pub use reqwest;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
@@ -25,7 +23,6 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
-use std::str::from_utf8;
 
 #[derive(Debug)]
 pub enum Error {

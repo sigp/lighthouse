@@ -18,7 +18,6 @@ use beacon_chain::{
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
 use eth2::types::EventKind;
-use eth2::Error as ServerError;
 use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,

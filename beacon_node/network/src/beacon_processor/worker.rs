@@ -5,9 +5,8 @@ use super::{
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::{
-    attestation_verification::Error as AttnError, events::EventKind,
-    observed_operations::ObservationOutcome, BeaconChain, BeaconChainError, BeaconChainTypes,
-    BlockError, ForkChoiceError,
+    attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};

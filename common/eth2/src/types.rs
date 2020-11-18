@@ -3,7 +3,7 @@
 
 use crate::Error as ServerError;
 use eth2_libp2p::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
@@ -671,18 +671,18 @@ impl<T: EthSpec> EventKind<T> {
         let s = from_utf8(message)
             .map_err(|e| ServerError::InvalidServerSentEvent(format!("{:?}", e)))?;
 
-        let mut split = s.split("\n");
+        let mut split = s.split('\n');
         let event = split
             .next()
-            .ok_or(ServerError::InvalidServerSentEvent(
-                "Could not parse event tag".to_string(),
-            ))?
+            .ok_or_else(|| {
+                ServerError::InvalidServerSentEvent("Could not parse event tag".to_string())
+            })?
             .trim_start_matches("event:");
         let data = split
             .next()
-            .ok_or(ServerError::InvalidServerSentEvent(
-                "Could not parse data tag".to_string(),
-            ))?
+            .ok_or_else(|| {
+                ServerError::InvalidServerSentEvent("Could not parse data tag".to_string())
+            })?
             .trim_start_matches("data:");
 
         match event {
