@@ -166,7 +166,6 @@ fn scrypt_params() {
     assert_eq!(keystore, Err(Error::InvalidScryptParam));
 }
 
-
 #[test]
 fn pbkdf2_params() {
     let keypair = Keypair::random();
