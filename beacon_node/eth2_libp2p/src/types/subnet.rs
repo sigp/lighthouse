@@ -7,14 +7,23 @@ const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 #[derive(Debug, Clone)]
 pub struct SubnetDiscovery {
     pub subnet_id: SubnetId,
-    pub min_ttl: Instant,
+    pub min_ttl: Option<Instant>,
 }
 
 impl PartialEq for SubnetDiscovery {
     fn eq(&self, other: &SubnetDiscovery) -> bool {
         self.subnet_id == other.subnet_id
-            && self.min_ttl.saturating_duration_since(other.min_ttl) < DURATION_DIFFERENCE
-            && other.min_ttl.saturating_duration_since(self.min_ttl) < DURATION_DIFFERENCE
+            && match (self.min_ttl, other.min_ttl) {
+                (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
+                    min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
+                        < DURATION_DIFFERENCE
+                        && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
+                            < DURATION_DIFFERENCE
+                }
+                (None, None) => true,
+                (None, Some(_)) => false, // not equal
+                (Some(_), None) => false, // not equal
+            }
     }
 }
 
@@ -25,25 +34,39 @@ mod tests {
     /// Tests `PartialEq` implementation for `SubnetDiscovery`
     #[test]
     fn test_equality() {
-        let now = Instant::now();
-
-        let s1 = SubnetDiscovery {
+        let mut s1 = SubnetDiscovery {
             subnet_id: SubnetId::new(1),
-            min_ttl: now,
+            min_ttl: None,
         };
         let mut s2 = SubnetDiscovery {
-            subnet_id: SubnetId::new(1),
-            min_ttl: now + Duration::from_nanos(500),
+            subnet_id: SubnetId::new(2),
+            min_ttl: None,
         };
 
-        assert_eq!(s1, s2, "min_ttl within DURATION_DIFFERENCE must be equal");
-        assert_eq!(s2, s1, "min_ttl within DURATION_DIFFERENCE must be equal");
+        assert_ne!(s1, s2, "unequal subnet_id should be unequal");
 
-        s2.min_ttl += DURATION_DIFFERENCE;
+        s2.subnet_id = SubnetId::new(1);
 
+        assert_eq!(s1, s2, "equal subnet_id and min_ttl should be equal");
+
+        let instant = Instant::now();
+
+        s1.min_ttl = Some(instant);
+
+        assert_ne!(s1, s2, "unequal min ttls");
+        assert_ne!(s2, s1, "unequal min ttls");
+
+        s2.min_ttl = Some(instant);
+
+        assert_eq!(
+            s1, s2,
+            "equal subnet_id and min_ttl within DURATION_DIFFERENCE should be equal"
+        );
+
+        s2.min_ttl = Some(instant + DURATION_DIFFERENCE);
         assert_ne!(
             s1, s2,
-            "min_ttl not within DURATION_DIFFERENCE should be unequal"
+            "equal subnet_id and min_ttl not within DURATION_DIFFERENCE should be unequal"
         );
     }
 }
