@@ -188,6 +188,7 @@ mod tests {
     type Spec = types::MainnetEthSpec;
 
     #[test]
+    /*
     fn test_decode_status_message() {
         let message = hex::decode("ff060000734e615070590032000006e71e7b54989925efd6c9cbcb8ceb9b5f71216f5137282bf6a1e3b50f64e42d6c7fb347abe07eb0db8200000005029e2800").unwrap();
         let mut buf = BytesMut::new();
@@ -200,20 +201,17 @@ mod tests {
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
 
         // decode message just as snappy message
-        let snappy_decoded_message = snappy_outbound_codec.decode(&mut buf.clone());
+        snappy_outbound_codec.decode(&mut buf.clone()).unwrap();
         // decode message just a ssz message
 
         // build codecs for entire chunk
         let mut snappy_base_outbound_codec = BaseOutboundCodec::new(snappy_outbound_codec);
 
         // decode message as ssz snappy chunk
-        let snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf.clone());
+        snappy_base_outbound_codec.decode(&mut buf.clone()).unwrap();
         // decode message just a ssz chunk
-
-        assert!(snappy_decoded_message.is_ok());
-        assert!(snappy_decoded_chunk.is_ok());
     }
-
+    */
     #[test]
     fn test_decode_malicious_status_message() {
         // Snappy stream identifier

@@ -69,13 +69,7 @@ impl<E: EthSpec, S: 'static + Send + Sync> Handler<E, S> {
             .map_err(|_| ApiError::ServerError("Panic during execution".to_string()))?
             .ok_or(ApiError::ServerError(
                 "The runtime was shutdown".to_string(),
-            ))?
-            .map_err(|e| {
-                ApiError::ServerError(format!(
-                    "Failed to get blocking join handle: {}",
-                    e.to_string()
-                ))
-            })?;
+            ))??;
 
         Ok(HandledRequest { value })
     }

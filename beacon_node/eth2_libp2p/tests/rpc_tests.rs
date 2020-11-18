@@ -220,7 +220,7 @@ fn test_blocks_by_range_chunked_rpc() {
         tokio::select! {
             _ = sender_future => {}
             _ = receiver_future => {}
-            _ = sleep(Duration::from_secs(30)) => {
+            _ = sleep(Duration::from_secs(10)) => {
                 panic!("Future timed out");
             }
         }

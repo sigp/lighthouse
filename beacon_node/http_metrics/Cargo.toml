@@ -26,3 +26,4 @@ tokio = { version = "0.3.2", features = ["sync"] }
 reqwest = { version = "0.10.8", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 types = { path = "../../consensus/types" }
+tokio-compat-02 = "0.1"

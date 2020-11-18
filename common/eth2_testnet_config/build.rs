@@ -52,8 +52,11 @@ fn uncompress_state(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(),
             .map_err(|e| format!("Error writing file {:?}: {}", path, e))?;
     } else {
         // Create empty genesis.ssz if genesis is unknown
-        File::create(testnet.dir().join(GENESIS_FILE_NAME))
-            .map_err(|e| format!("Failed to create {}: {}", GENESIS_FILE_NAME, e))?;
+        let genesis_file = testnet.dir().join(GENESIS_FILE_NAME);
+        if !genesis_file.exists() {
+            File::create(genesis_file)
+                .map_err(|e| format!("Failed to create {}: {}", GENESIS_FILE_NAME, e))?;
+        }
     }
 
     Ok(())
