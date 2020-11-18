@@ -308,13 +308,7 @@ pub fn keypair_from_secret(secret: &[u8]) -> Result<Keypair, Error> {
 ///
 /// Currently this is set to scrypt due to its memory hardness properties.
 pub fn default_kdf(salt: Vec<u8>) -> Kdf {
-    Kdf::Scrypt(Scrypt {
-        dklen: DKLEN,
-        n: 262144,
-        p: 1,
-        r: 8,
-        salt: salt.into(),
-    })
+    Kdf::Scrypt(Scrypt::default_scrypt(salt))
 }
 
 /// Returns `(cipher_text, checksum)` for the given `plain_text` encrypted with `Cipher` using a
@@ -329,6 +323,8 @@ pub fn encrypt(
     kdf: &Kdf,
     cipher: &Cipher,
 ) -> Result<(Vec<u8>, [u8; HASH_SIZE]), Error> {
+    kdf.validate_parameters()?;
+
     let derived_key = derive_key(&password, &kdf)?;
 
     // Encrypt secret.
@@ -354,6 +350,8 @@ pub fn encrypt(
 /// - The provided password is incorrect.
 /// - The `crypto.kdf` is badly formed (e.g., has some values set to zero).
 pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
+    crypto.kdf.params.validate_parameters()?;
+
     let cipher_message = &crypto.cipher.message;
 
     // Generate derived key
@@ -402,21 +400,6 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
 
     match &kdf {
         Kdf::Pbkdf2(params) => {
-            // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
-            // if it is `0`.
-            //
-            // Both of these seem fairly convincing that it shouldn't be 0.
-            //
-            // Reference:
-            //
-            // https://www.ietf.org/rfc/rfc2898.txt
-            //
-            // Additionally, we always compute a derived key of 32 bytes so reject anything that
-            // says otherwise.
-            if params.c == 0 || params.dklen != DKLEN {
-                return Err(Error::InvalidPbkdf2Param);
-            }
-
             pbkdf2::<Hmac<Sha256>>(
                 password,
                 params.salt.as_bytes(),
@@ -425,27 +408,6 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             );
         }
         Kdf::Scrypt(params) => {
-            // RFC7914 declares that all these parameters must be greater than 1:
-            //
-            // - `N`: costParameter.
-            // - `r`: blockSize.
-            // - `p`: parallelizationParameter
-            //
-            // Reference:
-            //
-            // https://tools.ietf.org/html/rfc7914
-            //
-            // Additionally, we always compute a derived key of 32 bytes so reject anything that
-            // says otherwise.
-            if params.n <= 1 || params.r == 0 || params.p == 0 || params.dklen != DKLEN {
-                return Err(Error::InvalidScryptParam);
-            }
-
-            // Ensure that `n` is power of 2.
-            if params.n != 2u32.pow(log2_int(params.n)) {
-                return Err(Error::InvalidScryptParam);
-            }
-
             scrypt(
                 password,
                 params.salt.as_bytes(),
@@ -461,7 +423,7 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
 }
 
 /// Compute floor of log2 of a u32.
-fn log2_int(x: u32) -> u32 {
+pub fn log2_int(x: u32) -> u32 {
     if x == 0 {
         return 0;
     }
