@@ -11,6 +11,7 @@ pub const SCHEMA_VERSION_KEY: Hash256 = Hash256::repeat_byte(0);
 pub const CONFIG_KEY: Hash256 = Hash256::repeat_byte(1);
 pub const SPLIT_KEY: Hash256 = Hash256::repeat_byte(2);
 pub const PRUNING_CHECKPOINT_KEY: Hash256 = Hash256::repeat_byte(3);
+pub const COMPACTION_TIMESTAMP_KEY: Hash256 = Hash256::repeat_byte(4);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SchemaVersion(pub u64);
@@ -56,5 +57,22 @@ impl StoreItem for PruningCheckpoint {
         Ok(PruningCheckpoint {
             checkpoint: Checkpoint::from_ssz_bytes(bytes)?,
         })
+    }
+}
+
+/// The last time the database was compacted.
+pub struct CompactionTimestamp(pub u64);
+
+impl StoreItem for CompactionTimestamp {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.0.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(CompactionTimestamp(u64::from_ssz_bytes(bytes)?))
     }
 }

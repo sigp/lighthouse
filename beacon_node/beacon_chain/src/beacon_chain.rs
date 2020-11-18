@@ -1926,25 +1926,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let new_finalized_checkpoint = new_head.beacon_state.finalized_checkpoint;
-        // State root of the finalized state on the epoch boundary, NOT the state
-        // of the finalized block. We need to use an iterator in case the state is beyond
-        // the reach of the new head's `state_roots` array.
-        let new_finalized_slot = new_finalized_checkpoint
-            .epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
-        let new_finalized_state_root = process_results(
-            StateRootsIterator::new(self.store.clone(), &new_head.beacon_state),
-            |mut iter| {
-                iter.find_map(|(state_root, slot)| {
-                    if slot == new_finalized_slot {
-                        Some(state_root)
-                    } else {
-                        None
-                    }
-                })
-            },
-        )?
-        .ok_or_else(|| Error::MissingFinalizedStateRoot(new_finalized_slot))?;
 
         // It is an error to try to update to a head with a lesser finalized epoch.
         if new_finalized_checkpoint.epoch < old_finalized_checkpoint.epoch {
@@ -1991,7 +1972,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
-            self.after_finalization(new_finalized_checkpoint, new_finalized_state_root)?;
+            // Due to race conditions, it's technically possible that the head we load here is
+            // different to the one earlier in this function.
+            //
+            // Since the head can't move backwards in terms of finalized epoch, we can only load a
+            // head with a *later* finalized state. There is no harm in this.
+            let head = self
+                .canonical_head
+                .try_read_for(HEAD_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
+
+            // State root of the finalized state on the epoch boundary, NOT the state
+            // of the finalized block. We need to use an iterator in case the state is beyond
+            // the reach of the new head's `state_roots` array.
+            let new_finalized_slot = head
+                .beacon_state
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
+            let new_finalized_state_root = process_results(
+                StateRootsIterator::new(self.store.clone(), &head.beacon_state),
+                |mut iter| {
+                    iter.find_map(|(state_root, slot)| {
+                        if slot == new_finalized_slot {
+                            Some(state_root)
+                        } else {
+                            None
+                        }
+                    })
+                },
+            )?
+            .ok_or_else(|| Error::MissingFinalizedStateRoot(new_finalized_slot))?;
+
+            self.after_finalization(&head.beacon_state, new_finalized_state_root)?;
         }
 
         let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
@@ -2072,10 +2085,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Performs pruning and finality-based optimizations.
     fn after_finalization(
         &self,
-        new_finalized_checkpoint: Checkpoint,
+        head_state: &BeaconState<T::EthSpec>,
         new_finalized_state_root: Hash256,
     ) -> Result<(), Error> {
         self.fork_choice.write().prune()?;
+        let new_finalized_checkpoint = head_state.finalized_checkpoint;
 
         self.observed_block_producers.prune(
             new_finalized_checkpoint
@@ -2097,20 +2111,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             });
 
-        let finalized_state = self
-            .get_state(&new_finalized_state_root, None)?
-            .ok_or_else(|| Error::MissingBeaconState(new_finalized_state_root))?;
-
-        self.op_pool.prune_all(
-            &finalized_state,
-            self.epoch()?,
-            self.head_info()?.fork,
-            &self.spec,
-        );
+        self.op_pool.prune_all(head_state, self.epoch()?);
 
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),
-            finalized_state,
             new_finalized_checkpoint,
             self.head_tracker.clone(),
         )?;

@@ -297,12 +297,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
-         * Purge.
+         * Database purging and compaction.
          */
         .arg(
             Arg::with_name("purge-db")
                 .long("purge-db")
                 .help("If present, the chain database will be deleted. Use with caution.")
+        )
+        .arg(
+            Arg::with_name("compact-db")
+                .long("compact-db")
+                .help("If present, apply compaction to the database on start-up. Use with caution. \
+                       It is generally not recommended unless auto-compaction is disabled.")
+        )
+        .arg(
+            Arg::with_name("auto-compact-db")
+                .long("auto-compact-db")
+                .help("Enable or disable automatic compaction of the database on finalization.")
+                .takes_value(true)
+                .default_value("true")
         )
 
         /*
