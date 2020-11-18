@@ -39,13 +39,13 @@ The exit phrase is the following:
 
 
 
-Below is an example for initiating a voluntary exit on the zinken testnet.
+Below is an example for initiating a voluntary exit on the Pyrmont testnet.
 
 ```
-$ lighthouse --testnet zinken account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
+$ lighthouse --testnet pyrmont account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
 
-Running account manager for zinken testnet
-validator-dir path: ~/.lighthouse/zinken/validators
+Running account manager for pyrmont testnet
+validator-dir path: ~/.lighthouse/pyrmont/validators
 
 Enter the keystore password for validator in 0xabcd
 

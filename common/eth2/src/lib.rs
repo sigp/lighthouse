@@ -28,6 +28,8 @@ pub enum Error {
     Reqwest(reqwest::Error),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
+    /// The server returned an error message with an array of errors.
+    ServerIndexedMessage(IndexedErrorMessage),
     /// The server returned an error message where the body was unable to be parsed.
     StatusCode(StatusCode),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
@@ -50,6 +52,7 @@ impl Error {
         match self {
             Error::Reqwest(error) => error.status(),
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
+            Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
             Error::InvalidUrl(_) => None,
             Error::InvalidSecret(_) => None,
@@ -137,6 +140,26 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// Perform a HTTP POST request, returning a JSON response.
+    async fn post_with_response<T: DeserializeOwned, U: IntoUrl, V: Serialize>(
+        &self,
+        url: U,
+        body: &V,
+    ) -> Result<T, Error> {
+        let response = self
+            .client
+            .post(url)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_error(response)
+            .await?
+            .json()
+            .await
+            .map_err(Error::Reqwest)
+    }
+
     /// `GET beacon/genesis`
     ///
     /// ## Errors
@@ -206,6 +229,35 @@ impl BeaconNodeHttpClient {
             .push("states")
             .push(&state_id.to_string())
             .push("finality_checkpoints");
+
+        self.get_opt(path).await
+    }
+
+    /// `GET beacon/states/{state_id}/validator_balances?id`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_validator_balances(
+        &self,
+        state_id: StateId,
+        ids: Option<&[ValidatorId]>,
+    ) -> Result<Option<GenericResponse<Vec<ValidatorBalanceData>>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_balances");
+
+        if let Some(ids) = ids {
+            let id_string = ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("id", &id_string);
+        }
 
         self.get_opt(path).await
     }
@@ -670,13 +722,47 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/peers`
-    pub async fn get_node_peers(&self) -> Result<GenericResponse<Vec<PeerData>>, Error> {
+    pub async fn get_node_peers(
+        &self,
+        states: Option<&[PeerState]>,
+        directions: Option<&[PeerDirection]>,
+    ) -> Result<PeersData, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("peers");
+
+        if let Some(states) = states {
+            let state_string = states
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("state", &state_string);
+        }
+
+        if let Some(directions) = directions {
+            let dir_string = directions
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("direction", &dir_string);
+        }
+
+        self.get(path).await
+    }
+
+    /// `GET node/peer_count`
+    pub async fn get_node_peer_count(&self) -> Result<GenericResponse<PeerCount>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("peer_count");
 
         self.get(path).await
     }
@@ -713,37 +799,6 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET validator/duties/attester/{epoch}?index`
-    ///
-    /// ## Note
-    ///
-    /// The `index` query parameter accepts a list of validator indices.
-    pub async fn get_validator_duties_attester(
-        &self,
-        epoch: Epoch,
-        index: Option<&[u64]>,
-    ) -> Result<GenericResponse<Vec<AttesterData>>, Error> {
-        let mut path = self.eth_path()?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("validator")
-            .push("duties")
-            .push("attester")
-            .push(&epoch.to_string());
-
-        if let Some(index) = index {
-            let string = index
-                .iter()
-                .map(|i| i.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            path.query_pairs_mut().append_pair("index", &string);
-        }
-
-        self.get(path).await
-    }
-
     /// `GET validator/duties/proposer/{epoch}`
     pub async fn get_validator_duties_proposer(
         &self,
@@ -761,11 +816,7 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET validator/duties/attester/{epoch}?index`
-    ///
-    /// ## Note
-    ///
-    /// The `index` query parameter accepts a list of validator indices.
+    /// `GET validator/blocks/{slot}`
     pub async fn get_validator_blocks<T: EthSpec>(
         &self,
         slot: Slot,
@@ -834,10 +885,28 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `POST validator/duties/attester/{epoch}`
+    pub async fn post_validator_duties_attester(
+        &self,
+        epoch: Epoch,
+        indices: &[u64],
+    ) -> Result<GenericResponse<Vec<AttesterData>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("attester")
+            .push(&epoch.to_string());
+
+        self.post_with_response(path, &indices).await
+    }
+
     /// `POST validator/aggregate_and_proofs`
     pub async fn post_validator_aggregate_and_proof<T: EthSpec>(
         &self,
-        aggregate: &SignedAggregateAndProof<T>,
+        aggregates: &[SignedAggregateAndProof<T>],
     ) -> Result<(), Error> {
         let mut path = self.eth_path()?;
 
@@ -846,7 +915,14 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("aggregate_and_proofs");
 
-        self.post(path, aggregate).await?;
+        let response = self
+            .client
+            .post(path)
+            .json(aggregates)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_indexed_error(response).await?;
 
         Ok(())
     }
@@ -878,6 +954,20 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
         Ok(response)
     } else if let Ok(message) = response.json().await {
         Err(Error::ServerMessage(message))
+    } else {
+        Err(Error::StatusCode(status))
+    }
+}
+
+/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
+/// appropriate indexed error message.
+async fn ok_or_indexed_error(response: Response) -> Result<Response, Error> {
+    let status = response.status();
+
+    if status == StatusCode::OK {
+        Ok(response)
+    } else if let Ok(message) = response.json().await {
+        Err(Error::ServerIndexedMessage(message))
     } else {
         Err(Error::StatusCode(status))
     }

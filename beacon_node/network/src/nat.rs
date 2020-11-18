@@ -5,7 +5,7 @@
 
 use crate::{NetworkConfig, NetworkMessage};
 use if_addrs::get_if_addrs;
-use slog::{debug, info, warn};
+use slog::{debug, info};
 use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -124,7 +124,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
 
                     // report any updates to the network service.
                     network_send.send(NetworkMessage::UPnPMappingEstablished{ tcp_socket, udp_socket })
-            .unwrap_or_else(|e| warn!(log, "Could not send message to the network service"; "error" => %e));
+            .unwrap_or_else(|e| debug!(log, "Could not send message to the network service"; "error" => %e));
                 }
                 _ => debug!(log, "UPnP no routes constructed. IPv6 not supported"),
             }

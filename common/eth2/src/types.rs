@@ -18,6 +18,30 @@ pub struct ErrorMessage {
     pub stacktraces: Vec<String>,
 }
 
+/// An indexed API error serializable to JSON.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IndexedErrorMessage {
+    pub code: u16,
+    pub message: String,
+    pub failures: Vec<Failure>,
+}
+
+/// A single failure in an index of API errors, serializable to JSON.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Failure {
+    pub index: u64,
+    pub message: String,
+}
+
+impl Failure {
+    pub fn new(index: usize, message: String) -> Self {
+        Self {
+            index: index as u64,
+            message,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenesisData {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -204,6 +228,14 @@ pub struct ValidatorData {
     pub balance: u64,
     pub status: ValidatorStatus,
     pub validator: Validator,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ValidatorBalanceData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub balance: u64,
 }
 
 // TODO: This does not currently match the spec, but I'm going to try and change the spec using
@@ -415,9 +447,13 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
 }
 
 #[derive(Clone, Deserialize)]
-pub struct ValidatorDutiesQuery {
-    pub index: Option<QueryVec<u64>>,
+pub struct ValidatorBalancesQuery {
+    pub id: Option<QueryVec<ValidatorId>>,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ValidatorIndexData(#[serde(with = "serde_utils::quoted_u64_vec")] pub Vec<u64>);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
@@ -438,6 +474,8 @@ pub struct AttesterData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposerData {
     pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
     pub slot: Slot,
 }
 
@@ -471,6 +509,12 @@ pub struct BeaconCommitteeSubscription {
     pub is_aggregator: bool,
 }
 
+#[derive(Deserialize)]
+pub struct PeersQuery {
+    pub state: Option<QueryVec<PeerState>>,
+    pub direction: Option<QueryVec<PeerDirection>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PeerData {
     pub peer_id: String,
@@ -478,6 +522,17 @@ pub struct PeerData {
     pub last_seen_p2p_address: String,
     pub state: PeerState,
     pub direction: PeerDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeersData {
+    pub data: Vec<PeerData>,
+    pub meta: PeersMetaData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeersMetaData {
+    pub count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -516,6 +571,17 @@ impl FromStr for PeerState {
     }
 }
 
+impl fmt::Display for PeerState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PeerState::Connected => write!(f, "connected"),
+            PeerState::Connecting => write!(f, "connecting"),
+            PeerState::Disconnected => write!(f, "disconnected"),
+            PeerState::Disconnecting => write!(f, "disconnecting"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PeerDirection {
@@ -542,6 +608,27 @@ impl FromStr for PeerDirection {
             _ => Err("peer direction cannot be parsed.".to_string()),
         }
     }
+}
+
+impl fmt::Display for PeerDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PeerDirection::Inbound => write!(f, "inbound"),
+            PeerDirection::Outbound => write!(f, "outbound"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeerCount {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub connected: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub connecting: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub disconnected: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub disconnecting: u64,
 }
 
 #[cfg(test)]

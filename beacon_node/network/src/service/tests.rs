@@ -18,7 +18,7 @@ mod tests {
         builder.build().expect("should build logger")
     }
 
-    /*#[test]
+    #[test]
     fn test_dht_persistence() {
         let log = get_logger();
 
@@ -73,5 +73,5 @@ mod tests {
             persisted_enrs.contains(&enrs[1]),
             "should have persisted the second ENR to store"
         );
-    }*/
+    }
 }

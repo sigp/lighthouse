@@ -92,10 +92,11 @@ mod tests {
 
     fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
         let log = get_logger();
+        let config = NetworkConfig::default();
 
         let beacon_chain = CHAIN.chain.clone();
 
-        AttestationService::new(beacon_chain, &log)
+        AttestationService::new(beacon_chain, &config, &log)
     }
 
     fn get_subscription(

@@ -45,6 +45,13 @@ pub fn slash_validator<T: EthSpec>(
         validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
     let proposer_reward = whistleblower_reward.safe_div(spec.proposer_reward_quotient)?;
 
+    // Ensure the whistleblower index is in the validator registry.
+    if state.validators.get(whistleblower_index).is_none() {
+        return Err(BeaconStateError::UnknownValidator(
+            whistleblower_index as u64,
+        ));
+    }
+
     increase_balance(state, proposer_index, proposer_reward)?;
     increase_balance(
         state,

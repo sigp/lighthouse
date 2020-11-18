@@ -210,8 +210,8 @@ mod tests {
         let snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf.clone());
         // decode message just a ssz chunk
 
-        let _ = dbg!(snappy_decoded_message);
-        let _ = dbg!(snappy_decoded_chunk);
+        assert!(snappy_decoded_message.is_ok());
+        assert!(snappy_decoded_chunk.is_ok());
     }
 
     #[test]

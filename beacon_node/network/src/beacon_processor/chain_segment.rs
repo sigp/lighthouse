@@ -34,12 +34,12 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
 
             let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                 (_, Ok(_)) => {
-                    debug!(log, "Batch processed"; "batch_epoch" => epoch, "first_block_slot" => start_slot,
+                    debug!(log, "Batch processed"; "batch_epoch" => epoch, "first_block_slot" => start_slot, "chain" => chain_id,
                         "last_block_slot" => end_slot, "processed_blocks" => sent_blocks, "service"=> "sync");
                     BatchProcessResult::Success(sent_blocks > 0)
                 }
                 (imported_blocks, Err(e)) => {
-                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "first_block_slot" => start_slot,
+                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "first_block_slot" => start_slot, "chain" => chain_id,
                         "last_block_slot" => end_slot, "error" => e, "imported_blocks" => imported_blocks, "service" => "sync");
                     BatchProcessResult::Failed(imported_blocks > 0)
                 }

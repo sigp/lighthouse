@@ -14,6 +14,7 @@ use futures::compat::Future01CompatExt;
 use ganache::GanacheInstance;
 use std::time::Duration;
 use tokio::time::sleep;
+use tokio_compat_02::FutureExt;
 use types::DepositData;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
 use web3::contract::{Contract, Options};
@@ -34,6 +35,7 @@ impl GanacheEth1Instance {
     pub async fn new() -> Result<Self, String> {
         let ganache = GanacheInstance::new()?;
         DepositContract::deploy(ganache.web3.clone(), 0, None)
+            .compat()
             .await
             .map(|deposit_contract| Self {
                 ganache,

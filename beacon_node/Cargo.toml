@@ -1,6 +1,6 @@
 [package]
 name = "beacon_node"
-version = "0.3.2"
+version = "0.3.4"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com"]
 edition = "2018"
 
@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }
+tokio-compat-02 = "0.1"
 
 [features]
 write_ssz_files = ["beacon_chain/write_ssz_files"]  # Writes debugging .ssz files to /tmp during block processing.

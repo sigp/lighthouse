@@ -3,12 +3,12 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use slog::{debug, warn, Logger};
+use slog::{debug, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::{migrate_database, HotColdDBError};
 use store::iter::RootsIterator;
 use store::{Error, ItemStore, StoreItem, StoreOp};
@@ -17,6 +17,13 @@ use types::{
     BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
     SignedBeaconBlockHash, Slot,
 };
+
+/// Compact at least this frequently, finalization permitting (7 days).
+const MAX_COMPACTION_PERIOD_SECONDS: u64 = 604800;
+/// Compact at *most* this frequently, to prevent over-compaction during sync (2 hours).
+const MIN_COMPACTION_PERIOD_SECONDS: u64 = 7200;
+/// Compact after a large finality gap, if we respect `MIN_COMPACTION_PERIOD_SECONDS`.
+const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
@@ -29,7 +36,6 @@ pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             thread::JoinHandle<()>,
         )>,
     >,
-    latest_checkpoint: Arc<Mutex<Checkpoint>>,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
     genesis_block_root: Hash256,
     log: Logger,
@@ -50,7 +56,10 @@ impl MigratorConfig {
 /// Pruning can be successful, or in rare cases deferred to a later point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PruningOutcome {
-    Successful,
+    /// The pruning succeeded and updated the pruning checkpoint from `old_finalized_checkpoint`.
+    Successful {
+        old_finalized_checkpoint: Checkpoint,
+    },
     DeferredConcurrentMutation,
 }
 
@@ -74,7 +83,6 @@ pub struct MigrationNotification<E: EthSpec> {
     finalized_state: BeaconState<E>,
     finalized_checkpoint: Checkpoint,
     head_tracker: Arc<HeadTracker>,
-    latest_checkpoint: Arc<Mutex<Checkpoint>>,
     genesis_block_root: Hash256,
 }
 
@@ -91,14 +99,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         } else {
             Some(Mutex::new(Self::spawn_thread(db.clone(), log.clone())))
         };
-        let latest_checkpoint = Arc::new(Mutex::new(Checkpoint {
-            root: Hash256::zero(),
-            epoch: Epoch::new(0),
-        }));
         Self {
             db,
             tx_thread,
-            latest_checkpoint,
             genesis_block_root,
             log,
         }
@@ -121,7 +124,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             finalized_state,
             finalized_checkpoint,
             head_tracker,
-            latest_checkpoint: self.latest_checkpoint.clone(),
             genesis_block_root: self.genesis_block_root,
         };
 
@@ -164,20 +166,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         notif: MigrationNotification<E>,
         log: &Logger,
     ) {
-        let mut latest_checkpoint = notif.latest_checkpoint.lock();
         let finalized_state_root = notif.finalized_state_root;
         let finalized_state = notif.finalized_state;
 
-        match Self::prune_abandoned_forks(
+        let old_finalized_checkpoint = match Self::prune_abandoned_forks(
             db.clone(),
             notif.head_tracker,
             finalized_state_root,
             &finalized_state,
-            *latest_checkpoint,
             notif.finalized_checkpoint,
             notif.genesis_block_root,
             log,
         ) {
+            Ok(PruningOutcome::Successful {
+                old_finalized_checkpoint,
+            }) => old_finalized_checkpoint,
             Ok(PruningOutcome::DeferredConcurrentMutation) => {
                 warn!(
                     log,
@@ -186,18 +189,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 );
                 return;
             }
-            Ok(PruningOutcome::Successful) => {
-                // Update the migrator's idea of the latest checkpoint only if the
-                // pruning process was successful.
-                *latest_checkpoint = notif.finalized_checkpoint;
-            }
             Err(e) => {
                 warn!(log, "Block pruning failed"; "error" => format!("{:?}", e));
                 return;
             }
         };
 
-        match migrate_database(db, finalized_state_root.into(), &finalized_state) {
+        match migrate_database(db.clone(), finalized_state_root.into(), &finalized_state) {
             Ok(()) => {}
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(
@@ -212,8 +210,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     "Database migration failed";
                     "error" => format!("{:?}", e)
                 );
+                return;
             }
         };
+
+        // Finally, compact the database so that new free space is properly reclaimed.
+        if let Err(e) = Self::run_compaction(
+            db,
+            old_finalized_checkpoint.epoch,
+            notif.finalized_checkpoint.epoch,
+            log,
+        ) {
+            warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
+        }
     }
 
     /// Spawn a new child thread to run the migration process.
@@ -244,11 +253,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         head_tracker: Arc<HeadTracker>,
         new_finalized_state_hash: BeaconStateHash,
         new_finalized_state: &BeaconState<E>,
-        old_finalized_checkpoint: Checkpoint,
         new_finalized_checkpoint: Checkpoint,
         genesis_block_root: Hash256,
         log: &Logger,
     ) -> Result<PruningOutcome, BeaconChainError> {
+        let old_finalized_checkpoint =
+            store
+                .load_pruning_checkpoint()?
+                .unwrap_or_else(|| Checkpoint {
+                    epoch: Epoch::new(0),
+                    root: Hash256::zero(),
+                });
+
         let old_finalized_slot = old_finalized_checkpoint
             .epoch
             .start_slot(E::slots_per_epoch());
@@ -271,11 +287,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             log,
             "Starting database pruning";
             "old_finalized_epoch" => old_finalized_checkpoint.epoch,
-            "old_finalized_root" => format!("{:?}", old_finalized_checkpoint.root),
             "new_finalized_epoch" => new_finalized_checkpoint.epoch,
-            "new_finalized_root" => format!("{:?}", new_finalized_checkpoint.root),
         );
-
         // For each slot between the new finalized checkpoint and the old finalized checkpoint,
         // collect the beacon block root and state root of the canonical chain.
         let newly_finalized_chain: HashMap<Slot, (SignedBeaconBlockHash, BeaconStateHash)> =
@@ -303,7 +316,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
 
         let heads = head_tracker.heads();
-        debug!(log, "Pruning {} heads", heads.len());
+        debug!(
+            log,
+            "Extra pruning information";
+            "old_finalized_root" => format!("{:?}", old_finalized_checkpoint.root),
+            "new_finalized_root" => format!("{:?}", new_finalized_checkpoint.root),
+            "head_count" => heads.len(),
+        );
 
         for (head_hash, head_slot) in heads {
             let mut potentially_abandoned_head = Some(head_hash);
@@ -457,9 +476,59 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         drop(head_tracker_lock);
         kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
 
+        // Persist the new finalized checkpoint as the pruning checkpoint.
+        kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint));
+
         store.hot_db.do_atomically(kv_batch)?;
         debug!(log, "Database pruning complete");
 
-        Ok(PruningOutcome::Successful)
+        Ok(PruningOutcome::Successful {
+            old_finalized_checkpoint,
+        })
+    }
+
+    /// Compact the database if it has been more than `COMPACTION_PERIOD_SECONDS` since it
+    /// was last compacted.
+    pub fn run_compaction(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        old_finalized_epoch: Epoch,
+        new_finalized_epoch: Epoch,
+        log: &Logger,
+    ) -> Result<(), Error> {
+        if !db.compact_on_prune() {
+            return Ok(());
+        }
+
+        let last_compaction_timestamp = db
+            .load_compaction_timestamp()?
+            .unwrap_or_else(|| Duration::from_secs(0));
+        let start_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(last_compaction_timestamp);
+        let seconds_since_last_compaction = start_time
+            .checked_sub(last_compaction_timestamp)
+            .as_ref()
+            .map_or(0, Duration::as_secs);
+
+        if seconds_since_last_compaction > MAX_COMPACTION_PERIOD_SECONDS
+            || (new_finalized_epoch - old_finalized_epoch > COMPACTION_FINALITY_DISTANCE
+                && seconds_since_last_compaction > MIN_COMPACTION_PERIOD_SECONDS)
+        {
+            info!(
+                log,
+                "Starting database compaction";
+                "old_finalized_epoch" => old_finalized_epoch,
+                "new_finalized_epoch" => new_finalized_epoch,
+            );
+            db.compact()?;
+
+            let finish_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(start_time);
+            db.store_compaction_timestamp(finish_time)?;
+
+            info!(log, "Database compaction complete");
+        }
+        Ok(())
     }
 }

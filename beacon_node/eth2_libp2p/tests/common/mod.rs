@@ -9,7 +9,7 @@ use std::net::{TcpListener, UdpSocket};
 use std::sync::Weak;
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use types::{EnrForkId, MinimalEthSpec};
+use types::{ChainSpec, EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 use tempdir::TempDir;
@@ -106,10 +106,16 @@ pub async fn build_libp2p_instance(
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
     Libp2pInstance(
-        LibP2PService::new(executor, &config, EnrForkId::default(), &log)
-            .await
-            .expect("should build libp2p instance")
-            .1,
+        LibP2PService::new(
+            executor,
+            &config,
+            EnrForkId::default(),
+            &log,
+            &ChainSpec::minimal(),
+        )
+        .await
+        .expect("should build libp2p instance")
+        .1,
         signal,
     )
 }

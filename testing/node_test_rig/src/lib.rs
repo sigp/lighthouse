@@ -86,6 +86,7 @@ pub fn testing_client_config() -> ClientConfig {
     // Setting ports to `0` means that the OS will choose some available port.
     client_config.network.libp2p_port = 0;
     client_config.network.discovery_port = 0;
+    client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
     client_config.websocket_server.enabled = true;
