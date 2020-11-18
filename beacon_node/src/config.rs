@@ -198,10 +198,9 @@ pub fn get_config<E: EthSpec>(
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
-        client_config.eth1.max_log_requests_per_update = Some(
-            val.parse()
-                .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?,
-        );
+        client_config.eth1.blocks_per_log_query = val
+            .parse()
+            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
