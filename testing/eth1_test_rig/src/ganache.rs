@@ -28,36 +28,7 @@ pub struct GanacheInstance {
 }
 
 impl GanacheInstance {
-    /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
-    /// RPC connections.
-    pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
-        let port = unused_port()?;
-
-        let mut child = Command::new("ganache-cli")
-            .stdout(Stdio::piped())
-            .arg("--defaultBalanceEther")
-            .arg("1000000000")
-            .arg("--gasLimit")
-            .arg("1000000000")
-            .arg("--accounts")
-            .arg("10")
-            .arg("--port")
-            .arg(format!("{}", port))
-            .arg("--mnemonic")
-            .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
-            .arg("--networkId")
-            .arg(format!("{}", network_id))
-            .arg("--chainId")
-            .arg(format!("{}", chain_id))
-            .spawn()
-            .map_err(|e| {
-                format!(
-                    "Failed to start ganache-cli. \
-                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
-                    e
-                )
-            })?;
-
+    fn new_from_child(mut child: Child, port: u16) -> Result<Self, String> {
         let stdout = child
             .stdout
             .ok_or_else(|| "Unable to get stdout for ganache child process")?;
@@ -97,6 +68,62 @@ impl GanacheInstance {
             _event_loop: Arc::new(event_loop),
             web3,
         })
+    }
+
+    /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
+    /// RPC connections.
+    pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
+        let port = unused_port()?;
+
+        let child = Command::new("ganache-cli")
+            .stdout(Stdio::piped())
+            .arg("--defaultBalanceEther")
+            .arg("1000000000")
+            .arg("--gasLimit")
+            .arg("1000000000")
+            .arg("--accounts")
+            .arg("10")
+            .arg("--port")
+            .arg(format!("{}", port))
+            .arg("--mnemonic")
+            .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
+            .arg("--networkId")
+            .arg(format!("{}", network_id))
+            .arg("--chainId")
+            .arg(format!("{}", chain_id))
+            .spawn()
+            .map_err(|e| {
+                format!(
+                    "Failed to start ganache-cli. \
+                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
+                    e
+                )
+            })?;
+
+        Self::new_from_child(child, port)
+    }
+
+    pub fn fork(&self, chain_id: u64) -> Result<Self, String> {
+        let port = unused_port()?;
+
+        let child = Command::new("ganache-cli")
+            .stdout(Stdio::piped())
+            .arg("--fork")
+            .arg(self.endpoint())
+            .arg("--port")
+            .arg(format!("{}", port))
+            .arg("--chainId")
+            .arg(format!("{}", chain_id))
+            .spawn()
+            .map_err(|e| {
+                format!(
+                    "Failed to start ganache-cli. \
+                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
+                    e
+                )
+            })?;
+
+        Self::new_from_child(child, port)
     }
 
     /// Returns the endpoint that this instance is listening on.

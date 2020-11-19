@@ -802,3 +802,220 @@ mod persist {
         );
     }
 }
+
+/// Tests for eth1 fallbacks
+mod fallbacks {
+    use super::*;
+    #[tokio::test]
+    async fn test_fallback_when_offline() {
+        let log = null_logger();
+        let endpoint2 = new_ganache_instance()
+            .await
+            .expect("should start eth1 environment");
+        let deposit_contract = &endpoint2.deposit_contract;
+
+        let initial_block_number = get_block_number(&endpoint2.web3()).await;
+
+        // Create some blocks and then consume them, performing the test `rounds` times.
+        let new_blocks = 4;
+
+        for _ in 0..new_blocks {
+            endpoint2
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+        }
+
+        let endpoint1 = endpoint2
+            .ganache
+            .fork(DEFAULT_CHAIN_ID.into())
+            .expect("should start eth1 environment");
+
+        //mine additional blocks on top of the original endpoint
+        for _ in 0..new_blocks {
+            endpoint2
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+        }
+
+        let service = Service::new(
+            Config {
+                endpoints: vec![endpoint1.endpoint(), endpoint2.endpoint()],
+                deposit_contract_address: deposit_contract.address(),
+                lowest_cached_block_number: initial_block_number,
+                follow_distance: 0,
+                ..Config::default()
+            },
+            log.clone(),
+            MainnetEthSpec::default_spec(),
+        );
+
+        let endpoints = service.init_endpoints();
+
+        let endpoint1_block_number = get_block_number(&endpoint1.web3).await;
+        //the first call will only query endpoint1
+        service
+            .update_deposit_cache(None, &endpoints)
+            .await
+            .expect("should update deposit cache");
+        assert_eq!(
+            service.deposits().read().last_processed_block.unwrap(),
+            endpoint1_block_number
+        );
+
+        drop(endpoint1);
+        //we need to reset endpoints so that cached online states get reset
+        let endpoints = service.init_endpoints();
+
+        let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
+        assert!(endpoint1_block_number < endpoint2_block_number);
+        //endpoint1 is offline => query will import blocks from endpoint2
+        service
+            .update_deposit_cache(None, &endpoints)
+            .await
+            .expect("should update deposit cache");
+        assert_eq!(
+            service.deposits().read().last_processed_block.unwrap(),
+            endpoint2_block_number
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fallback_when_wrong_network_id() {
+        let log = null_logger();
+        let correct_network_id: u64 = DEFAULT_NETWORK_ID.into();
+        let wrong_network_id = correct_network_id + 1;
+        let endpoint1 = GanacheEth1Instance::new(wrong_network_id, DEFAULT_CHAIN_ID.into())
+            .await
+            .expect("should start eth1 environment");
+        let endpoint2 = new_ganache_instance()
+            .await
+            .expect("should start eth1 environment");
+        let deposit_contract = &endpoint2.deposit_contract;
+
+        let initial_block_number = get_block_number(&endpoint2.web3()).await;
+
+        // Create some blocks and then consume them, performing the test `rounds` times.
+        let new_blocks = 4;
+
+        for _ in 0..new_blocks {
+            endpoint1
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+            endpoint2
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+        }
+
+        //additional blocks for endpoint1 to be able to distinguish
+        for _ in 0..new_blocks {
+            endpoint1
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+        }
+
+        let service = Service::new(
+            Config {
+                endpoints: vec![endpoint2.endpoint(), endpoint1.endpoint()],
+                deposit_contract_address: deposit_contract.address(),
+                lowest_cached_block_number: initial_block_number,
+                follow_distance: 0,
+                ..Config::default()
+            },
+            log.clone(),
+            MainnetEthSpec::default_spec(),
+        );
+
+        let endpoints = service.init_endpoints();
+
+        let endpoint1_block_number = get_block_number(&endpoint1.web3()).await;
+        let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
+        assert!(endpoint2_block_number < endpoint1_block_number);
+        //the call will fallback to endpoint2
+        service
+            .update_deposit_cache(None, &endpoints)
+            .await
+            .expect("should update deposit cache");
+        assert_eq!(
+            service.deposits().read().last_processed_block.unwrap(),
+            endpoint2_block_number
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fallback_when_wrong_chain_id() {
+        let log = null_logger();
+        let correct_chain_id: u64 = DEFAULT_CHAIN_ID.into();
+        let wrong_chain_id = correct_chain_id + 1;
+        let endpoint1 = GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), wrong_chain_id)
+            .await
+            .expect("should start eth1 environment");
+        let endpoint2 = new_ganache_instance()
+            .await
+            .expect("should start eth1 environment");
+        let deposit_contract = &endpoint2.deposit_contract;
+
+        let initial_block_number = get_block_number(&endpoint2.web3()).await;
+
+        // Create some blocks and then consume them, performing the test `rounds` times.
+        let new_blocks = 4;
+
+        for _ in 0..new_blocks {
+            endpoint1
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+            endpoint2
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+        }
+
+        //additional blocks for endpoint1 to be able to distinguish
+        for _ in 0..new_blocks {
+            endpoint1
+                .ganache
+                .evm_mine()
+                .await
+                .expect("should mine block");
+        }
+
+        let service = Service::new(
+            Config {
+                endpoints: vec![endpoint2.endpoint(), endpoint1.endpoint()],
+                deposit_contract_address: deposit_contract.address(),
+                lowest_cached_block_number: initial_block_number,
+                follow_distance: 0,
+                ..Config::default()
+            },
+            log.clone(),
+            MainnetEthSpec::default_spec(),
+        );
+
+        let endpoints = service.init_endpoints();
+
+        let endpoint1_block_number = get_block_number(&endpoint1.web3()).await;
+        let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
+        assert!(endpoint2_block_number < endpoint1_block_number);
+        //the call will fallback to endpoint2
+        service
+            .update_deposit_cache(None, &endpoints)
+            .await
+            .expect("should update deposit cache");
+        assert_eq!(
+            service.deposits().read().last_processed_block.unwrap(),
+            endpoint2_block_number
+        );
+    }
+}
