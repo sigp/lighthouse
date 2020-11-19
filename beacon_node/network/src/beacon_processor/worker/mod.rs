@@ -1,6 +1,5 @@
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::PeerAction;
 use slog::{error, Logger};
 use std::sync::Arc;
 use tokio::sync::mpsc;
