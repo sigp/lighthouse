@@ -155,7 +155,7 @@ mod post {
             vec![
                 "reqwest::Error",
                 "kind: Request",
-                &format!("http://error-dns/sign/{}", PUBLIC_KEY_1),
+                &format!("/sign/{}", PUBLIC_KEY_1),
                 "hyper::Error(Connect, ConnectError",
                 "dns error",
                 "failed to lookup address information",
