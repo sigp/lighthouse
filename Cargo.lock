@@ -397,12 +397,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atomic-option"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0db678acb667b525ac40a324fc5f7d3390e29239b31c7327bb8157f5b4fff593"
-
-[[package]]
 name = "atomic-waker"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7650,20 +7644,6 @@ dependencies = [
  "tokio-tls 0.2.1",
  "unicase 1.4.2",
  "url 1.7.2",
-]
-
-[[package]]
-name = "websocket_server"
-version = "0.2.0"
-dependencies = [
- "futures 0.3.8",
- "serde",
- "serde_derive",
- "slog",
- "task_executor",
- "tokio 0.2.23",
- "types",
- "ws",
 ]
 
 [[package]]
