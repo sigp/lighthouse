@@ -349,6 +349,13 @@ impl fmt::Display for ValidatorStatus {
 pub struct CommitteesQuery {
     pub slot: Option<Slot>,
     pub index: Option<u64>,
+    pub epoch: Option<Epoch>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AttestationPoolQuery {
+    pub slot: Option<Slot>,
+    pub committee_index: Option<u64>,
 }
 
 #[derive(Deserialize)]

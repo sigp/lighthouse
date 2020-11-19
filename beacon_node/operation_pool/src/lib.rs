@@ -344,6 +344,22 @@ impl<T: EthSpec> OperationPool<T> {
             .collect()
     }
 
+    /// Returns all known `Attestation` objects that pass the provided filter.
+    ///
+    /// This method may return objects that are invalid for block inclusion.
+    pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<T>>
+    where
+        F: Fn(&Attestation<T>) -> bool,
+    {
+        self.attestations
+            .read()
+            .iter()
+            .map(|(_, attns)| attns.iter().cloned())
+            .flatten()
+            .filter(filter)
+            .collect()
+    }
+
     /// Returns all known `AttesterSlashing` objects.
     ///
     /// This method may return objects that are invalid for block inclusion.
