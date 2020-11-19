@@ -54,6 +54,8 @@ pub const DKLEN: u32 = 32;
 pub const IV_SIZE: usize = 16;
 /// The byte size of a SHA256 hash.
 pub const HASH_SIZE: usize = 32;
+/// The default iteraction count, `c`, for PBKDF2.
+pub const DEFAULT_PBKDF2_C: u32 = 262_144;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -68,6 +70,7 @@ pub enum Error {
     ReadError(String),
     InvalidPbkdf2Param,
     InvalidScryptParam,
+    InvalidSaltLength,
     IncorrectIvSize { expected: usize, len: usize },
     ScryptInvalidParams(InvalidParams),
     ScryptInvaidOutputLen(InvalidOutputLen),
@@ -323,7 +326,7 @@ pub fn encrypt(
     kdf: &Kdf,
     cipher: &Cipher,
 ) -> Result<(Vec<u8>, [u8; HASH_SIZE]), Error> {
-    kdf.validate_parameters()?;
+    validate_parameters(kdf)?;
 
     let derived_key = derive_key(&password, &kdf)?;
 
@@ -354,7 +357,7 @@ pub fn encrypt(
 /// - The provided password is incorrect.
 /// - The `crypto.kdf` is badly formed (e.g., has some values set to zero).
 pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
-    crypto.kdf.params.validate_parameters()?;
+    validate_parameters(&crypto.kdf.params)?;
 
     let cipher_message = &crypto.cipher.message;
 
@@ -449,6 +452,121 @@ fn validate_aes_iv(iv: &[u8]) -> Result<(), Error> {
             "WARN: AES IV length incorrect is {}, should be {}",
             iv.len(),
             IV_SIZE
+        );
+    }
+    Ok(())
+}
+
+// Validates the kdf parameters to ensure they are sufficiently secure, in addition to
+// preventing DoS attacks from excessively large parameters.
+fn validate_parameters(kdf: &Kdf) -> Result<(), Error> {
+    match kdf {
+        Kdf::Pbkdf2(params) => {
+            // We always compute a derived key of 32 bytes so reject anything that
+            // says otherwise.
+            if params.dklen != DKLEN {
+                return Err(Error::InvalidPbkdf2Param);
+            }
+
+            // NIST Recommends suggests potential use cases where `c` of 10,000,000 is desireable.
+            // As it is 10 years old this has been increased to 80,000,000. Larger values will
+            // take over 1 minute to execute on an average machine.
+            //
+            // Reference:
+            //
+            // https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-132.pdf
+            if params.c > 80_000_000 {
+                return Err(Error::InvalidPbkdf2Param);
+            }
+
+            // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
+            // if it is `0`.
+            //
+            // Reference:
+            //
+            // https://www.ietf.org/rfc/rfc2898.txt
+            if params.c < DEFAULT_PBKDF2_C {
+                if params.c == 0 {
+                    return Err(Error::InvalidPbkdf2Param);
+                }
+                eprintln!(
+                    "WARN: PBKDF2 parameters are too weak, 'c' is {}, we recommend using {}",
+                    params.c, DEFAULT_PBKDF2_C,
+                );
+            }
+
+            // Validate `salt` length.
+            validate_salt(params.salt.as_bytes())?;
+
+            Ok(())
+        }
+        Kdf::Scrypt(params) => {
+            // RFC7914 declares that all these parameters must be greater than 1:
+            //
+            // - `N`: costParameter.
+            // - `r`: blockSize.
+            // - `p`: parallelizationParameter
+            //
+            // Reference:
+            //
+            // https://tools.ietf.org/html/rfc7914
+            if params.n <= 1 || params.r == 0 || params.p == 0 {
+                return Err(Error::InvalidScryptParam);
+            }
+
+            // We always compute a derived key of 32 bytes so reject anything that
+            // says otherwise.
+            if params.dklen != DKLEN {
+                return Err(Error::InvalidScryptParam);
+            }
+
+            // Ensure that `n` is power of 2.
+            if params.n != 2u32.pow(log2_int(params.n)) {
+                return Err(Error::InvalidScryptParam);
+            }
+
+            // Maximum Parameters
+            //
+            // Uses a u32 to store value thus maximum memory usage is 4GB.
+            //
+            // Note: Memory requirements = 128*n*p*r
+            let mut npr: u32 = params
+                .n
+                .checked_mul(params.p)
+                .ok_or(Error::InvalidScryptParam)?;
+            npr = npr.checked_mul(params.r).ok_or(Error::InvalidScryptParam)?;
+            npr = npr.checked_mul(128).ok_or(Error::InvalidScryptParam)?;
+
+            // Minimum Parameters
+            let default_kdf = Scrypt::default_scrypt(vec![0u8; 32]);
+            let default_npr = 128 * default_kdf.n * default_kdf.p * default_kdf.r;
+            if npr < default_npr {
+                eprintln!("WARN: Scrypt parameters are too weak (n: {}, p: {}, r: {}), we recommend (n: {}, p: {}, r: {})", params.n, params.p, params.r, default_kdf.n, default_kdf.p, default_kdf.r);
+            }
+
+            // Validate `salt` length.
+            validate_salt(params.salt.as_bytes())?;
+
+            Ok(())
+        }
+    }
+}
+
+fn validate_salt(salt: &[u8]) -> Result<(), Error> {
+    // Validate `salt` length
+    if salt.is_empty() {
+        return Err(Error::InvalidSaltLength);
+    } else if salt.len() < SALT_SIZE / 2 {
+        eprintln!(
+            "WARN: Salt is too short {}, we recommend {}",
+            salt.len(),
+            SALT_SIZE
+        );
+    } else if salt.len() > SALT_SIZE * 2 {
+        eprintln!(
+            "WARN: Salt is too long {}, we recommend {}",
+            salt.len(),
+            SALT_SIZE
         );
     }
     Ok(())
