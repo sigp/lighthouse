@@ -12,6 +12,7 @@ path = "src/lib.rs"
 tokio = { version = "0.3.2", features = ["time", "rt-multi-thread", "macros"] }
 tempfile = "3.1.0"
 deposit_contract = { path = "../common/deposit_contract" }
+tokio-compat-02 = "0.1"
 
 [dependencies]
 eth2_ssz = "0.1.2"
