@@ -12,9 +12,6 @@ use eth2_libp2p::{
     types::{EnrBitfield, SyncState},
     Enr, EnrExt, NetworkGlobals, PeerId,
 };
-use futures::executor::block_on;
-use futures::stream::ForEach;
-use futures::stream::Iter;
 use futures::stream::{Stream, StreamExt};
 use http_api::{Config, Context};
 use network::NetworkMessage;
@@ -32,7 +29,6 @@ use types::{
     EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
 use warp::http::StatusCode;
-use warp::hyper::body::Bytes;
 
 type E = MainnetEthSpec;
 
