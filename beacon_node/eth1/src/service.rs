@@ -3,8 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
     http::{
-        get_block_number, get_chain_id, get_network_id, try_fallback_get_block,
-        try_fallback_get_deposit_logs_in_range, BlockQuery, Eth1Id, Log,
+        get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
+        BlockQuery, Eth1Id, Log,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -34,63 +34,166 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
 
-/// Returns `Ok` if the endpoint is reachable and has a correct network id and chain id, else
-/// returns `Err`.
-async fn test_endpoint(
-    endpoint: &str,
-    config_network_id: Eth1Id,
-    config_chain_id: Eth1Id,
-    log: &Logger,
-) -> Result<(), ()> {
-    let network_id_result =
-        get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
-    crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[endpoint]);
-    let chain_id_result =
-        get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
-    match (network_id_result, chain_id_result) {
-        (Ok(network_id), Ok(chain_id)) => {
-            if network_id != config_network_id {
-                warn!(
-                    log,
-                    "Invalid eth1 network id. Please switch to correct network id. Trying \
-                     fallbacks ...";
-                    "endpoint" => endpoint,
-                    "expected" => format!("{:?}",config_network_id),
-                    "received" => format!("{:?}",network_id),
-                );
-                Err(())
-            } else if chain_id != config_chain_id {
-                warn!(
-                    log,
-                    "Invalid eth1 chain id. Please switch to correct chain id. Trying \
-                     fallbacks ...";
-                    "endpoint" => endpoint,
-                    "expected" => format!("{:?}",config_chain_id),
-                    "received" => format!("{:?}", chain_id),
-                );
-                Err(())
-            } else {
-                Ok(())
+/// Applies the given function $func_name to all usable endpoints of $endpoints until
+/// one of them returns Ok or if no usable endpoint is left it returns the error of the last usable
+/// endpoint. If no endpoint is usable it returns None. Usability of endpoints is checked lazily
+/// using the EndpointsCache structure.
+macro_rules! with_fallbacks {
+    ( $func_name: ident;$endpoints: expr, $($params: expr),* ) => {
+        {
+            let mut result = None;
+            for endpoint in &$endpoints.endpoints {
+                if $endpoints.is_usable(endpoint).await {
+                    let endpoint = &endpoint.0;
+                    crate::metrics::inc_counter_vec(
+                        &crate::metrics::ENDPOINT_REQUESTS,
+                        &[endpoint]
+                    );
+                    match $func_name(endpoint, $($params,)*).await {
+                        Ok(t) => {
+                            result = Some(Ok(t));
+                            break;
+                        },
+                        Err(t) => {
+                            crate::metrics::inc_counter_vec(
+                                &crate::metrics::ENDPOINT_ERRORS,
+                                &[endpoint]
+                            );
+                            result = Some(Err(t));
+                        }
+                    }
+                }
             }
-        }
-        _ => {
-            warn!(
-                log,
-                "Error connecting to eth1 node. Trying fallbacks ...";
-                "endpoint" => endpoint,
-            );
-            Err(())
+            result
         }
     }
 }
 
-// Returns `Ok` if at least one endpoint was ok, else returns `Error`.
-fallback_on_err!(try_fallback_test_endpoint, test_endpoint,
-    config_network: Eth1Id= config_network.clone(),
-    config_chain_id: Eth1Id= config_chain_id.clone(),
-    log: &Logger= log;
-    Result<(), ()>
-);
+/// A cache structure to lazily check usability of endpoints. An endpoint is usable if it is
+/// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
+/// is not usable.
+pub struct EndpointsCache {
+    pub endpoints: Vec<(String, RwLock<Option<bool>>)>,
+    pub config_network_id: Eth1Id,
+    pub config_chain_id: Eth1Id,
+    pub log: Logger,
+}
+
+impl EndpointsCache {
+    /// Checks the usability of an endpoint. Results get cached and therefore only the first call
+    /// for each endpoint does the real check.
+    async fn is_usable<'a>(&self, endpoint: &'a (String, RwLock<Option<bool>>)) -> bool {
+        if let Some(result) = *endpoint.1.read() {
+            return result;
+        }
+        crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[&endpoint.0]);
+        let is_ok = test_endpoint(
+            &endpoint.0,
+            &self.config_network_id,
+            &self.config_chain_id,
+            &self.log,
+        )
+        .await
+        .is_ok();
+        *endpoint.1.write() = Some(is_ok);
+        if is_ok {
+            true
+        } else {
+            crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_ERRORS, &[&endpoint.0]);
+            false
+        }
+    }
+}
+
+/// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
+/// chain id. Otherwise it returns `Err`.
+async fn test_endpoint(
+    endpoint: &str,
+    config_network_id: &Eth1Id,
+    config_chain_id: &Eth1Id,
+    log: &Logger,
+) -> Result<(), ()> {
+    let error_connecting = |_| {
+        warn!(
+            log,
+            "Error connecting to eth1 node. Trying fallbacks ...";
+            "endpoint" => endpoint,
+        );
+    };
+    let network_id = get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+        .await
+        .map_err(error_connecting)?;
+    if &network_id != config_network_id {
+        warn!(
+            log,
+            "Invalid eth1 network id. Please switch to correct network id. Trying \
+             fallbacks ...";
+            "endpoint" => endpoint,
+            "expected" => format!("{:?}",config_network_id),
+            "received" => format!("{:?}",network_id),
+        );
+        return Err(());
+    }
+    let chain_id = get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+        .await
+        .map_err(error_connecting)?;
+    if &chain_id != config_chain_id {
+        warn!(
+            log,
+            "Invalid eth1 chain id. Please switch to correct chain id. Trying \
+             fallbacks ...";
+            "endpoint" => endpoint,
+            "expected" => format!("{:?}",config_chain_id),
+            "received" => format!("{:?}", chain_id),
+        );
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
+/// Enum for the two internal (maybe different) cached heads for cached deposits and for the block
+/// cache.
+pub enum HeadType {
+    Deposit,
+    BlockCache
+}
+
+/// Returns the head block and the new block ranges relevant for deposits and the block cache
+/// from the given endpoint.
+async fn get_remote_head_and_new_block_ranges(
+    endpoint: &str,
+    service: &Service,
+) -> Result<(Eth1Block, Option<RangeInclusive<u64>>, Option<RangeInclusive<u64>>), Error> {
+    let remote_head_block = download_eth1_block(endpoint, service.inner.clone(), None).await?;
+    let handle_remote_not_synced = |e| {
+        if let Error::RemoteNotSynced {..} = e {
+            warn!(service.log, "Eth1 node not synced. Trying fallbacks..."; "endpoint" => endpoint);
+        }
+        e
+    };
+    let new_deposit_block_numbers =
+        service.relevant_new_block_numbers(remote_head_block.number, HeadType::Deposit)
+            .map_err(handle_remote_not_synced)?;
+    let new_block_cache_numbers =
+        service.relevant_new_block_numbers(remote_head_block.number, HeadType::BlockCache)
+            .map_err(handle_remote_not_synced)?;
+    Ok((remote_head_block, new_deposit_block_numbers, new_block_cache_numbers))
+}
+
+/// Returns the range of new block numbers to be considered for the given head type from the given
+/// endpoint.
+async fn relevant_new_block_numbers_from_endpoint(
+    endpoint: &str,
+    service: &Service,
+    head_type: HeadType,
+) -> Result<Option<RangeInclusive<u64>>, Error> {
+    let remote_highest_block =
+        get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
+            .map_err(Error::GetBlockNumberFailed)
+            .await?;
+    service.relevant_new_block_numbers(remote_highest_block, head_type)
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -120,6 +223,8 @@ pub enum Error {
         block_range: Range<u64>,
         error: String,
     },
+    /// No endpoints is online and has the correct network and chain id
+    NoAvailableEndpoints,
     /// There was an unexpected internal error.
     Internal(String),
 }
@@ -369,6 +474,21 @@ impl Service {
         self.inner.config.write().lowest_cached_block_number = block_number;
     }
 
+    pub fn init_endpoints(&self) -> EndpointsCache {
+        let endpoints = self.config().endpoints.clone();
+        let config_network_id = self.config().network_id.clone();
+        let config_chain_id = self.config().chain_id.clone();
+        EndpointsCache {
+            endpoints: endpoints
+                .into_iter()
+                .map(|s| (s, RwLock::new(None)))
+                .collect(),
+            config_network_id,
+            config_chain_id,
+            log: self.log.clone(),
+        }
+    }
+
     /// Update the deposit and block cache, returning an error if either fail.
     ///
     /// ## Returns
@@ -380,18 +500,39 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
-        let remote_head_block = download_eth1_block(self.inner.clone(), None)
-            .map_err(|e| format!("Failed to update Eth1 service: {:?}", e))
-            .await?;
-        let remote_head_block_number = Some(remote_head_block.number);
+        let endpoints = self.init_endpoints();
+
+        let process_err = |e| {
+            if let Error::NoAvailableEndpoints = e {
+                crit!(
+                    self.log,
+                    "Couldn't connect to any eth1 node. Please ensure that you have an eth1 http \
+                     server running locally on http://localhost:8545 or pass an external endpoint \
+                     using `--eth1-endpoint <SERVER-ADDRESS>` or \
+                     `--eth1-endpoints <COMMA-SEPARATED-SERVER-ADDRESSES>`. Also ensure that `eth` \
+                     and `net` apis are enabled on the eth1 http server";
+                     "warning" => WARNING_MSG
+                );
+            }
+            e
+        };
+
+        let (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache) =
+            with_fallbacks!(
+                get_remote_head_and_new_block_ranges;
+                &endpoints,
+                &self
+            )
+                .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
+                .map_err(|e| format!("Failed to update Eth1 service: {:?}", process_err(e)))?;
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 
         let update_deposit_cache = async {
             let outcome = self
-                .update_deposit_cache(remote_head_block_number)
+                .update_deposit_cache(Some(new_block_numbers_deposit), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
 
             trace!(
                 self.log,
@@ -405,9 +546,9 @@ impl Service {
 
         let update_block_cache = async {
             let outcome = self
-                .update_block_cache(remote_head_block_number)
+                .update_block_cache(Some(new_block_numbers_block_cache), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
 
             trace!(
                 self.log,
@@ -449,26 +590,6 @@ impl Service {
     }
 
     async fn do_update(&self, update_interval: Duration) -> Result<(), ()> {
-        let endpoints = self.config().endpoints.clone();
-        let config_network_id = self.config().network_id.clone();
-        let config_chain_id = self.config().chain_id.clone();
-
-        if try_fallback_test_endpoint(&endpoints, config_network_id, config_chain_id, &self.log)
-            .await
-            .is_err()
-        {
-            crit!(
-                self.log,
-                "Couldn't connect to any eth1 node. Please ensure that you have an eth1 http \
-                 server running locally on http://localhost:8545 or pass an external endpoint \
-                 using `--eth1-endpoint <SERVER-ADDRESS>` or \
-                 `--eth1-endpoints <COMMA-SEPARATED-SERVER-ADDRESSES>`. Also ensure that `eth` \
-                 and `net` apis are enabled on the eth1 http server";
-                 "warning" => WARNING_MSG
-            );
-            return Ok(());
-        }
-
         let update_result = self.update().await;
         match update_result {
             Err(e) => error!(
@@ -488,6 +609,36 @@ impl Service {
         Ok(())
     }
 
+    /// Returns the range of new block numbers to be considered for the given head type.
+    fn relevant_new_block_numbers(
+        &self,
+        remote_highest_block: u64,
+        head_type: HeadType
+    ) -> Result<Option<RangeInclusive<u64>>, Error> {
+        let follow_distance = self.config().follow_distance;
+        let next_required_block = match head_type {
+            HeadType::Deposit => self
+                .deposits()
+                .read()
+                .last_processed_block
+                .map(|n| n + 1)
+                .unwrap_or_else(|| self.config().deposit_contract_deploy_block),
+            HeadType::BlockCache => self
+                .inner
+                .block_cache
+                .read()
+                .highest_block_number()
+                .map(|n| n + 1)
+                .unwrap_or_else(|| self.config().lowest_cached_block_number),
+        };
+
+        relevant_block_range(
+            remote_highest_block,
+            next_required_block,
+            follow_distance,
+        )
+    }
+
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
     /// follow-distance block.
     ///
@@ -505,10 +656,9 @@ impl Service {
     /// Emits logs for debugging and errors.
     pub async fn update_deposit_cache(
         &self,
-        remote_highest_block_opt: Option<u64>,
+        new_block_numbers: Option<Option<RangeInclusive<u64>>>,
+        endpoints: &EndpointsCache,
     ) -> Result<DepositCacheUpdateOutcome, Error> {
-        let endpoints = self.config().endpoints.clone();
-        let follow_distance = self.config().follow_distance;
         let deposit_contract_address = self.config().deposit_contract_address.clone();
 
         let blocks_per_log_query = self.config().blocks_per_log_query;
@@ -517,20 +667,16 @@ impl Service {
             .max_log_requests_per_update
             .unwrap_or_else(usize::max_value);
 
-        let next_required_block = self
-            .deposits()
-            .read()
-            .last_processed_block
-            .map(|n| n + 1)
-            .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
-
-        let range = get_new_block_numbers(
-            &endpoints,
-            remote_highest_block_opt,
-            next_required_block,
-            follow_distance,
-        )
-        .await?;
+        let range = {
+            match new_block_numbers {
+                Some(range) => range,
+                None => with_fallbacks!(relevant_new_block_numbers_from_endpoint;
+                            endpoints,
+                            &self,
+                            HeadType::Deposit
+                        ).unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
+            }
+        };
 
         let block_number_chunks = if let Some(range) = range {
             range
@@ -552,16 +698,15 @@ impl Service {
                 match chunks.next() {
                     Some(chunk) => {
                         let chunk_1 = chunk.clone();
-                        match try_fallback_get_deposit_logs_in_range(
+                        match with_fallbacks!(get_deposit_logs_in_range;
                             &endpoints,
                             &deposit_contract_address,
-                            chunk,
-                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
-                        )
-                        .await
-                        {
-                            Ok(logs) => Ok(Some(((chunk_1, logs), chunks))),
-                            Err(e) => Err(Error::GetDepositLogsFailed(e)),
+                            chunk.clone(),
+                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS)
+                        ) {
+                            None => Err(Error::NoAvailableEndpoints),
+                            Some(Ok(logs)) => Ok(Some(((chunk_1, logs), chunks))),
+                            Some(Err(e)) => Err(Error::GetDepositLogsFailed(e)),
                         }
                     }
                     None => Ok(None),
@@ -652,7 +797,8 @@ impl Service {
     /// Emits logs for debugging and errors.
     pub async fn update_block_cache(
         &self,
-        remote_highest_block_opt: Option<u64>,
+        new_block_numbers: Option<Option<RangeInclusive<u64>>>,
+        endpoints: &EndpointsCache,
     ) -> Result<BlockCacheUpdateOutcome, Error> {
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
@@ -660,24 +806,17 @@ impl Service {
             .max_blocks_per_update
             .unwrap_or_else(usize::max_value);
 
-        let next_required_block = self
-            .inner
-            .block_cache
-            .read()
-            .highest_block_number()
-            .map(|n| n + 1)
-            .unwrap_or_else(|| self.config().lowest_cached_block_number);
+        let range = {
+            match new_block_numbers {
+                Some(range) => range,
+                None => with_fallbacks!(relevant_new_block_numbers_from_endpoint;
+                            endpoints,
+                            &self,
+                            HeadType::BlockCache
+                        ).unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
+            }
+        };
 
-        let endpoints = self.config().endpoints.clone();
-        let follow_distance = self.config().follow_distance;
-
-        let range = get_new_block_numbers(
-            &endpoints,
-            remote_highest_block_opt,
-            next_required_block,
-            follow_distance,
-        )
-        .await?;
         // Map the range of required blocks into a Vec.
         //
         // If the required range is larger than the size of the cache, drop the exiting cache
@@ -728,7 +867,13 @@ impl Service {
             |mut block_numbers| async {
                 match block_numbers.next() {
                     Some(block_number) => {
-                        match download_eth1_block(self.inner.clone(), Some(block_number)).await {
+                        match with_fallbacks!(download_eth1_block;
+                            &endpoints,
+                            self.inner.clone(),
+                            Some(block_number)
+                        )
+                            .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
+                        {
                             Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
                             Err(e) => Err(e),
                         }
@@ -809,29 +954,11 @@ impl Service {
     }
 }
 
-async fn get_new_block_range(
-    endpoint: &str,
-    next_required_block: u64,
-    follow_distance: u64,
-) -> Result<Option<RangeInclusive<u64>>, Error> {
-    let remote_highest_block =
-        get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-            .map_err(Error::GetBlockNumberFailed)
-            .await?;
-    get_new_block_range_from_highest_block(
-        remote_highest_block,
-        next_required_block,
-        follow_distance,
-    )
-}
-
-fallback_on_err!(try_fallback_get_new_block_range, get_new_block_range,
-    next_required_block: u64=next_required_block,
-    follow_distance: u64=follow_distance;
-    Result<Option<RangeInclusive<u64>>, Error>
-);
-
-fn get_new_block_range_from_highest_block(
+/// Returns the range of blocks starting from `next_required_block` that are at least
+/// `follow_distance` many blocks before `remote_highest_block`.
+/// Returns an error if `next_required_block > remote_highest_block + 1` which means the remote went
+/// backwards.
+fn relevant_block_range(
     remote_highest_block: u64,
     next_required_block: u64,
     follow_distance: u64,
@@ -857,26 +984,6 @@ fn get_new_block_range_from_highest_block(
     }
 }
 
-/// Determine the range of blocks that need to be downloaded, given the remotes best block and
-/// the locally stored best block.
-async fn get_new_block_numbers<S: AsRef<str>>(
-    endpoints: &[S],
-    remote_highest_block_opt: Option<u64>,
-    next_required_block: u64,
-    follow_distance: u64,
-) -> Result<Option<RangeInclusive<u64>>, Error> {
-    match remote_highest_block_opt {
-        Some(remote_highest_block) => get_new_block_range_from_highest_block(
-            remote_highest_block,
-            next_required_block,
-            follow_distance,
-        ),
-        None => {
-            try_fallback_get_new_block_range(endpoints, next_required_block, follow_distance).await
-        }
-    }
-}
-
 /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given
 /// `block_number`.
 ///
@@ -884,11 +991,10 @@ async fn get_new_block_numbers<S: AsRef<str>>(
 ///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
 async fn download_eth1_block(
+    endpoint: &str,
     cache: Arc<Inner>,
     block_number_opt: Option<u64>,
 ) -> Result<Eth1Block, Error> {
-    let endpoints = cache.config.read().endpoints.clone();
-
     let deposit_root = block_number_opt.and_then(|block_number| {
         cache
             .deposit_cache
@@ -906,8 +1012,8 @@ async fn download_eth1_block(
     });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
-    let http_block = try_fallback_get_block(
-        &endpoints,
+    let http_block = get_block(
+        endpoint,
         block_number_opt
             .map(BlockQuery::Number)
             .unwrap_or_else(|| BlockQuery::Latest),
