@@ -288,8 +288,6 @@ where
 }
 
 /// Returns the BLS values in a `Deposit`, if they're all valid. Otherwise, returns `None`.
-///
-/// This method is separate to `deposit_signature_set` to satisfy lifetime requirements.
 pub fn deposit_pubkey_signature_message(
     deposit_data: &DepositData,
     spec: &ChainSpec,
@@ -299,18 +297,6 @@ pub fn deposit_pubkey_signature_message(
     let domain = spec.get_deposit_domain();
     let message = deposit_data.as_deposit_message().signing_root(domain);
     Some((pubkey, signature, message))
-}
-
-/// Returns the signature set for some set of deposit signatures, made with
-/// `deposit_pubkey_signature_message`.
-pub fn deposit_signature_set(
-    pubkey_signature_message: &(PublicKey, Signature, Hash256),
-) -> SignatureSet {
-    let (pubkey, signature, message) = pubkey_signature_message;
-
-    // Note: Deposits are valid across forks, thus the deposit domain is computed
-    // with the fok zeroed.
-    SignatureSet::single_pubkey(signature, Cow::Borrowed(pubkey), *message)
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
