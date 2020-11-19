@@ -98,15 +98,15 @@ mod post {
 
         // `Error::InvalidUrl`.
         // The RemoteSignerHttpConsumer is created, but fails at `path_segments_mut()`.
-        testcase("localhost:abcd", "[InvalidUrl] \"localhost:abcd\"");
-        testcase("localhost:", "[InvalidUrl] \"localhost:\"");
+        testcase("localhost:abcd", "[InvalidUrl] Url { scheme: \"localhost\", host: None, port: None, path: \"abcd\", query: None, fragment: None }");
+        testcase("localhost:", "[InvalidUrl] Url { scheme: \"localhost\", host: None, port: None, path: \"\", query: None, fragment: None }");
 
         // `Reqwest::Error` of the `Builder` kind.
         // POST is not made.
         testcase(
             "unix:/run/foo.socket",
             &format!(
-                "[Reqwest - Builder] \"unix:/run/foo.socket/sign/{}\"",
+                "[Reqwest - Builder] Url {{ scheme: \"unix\", host: None, port: None, path: \"/run/foo.socket/sign/{}\", query: None, fragment: None }}",
                 PUBLIC_KEY_1
             ),
         );
@@ -114,7 +114,7 @@ mod post {
         testcase(
             "http://127.0.0.1:0",
             &format!(
-                "[Reqwest - Request] \"http://127.0.0.1:0/sign/{}\"",
+                "[Reqwest - Request] Url {{ scheme: \"http\", host: Some(Ipv4(127.0.0.1)), port: Some(0), path: \"/sign/{}\", query: None, fragment: None }}",
                 PUBLIC_KEY_1
             ),
         );

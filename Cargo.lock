@@ -2164,6 +2164,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "extend"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f47da3a72ec598d9c8937a7ebca8962a5c7a1f28444e38c2b33c771ba3f55f05"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2898,7 +2910,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_regex",
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -5298,7 +5310,7 @@ dependencies = [
  "remote_signer_test",
  "reqwest",
  "serde",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "types",
 ]
 
@@ -5316,7 +5328,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempdir",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "types",
 ]
 
