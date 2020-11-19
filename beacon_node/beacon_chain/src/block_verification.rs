@@ -387,8 +387,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let block_root = get_block_root(&block);
-
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
             .slot_clock
@@ -400,6 +398,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 block_slot: block.slot(),
             });
         }
+
+        let block_root = get_block_root(&block);
 
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(&block.message, chain)?;

@@ -1834,17 +1834,12 @@ impl ApiTester {
             .await
             .unwrap();
 
-        // Produce one event per attesatation
-        let mut expected_attestation_events = Vec::new();
         let expected_attestation_len = self.attestations.len();
 
-        for attestation in &self.attestations {
-            self.client
-                .post_beacon_pool_attestations(attestation)
-                .await
-                .unwrap();
-            expected_attestation_events.push(EventKind::Attestation(attestation.clone()));
-        }
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
 
         let attestation_events = poll_events(
             &mut events_future,
@@ -1854,7 +1849,12 @@ impl ApiTester {
         .await;
         assert_eq!(
             attestation_events.as_slice(),
-            expected_attestation_events.as_slice()
+            self.attestations
+                .clone()
+                .into_iter()
+                .map(|attestation| EventKind::Attestation(attestation))
+                .collect::<Vec<_>>()
+                .as_slice()
         );
 
         // Produce a voluntary exit event
@@ -1948,7 +1948,7 @@ async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin
 }
 
 #[tokio::test(core_threads = 2)]
-async fn test_events() {
+async fn get_events() {
     ApiTester::new().test_get_events().await;
 }
 
