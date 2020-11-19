@@ -8,7 +8,6 @@ mod gossip_methods;
 mod rpc_methods;
 mod sync_methods;
 
-pub use rpc_methods::ToStatusMessage;
 pub use sync_methods::ProcessId;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;

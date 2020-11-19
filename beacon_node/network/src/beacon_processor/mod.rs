@@ -57,7 +57,6 @@ use worker::Worker;
 mod worker;
 
 pub use worker::ProcessId;
-pub use worker::ToStatusMessage;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///

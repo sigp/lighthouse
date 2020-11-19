@@ -11,6 +11,7 @@ mod metrics;
 mod nat;
 mod persisted_dht;
 mod router;
+mod status;
 mod sync;
 
 pub use eth2_libp2p::NetworkConfig;

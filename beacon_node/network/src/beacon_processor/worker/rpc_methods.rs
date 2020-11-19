@@ -1,44 +1,17 @@
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2_libp2p::rpc::StatusMessage;
-
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::service::NetworkMessage;
+use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
+use beacon_chain::{BeaconChainError, BeaconChainTypes};
+use eth2_libp2p::rpc::StatusMessage;
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{PeerId, PeerRequestId, Response, SyncInfo};
 use itertools::process_results;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
-use types::{ChainSpec, Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 use super::Worker;
-
-// TODO: move this somewhere else
-/// Trait to produce a `StatusMessage`
-///
-/// NOTE: The purpose of this is simply to obtain a `StatusMessage` from the `BeaconChain` without
-/// polluting/coupling the type with RPC concepts.
-pub trait ToStatusMessage {
-    fn status_message(&self) -> Result<StatusMessage, BeaconChainError>;
-}
-
-impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
-    fn status_message(&self) -> Result<StatusMessage, BeaconChainError> {
-        let head_info = self.head_info()?;
-        let genesis_validators_root = self.genesis_validators_root;
-
-        let fork_digest =
-            ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
-
-        Ok(StatusMessage {
-            fork_digest,
-            finalized_root: head_info.finalized_checkpoint.root,
-            finalized_epoch: head_info.finalized_checkpoint.epoch,
-            head_root: head_info.block_root,
-            head_slot: head_info.slot,
-        })
-    }
-}
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
