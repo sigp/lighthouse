@@ -105,12 +105,12 @@ const MAX_CHAIN_SEGMENT_QUEUE_LEN: usize = 64;
 /// stored before we start dropping them.
 const MAX_STATUS_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `StatusMessage` objects received from the network RPC that will be
-/// stored before we start dropping them.
+/// The maximum number of queued `BlocksByRangeRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `StatusMessage` objects received from the network RPC that will be
-/// stored before we start dropping them.
+/// The maximum number of queued `BlocksByRootRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 
 /// The name of the manager tokio task.
@@ -336,6 +336,7 @@ impl<E: EthSpec> WorkEvent<E> {
         }
     }
 
+    /// Create a new work event to process `StatusMessage`s from the RPC network.
     pub fn status_message(peer_id: PeerId, message: StatusMessage) -> Self {
         Self {
             drop_during_sync: false,
@@ -343,6 +344,7 @@ impl<E: EthSpec> WorkEvent<E> {
         }
     }
 
+    /// Create a new work event to process `BlocksByRangeRequest`s from the RPC network.
     pub fn blocks_by_range_request(
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -358,6 +360,7 @@ impl<E: EthSpec> WorkEvent<E> {
         }
     }
 
+    /// Create a new work event to process `BlocksByRootRequest`s from the RPC network.
     pub fn blocks_by_roots_request(
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -373,6 +376,7 @@ impl<E: EthSpec> WorkEvent<E> {
         }
     }
 
+    /// Get a `str` representation of the type of work this `WorkEvent` contains.
     pub fn work_type(&self) -> &'static str {
         self.work.str_id()
     }
@@ -897,14 +901,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         worker.process_chain_segment(process_id, blocks)
                     }
                     /*
-                     * Processing of Status Messages
+                     * Processing of Status Messages.
                      */
                     Work::Status { peer_id, message } => worker.process_status(peer_id, message),
+                    /*
+                     * Processing of range syncing requests from other peers.
+                     */
                     Work::BlocksByRangeRequest {
                         peer_id,
                         request_id,
                         request,
                     } => worker.handle_blocks_by_range_request(peer_id, request_id, request),
+                    /*
+                     * Processing of blocks by roots requests from other peers.
+                     */
                     Work::BlocksByRootsRequest {
                         peer_id,
                         request_id,
