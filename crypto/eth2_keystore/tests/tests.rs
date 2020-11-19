@@ -160,3 +160,60 @@ fn custom_pbkdf2_kdf() {
 
     assert_eq!(keystore.kdf(), &my_kdf);
 }
+
+#[test]
+fn utf8_control_characters() {
+    let keypair = Keypair::random();
+
+    let invalid_character = 0u8;
+    let invalid_password = [invalid_character];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 0
+        })
+    );
+
+    let invalid_character = 0x1Fu8;
+    let invalid_password = [50, invalid_character, 50];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 1
+        })
+    );
+
+    let invalid_character = 0x80u8;
+    let invalid_password = [50, 50, invalid_character];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 2
+        })
+    );
+
+    let invalid_character = 0x7Fu8;
+    let invalid_password = [50, 50, 50, 50, 50, 50, invalid_character];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 6
+        })
+    );
+}

@@ -299,7 +299,7 @@ mod tests {
         );
 
         for i in 1..3 {
-            w.next_validator(WALLET_PASSWORD, &[1], &[0])
+            w.next_validator(WALLET_PASSWORD, &[50; 32], &[51; 32])
                 .expect("should create validator");
             assert_eq!(
                 load_wallet_raw(&base_dir, &uuid).nextaccount(),

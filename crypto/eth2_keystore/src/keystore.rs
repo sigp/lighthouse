@@ -59,6 +59,7 @@ pub const HASH_SIZE: usize = 32;
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
+    InvalidPasswordCharacter { character: u8, index: usize },
     InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
     EmptyPassword,
@@ -158,6 +159,8 @@ impl Keystore {
         path: String,
         description: String,
     ) -> Result<Self, Error> {
+        validate_password_utf8_characters(password)?;
+
         let secret: ZeroizeHash = keypair.sk.serialize();
 
         let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
@@ -322,7 +325,8 @@ pub fn default_kdf(salt: Vec<u8>) -> Kdf {
 ///
 /// ## Errors
 ///
-/// - The `kdf` is badly formed (e.g., has some values set to zero).
+/// - If `kdf` is badly formed (e.g., has some values set to zero).
+/// - If `password` uses utf-8 control characters.
 pub fn encrypt(
     plain_text: &[u8],
     password: &[u8],
@@ -382,6 +386,36 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
         }
     };
     Ok(plain_text)
+}
+
+/// Verifies that a password does not contain UTF-8 control characters.
+pub fn validate_password_utf8_characters(password: &[u8]) -> Result<(), Error> {
+    for (i, char) in password.iter().enumerate() {
+        // C0 - 0x00 to 0x1F
+        if *char <= 0x1F {
+            return Err(Error::InvalidPasswordCharacter {
+                character: *char,
+                index: i,
+            });
+        }
+
+        // C1 - 0x80 to 0x9F
+        if *char >= 0x80 && *char <= 0x9F {
+            return Err(Error::InvalidPasswordCharacter {
+                character: *char,
+                index: i,
+            });
+        }
+
+        // Backspace
+        if *char == 0x7F {
+            return Err(Error::InvalidPasswordCharacter {
+                character: *char,
+                index: i,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Generates a checksum to indicate that the `derived_key` is associated with the
