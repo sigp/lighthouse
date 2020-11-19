@@ -60,7 +60,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
             network_globals,
-            executor: executor,
+            executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
             log: log.clone(),
