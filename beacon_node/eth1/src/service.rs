@@ -156,7 +156,7 @@ async fn test_endpoint(
 /// cache.
 pub enum HeadType {
     Deposit,
-    BlockCache
+    BlockCache,
 }
 
 /// Returns the head block and the new block ranges relevant for deposits and the block cache
@@ -164,21 +164,32 @@ pub enum HeadType {
 async fn get_remote_head_and_new_block_ranges(
     endpoint: &str,
     service: &Service,
-) -> Result<(Eth1Block, Option<RangeInclusive<u64>>, Option<RangeInclusive<u64>>), Error> {
+) -> Result<
+    (
+        Eth1Block,
+        Option<RangeInclusive<u64>>,
+        Option<RangeInclusive<u64>>,
+    ),
+    Error,
+> {
     let remote_head_block = download_eth1_block(endpoint, service.inner.clone(), None).await?;
     let handle_remote_not_synced = |e| {
-        if let Error::RemoteNotSynced {..} = e {
+        if let Error::RemoteNotSynced { .. } = e {
             warn!(service.log, "Eth1 node not synced. Trying fallbacks..."; "endpoint" => endpoint);
         }
         e
     };
-    let new_deposit_block_numbers =
-        service.relevant_new_block_numbers(remote_head_block.number, HeadType::Deposit)
-            .map_err(handle_remote_not_synced)?;
-    let new_block_cache_numbers =
-        service.relevant_new_block_numbers(remote_head_block.number, HeadType::BlockCache)
-            .map_err(handle_remote_not_synced)?;
-    Ok((remote_head_block, new_deposit_block_numbers, new_block_cache_numbers))
+    let new_deposit_block_numbers = service
+        .relevant_new_block_numbers(remote_head_block.number, HeadType::Deposit)
+        .map_err(handle_remote_not_synced)?;
+    let new_block_cache_numbers = service
+        .relevant_new_block_numbers(remote_head_block.number, HeadType::BlockCache)
+        .map_err(handle_remote_not_synced)?;
+    Ok((
+        remote_head_block,
+        new_deposit_block_numbers,
+        new_block_cache_numbers,
+    ))
 }
 
 /// Returns the range of new block numbers to be considered for the given head type from the given
@@ -523,8 +534,8 @@ impl Service {
                 &endpoints,
                 &self
             )
-                .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
-                .map_err(|e| format!("Failed to update Eth1 service: {:?}", process_err(e)))?;
+            .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
+            .map_err(|e| format!("Failed to update Eth1 service: {:?}", process_err(e)))?;
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 
@@ -613,7 +624,7 @@ impl Service {
     fn relevant_new_block_numbers(
         &self,
         remote_highest_block: u64,
-        head_type: HeadType
+        head_type: HeadType,
     ) -> Result<Option<RangeInclusive<u64>>, Error> {
         let follow_distance = self.config().follow_distance;
         let next_required_block = match head_type {
@@ -632,11 +643,7 @@ impl Service {
                 .unwrap_or_else(|| self.config().lowest_cached_block_number),
         };
 
-        relevant_block_range(
-            remote_highest_block,
-            next_required_block,
-            follow_distance,
-        )
+        relevant_block_range(remote_highest_block, next_required_block, follow_distance)
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
@@ -671,10 +678,11 @@ impl Service {
             match new_block_numbers {
                 Some(range) => range,
                 None => with_fallbacks!(relevant_new_block_numbers_from_endpoint;
-                            endpoints,
-                            &self,
-                            HeadType::Deposit
-                        ).unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
+                    endpoints,
+                    &self,
+                    HeadType::Deposit
+                )
+                .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
             }
         };
 
@@ -810,10 +818,11 @@ impl Service {
             match new_block_numbers {
                 Some(range) => range,
                 None => with_fallbacks!(relevant_new_block_numbers_from_endpoint;
-                            endpoints,
-                            &self,
-                            HeadType::BlockCache
-                        ).unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
+                    endpoints,
+                    &self,
+                    HeadType::BlockCache
+                )
+                .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
             }
         };
 
@@ -872,7 +881,7 @@ impl Service {
                             self.inner.clone(),
                             Some(block_number)
                         )
-                            .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
+                        .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
                         {
                             Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
                             Err(e) => Err(e),
