@@ -37,7 +37,10 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
-use eth2_libp2p::{MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
+    MessageId, NetworkGlobals, PeerId,
+};
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
@@ -50,12 +53,10 @@ use types::{
 };
 use worker::Worker;
 
-mod chain_segment;
-mod status;
 mod worker;
 
-pub use chain_segment::ProcessId;
-pub use status::ToStatusMessage;
+pub use worker::ProcessId;
+pub use worker::ToStatusMessage;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -101,9 +102,9 @@ const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
 const MAX_CHAIN_SEGMENT_QUEUE_LEN: usize = 64;
 
 /// The name of the manager tokio task.
-const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
+const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
 /// The name of the worker tokio tasks.
-const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
+const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
@@ -322,6 +323,17 @@ impl<E: EthSpec> WorkEvent<E> {
             work: Work::ChainSegment { process_id, blocks },
         }
     }
+
+    pub fn status_message(peer_id: PeerId, message: StatusMessage) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::Status { peer_id, message },
+        }
+    }
+
+    pub fn work_type(&self) -> &'static str {
+        self.work.str_id()
+    }
 }
 
 /// A consensus message (or multiple) from the network that requires processing.
@@ -366,6 +378,10 @@ pub enum Work<E: EthSpec> {
     ChainSegment {
         process_id: ProcessId,
         blocks: Vec<SignedBeaconBlock<E>>,
+    },
+    Status {
+        peer_id: PeerId,
+        message: StatusMessage,
     },
 }
 
