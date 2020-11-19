@@ -427,8 +427,8 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
     Ok(dk)
 }
 
-/// Compute floor of log2 of a u32.
-pub fn log2_int(x: u32) -> u32 {
+// Compute floor of log2 of a u32.
+fn log2_int(x: u32) -> u32 {
     if x == 0 {
         return 0;
     }
@@ -552,6 +552,8 @@ fn validate_parameters(kdf: &Kdf) -> Result<(), Error> {
     }
 }
 
+// Validates that the salt is non-zero in length.
+// Emits a warning if the salt is outside reasonable bounds.
 fn validate_salt(salt: &[u8]) -> Result<(), Error> {
     // Validate `salt` length
     if salt.is_empty() {
