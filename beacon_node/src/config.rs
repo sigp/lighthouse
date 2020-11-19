@@ -197,6 +197,12 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.endpoint = val.to_string();
     }
 
+    if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
+        client_config.eth1.blocks_per_log_query = val
+            .parse()
+            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
+    }
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }

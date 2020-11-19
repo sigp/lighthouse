@@ -3,7 +3,7 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use slog::{debug, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::{mpsc, Arc};
@@ -30,12 +30,7 @@ const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
     #[allow(clippy::type_complexity)]
-    tx_thread: Option<
-        Mutex<(
-            mpsc::Sender<MigrationNotification<E>>,
-            thread::JoinHandle<()>,
-        )>,
-    >,
+    tx_thread: Option<Mutex<(mpsc::Sender<MigrationNotification>, thread::JoinHandle<()>)>>,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
     genesis_block_root: Hash256,
     log: Logger,
@@ -78,9 +73,8 @@ pub enum PruningError {
 }
 
 /// Message sent to the migration thread containing the information it needs to run.
-pub struct MigrationNotification<E: EthSpec> {
+pub struct MigrationNotification {
     finalized_state_root: BeaconStateHash,
-    finalized_state: BeaconState<E>,
     finalized_checkpoint: Checkpoint,
     head_tracker: Arc<HeadTracker>,
     genesis_block_root: Hash256,
@@ -115,13 +109,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     pub fn process_finalization(
         &self,
         finalized_state_root: BeaconStateHash,
-        finalized_state: BeaconState<E>,
         finalized_checkpoint: Checkpoint,
         head_tracker: Arc<HeadTracker>,
     ) -> Result<(), BeaconChainError> {
         let notif = MigrationNotification {
             finalized_state_root,
-            finalized_state,
             finalized_checkpoint,
             head_tracker,
             genesis_block_root: self.genesis_block_root,
@@ -161,13 +153,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     /// Perform the actual work of `process_finalization`.
-    fn run_migration(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
-        notif: MigrationNotification<E>,
-        log: &Logger,
-    ) {
+    fn run_migration(db: Arc<HotColdDB<E, Hot, Cold>>, notif: MigrationNotification, log: &Logger) {
         let finalized_state_root = notif.finalized_state_root;
-        let finalized_state = notif.finalized_state;
+
+        let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
+            Ok(Some(state)) => state,
+            other => {
+                error!(
+                    log,
+                    "Migrator failed to load state";
+                    "state_root" => ?finalized_state_root,
+                    "error" => ?other
+                );
+                return;
+            }
+        };
 
         let old_finalized_checkpoint = match Self::prune_abandoned_forks(
             db.clone(),
@@ -231,13 +231,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     fn spawn_thread(
         db: Arc<HotColdDB<E, Hot, Cold>>,
         log: Logger,
-    ) -> (
-        mpsc::Sender<MigrationNotification<E>>,
-        thread::JoinHandle<()>,
-    ) {
+    ) -> (mpsc::Sender<MigrationNotification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             while let Ok(notif) = rx.recv() {
+                // Read the rest of the messages in the channel, ultimately choosing the `notif`
+                // with the highest finalized epoch.
+                let notif = rx
+                    .try_iter()
+                    .fold(notif, |best, other: MigrationNotification| {
+                        if other.finalized_checkpoint.epoch > best.finalized_checkpoint.epoch {
+                            other
+                        } else {
+                            best
+                        }
+                    });
+
                 Self::run_migration(db.clone(), notif, &log);
             }
         });
