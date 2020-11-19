@@ -302,6 +302,20 @@ lazy_static! {
 
 lazy_static! {
     /*
+     * Sync
+     */
+    pub static ref BLOCKS_BY_RANGE_RESPONSE_SECONDS: Result<Histogram> = try_create_histogram(
+        "blocks_by_range_response_seconds",
+        "Time taken to respond to a blocks by range request"
+    );
+    pub static ref BLOCKS_BY_RANGE_RESPONSE_BLOCK_ITER_SECONDS: Result<Histogram> = try_create_histogram(
+        "blocks_by_range_response_block_iter_seconds",
+        "Time taken to collect the block roots for a blocks by range response"
+    );
+}
+
+lazy_static! {
+    /*
      * Attestation Errors
      */
     pub static ref GOSSIP_ATTESTATION_ERROR_FUTURE_EPOCH: Result<IntCounter> = try_create_int_counter(

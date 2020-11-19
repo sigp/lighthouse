@@ -1,6 +1,9 @@
 use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
+use crate::metrics::{
+    self, BLOCKS_BY_RANGE_RESPONSE_BLOCK_ITER_SECONDS, BLOCKS_BY_RANGE_RESPONSE_SECONDS,
+};
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
@@ -280,6 +283,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // Shift the db reads to a blocking thread.
         self.executor.spawn_blocking(move || {
+            let _total_timer = metrics::start_timer(&BLOCKS_BY_RANGE_RESPONSE_SECONDS);
 
             debug!(
                 log,
@@ -302,6 +306,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 return;
             }
 
+            let iter_timer = metrics::start_timer(&BLOCKS_BY_RANGE_RESPONSE_BLOCK_ITER_SECONDS);
             let forwards_block_root_iter = match
                 chain
                 .forwards_iter_block_roots(Slot::from(req.start_slot))
@@ -354,6 +359,8 @@ impl<T: BeaconChainTypes> Processor<T> {
                 .into_iter()
                 .filter_map(|root| root)
                 .collect::<Vec<_>>();
+
+            drop(iter_timer);
 
             let mut blocks_sent = 0;
             for root in block_roots {
