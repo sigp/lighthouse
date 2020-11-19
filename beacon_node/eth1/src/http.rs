@@ -122,32 +122,6 @@ pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, 
     .map_err(|e| format!("Failed to get block number: {}", e))
 }
 
-#[macro_export]
-macro_rules! fallback_on_err {
-    ( $new_func_name: ident, $old_func_name: ident, $($p: ident: $t: ty= $e: expr),*; $res: ty) => {
-        pub async fn $new_func_name<S: AsRef<str>>(endpoints: &[S], $($p: $t,)*) -> $res {
-            let mut result = None;
-            for endpoint in endpoints {
-                crate::metrics::inc_counter_vec(
-                    &crate::metrics::ENDPOINT_REQUESTS,
-                    &[endpoint.as_ref()]
-                );
-                result = match $old_func_name(endpoint.as_ref(), $($e,)*).await {
-                    Ok(t) => return Ok(t),
-                    Err(t) => {
-                        crate::metrics::inc_counter_vec(
-                            &crate::metrics::ENDPOINT_ERRORS,
-                            &[endpoint.as_ref()]
-                        );
-                        Some(Err(t))
-                    }
-                }
-            }
-            result.expect("At least one endpoint is given")
-        }
-    };
-}
-
 /// Gets a block hash by block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.

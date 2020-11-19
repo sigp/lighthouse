@@ -4,7 +4,6 @@ extern crate lazy_static;
 mod block_cache;
 mod deposit_cache;
 mod deposit_log;
-#[macro_use]
 pub mod http;
 mod inner;
 mod metrics;
