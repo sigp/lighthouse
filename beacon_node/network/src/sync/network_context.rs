@@ -3,8 +3,8 @@
 
 use super::range_sync::{BatchId, ChainId};
 use super::RequestId as SyncRequestId;
-use crate::status::ToStatusMessage;
 use crate::service::NetworkMessage;
+use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
 use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, Request};
