@@ -1,3 +1,4 @@
+use crate::metrics::{self, SLASHER_COMPRESSION_RATIO, SLASHER_NUM_CHUNKS_UPDATED};
 use crate::{AttesterRecord, AttesterSlashingStatus, Config, Error, SlasherDB};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use lmdb::{RwTransaction, Transaction};
@@ -110,6 +111,8 @@ pub struct MaxTargetChunk {
 }
 
 pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwned {
+    fn name() -> &'static str;
+
     fn empty(config: &Config) -> Self;
 
     fn chunk(&mut self) -> &mut Chunk;
@@ -178,6 +181,9 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         let mut compressed_value = vec![];
         encoder.read_to_end(&mut compressed_value)?;
 
+        let compression_ratio = value.len() as f64 / compressed_value.len() as f64;
+        metrics::set_float_gauge(&SLASHER_COMPRESSION_RATIO, compression_ratio);
+
         txn.put(
             Self::select_db(db),
             &disk_key.to_be_bytes(),
@@ -189,6 +195,10 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 }
 
 impl TargetArrayChunk for MinTargetChunk {
+    fn name() -> &'static str {
+        "min"
+    }
+
     fn empty(config: &Config) -> Self {
         MinTargetChunk {
             chunk: Chunk {
@@ -288,6 +298,10 @@ impl TargetArrayChunk for MinTargetChunk {
 }
 
 impl TargetArrayChunk for MaxTargetChunk {
+    fn name() -> &'static str {
+        "max"
+    }
+
     fn empty(config: &Config) -> Self {
         MaxTargetChunk {
             chunk: Chunk {
@@ -603,6 +617,12 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     }
 
     // Store chunks on disk.
+    metrics::inc_counter_vec_by(
+        &SLASHER_NUM_CHUNKS_UPDATED,
+        &[T::name()],
+        updated_chunks.len() as i64,
+    );
+
     for (chunk_index, chunk) in updated_chunks {
         chunk.store(db, txn, validator_chunk_index, chunk_index, config)?;
     }

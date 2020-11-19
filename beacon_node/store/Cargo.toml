@@ -30,3 +30,4 @@ lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lru = "0.6.0"
 sloggers = "1.0.1"
+directory = { path = "../../common/directory" }

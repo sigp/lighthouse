@@ -1,5 +1,6 @@
-use crate::metrics::{self, SLASHER_RUN_TIME};
+use crate::metrics::{self, SLASHER_DATABASE_SIZE, SLASHER_RUN_TIME};
 use crate::Slasher;
+use directory::size_of_dir;
 use slog::{debug, error, info, trace};
 use slot_clock::SlotClock;
 use std::sync::mpsc::{sync_channel, TrySendError};
@@ -83,6 +84,9 @@ impl SlasherServer {
                         "num_attestations" => num_attestations,
                         "num_blocks" => num_blocks,
                     );
+
+                    let database_size = size_of_dir(&slasher.config().database_path);
+                    metrics::set_gauge(&SLASHER_DATABASE_SIZE, database_size as i64);
                 }
             },
             "slasher_server_process_queued",

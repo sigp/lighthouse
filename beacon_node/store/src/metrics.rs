@@ -1,6 +1,6 @@
 pub use lighthouse_metrics::{set_gauge, try_create_int_gauge, *};
 
-use std::fs;
+use directory::size_of_dir;
 use std::path::Path;
 
 lazy_static! {
@@ -133,18 +133,4 @@ pub fn scrape_for_metrics(db_path: &Path, freezer_db_path: &Path) {
     set_gauge(&DISK_DB_SIZE, db_size as i64);
     let freezer_db_size = size_of_dir(freezer_db_path);
     set_gauge(&FREEZER_DB_SIZE, freezer_db_size as i64);
-}
-
-fn size_of_dir(path: &Path) -> u64 {
-    if let Ok(iter) = fs::read_dir(path) {
-        iter.filter_map(std::result::Result::ok)
-            .map(size_of_dir_entry)
-            .sum()
-    } else {
-        0
-    }
-}
-
-fn size_of_dir_entry(dir: fs::DirEntry) -> u64 {
-    dir.metadata().map(|m| m.len()).unwrap_or(0)
 }

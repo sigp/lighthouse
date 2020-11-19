@@ -1,6 +1,6 @@
 use crate::metrics::{
     self, SLASHER_NUM_ATTESTATIONS_DEFERRED, SLASHER_NUM_ATTESTATIONS_DROPPED,
-    SLASHER_NUM_ATTESTATIONS_VALID,
+    SLASHER_NUM_ATTESTATIONS_VALID, SLASHER_NUM_BLOCKS_PROCESSED,
 };
 use crate::{
     array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
@@ -83,6 +83,8 @@ impl<E: EthSpec> Slasher<E> {
     pub fn process_blocks(&self, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
         let blocks = self.block_queue.dequeue();
         let mut slashings = vec![];
+
+        metrics::set_gauge(&SLASHER_NUM_BLOCKS_PROCESSED, blocks.len() as i64);
 
         for block in blocks {
             if let ProposerSlashingStatus::DoubleVote(slashing) =

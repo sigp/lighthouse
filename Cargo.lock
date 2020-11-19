@@ -5363,6 +5363,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
+ "directory",
  "eth2_ssz",
  "eth2_ssz_derive",
  "flate2",
@@ -5689,6 +5690,7 @@ version = "0.2.0"
 dependencies = [
  "criterion",
  "db-key",
+ "directory",
  "eth2_ssz",
  "eth2_ssz_derive",
  "itertools 0.9.0",
