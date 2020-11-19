@@ -54,6 +54,8 @@ pub const DKLEN: u32 = 32;
 pub const IV_SIZE: usize = 16;
 /// The byte size of a SHA256 hash.
 pub const HASH_SIZE: usize = 32;
+/// The default iteraction count, `c`, for PBKDF2.
+pub const DEFAULT_PBKDF2_C: u32 = 262_144;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -69,6 +71,7 @@ pub enum Error {
     ReadError(String),
     InvalidPbkdf2Param,
     InvalidScryptParam,
+    InvalidSaltLength,
     IncorrectIvSize { expected: usize, len: usize },
     ScryptInvalidParams(InvalidParams),
     ScryptInvaidOutputLen(InvalidOutputLen),
@@ -311,13 +314,7 @@ pub fn keypair_from_secret(secret: &[u8]) -> Result<Keypair, Error> {
 ///
 /// Currently this is set to scrypt due to its memory hardness properties.
 pub fn default_kdf(salt: Vec<u8>) -> Kdf {
-    Kdf::Scrypt(Scrypt {
-        dklen: DKLEN,
-        n: 262144,
-        p: 1,
-        r: 8,
-        salt: salt.into(),
-    })
+    Kdf::Scrypt(Scrypt::default_scrypt(salt))
 }
 
 /// Returns `(cipher_text, checksum)` for the given `plain_text` encrypted with `Cipher` using a
@@ -333,12 +330,18 @@ pub fn encrypt(
     kdf: &Kdf,
     cipher: &Cipher,
 ) -> Result<(Vec<u8>, [u8; HASH_SIZE]), Error> {
+    validate_parameters(kdf)?;
+
     let derived_key = derive_key(&password, &kdf)?;
 
     // Encrypt secret.
     let mut cipher_text = plain_text.to_vec();
     match &cipher {
         Cipher::Aes128Ctr(params) => {
+            // Validate IV
+            validate_aes_iv(params.iv.as_bytes())?;
+
+            // AES Encrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
             let mut cipher = AesCtr::new(&key, &nonce);
@@ -358,6 +361,8 @@ pub fn encrypt(
 /// - The provided password is incorrect.
 /// - The `crypto.kdf` is badly formed (e.g., has some values set to zero).
 pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
+    validate_parameters(&crypto.kdf.params)?;
+
     let cipher_message = &crypto.cipher.message;
 
     // Generate derived key
@@ -373,13 +378,11 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     let mut plain_text = PlainText::from(cipher_message.as_bytes().to_vec());
     match &crypto.cipher.params {
         Cipher::Aes128Ctr(params) => {
+            // Validate IV
+            validate_aes_iv(params.iv.as_bytes())?;
+
+            // AES Decrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
-            // NOTE: we do not check the size of the `iv` as there is no guidance about
-            // this on EIP-2335.
-            //
-            // Reference:
-            //
-            // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
             let mut cipher = AesCtr::new(&key, &nonce);
             cipher.apply_keystream(plain_text.as_mut_bytes());
@@ -436,21 +439,6 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
 
     match &kdf {
         Kdf::Pbkdf2(params) => {
-            // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
-            // if it is `0`.
-            //
-            // Both of these seem fairly convincing that it shouldn't be 0.
-            //
-            // Reference:
-            //
-            // https://www.ietf.org/rfc/rfc2898.txt
-            //
-            // Additionally, we always compute a derived key of 32 bytes so reject anything that
-            // says otherwise.
-            if params.c == 0 || params.dklen != DKLEN {
-                return Err(Error::InvalidPbkdf2Param);
-            }
-
             pbkdf2::<Hmac<Sha256>>(
                 password,
                 params.salt.as_bytes(),
@@ -459,27 +447,6 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             );
         }
         Kdf::Scrypt(params) => {
-            // RFC7914 declares that all these parameters must be greater than 1:
-            //
-            // - `N`: costParameter.
-            // - `r`: blockSize.
-            // - `p`: parallelizationParameter
-            //
-            // Reference:
-            //
-            // https://tools.ietf.org/html/rfc7914
-            //
-            // Additionally, we always compute a derived key of 32 bytes so reject anything that
-            // says otherwise.
-            if params.n <= 1 || params.r == 0 || params.p == 0 || params.dklen != DKLEN {
-                return Err(Error::InvalidScryptParam);
-            }
-
-            // Ensure that `n` is power of 2.
-            if params.n != 2u32.pow(log2_int(params.n)) {
-                return Err(Error::InvalidScryptParam);
-            }
-
             scrypt(
                 password,
                 params.salt.as_bytes(),
@@ -494,10 +461,149 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
     Ok(dk)
 }
 
-/// Compute floor of log2 of a u32.
+// Compute floor of log2 of a u32.
 fn log2_int(x: u32) -> u32 {
     if x == 0 {
         return 0;
     }
     31 - x.leading_zeros()
+}
+
+// We only check the size of the `iv` is non-zero as there is no guidance about
+// this on EIP-2335.
+//
+// Reference:
+//
+// - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
+fn validate_aes_iv(iv: &[u8]) -> Result<(), Error> {
+    if iv.is_empty() {
+        return Err(Error::IncorrectIvSize {
+            expected: IV_SIZE,
+            len: iv.len(),
+        });
+    } else if iv.len() != IV_SIZE {
+        eprintln!(
+            "WARN: AES IV length incorrect is {}, should be {}",
+            iv.len(),
+            IV_SIZE
+        );
+    }
+    Ok(())
+}
+
+// Validates the kdf parameters to ensure they are sufficiently secure, in addition to
+// preventing DoS attacks from excessively large parameters.
+fn validate_parameters(kdf: &Kdf) -> Result<(), Error> {
+    match kdf {
+        Kdf::Pbkdf2(params) => {
+            // We always compute a derived key of 32 bytes so reject anything that
+            // says otherwise.
+            if params.dklen != DKLEN {
+                return Err(Error::InvalidPbkdf2Param);
+            }
+
+            // NIST Recommends suggests potential use cases where `c` of 10,000,000 is desireable.
+            // As it is 10 years old this has been increased to 80,000,000. Larger values will
+            // take over 1 minute to execute on an average machine.
+            //
+            // Reference:
+            //
+            // https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-132.pdf
+            if params.c > 80_000_000 {
+                return Err(Error::InvalidPbkdf2Param);
+            }
+
+            // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
+            // if it is `0`.
+            //
+            // Reference:
+            //
+            // https://www.ietf.org/rfc/rfc2898.txt
+            if params.c < DEFAULT_PBKDF2_C {
+                if params.c == 0 {
+                    return Err(Error::InvalidPbkdf2Param);
+                }
+                eprintln!(
+                    "WARN: PBKDF2 parameters are too weak, 'c' is {}, we recommend using {}",
+                    params.c, DEFAULT_PBKDF2_C,
+                );
+            }
+
+            // Validate `salt` length.
+            validate_salt(params.salt.as_bytes())?;
+
+            Ok(())
+        }
+        Kdf::Scrypt(params) => {
+            // RFC7914 declares that all these parameters must be greater than 1:
+            //
+            // - `N`: costParameter.
+            // - `r`: blockSize.
+            // - `p`: parallelizationParameter
+            //
+            // Reference:
+            //
+            // https://tools.ietf.org/html/rfc7914
+            if params.n <= 1 || params.r == 0 || params.p == 0 {
+                return Err(Error::InvalidScryptParam);
+            }
+
+            // We always compute a derived key of 32 bytes so reject anything that
+            // says otherwise.
+            if params.dklen != DKLEN {
+                return Err(Error::InvalidScryptParam);
+            }
+
+            // Ensure that `n` is power of 2.
+            if params.n != 2u32.pow(log2_int(params.n)) {
+                return Err(Error::InvalidScryptParam);
+            }
+
+            // Maximum Parameters
+            //
+            // Uses a u32 to store value thus maximum memory usage is 4GB.
+            //
+            // Note: Memory requirements = 128*n*p*r
+            let mut npr: u32 = params
+                .n
+                .checked_mul(params.p)
+                .ok_or(Error::InvalidScryptParam)?;
+            npr = npr.checked_mul(params.r).ok_or(Error::InvalidScryptParam)?;
+            npr = npr.checked_mul(128).ok_or(Error::InvalidScryptParam)?;
+
+            // Minimum Parameters
+            let default_kdf = Scrypt::default_scrypt(vec![0u8; 32]);
+            let default_npr = 128 * default_kdf.n * default_kdf.p * default_kdf.r;
+            if npr < default_npr {
+                eprintln!("WARN: Scrypt parameters are too weak (n: {}, p: {}, r: {}), we recommend (n: {}, p: {}, r: {})", params.n, params.p, params.r, default_kdf.n, default_kdf.p, default_kdf.r);
+            }
+
+            // Validate `salt` length.
+            validate_salt(params.salt.as_bytes())?;
+
+            Ok(())
+        }
+    }
+}
+
+// Validates that the salt is non-zero in length.
+// Emits a warning if the salt is outside reasonable bounds.
+fn validate_salt(salt: &[u8]) -> Result<(), Error> {
+    // Validate `salt` length
+    if salt.is_empty() {
+        return Err(Error::InvalidSaltLength);
+    } else if salt.len() < SALT_SIZE / 2 {
+        eprintln!(
+            "WARN: Salt is too short {}, we recommend {}",
+            salt.len(),
+            SALT_SIZE
+        );
+    } else if salt.len() > SALT_SIZE * 2 {
+        eprintln!(
+            "WARN: Salt is too long {}, we recommend {}",
+            salt.len(),
+            SALT_SIZE
+        );
+    }
+    Ok(())
 }
