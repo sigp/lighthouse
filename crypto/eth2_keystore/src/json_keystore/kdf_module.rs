@@ -93,7 +93,7 @@ impl Kdf {
 
                 // Validate `salt` length
                 if params.salt.is_empty() {
-                    return Err(Error::InvalidScryptParam);
+                    return Err(Error::InvalidPbkdf2Param);
                 } else if params.salt.len() < SALT_SIZE / 2 {
                     eprintln!(
                         "WARN: Salt is too short {}, we recommend {}",
