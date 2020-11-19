@@ -405,20 +405,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Find the slot block root
-    pub fn find_reorg_slot(&self, state: &BeaconState<T::EthSpec>) -> Result<Option<Slot>, Error> {
-        process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(ancestor_block_root, slot)| {
-                *ancestor_block_root
-                    == state
-                        .get_block_root(*slot)
-                        .map(|root| *root)
-                        .unwrap_or_else(|_| Hash256::random())
-            })
-            .map(|(_, ancestor_slot)| ancestor_slot)
-        })
-    }
-
     /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
     /// the earliest reachable ancestor (may or may not be genesis).
     ///
