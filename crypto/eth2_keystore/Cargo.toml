@@ -22,5 +22,6 @@ bls = { path = "../bls" }
 eth2_ssz = "0.1.2"
 serde_json = "1.0.58"
 eth2_key_derivation = { path = "../eth2_key_derivation" }
+
 [dev-dependencies]
 tempfile = "3.1.0"

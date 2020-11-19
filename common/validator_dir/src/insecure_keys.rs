@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 
 /// A very weak password with which to encrypt the keystores.
-pub const INSECURE_PASSWORD: &[u8] = &[30; 32];
+pub const INSECURE_PASSWORD: &[u8] = &[50; 51];
 
 impl<'a> Builder<'a> {
     /// Generate the voting keystore using a deterministic, well-known, **unsafe** keypair.
@@ -59,7 +59,7 @@ fn insecure_kdf() -> Kdf {
         n: 2,
         p: 1,
         r: 8,
-        salt: vec![1, 3, 3, 5].into(),
+        salt: vec![1; 32].into(),
     })
 }
 

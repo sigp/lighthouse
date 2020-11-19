@@ -329,6 +329,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .map_err(|e| format!("Failed to produce attestation data: {:?}", e))?
             .data;
 
+        let mut attestations = Vec::with_capacity(validator_duties.len());
+
         for duty in validator_duties {
             // Ensure that all required fields are present in the validator duty.
             let (
@@ -370,37 +372,50 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 signature: AggregateSignature::infinity(),
             };
 
-            self.validator_store
+            if self
+                .validator_store
                 .sign_attestation(
                     duty.validator_pubkey(),
                     validator_committee_position,
                     &mut attestation,
                     current_epoch,
                 )
-                .ok_or_else(|| "Failed to sign attestation".to_string())?;
-
-            match self
-                .beacon_node
-                .post_beacon_pool_attestations(&attestation)
-                .await
+                .is_some()
             {
-                Ok(()) => info!(
+                attestations.push(attestation);
+            } else {
+                crit!(
                     log,
-                    "Successfully published attestation";
-                    "head_block" => format!("{:?}", attestation.data.beacon_block_root),
-                    "committee_index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
-                    "type" => "unaggregated",
-                ),
-                Err(e) => error!(
-                    log,
-                    "Unable to publish attestation";
-                    "error" => e.to_string(),
-                    "committee_index" => attestation.data.index,
+                    "Failed to sign attestation";
+                    "committee_index" => committee_index,
                     "slot" => slot.as_u64(),
-                    "type" => "unaggregated",
-                ),
+                );
+                continue;
             }
+        }
+
+        match self
+            .beacon_node
+            .post_beacon_pool_attestations(attestations.as_slice())
+            .await
+        {
+            Ok(()) => info!(
+                log,
+                "Successfully published attestations";
+                "count" => attestations.len(),
+                "head_block" => ?attestation_data.beacon_block_root,
+                "committee_index" => attestation_data.index,
+                "slot" => attestation_data.slot.as_u64(),
+                "type" => "unaggregated",
+            ),
+            Err(e) => error!(
+                log,
+                "Unable to publish attestations";
+                "error" => ?e,
+                "committee_index" => attestation_data.index,
+                "slot" => slot.as_u64(),
+                "type" => "unaggregated",
+            ),
         }
 
         Ok(Some(attestation_data))
