@@ -306,15 +306,15 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
-    /// `GET beacon/states/{state_id}/committees?slot,index`
+    /// `GET beacon/states/{state_id}/committees?slot,index,epoch`
     ///
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_beacon_states_committees(
         &self,
         state_id: StateId,
-        epoch: Epoch,
         slot: Option<Slot>,
         index: Option<u64>,
+        epoch: Option<Epoch>,
     ) -> Result<Option<GenericResponse<Vec<CommitteeData>>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -323,8 +323,7 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("states")
             .push(&state_id.to_string())
-            .push("committees")
-            .push(&epoch.to_string());
+            .push("committees");
 
         if let Some(slot) = slot {
             path.query_pairs_mut()
@@ -334,6 +333,11 @@ impl BeaconNodeHttpClient {
         if let Some(index) = index {
             path.query_pairs_mut()
                 .append_pair("index", &index.to_string());
+        }
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
         }
 
         self.get_opt(path).await
@@ -484,7 +488,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/pool/attestations`
     pub async fn post_beacon_pool_attestations<T: EthSpec>(
         &self,
-        attestation: &Attestation<T>,
+        attestations: &[Attestation<T>],
     ) -> Result<(), Error> {
         let mut path = self.eth_path()?;
 
@@ -494,14 +498,23 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attestations");
 
-        self.post(path, attestation).await?;
+        let response = self
+            .client
+            .post(path)
+            .json(attestations)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_indexed_error(response).await?;
 
         Ok(())
     }
 
-    /// `GET beacon/pool/attestations`
+    /// `GET beacon/pool/attestations?slot,committee_index`
     pub async fn get_beacon_pool_attestations<T: EthSpec>(
         &self,
+        slot: Option<Slot>,
+        committee_index: Option<u64>,
     ) -> Result<GenericResponse<Vec<Attestation<T>>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -510,6 +523,16 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("pool")
             .push("attestations");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(index) = committee_index {
+            path.query_pairs_mut()
+                .append_pair("committee_index", &index.to_string());
+        }
 
         self.get(path).await
     }

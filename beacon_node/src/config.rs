@@ -177,6 +177,12 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.endpoint = val.to_string();
     }
 
+    if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
+        client_config.eth1.blocks_per_log_query = val
+            .parse()
+            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
+    }
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
@@ -196,6 +202,13 @@ pub fn get_config<E: EthSpec>(
         client_config.store.block_cache_size = block_cache_size
             .parse()
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    }
+
+    client_config.store.compact_on_init = cli_args.is_present("compact-db");
+    if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
+        client_config.store.compact_on_prune = compact_on_prune
+            .parse()
+            .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
     }
 
     /*
@@ -237,6 +250,7 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
     client_config.eth1.network_id = spec.deposit_network_id.into();
+    client_config.eth1.chain_id = spec.deposit_chain_id.into();
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)

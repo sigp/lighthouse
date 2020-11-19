@@ -3,8 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
     http::{
-        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, BlockQuery,
-        Eth1NetworkId, Log,
+        get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
+        BlockQuery, Eth1Id, Log,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -18,8 +18,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{interval_at, Duration, Instant};
 use types::ChainSpec;
 
-/// Indicates the default eth1 network we use for the deposit contract.
-pub const DEFAULT_NETWORK_ID: Eth1NetworkId = Eth1NetworkId::Goerli;
+/// Indicates the default eth1 network id we use for the deposit contract.
+pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
+/// Indicates the default eth1 chain id we use for the deposit contract.
+pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
@@ -84,7 +86,9 @@ pub struct Config {
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
     /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
-    pub network_id: Eth1NetworkId,
+    pub network_id: Eth1Id,
+    /// The eth1 chain id where the deposit contract is deployed (Goerli/Mainnet).
+    pub chain_id: Eth1Id,
     /// Defines the first block that the `DepositCache` will start searching for deposit logs.
     ///
     /// Setting too high can result in missed logs. Setting too low will result in unnecessary
@@ -115,6 +119,7 @@ impl Default for Config {
             endpoint: "http://localhost:8545".into(),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
             network_id: DEFAULT_NETWORK_ID,
+            chain_id: DEFAULT_CHAIN_ID,
             deposit_contract_deploy_block: 1,
             lowest_cached_block_number: 1,
             follow_distance: 128,
@@ -387,23 +392,36 @@ impl Service {
 
     async fn do_update(&self, update_interval: Duration) -> Result<(), ()> {
         let endpoint = self.config().endpoint.clone();
-        let config_network = self.config().network_id.clone();
-        let result =
+        let config_network_id = self.config().network_id.clone();
+        let config_chain_id = self.config().chain_id.clone();
+        let network_id_result =
             get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
-        match result {
-            Ok(network_id) => {
-                if network_id != config_network {
+        let chain_id_result =
+            get_chain_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+        match (network_id_result, chain_id_result) {
+            (Ok(network_id), Ok(chain_id)) => {
+                if network_id != config_network_id {
                     crit!(
                         self.log,
-                        "Invalid eth1 network. Please switch to correct network";
-                        "expected" => format!("{:?}",config_network),
+                        "Invalid eth1 network id. Please switch to correct network id";
+                        "expected" => format!("{:?}",config_network_id),
                         "received" => format!("{:?}",network_id),
                         "warning" => WARNING_MSG,
                     );
                     return Ok(());
                 }
+                if chain_id != config_chain_id {
+                    crit!(
+                        self.log,
+                        "Invalid eth1 chain id. Please switch to correct chain id";
+                        "expected" => format!("{:?}",config_chain_id),
+                        "received" => format!("{:?}", chain_id),
+                        "warning" => WARNING_MSG,
+                    );
+                    return Ok(());
+                }
             }
-            Err(_) => {
+            _ => {
                 crit!(
                     self.log,
                     "Error connecting to eth1 node. Please ensure that you have an eth1 http server running locally on http://localhost:8545 or \
