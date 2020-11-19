@@ -1,8 +1,8 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
-use eth1::DepositCache;
 use eth1::{Config, Service};
+use eth1::{DepositCache, DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::compat::Future01CompatExt;
 use merkle_proof::verify_merkle_proof;
@@ -97,6 +97,10 @@ async fn get_block_number(web3: &Web3<Http>) -> u64 {
         .expect("should get block number")
 }
 
+async fn new_ganache_instance() -> Result<GanacheEth1Instance, String> {
+    GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), DEFAULT_CHAIN_ID.into()).await
+}
+
 mod eth1_cache {
     use super::*;
     use types::{EthSpec, MainnetEthSpec};
@@ -106,7 +110,7 @@ mod eth1_cache {
         let log = null_logger();
 
         for follow_distance in 0..2 {
-            let eth1 = GanacheEth1Instance::new()
+            let eth1 = new_ganache_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
@@ -145,17 +149,19 @@ mod eth1_cache {
                     eth1.ganache.evm_mine().await.expect("should mine block");
                 }
 
+                let endpoints = service.init_endpoints();
+
                 service
-                    .update_deposit_cache(None)
+                    .update_deposit_cache(None, &endpoints)
                     .await
                     .expect("should update deposit cache");
                 service
-                    .update_block_cache(None)
+                    .update_block_cache(None, &endpoints)
                     .await
                     .expect("should update block cache");
 
                 service
-                    .update_block_cache(None)
+                    .update_block_cache(None, &endpoints)
                     .await
                     .expect("should update cache when nothing has changed");
 
@@ -181,7 +187,7 @@ mod eth1_cache {
     async fn big_skip() {
         let log = null_logger();
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -208,12 +214,14 @@ mod eth1_cache {
             eth1.ganache.evm_mine().await.expect("should mine block")
         }
 
+        let endpoints = service.init_endpoints();
+
         service
-            .update_deposit_cache(None)
+            .update_deposit_cache(None, &endpoints)
             .await
             .expect("should update deposit cache");
         service
-            .update_block_cache(None)
+            .update_block_cache(None, &endpoints)
             .await
             .expect("should update block cache");
 
@@ -230,7 +238,7 @@ mod eth1_cache {
     async fn pruning() {
         let log = null_logger();
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -255,12 +263,13 @@ mod eth1_cache {
             for _ in 0..cache_len / 2 {
                 eth1.ganache.evm_mine().await.expect("should mine block")
             }
+            let endpoints = service.init_endpoints();
             service
-                .update_deposit_cache(None)
+                .update_deposit_cache(None, &endpoints)
                 .await
                 .expect("should update deposit cache");
             service
-                .update_block_cache(None)
+                .update_block_cache(None, &endpoints)
                 .await
                 .expect("should update block cache");
         }
@@ -278,7 +287,7 @@ mod eth1_cache {
 
         let n = 16;
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -299,14 +308,16 @@ mod eth1_cache {
         for _ in 0..n {
             eth1.ganache.evm_mine().await.expect("should mine block")
         }
+
+        let endpoints = service.init_endpoints();
         futures::try_join!(
-            service.update_deposit_cache(None),
-            service.update_deposit_cache(None)
+            service.update_deposit_cache(None, &endpoints),
+            service.update_deposit_cache(None, &endpoints)
         )
         .expect("should perform two simultaneous updates of deposit cache");
         futures::try_join!(
-            service.update_block_cache(None),
-            service.update_block_cache(None)
+            service.update_block_cache(None, &endpoints),
+            service.update_block_cache(None, &endpoints)
         )
         .expect("should perform two simultaneous updates of block cache");
 
@@ -323,7 +334,7 @@ mod deposit_tree {
 
         let n = 4;
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -353,13 +364,15 @@ mod deposit_tree {
                     .expect("should perform a deposit");
             }
 
+            let endpoints = service.init_endpoints();
+
             service
-                .update_deposit_cache(None)
+                .update_deposit_cache(None, &endpoints)
                 .await
                 .expect("should perform update");
 
             service
-                .update_deposit_cache(None)
+                .update_deposit_cache(None, &endpoints)
                 .await
                 .expect("should perform update when nothing has changed");
 
@@ -398,7 +411,7 @@ mod deposit_tree {
 
         let n = 8;
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -428,9 +441,10 @@ mod deposit_tree {
                 .expect("should perform a deposit");
         }
 
+        let endpoints = service.init_endpoints();
         futures::try_join!(
-            service.update_deposit_cache(None),
-            service.update_deposit_cache(None)
+            service.update_deposit_cache(None, &endpoints),
+            service.update_deposit_cache(None, &endpoints)
         )
         .expect("should perform two updates concurrently");
 
@@ -445,7 +459,7 @@ mod deposit_tree {
 
         let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -552,7 +566,7 @@ mod http {
 
     #[tokio::test]
     async fn incrementing_deposits() {
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -644,7 +658,7 @@ mod fast {
     async fn deposit_cache_query() {
         let log = null_logger();
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -675,8 +689,9 @@ mod fast {
             eth1.ganache.evm_mine().await.expect("should mine block");
         }
 
+        let endpoints = service.init_endpoints();
         service
-            .update_deposit_cache(None)
+            .update_deposit_cache(None, &endpoints)
             .await
             .expect("should perform update");
 
@@ -717,7 +732,7 @@ mod persist {
     async fn test_persist_caches() {
         let log = null_logger();
 
-        let eth1 = GanacheEth1Instance::new()
+        let eth1 = new_ganache_instance()
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -743,8 +758,9 @@ mod persist {
                 .expect("should perform a deposit");
         }
 
+        let endpoints = service.init_endpoints();
         service
-            .update_deposit_cache(None)
+            .update_deposit_cache(None, &endpoints)
             .await
             .expect("should perform update");
 
@@ -756,7 +772,7 @@ mod persist {
         let deposit_count = service.deposit_cache_len();
 
         service
-            .update_block_cache(None)
+            .update_block_cache(None, &endpoints)
             .await
             .expect("should perform update");
 

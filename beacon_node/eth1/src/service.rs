@@ -15,6 +15,7 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
 use types::ChainSpec;
 
@@ -73,7 +74,7 @@ macro_rules! with_fallbacks {
 /// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
 /// is not usable.
 pub struct EndpointsCache {
-    pub endpoints: Vec<(String, RwLock<Option<bool>>)>,
+    pub endpoints: Vec<(String, TRwLock<Option<bool>>)>,
     pub config_network_id: Eth1Id,
     pub config_chain_id: Eth1Id,
     pub log: Logger,
@@ -82,8 +83,12 @@ pub struct EndpointsCache {
 impl EndpointsCache {
     /// Checks the usability of an endpoint. Results get cached and therefore only the first call
     /// for each endpoint does the real check.
-    async fn is_usable<'a>(&self, endpoint: &'a (String, RwLock<Option<bool>>)) -> bool {
-        if let Some(result) = *endpoint.1.read() {
+    async fn is_usable<'a>(&self, endpoint: &'a (String, TRwLock<Option<bool>>)) -> bool {
+        if let Some(result) = *endpoint.1.read().await {
+            return result;
+        }
+        let mut value = endpoint.1.write().await;
+        if let Some(result) = *value {
             return result;
         }
         crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[&endpoint.0]);
@@ -95,7 +100,7 @@ impl EndpointsCache {
         )
         .await
         .is_ok();
-        *endpoint.1.write() = Some(is_ok);
+        *value = Some(is_ok);
         if is_ok {
             true
         } else {
@@ -492,7 +497,7 @@ impl Service {
         EndpointsCache {
             endpoints: endpoints
                 .into_iter()
-                .map(|s| (s, RwLock::new(None)))
+                .map(|s| (s, TRwLock::new(None)))
                 .collect(),
             config_network_id,
             config_chain_id,

@@ -30,7 +30,7 @@ pub struct GanacheInstance {
 impl GanacheInstance {
     /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
     /// RPC connections.
-    pub fn new() -> Result<Self, String> {
+    pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
         let port = unused_port()?;
 
         let mut child = Command::new("ganache-cli")
@@ -46,9 +46,9 @@ impl GanacheInstance {
             .arg("--mnemonic")
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
             .arg("--networkId")
-            .arg(format!("{}", NETWORK_ID))
+            .arg(format!("{}", network_id))
             .arg("--chainId")
-            .arg(format!("{}", CHAIN_ID))
+            .arg(format!("{}", chain_id))
             .spawn()
             .map_err(|e| {
                 format!(

@@ -1,6 +1,7 @@
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
 use eth1::http::Eth1Id;
+use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
@@ -73,7 +74,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Deploy the deposit contract, spawn tasks to keep creating new blocks and deposit
          * validators.
          */
-        let ganache_eth1_instance = GanacheEth1Instance::new().await?;
+        let ganache_eth1_instance =
+            GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), DEFAULT_CHAIN_ID.into()).await?;
         let deposit_contract = ganache_eth1_instance.deposit_contract;
         let network_id = ganache_eth1_instance.ganache.network_id();
         let chain_id = ganache_eth1_instance.ganache.chain_id();
