@@ -177,23 +177,22 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 if let Some(status) =
                     eth1_chain.sync_status(head_info.genesis_time, current_slot, &beacon_chain.spec)
                 {
-                    if status.lighthouse_is_cached_and_ready {
-                        debug!(
-                            log,
-                            "Eth1 cache is synced";
-                            "eth1_head_block" => status.head_block_number,
-                            "latest_cached_block_number" => status.latest_cached_block_number,
-                            "latest_cached_timestamp" => status.latest_cached_block_timestamp,
-                            "voting_target_timestamp" => status.voting_target_timestamp,
-                        );
-                    } else {
+                    debug!(
+                        log,
+                        "Eth1 cache sync status";
+                        "eth1_head_block" => status.head_block_number,
+                        "latest_cached_block_number" => status.latest_cached_block_number,
+                        "latest_cached_timestamp" => status.latest_cached_block_timestamp,
+                        "voting_target_timestamp" => status.voting_target_timestamp,
+                        "sync_percentage" => status.eth1_node_sync_status_percentage,
+                        "is_ok" => status.lighthouse_is_cached_and_ready
+                    );
+
+                    if !status.lighthouse_is_cached_and_ready {
                         warn!(
                             log,
                             "Syncing eth1 block cache";
-                            "eth1_head_block" => status.head_block_number,
-                            "latest_cached_block_number" => status.latest_cached_block_number,
-                            "latest_cached_timestamp" => status.latest_cached_block_timestamp,
-                            "voting_target_timestamp" => status.voting_target_timestamp,
+                            "sync_percentage" => status.eth1_node_sync_status_percentage,
                             "msg" => "block production impaired"
                         );
                     }
