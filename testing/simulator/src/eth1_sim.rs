@@ -111,8 +111,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.eth1.follow_distance = 1;
         beacon_config.dummy_eth1_backend = false;
         beacon_config.sync_eth1_chain = true;
-        beacon_config.eth1.network_id = Eth1Id::Custom(network_id);
-        beacon_config.eth1.chain_id = Eth1Id::Custom(chain_id);
+        beacon_config.eth1.network_id = Eth1Id::from(network_id);
+        beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
 
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
