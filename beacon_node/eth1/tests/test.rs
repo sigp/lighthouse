@@ -829,7 +829,7 @@ mod fallbacks {
 
         let endpoint1 = endpoint2
             .ganache
-            .fork(DEFAULT_CHAIN_ID.into())
+            .fork()
             .expect("should start eth1 environment");
 
         //mine additional blocks on top of the original endpoint
