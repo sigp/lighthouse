@@ -63,7 +63,7 @@ impl<E: EthSpec, S: 'static + Send + Sync> Handler<E, S> {
         // All these edge cases must be handled here.
         let value = executor
             .spawn_blocking_handle(move || func(req, ctx), "remote_signer_request")
-            .ok_or(ApiError::ServerError("Runtime does not exist".to_string()))?
+            .ok_or_else(|| ApiError::ServerError("Runtime does not exist".to_string()))?
             .await
             .map_err(|_| ApiError::ServerError("Panic during execution".to_string()))??;
 

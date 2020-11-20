@@ -746,7 +746,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     }
                     Ok(r) => {
                         debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
-                        let mut results: HashMap<PeerId, Option<Instant>> = HashMap::new();
+                        let mut results: HashMap<_, Option<Instant>> = HashMap::new();
                         r.iter().for_each(|enr| {
                             // cache the found ENR's
                             self.cached_enrs.put(enr.peer_id(), enr.clone());
@@ -769,7 +769,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     Ok(r) => {
                         debug!(self.log, "Peer grouped subnet discovery request completed"; "peers_found" => r.len(), "subnets_searched_for" => format!("{:?}",subnets_searched_for));
 
-                        let mut mapped_results: HashMap<PeerId, Option<Instant>> = HashMap::new();
+                        let mut mapped_results = HashMap::new();
 
                         // cache the found ENR's
                         for enr in r.iter().cloned() {

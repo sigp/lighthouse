@@ -639,6 +639,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
     /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
     /// proves resource constraining, we should switch to multiaddr dialling here.
+    #[allow(clippy::mutable_key_type)]
     fn peers_discovered(&mut self, results: HashMap<PeerId, Option<Instant>>) {
         let mut to_dial_peers = Vec::new();
 
