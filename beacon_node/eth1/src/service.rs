@@ -189,7 +189,7 @@ impl Service {
         }
     }
 
-    /// Returns the follow distance that has been shorted to accommodate for differences in the
+    /// Returns the follow distance that has been shortened to accommodate for differences in the
     /// spacing between blocks.
     ///
     /// ## Notes
