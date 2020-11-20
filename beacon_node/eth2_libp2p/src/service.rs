@@ -273,7 +273,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     endpoint: _,
                     num_established,
                 } => {
-                    debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => format!("{:?}", cause), "connections" => num_established);
+                    trace!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => format!("{:?}", cause), "connections" => num_established);
                 }
                 SwarmEvent::NewListenAddr(multiaddr) => {
                     return Libp2pEvent::NewListenAddr(multiaddr)
@@ -282,7 +282,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     local_addr,
                     send_back_addr,
                 } => {
-                    debug!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
+                    trace!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
                 }
                 SwarmEvent::IncomingConnectionError {
                     local_addr,
