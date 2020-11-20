@@ -272,6 +272,7 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
+    client_config.eth1.set_block_cache_truncation::<E>(spec);
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
