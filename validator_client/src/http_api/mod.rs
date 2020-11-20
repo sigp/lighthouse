@@ -287,9 +287,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         };
                         Ok(api_types::GenericResponse::from(response))
                     } else {
-                        return Err(warp_utils::reject::custom_server_error(
+                        Err(warp_utils::reject::custom_server_error(
                             "Runtime shutdown".into(),
-                        ));
+                        ))
                     }
                 })
             },
@@ -332,9 +332,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))?;
                         Ok(api_types::GenericResponse::from(validators))
                     } else {
-                        return Err(warp_utils::reject::custom_server_error(
+                        Err(warp_utils::reject::custom_server_error(
                             "Runtime shutdown".into(),
-                        ));
+                        ))
                     }
                 })
             },
@@ -451,9 +451,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     })?;
                                 Ok(())
                             } else {
-                                return Err(warp_utils::reject::custom_server_error(
+                                Err(warp_utils::reject::custom_server_error(
                                     "Runtime shutdown".into(),
-                                ));
+                                ))
                             }
                         }
                     }

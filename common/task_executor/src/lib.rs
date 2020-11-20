@@ -216,7 +216,7 @@ impl TaskExecutor {
         if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
             if let Some(int_gauge) = metrics::get_int_gauge(&metrics::BLOCKING_TASKS_COUNT, &[name])
             {
-                let int_gauge_1 = int_gauge.clone();
+                let int_gauge_1 = int_gauge;
                 let timer = metric.start_timer();
                 let join_handle = if let Some(runtime) = self.runtime.upgrade() {
                     runtime.spawn_blocking(task)

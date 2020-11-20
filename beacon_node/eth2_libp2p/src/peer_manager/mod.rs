@@ -27,6 +27,7 @@ pub use libp2p::core::{identity::Keypair, Multiaddr};
 pub mod client;
 mod peer_info;
 mod peer_sync_status;
+#[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 mod peerdb;
 pub(crate) mod score;
 

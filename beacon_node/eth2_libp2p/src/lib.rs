@@ -7,6 +7,8 @@ extern crate lazy_static;
 
 pub mod behaviour;
 mod config;
+
+#[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod discovery;
 mod metrics;
 mod peer_manager;
