@@ -6070,6 +6070,7 @@ dependencies = [
  "parking_lot 0.11.1",
  "rayon",
  "tokio 0.3.4",
+ "tokio-compat-02",
  "types",
  "validator_client",
 ]

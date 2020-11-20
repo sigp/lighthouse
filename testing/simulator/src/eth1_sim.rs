@@ -194,6 +194,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    env.runtime().block_on(main_future).unwrap();
+    env.runtime()
+        .block_on(tokio_compat_02::FutureExt::compat(main_future))
+        .unwrap();
     Ok(())
 }
