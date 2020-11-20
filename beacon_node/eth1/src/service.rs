@@ -35,10 +35,7 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
 
 /// A factor used to reduce the eth1 follow distance to account for discrepancies in the block time.
-const ETH1_FOLLOW_DISTANCE_TOLERANCE_FACTOR: u64 = 4;
-
-/// Block cache tolerance factor.
-const BLOCK_CACHE_TOLERANCE_FACTOR: u64 = 2;
+const ETH1_BLOCK_TIME_TOLERANCE_FACTOR: u64 = 4;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -122,14 +119,24 @@ pub struct Config {
 impl Config {
     /// Sets the block cache to a length that is suitable for the given `EthSpec` and `ChainSpec`.
     pub fn set_block_cache_truncation<E: EthSpec>(&mut self, spec: &ChainSpec) {
+        // Compute the number of eth1 blocks in an eth1 voting period.
         let seconds_per_voting_period =
             E::SlotsPerEth1VotingPeriod::to_u64() * (spec.milliseconds_per_slot / 1000);
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
-        let tolerance_blocks = eth1_blocks_per_voting_period
-            + (eth1_blocks_per_voting_period / ETH1_FOLLOW_DISTANCE_TOLERANCE_FACTOR);
-        let minimum_length = eth1_blocks_per_voting_period + tolerance_blocks;
 
-        let length = minimum_length + (minimum_length / BLOCK_CACHE_TOLERANCE_FACTOR);
+        // Compute the number extra blocks we store prior to the voting period start blocks.
+        let follow_distance_tolerance_blocks =
+            spec.eth1_follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;
+
+        // Ensure we can store two full windows of voting blocks, plus the extra ones used to pad
+        // the follow distance.
+        let voting_windows = eth1_blocks_per_voting_period * 2;
+
+        // Extend the cache to account for varying eth1 block times and the follow distance
+        // tolerance blocks.
+        let length = voting_windows
+            + (voting_windows / ETH1_BLOCK_TIME_TOLERANCE_FACTOR)
+            + follow_distance_tolerance_blocks;
 
         self.block_cache_truncation = Some(length as usize);
     }
@@ -192,7 +199,7 @@ impl Service {
     /// actually `15` on Goerli.
     pub fn reduced_follow_distance(&self) -> u64 {
         let full = self.config().follow_distance;
-        full.saturating_sub(full / ETH1_FOLLOW_DISTANCE_TOLERANCE_FACTOR)
+        full.saturating_sub(full / ETH1_BLOCK_TIME_TOLERANCE_FACTOR)
     }
 
     /// Return byte representation of deposit and block caches.
@@ -918,6 +925,6 @@ mod tests {
                 * (spec.milliseconds_per_slot / 1000);
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
 
-        assert!(len > eth1_blocks_per_voting_period as usize);
+        assert!(len > eth1_blocks_per_voting_period as usize * 2);
     }
 }
