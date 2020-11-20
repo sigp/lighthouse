@@ -7,6 +7,7 @@ use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSeri
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{info, warn, Logger};
 use std::cmp;
+use std::cmp::max;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
@@ -273,6 +274,8 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
+    client_config.eth1.node_far_behind_seconds =
+        max(5, spec.eth1_follow_distance / 2) * spec.seconds_per_eth1_block;
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
 

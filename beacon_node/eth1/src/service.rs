@@ -38,19 +38,20 @@ const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTI
 /// Applies the given function $func_name to all usable endpoints of $endpoints until
 /// one of them returns Ok or if no usable endpoint is left it returns the error of the last usable
 /// endpoint. If no endpoint is usable it returns None. Usability of endpoints is checked lazily
-/// using the EndpointsCache structure.
-macro_rules! with_fallbacks {
-    ( $func_name: ident;$endpoints: expr, $($params: expr),* ) => {
+/// using the EndpointsCache structure. For each endpoint if it returns an error the on_err function
+/// is called.
+macro_rules! with_fallback_and_on_err {
+    ( $func_name: ident;$endpoints: expr, $($params: expr),*; $on_err: ident ) => {
         {
             let mut result = None;
             for endpoint in &$endpoints.endpoints {
                 if $endpoints.is_usable(endpoint).await {
-                    let endpoint = &endpoint.0;
+                    let endpoint_str = &endpoint.0;
                     crate::metrics::inc_counter_vec(
                         &crate::metrics::ENDPOINT_REQUESTS,
-                        &[endpoint]
+                        &[endpoint_str]
                     );
-                    match $func_name(endpoint, $($params,)*).await {
+                    match $func_name(endpoint_str, $($params,)*).await {
                         Ok(t) => {
                             result = Some(Ok(t));
                             break;
@@ -58,8 +59,9 @@ macro_rules! with_fallbacks {
                         Err(t) => {
                             crate::metrics::inc_counter_vec(
                                 &crate::metrics::ENDPOINT_ERRORS,
-                                &[endpoint]
+                                &[endpoint_str]
                             );
+                            $on_err(&t, endpoint, &$endpoints.log).await;
                             result = Some(Err(t));
                         }
                     }
@@ -67,6 +69,36 @@ macro_rules! with_fallbacks {
             }
             result
         }
+    }
+}
+
+async fn on_err_ignore<T>(_: T, _: &(String, TRwLock<Option<bool>>), _: &Logger) {
+    //do nothing
+}
+
+async fn handle_node_far_behind_error(
+    e: &Error,
+    endpoint: &(String, TRwLock<Option<bool>>),
+    log: &Logger,
+) {
+    if let Error::RemoteFarBehind(timestamp) = *e {
+        *endpoint.1.write().await = Some(false);
+        warn!(
+            log,
+            "Eth1 endpoint is far behind. Trying fallbacks ...";
+            "endpoint" => &endpoint.0,
+            "last_seen_block_unix_timestamp" => timestamp
+        )
+    }
+}
+
+/// Applies the given function $func_name to all usable endpoints of $endpoints until
+/// one of them returns Ok or if no usable endpoint is left it returns the error of the last usable
+/// endpoint. If no endpoint is usable it returns None. Usability of endpoints is checked lazily
+/// using the EndpointsCache structure.
+macro_rules! with_fallbacks {
+    ( $func_name: ident;$endpoints: expr, $($params: expr),* ) => {
+        with_fallback_and_on_err!($func_name; $endpoints $(, $params)*; on_err_ignore);
     }
 }
 
@@ -169,6 +201,7 @@ pub enum HeadType {
 async fn get_remote_head_and_new_block_ranges(
     endpoint: &str,
     service: &Service,
+    node_far_behind_seconds: u64,
 ) -> Result<
     (
         Eth1Block,
@@ -178,6 +211,14 @@ async fn get_remote_head_and_new_block_ranges(
     Error,
 > {
     let remote_head_block = download_eth1_block(endpoint, service.inner.clone(), None).await?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(u64::MAX);
+    if remote_head_block.timestamp + node_far_behind_seconds < now {
+        return Err(Error::RemoteFarBehind(remote_head_block.timestamp));
+    }
+
     let handle_remote_not_synced = |e| {
         if let Error::RemoteNotSynced { .. } = e {
             warn!(service.log, "Eth1 node not synced. Trying fallbacks..."; "endpoint" => endpoint);
@@ -243,6 +284,8 @@ pub enum Error {
     NoAvailableEndpoints,
     /// There was an unexpected internal error.
     Internal(String),
+    /// The latest remote block is far behind now. Contains the timestamp of the latest block.
+    RemoteFarBehind(u64),
 }
 
 /// The success message for an Eth1Data cache update.
@@ -279,6 +322,9 @@ pub struct Config {
     ///
     /// Note: this should be less than or equal to the specification's `ETH1_FOLLOW_DISTANCE`.
     pub follow_distance: u64,
+    /// Specifies the seconds when we consider the head of a node far behind.
+    /// This should be less than `ETH1_FOLLOW_DISTANCE * SECONDS_PER_ETH1_BLOCK`.
+    pub node_far_behind_seconds: u64,
     /// Defines the number of blocks that should be retained each time the `BlockCache` calls truncate on
     /// itself.
     pub block_cache_truncation: Option<usize>,
@@ -302,6 +348,7 @@ impl Default for Config {
             deposit_contract_deploy_block: 1,
             lowest_cached_block_number: 1,
             follow_distance: 128,
+            node_far_behind_seconds: 128 * 14,
             block_cache_truncation: Some(4_096),
             auto_update_interval_millis: 7_000,
             blocks_per_log_query: 1_000,
@@ -517,6 +564,7 @@ impl Service {
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
         let endpoints = self.init_endpoints();
+        let node_far_behind_seconds = self.inner.config.read().node_far_behind_seconds;
 
         let process_err = |e| {
             if let Error::NoAvailableEndpoints = e {
@@ -534,10 +582,12 @@ impl Service {
         };
 
         let (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache) =
-            with_fallbacks!(
+            with_fallback_and_on_err!(
                 get_remote_head_and_new_block_ranges;
                 &endpoints,
-                &self
+                &self,
+                node_far_behind_seconds;
+                handle_node_far_behind_error
             )
             .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
             .map_err(|e| format!("Failed to update Eth1 service: {:?}", process_err(e)))?;

@@ -109,6 +109,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.eth1.deposit_contract_deploy_block = 0;
         beacon_config.eth1.lowest_cached_block_number = 0;
         beacon_config.eth1.follow_distance = 1;
+        beacon_config.eth1.node_far_behind_seconds = 20;
         beacon_config.dummy_eth1_backend = false;
         beacon_config.sync_eth1_chain = true;
         beacon_config.eth1.network_id = Eth1Id::from(network_id);
