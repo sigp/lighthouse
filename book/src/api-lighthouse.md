@@ -192,9 +192,7 @@ health of the Eth1 node that the beacon node is connected to.
 number and timestamp of the latest block we have in our block cache.
 	- For correct Eth1 voting this timestamp should be later than the
 `voting_period_start_timestamp`.
-- `voting_period_start_timestamp`: the start of the period where block
-	producers must include votes for blocks in the Eth1 chain. Provided for
-	reference.
+- `voting_target_timestamp`: The latest timestamp allowed for an eth1 block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
 	Eth1 node is from the head of the Eth1 chain.
 	- `100.0` indicates a fully synced Eth1 node.
@@ -222,7 +220,7 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/syncing" -H  "accept: applica
     "head_block_timestamp": 1603249317,
     "latest_cached_block_number": 3610758,
     "latest_cached_block_timestamp": 1603233597,
-    "voting_period_start_timestamp": 1603228632,
+    "voting_target_timestamp": 1603228632,
     "eth1_node_sync_status_percentage": 100,
     "lighthouse_is_cached_and_ready": true
   }
