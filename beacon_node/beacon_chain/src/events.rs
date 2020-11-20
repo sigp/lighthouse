@@ -4,7 +4,7 @@ use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, SendError, Sender};
 use types::EthSpec;
 
-const DEFAULT_CHANNEL_CAPACITY: usize = 10;
+const DEFAULT_CHANNEL_CAPACITY: usize = 16;
 
 pub struct ServerSentEventHandler<T: EthSpec> {
     attestation_tx: Sender<EventKind<T>>,
