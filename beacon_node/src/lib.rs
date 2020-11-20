@@ -11,7 +11,6 @@ pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;
-use beacon_chain::migrate::BackgroundMigrator;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
@@ -25,7 +24,6 @@ use types::EthSpec;
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
     Witness<
-        BackgroundMigrator<E, LevelDB<E>, LevelDB<E>>,
         SystemTimeSlotClock,
         CachingEth1Backend<E>,
         E,
@@ -55,12 +53,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
-        let client_config = get_config::<E>(
-            &matches,
-            &context.eth2_config.spec_constants,
-            &context.eth2_config().spec,
-            context.log().clone(),
-        )?;
+        let client_config =
+            get_config::<E>(&matches, &context.eth2_config().spec, context.log().clone())?;
         Self::new(context, client_config).await
     }
 
@@ -85,8 +79,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
-            .disk_store(&db_path, &freezer_db_path_res?, store_config)?
-            .background_migrator()?;
+            .http_api_config(client_config.http_api.clone())
+            .disk_store(&db_path, &freezer_db_path_res?, store_config)?;
 
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config_1)
@@ -130,7 +124,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .network(&client_config.network)
             .await?
             .notifier()?
-            .http_api_config(client_config.http_api.clone())
             .http_metrics_config(client_config.http_metrics.clone())
             .build()
             .map(Self)

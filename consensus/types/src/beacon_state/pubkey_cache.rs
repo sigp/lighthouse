@@ -23,11 +23,13 @@ impl PubkeyCache {
     ///
     /// The added index must equal the number of validators already added to the map. This ensures
     /// that an index is never skipped.
-    #[allow(clippy::integer_arithmetic)]
     pub fn insert(&mut self, pubkey: PublicKeyBytes, index: ValidatorIndex) -> bool {
         if index == self.len {
             self.map.insert(pubkey, index);
-            self.len += 1;
+            self.len = self
+                .len
+                .checked_add(1)
+                .expect("map length cannot exceed usize");
             true
         } else {
             false

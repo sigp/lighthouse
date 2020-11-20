@@ -329,6 +329,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .map_err(|e| format!("Failed to produce attestation data: {:?}", e))?
             .data;
 
+        let mut attestations = Vec::with_capacity(validator_duties.len());
+
         for duty in validator_duties {
             // Ensure that all required fields are present in the validator duty.
             let (
@@ -370,37 +372,50 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 signature: AggregateSignature::infinity(),
             };
 
-            self.validator_store
+            if self
+                .validator_store
                 .sign_attestation(
                     duty.validator_pubkey(),
                     validator_committee_position,
                     &mut attestation,
                     current_epoch,
                 )
-                .ok_or_else(|| "Failed to sign attestation".to_string())?;
-
-            match self
-                .beacon_node
-                .post_beacon_pool_attestations(&attestation)
-                .await
+                .is_some()
             {
-                Ok(()) => info!(
+                attestations.push(attestation);
+            } else {
+                crit!(
                     log,
-                    "Successfully published attestation";
-                    "head_block" => format!("{:?}", attestation.data.beacon_block_root),
-                    "committee_index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
-                    "type" => "unaggregated",
-                ),
-                Err(e) => error!(
-                    log,
-                    "Unable to publish attestation";
-                    "error" => e.to_string(),
-                    "committee_index" => attestation.data.index,
+                    "Failed to sign attestation";
+                    "committee_index" => committee_index,
                     "slot" => slot.as_u64(),
-                    "type" => "unaggregated",
-                ),
+                );
+                continue;
             }
+        }
+
+        match self
+            .beacon_node
+            .post_beacon_pool_attestations(attestations.as_slice())
+            .await
+        {
+            Ok(()) => info!(
+                log,
+                "Successfully published attestations";
+                "count" => attestations.len(),
+                "head_block" => ?attestation_data.beacon_block_root,
+                "committee_index" => attestation_data.index,
+                "slot" => attestation_data.slot.as_u64(),
+                "type" => "unaggregated",
+            ),
+            Err(e) => error!(
+                log,
+                "Unable to publish attestations";
+                "error" => ?e,
+                "committee_index" => attestation_data.index,
+                "slot" => slot.as_u64(),
+                "type" => "unaggregated",
+            ),
         }
 
         Ok(Some(attestation_data))
@@ -437,6 +452,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))?
             .data;
 
+        let mut signed_aggregate_and_proofs = Vec::new();
+
         for duty_and_proof in validator_duties {
             let selection_proof = if let Some(proof) = duty_and_proof.selection_proof.as_ref() {
                 proof
@@ -462,44 +479,53 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 continue;
             }
 
-            let signed_aggregate_and_proof = if let Some(aggregate) =
-                self.validator_store.produce_signed_aggregate_and_proof(
-                    pubkey,
-                    validator_index,
-                    aggregated_attestation.clone(),
-                    selection_proof.clone(),
-                ) {
-                aggregate
+            if let Some(aggregate) = self.validator_store.produce_signed_aggregate_and_proof(
+                pubkey,
+                validator_index,
+                aggregated_attestation.clone(),
+                selection_proof.clone(),
+            ) {
+                signed_aggregate_and_proofs.push(aggregate);
             } else {
                 crit!(log, "Failed to sign attestation");
                 continue;
             };
+        }
 
-            let attestation = &signed_aggregate_and_proof.message.aggregate;
-
+        if !signed_aggregate_and_proofs.is_empty() {
             match self
                 .beacon_node
-                .post_validator_aggregate_and_proof(&signed_aggregate_and_proof)
+                .post_validator_aggregate_and_proof(signed_aggregate_and_proofs.as_slice())
                 .await
             {
-                Ok(()) => info!(
-                    log,
-                    "Successfully published attestation";
-                    "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                    "signatures" => attestation.aggregation_bits.num_set_bits(),
-                    "head_block" => format!("{:?}", attestation.data.beacon_block_root),
-                    "committee_index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
-                    "type" => "aggregated",
-                ),
-                Err(e) => crit!(
-                    log,
-                    "Failed to publish attestation";
-                    "error" => e.to_string(),
-                    "committee_index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
-                    "type" => "aggregated",
-                ),
+                Ok(()) => {
+                    for signed_aggregate_and_proof in signed_aggregate_and_proofs {
+                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        info!(
+                            log,
+                            "Successfully published attestations";
+                            "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
+                            "signatures" => attestation.aggregation_bits.num_set_bits(),
+                            "head_block" => format!("{:?}", attestation.data.beacon_block_root),
+                            "committee_index" => attestation.data.index,
+                            "slot" => attestation.data.slot.as_u64(),
+                            "type" => "aggregated",
+                        );
+                    }
+                }
+                Err(e) => {
+                    for signed_aggregate_and_proof in signed_aggregate_and_proofs {
+                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        crit!(
+                            log,
+                            "Failed to publish attestation";
+                            "error" => e.to_string(),
+                            "committee_index" => attestation.data.index,
+                            "slot" => attestation.data.slot.as_u64(),
+                            "type" => "aggregated",
+                        );
+                    }
+                }
             }
         }
 

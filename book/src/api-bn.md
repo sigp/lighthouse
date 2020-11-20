@@ -52,7 +52,7 @@ application/json"
     "canonical": true,
     "header": {
       "message": {
-        "slot": 3199,
+        "slot": "3199",
         "proposer_index": "19077",
         "parent_root": "0xf1934973041c5896d0d608e52847c3cd9a5f809c59c64e76f6020e3d7cd0c7cd",
         "state_root": "0xe8e468f9f5961655dde91968f66480868dab8d4147de9498111df2b7e4e6fe60",
@@ -81,12 +81,12 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "
     "validator": {
       "pubkey": "0x873e73ee8b3e4fcf1d2fb0f1036ba996ac9910b5b348f6438b5f8ef50857d4da9075d0218a9d1b99a9eae235a39703e1",
       "withdrawal_credentials": "0x00b8cdcf79ba7e74300a07e9d8f8121dd0d8dd11dcfd6d3f2807c45b426ac968",
-      "effective_balance": 32000000000,
+      "effective_balance": "32000000000",
       "slashed": false,
-      "activation_eligibility_epoch": 0,
-      "activation_epoch": 0,
-      "exit_epoch": 18446744073709552000,
-      "withdrawable_epoch": 18446744073709552000
+      "activation_eligibility_epoch": "0",
+      "activation_epoch": "0",
+      "exit_epoch": "18446744073709551615",
+      "withdrawable_epoch": "18446744073709551615"
     }
   }
 }

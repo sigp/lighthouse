@@ -1,20 +1,23 @@
 use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
-use crate::config::StoreConfig;
+use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
+use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, SPLIT_KEY,
+    CompactionTimestamp, PruningCheckpoint, SchemaVersion, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
+    CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
 use crate::{
     get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
     StoreOp,
 };
+use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use slog::{debug, error, info, trace, warn, Logger};
@@ -28,6 +31,7 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use types::*;
 
 /// Defines how blocks should be replayed on states.
@@ -46,8 +50,6 @@ pub enum BlockReplay {
 /// intermittent "restore point" states pre-finalization.
 #[derive(Debug)]
 pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    /// The schema version. Loaded from disk on initialization.
-    schema_version: SchemaVersion,
     /// The slot and state root at the point where the database is split between hot and cold.
     ///
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
@@ -55,11 +57,11 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     split: RwLock<Split>,
     config: StoreConfig,
     /// Cold database containing compact historical data.
-    pub(crate) cold_db: Cold,
+    pub cold_db: Cold,
     /// Hot database containing duplicated but quick-to-access recent data.
     ///
     /// The hot database also contains all blocks.
-    pub(crate) hot_db: Hot,
+    pub hot_db: Hot,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -73,8 +75,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
 #[derive(Debug, PartialEq)]
 pub enum HotColdDBError {
     UnsupportedSchemaVersion {
-        software_version: SchemaVersion,
-        disk_version: SchemaVersion,
+        target_version: SchemaVersion,
+        current_version: SchemaVersion,
     },
     /// Recoverable error indicating that the database freeze point couldn't be updated
     /// due to the finalized block not lying on an epoch boundary (should be infrequent).
@@ -101,6 +103,9 @@ pub enum HotColdDBError {
         slots_per_epoch: u64,
     },
     RestorePointBlockHashError(BeaconStateError),
+    IterationError {
+        unexpected_key: BytesKey,
+    },
 }
 
 impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
@@ -112,7 +117,6 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
-            schema_version: CURRENT_SCHEMA_VERSION,
             split: RwLock::new(Split::default()),
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
@@ -141,7 +145,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
-            schema_version: CURRENT_SCHEMA_VERSION,
             split: RwLock::new(Split::default()),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
@@ -153,15 +156,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         };
 
         // Ensure that the schema version of the on-disk database matches the software.
-        // In the future, this would be the spot to hook in auto-migration, etc.
+        // If the version is mismatched, an automatic migration will be attempted.
         if let Some(schema_version) = db.load_schema_version()? {
-            if schema_version != CURRENT_SCHEMA_VERSION {
-                return Err(HotColdDBError::UnsupportedSchemaVersion {
-                    software_version: CURRENT_SCHEMA_VERSION,
-                    disk_version: schema_version,
-                }
-                .into());
-            }
+            debug!(
+                db.log,
+                "Attempting schema migration";
+                "from_version" => schema_version.as_u64(),
+                "to_version" => CURRENT_SCHEMA_VERSION.as_u64(),
+            );
+            db.migrate_schema(schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
             db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
         }
@@ -178,13 +181,47 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             info!(
                 db.log,
                 "Hot-Cold DB initialized";
-                "version" => db.schema_version.0,
+                "version" => CURRENT_SCHEMA_VERSION.as_u64(),
                 "split_slot" => split.slot,
                 "split_state" => format!("{:?}", split.state_root)
             );
             *db.split.write() = split;
         }
+
+        // Run a garbage collection pass.
+        db.remove_garbage()?;
+
+        // If configured, run a foreground compaction pass.
+        if db.config.compact_on_init {
+            info!(db.log, "Running foreground compaction");
+            db.compact()?;
+            info!(db.log, "Foreground compaction complete");
+        }
+
         Ok(db)
+    }
+
+    /// Return an iterator over the state roots of all temporary states.
+    pub fn iter_temporary_state_roots<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = Result<Hash256, Error>> + 'a {
+        let column = DBColumn::BeaconStateTemporary;
+        let start_key =
+            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+
+        let keys_iter = self.hot_db.keys_iter();
+        keys_iter.seek(&start_key);
+
+        keys_iter
+            .take_while(move |key| key.matches_column(column))
+            .map(move |bytes_key| {
+                bytes_key.remove_column(column).ok_or_else(|| {
+                    HotColdDBError::IterationError {
+                        unexpected_key: bytes_key,
+                    }
+                    .into()
+                })
+            })
     }
 }
 
@@ -386,66 +423,76 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.exists::<I>(key)
     }
 
-    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
-        let mut guard = self.block_cache.lock();
-
-        let mut key_value_batch: Vec<KeyValueStoreOp> = Vec::with_capacity(batch.len());
-        for op in &batch {
+    /// Convert a batch of `StoreOp` to a batch of `KeyValueStoreOp`.
+    pub fn convert_to_kv_batch(&self, batch: &[StoreOp<E>]) -> Result<Vec<KeyValueStoreOp>, Error> {
+        let mut key_value_batch = Vec::with_capacity(batch.len());
+        for op in batch {
             match op {
-                StoreOp::PutBlock(block_hash, block) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    key_value_batch.push(block.as_kv_store_op(untyped_hash));
+                StoreOp::PutBlock(block_root, block) => {
+                    key_value_batch.push(block.as_kv_store_op(*block_root));
                 }
 
-                StoreOp::PutState(state_hash, state) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    self.store_hot_state(&untyped_hash, state, &mut key_value_batch)?;
+                StoreOp::PutState(state_root, state) => {
+                    self.store_hot_state(state_root, state, &mut key_value_batch)?;
                 }
 
-                StoreOp::PutStateSummary(state_hash, summary) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    key_value_batch.push(summary.as_kv_store_op(untyped_hash));
+                StoreOp::PutStateSummary(state_root, summary) => {
+                    key_value_batch.push(summary.as_kv_store_op(*state_root));
                 }
 
-                StoreOp::DeleteBlock(block_hash) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    let key =
-                        get_key_for_col(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes());
+                StoreOp::PutStateTemporaryFlag(state_root) => {
+                    key_value_batch.push(TemporaryFlag.as_kv_store_op(*state_root));
+                }
+
+                StoreOp::DeleteStateTemporaryFlag(state_root) => {
+                    let db_key =
+                        get_key_for_col(TemporaryFlag::db_column().into(), state_root.as_bytes());
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(db_key));
+                }
+
+                StoreOp::DeleteBlock(block_root) => {
+                    let key = get_key_for_col(DBColumn::BeaconBlock.into(), block_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
 
-                StoreOp::DeleteState(state_hash, slot) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    let state_summary_key = get_key_for_col(
-                        DBColumn::BeaconStateSummary.into(),
-                        untyped_hash.as_bytes(),
-                    );
+                StoreOp::DeleteState(state_root, slot) => {
+                    let state_summary_key =
+                        get_key_for_col(DBColumn::BeaconStateSummary.into(), state_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(state_summary_key));
 
-                    if *slot % E::slots_per_epoch() == 0 {
+                    if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
                         let state_key =
-                            get_key_for_col(DBColumn::BeaconState.into(), untyped_hash.as_bytes());
+                            get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(state_key));
                     }
                 }
             }
         }
-        self.hot_db.do_atomically(key_value_batch)?;
+        Ok(key_value_batch)
+    }
+
+    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
+        let mut guard = self.block_cache.lock();
+
+        self.hot_db
+            .do_atomically(self.convert_to_kv_batch(&batch)?)?;
 
         for op in &batch {
             match op {
-                StoreOp::PutBlock(block_hash, block) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    guard.put(untyped_hash, block.clone());
+                StoreOp::PutBlock(block_root, block) => {
+                    guard.put(*block_root, (**block).clone());
                 }
 
                 StoreOp::PutState(_, _) => (),
 
                 StoreOp::PutStateSummary(_, _) => (),
 
-                StoreOp::DeleteBlock(block_hash) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    guard.pop(&untyped_hash);
+                StoreOp::PutStateTemporaryFlag(_) => (),
+
+                StoreOp::DeleteStateTemporaryFlag(_) => (),
+
+                StoreOp::DeleteBlock(block_root) => {
+                    guard.pop(block_root);
                 }
 
                 StoreOp::DeleteState(_, _) => (),
@@ -493,6 +540,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_replay: BlockReplay,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
+
+        // If the state is marked as temporary, do not return it. It will become visible
+        // only once its transaction commits and deletes its temporary flag.
+        if self.load_state_temporary_flag(state_root)?.is_some() {
+            return Ok(None);
+        }
 
         if let Some(HotStateSummary {
             slot,
@@ -779,18 +832,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Store the database schema version.
-    fn store_schema_version(&self, schema_version: SchemaVersion) -> Result<(), Error> {
+    pub(crate) fn store_schema_version(&self, schema_version: SchemaVersion) -> Result<(), Error> {
         self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
     }
 
     /// Load previously-stored config from disk.
-    fn load_config(&self) -> Result<Option<StoreConfig>, Error> {
+    fn load_config(&self) -> Result<Option<OnDiskStoreConfig>, Error> {
         self.hot_db.get(&CONFIG_KEY)
     }
 
     /// Write the config to disk.
     fn store_config(&self) -> Result<(), Error> {
-        self.hot_db.put(&CONFIG_KEY, &self.config)
+        self.hot_db.put(&CONFIG_KEY, &self.config.as_disk_config())
     }
 
     /// Load the split point from disk.
@@ -840,6 +893,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.get(state_root)
     }
 
+    /// Load the temporary flag for a state root, if one exists.
+    ///
+    /// Returns `Some` if the state is temporary, or `None` if the state is permanent or does not
+    /// exist -- you should call `load_hot_state_summary` to find out which.
+    pub fn load_state_temporary_flag(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<Option<TemporaryFlag>, Error> {
+        self.hot_db.get(state_root)
+    }
+
     /// Check that the restore point frequency is valid.
     ///
     /// Specifically, check that it is:
@@ -868,6 +932,46 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 slots_per_epoch,
             })
         }
+    }
+
+    /// Run a compaction pass to free up space used by deleted states.
+    pub fn compact(&self) -> Result<(), Error> {
+        self.hot_db.compact()?;
+        Ok(())
+    }
+
+    /// Return `true` if compaction on finalization/pruning is enabled.
+    pub fn compact_on_prune(&self) -> bool {
+        self.config.compact_on_prune
+    }
+
+    /// Load the checkpoint to begin pruning from (the "old finalized checkpoint").
+    pub fn load_pruning_checkpoint(&self) -> Result<Option<Checkpoint>, Error> {
+        Ok(self
+            .hot_db
+            .get(&PRUNING_CHECKPOINT_KEY)?
+            .map(|pc: PruningCheckpoint| pc.checkpoint))
+    }
+
+    /// Create a staged store for the pruning checkpoint.
+    pub fn pruning_checkpoint_store_op(&self, checkpoint: Checkpoint) -> KeyValueStoreOp {
+        PruningCheckpoint { checkpoint }.as_kv_store_op(PRUNING_CHECKPOINT_KEY)
+    }
+
+    /// Load the timestamp of the last compaction as a `Duration` since the UNIX epoch.
+    pub fn load_compaction_timestamp(&self) -> Result<Option<Duration>, Error> {
+        Ok(self
+            .hot_db
+            .get(&COMPACTION_TIMESTAMP_KEY)?
+            .map(|c: CompactionTimestamp| Duration::from_secs(c.0)))
+    }
+
+    /// Store the timestamp of the last compaction as a `Duration` since the UNIX epoch.
+    pub fn store_compaction_timestamp(&self, compaction_timestamp: Duration) -> Result<(), Error> {
+        self.hot_db.put(
+            &COMPACTION_TIMESTAMP_KEY,
+            &CompactionTimestamp(compaction_timestamp.as_secs()),
+        )
     }
 }
 
@@ -931,7 +1035,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         store.cold_db.do_atomically(cold_db_ops)?;
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
-        hot_db_ops.push(StoreOp::DeleteState(state_root.into(), slot));
+        hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
@@ -1099,5 +1203,22 @@ impl StoreItem for RestorePointHash {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TemporaryFlag;
+
+impl StoreItem for TemporaryFlag {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconStateTemporary
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        vec![]
+    }
+
+    fn from_store_bytes(_: &[u8]) -> Result<Self, Error> {
+        Ok(TemporaryFlag)
     }
 }

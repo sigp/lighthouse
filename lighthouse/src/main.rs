@@ -7,7 +7,7 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use types::EthSpec;
+use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -15,6 +15,8 @@ pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
         "blst-portable"
+    } else if cfg!(feature = "modern") {
+        "blst-modern"
     } else if cfg!(feature = "milagro") {
         "milagro"
     } else {
@@ -43,12 +45,11 @@ fn main() {
             Arg::with_name("spec")
                 .short("s")
                 .long("spec")
-                .value_name("TITLE")
-                .help("Specifies the default eth2 spec type.")
+                .value_name("DEPRECATED")
+                .help("This flag is deprecated, it will be disallowed in a future release. This \
+                    value is now derived from the --testnet or --testnet-dir flags.")
                 .takes_value(true)
-                .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
-                .default_value("mainnet"),
         )
         .arg(
             Arg::with_name("env_log")
@@ -91,9 +92,9 @@ fn main() {
                 .value_name("DIR")
                 .global(true)
                 .help(
-                    "Root data directory for lighthouse keys and databases. \
-                    Defaults to $HOME/.lighthouse/{default-network}, \
-                    currently, $HOME/.lighthouse/medalla")
+                    "Used to specify a custom root data directory for lighthouse keys and databases. \
+                    Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
+                    Note: Users should specify separate custom datadirs for different networks.")
                 .takes_value(true),
         )
         .arg(
@@ -114,7 +115,7 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of network lighthouse will connect to")
-                .possible_values(&["medalla", "altona", "spadina", "zinken"])
+                .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -124,39 +125,38 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
+        .subcommand(remote_signer::cli_app())
         .get_matches();
-
-    // boot node subcommand circumvents the environment
-    if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
-        // The bootnode uses the main debug-level flag
-        let debug_info = matches
-            .value_of("debug-level")
-            .expect("Debug-level must be present")
-            .into();
-        boot_node::run(bootnode_matches, debug_info);
-        return;
-    }
 
     // Debugging output for libp2p and external crates.
     if matches.is_present("env_log") {
         Builder::from_env(Env::default()).init();
     }
 
-    macro_rules! run_with_spec {
-        ($env_builder: expr) => {
-            run($env_builder, &matches)
-        };
-    }
+    let result = load_testnet_config(&matches).and_then(|testnet_config| {
+        let eth_spec_id = testnet_config.eth_spec_id()?;
 
-    let result = match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
-        spec => {
-            // This path should be unreachable due to slog having a `default_value`
-            unreachable!("Unknown spec configuration: {:?}", spec);
+        // boot node subcommand circumvents the environment
+        if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
+            // The bootnode uses the main debug-level flag
+            let debug_info = matches
+                .value_of("debug-level")
+                .expect("Debug-level must be present")
+                .into();
+
+            boot_node::run(bootnode_matches, eth_spec_id, debug_info);
+
+            return Ok(());
         }
-    };
+
+        match eth_spec_id {
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
+            EthSpecId::V012Legacy => {
+                run(EnvironmentBuilder::v012_legacy(), &matches, testnet_config)
+            }
+        }
+    });
 
     // `std::process::exit` does not run destructors so we drop manually.
     drop(matches);
@@ -172,9 +172,23 @@ fn main() {
     }
 }
 
+fn load_testnet_config(matches: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
+    if matches.is_present("testnet-dir") {
+        clap_utils::parse_testnet_dir(matches, "testnet-dir")?
+            .ok_or_else(|| "Unable to load testnet dir".to_string())
+    } else if matches.is_present("testnet") {
+        clap_utils::parse_hardcoded_network(matches, "testnet")?
+            .ok_or_else(|| "Unable to load hard coded network config".to_string())
+    } else {
+        Eth2TestnetConfig::hard_coded_default()?
+            .ok_or_else(|| "Unable to load default network config".to_string())
+    }
+}
+
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
+    testnet_config: Eth2TestnetConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -189,19 +203,6 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
-    // else, use the default
-    let mut optional_testnet_config = None;
-    if matches.is_present("network") {
-        optional_testnet_config = clap_utils::parse_hardcoded_network(matches, "network")?;
-    };
-    if matches.is_present("testnet-dir") {
-        optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
-    };
-    if optional_testnet_config.is_none() {
-        optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
-    }
-
     let builder = if let Some(log_path) = matches.value_of("logfile") {
         let path = log_path
             .parse::<PathBuf>()
@@ -213,10 +214,26 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_testnet_config(optional_testnet_config)?
+        .optional_eth2_testnet_config(Some(testnet_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
+
+    if matches.is_present("spec") {
+        warn!(
+            log,
+            "The --spec flag is deprecated and will be removed in a future release"
+        );
+    }
+
+    #[cfg(all(feature = "modern", target_arch = "x86_64"))]
+    if !std::is_x86_feature_detected!("adx") {
+        warn!(
+            log,
+            "CPU seems incompatible with optimized Lighthouse build";
+            "advice" => "If you get a SIGILL, please try Lighthouse portable build"
+        );
+    }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.
@@ -248,14 +265,21 @@ fn run<E: EthSpec>(
 
     warn!(
         log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
+        "Ethereum 2.0 is pre-release. This software is experimental"
     );
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
         log,
         "Configured for testnet";
-        "name" => testnet_name
+        "name" => &testnet_name
     );
+
+    if testnet_name == "mainnet" {
+        warn!(
+            log,
+            "The mainnet specification is being used. This not recommended (yet)."
+        )
+    }
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
@@ -264,7 +288,6 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(
                 matches,
-                &context.eth2_config.spec_constants,
                 &context.eth2_config().spec,
                 context.log().clone(),
             )?;
@@ -277,7 +300,7 @@ fn run<E: EthSpec>(
                         .shutdown_sender()
                         .try_send("Failed to start beacon node");
                 }
-            })
+            });
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
@@ -301,7 +324,17 @@ fn run<E: EthSpec>(
                         .shutdown_sender()
                         .try_send("Failed to start validator client");
                 }
-            })
+            });
+        }
+        ("remote_signer", Some(matches)) => {
+            if let Err(e) = remote_signer::run(&mut environment, matches) {
+                crit!(log, "Failed to start remote signer"; "reason" => e);
+                let _ = environment
+                    .core_context()
+                    .executor
+                    .shutdown_sender()
+                    .try_send("Failed to start remote signer");
+            }
         }
         _ => {
             crit!(log, "No subcommand supplied. See --help .");

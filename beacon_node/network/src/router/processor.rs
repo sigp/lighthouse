@@ -2,26 +2,20 @@ use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::service::NetworkMessage;
-use crate::sync::{PeerSyncInfo, SyncMessage};
+use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{
     MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
 };
-use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
-use slot_clock::SlotClock;
 use std::cmp;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, ChainSpec, Epoch, EthSpec, Hash256, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
+    Attestation, AttesterSlashing, ChainSpec, EthSpec, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
-
-/// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
-/// Otherwise we queue it.
-pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -78,7 +72,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
             beacon_processor_send,
-            log: log.clone(),
+            log: log.new(o!("service" => "router")),
         }
     }
 
@@ -113,17 +107,8 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Called when we first connect to a peer, or when the PeerManager determines we need to
     /// re-status.
     pub fn send_status(&mut self, peer_id: PeerId) {
-        if let Some(status_message) = status_message(&self.chain) {
-            debug!(
-                self.log,
-                "Sending Status Request";
-                "peer" => peer_id.to_string(),
-                "fork_digest" => format!("{:?}", status_message.fork_digest),
-                "finalized_root" => format!("{:?}", status_message.finalized_root),
-                "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
-                "head_root" => format!("{}", status_message.head_root),
-                "head_slot" => format!("{}", status_message.head_slot),
-            );
+        if let Ok(status_message) = status_message(&self.chain) {
+            debug!(self.log, "Sending Status Request"; "peer" => %peer_id, &status_message);
             self.network
                 .send_processor_request(peer_id, Request::Status(status_message));
         }
@@ -138,19 +123,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: PeerRequestId,
         status: StatusMessage,
     ) {
-        debug!(
-            self.log,
-            "Received Status Request";
-            "peer" => peer_id.to_string(),
-            "fork_digest" => format!("{:?}", status.fork_digest),
-            "finalized_root" => format!("{:?}", status.finalized_root),
-            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
-            "head_root" => format!("{}", status.head_root),
-            "head_slot" => format!("{}", status.head_slot),
-        );
+        debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status);
 
         // ignore status responses if we are shutting down
-        if let Some(status_message) = status_message(&self.chain) {
+        if let Ok(status_message) = status_message(&self.chain) {
             // Say status back.
             self.network.send_response(
                 peer_id.clone(),
@@ -159,154 +135,13 @@ impl<T: BeaconChainTypes> Processor<T> {
             );
         }
 
-        if let Err(e) = self.process_status(peer_id, status) {
-            error!(self.log, "Could not process status message"; "error" => format!("{:?}", e));
-        }
+        self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))
     }
 
     /// Process a `Status` response from a peer.
     pub fn on_status_response(&mut self, peer_id: PeerId, status: StatusMessage) {
-        debug!(
-            self.log,
-            "Received Status Response";
-            "peer_id" => peer_id.to_string(),
-            "fork_digest" => format!("{:?}", status.fork_digest),
-            "finalized_root" => format!("{:?}", status.finalized_root),
-            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
-            "head_root" => format!("{}", status.head_root),
-            "head_slot" => format!("{}", status.head_slot),
-        );
-
-        // Process the status message, without sending back another status.
-        if let Err(e) = self.process_status(peer_id, status) {
-            error!(self.log, "Could not process status message"; "error" => format!("{:?}", e));
-        }
-    }
-
-    /// Process a `Status` message, requesting new blocks if appropriate.
-    ///
-    /// Disconnects the peer if required.
-    fn process_status(
-        &mut self,
-        peer_id: PeerId,
-        status: StatusMessage,
-    ) -> Result<(), BeaconChainError> {
-        let remote = PeerSyncInfo::from(status);
-        let local = match PeerSyncInfo::from_chain(&self.chain) {
-            Some(local) => local,
-            None => {
-                error!(
-                    self.log,
-                    "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention"
-                );
-                return Err(BeaconChainError::CannotAttestToFutureState);
-            }
-        };
-
-        let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
-
-        if local.fork_digest != remote.fork_digest {
-            // The node is on a different network/fork, disconnect them.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer_id" => peer_id.to_string(),
-                "reason" => "incompatible forks",
-                "our_fork" => hex::encode(local.fork_digest),
-                "their_fork" => hex::encode(remote.fork_digest)
-            );
-
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.head_slot
-            > self
-                .chain
-                .slot()
-                .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
-                + FUTURE_SLOT_TOLERANCE
-        {
-            // Note: If the slot_clock cannot be read, this will not error. Other system
-            // components will deal with an invalid slot clock error.
-
-            // The remotes head is on a slot that is significantly ahead of ours. This could be
-            // because they are using a different genesis time, or that theirs or our system
-            // clock is incorrect.
-            debug!(
-            self.log, "Handshake Failure";
-            "peer" => peer_id.to_string(),
-            "reason" => "different system clocks or genesis time"
-            );
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.finalized_epoch <= local.finalized_epoch
-            && remote.finalized_root != Hash256::zero()
-            && local.finalized_root != Hash256::zero()
-            && self
-                .chain
-                .root_at_slot(start_slot(remote.finalized_epoch))
-                .map(|root_opt| root_opt != Some(remote.finalized_root))?
-        {
-            // The remotes finalized epoch is less than or greater than ours, but the block root is
-            // different to the one in our chain.
-            //
-            // Therefore, the node is on a different chain and we should not communicate with them.
-            debug!(
-                self.log, "Handshake Failure";
-                "peer" => peer_id.to_string(),
-                "reason" => "different finalized chain"
-            );
-            self.network
-                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
-        } else if remote.finalized_epoch < local.finalized_epoch {
-            // The node has a lower finalized epoch, their chain is not useful to us. There are two
-            // cases where a node can have a lower finalized epoch:
-            //
-            // ## The node is on the same chain
-            //
-            // If a node is on the same chain but has a lower finalized epoch, their head must be
-            // lower than ours. Therefore, we have nothing to request from them.
-            //
-            // ## The node is on a fork
-            //
-            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
-            // cause us to revert a finalized block. This is not permitted, therefore we have no
-            // interest in their blocks.
-            debug!(
-                self.log,
-                "NaivePeer";
-                "peer" => peer_id.to_string(),
-                "reason" => "lower finalized epoch"
-            );
-        } else if self
-            .chain
-            .store
-            .item_exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)?
-        {
-            debug!(
-                self.log, "Peer with known chain found";
-                "peer" => peer_id.to_string(),
-                "remote_head_slot" => remote.head_slot,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
-
-            // If the node's best-block is already known to us and they are close to our current
-            // head, treat them as a fully sync'd peer.
-            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
-        } else {
-            // The remote node has an equal or great finalized epoch and we don't know it's head.
-            //
-            // Therefore, there are some blocks between the local finalized epoch and the remote
-            // head that are worth downloading.
-            debug!(
-                self.log, "UsefulPeer";
-                "peer" => peer_id.to_string(),
-                "local_finalized_epoch" => local.finalized_epoch,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
-            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
-        }
-
-        Ok(())
+        debug!(self.log, "Received Status Response"; "peer_id" => %peer_id, &status);
+        self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
@@ -316,35 +151,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     ) {
-        let mut send_block_count = 0;
-        for root in request.block_roots.iter() {
-            if let Ok(Some(block)) = self.chain.store.get_block(root) {
-                self.network.send_response(
-                    peer_id.clone(),
-                    Response::BlocksByRoot(Some(Box::new(block))),
-                    request_id,
-                );
-                send_block_count += 1;
-            } else {
-                debug!(
-                    self.log,
-                    "Peer requested unknown block";
-                    "peer" => peer_id.to_string(),
-                    "request_root" => format!("{:}", root),
-                );
-            }
-        }
-        debug!(
-            self.log,
-            "Received BlocksByRoot Request";
-            "peer" => peer_id.to_string(),
-            "requested" => request.block_roots.len(),
-            "returned" => send_block_count,
-        );
-
-        // send stream termination
-        self.network
-            .send_response(peer_id, Response::BlocksByRoot(None), request_id);
+        self.send_beacon_processor_work(BeaconWorkEvent::blocks_by_roots_request(
+            peer_id, request_id, request,
+        ))
     }
 
     /// Handle a `BlocksByRange` request from the peer.
@@ -352,135 +161,11 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        mut req: BlocksByRangeRequest,
+        req: BlocksByRangeRequest,
     ) {
-        debug!(
-            self.log,
-            "Received BlocksByRange Request";
-            "peer" => format!("{:?}", peer_id),
-            "count" => req.count,
-            "start_slot" => req.start_slot,
-            "step" => req.step,
-        );
-
-        // Should not send more than max request blocks
-        if req.count > MAX_REQUEST_BLOCKS {
-            req.count = MAX_REQUEST_BLOCKS;
-        }
-        if req.step == 0 {
-            warn!(self.log,
-                "Peer sent invalid range request";
-                "error" => "Step sent was 0");
-            self.network.goodbye_peer(peer_id, GoodbyeReason::Fault);
-            return;
-        }
-
-        let forwards_block_root_iter = match self
-            .chain
-            .forwards_iter_block_roots(Slot::from(req.start_slot))
-        {
-            Ok(iter) => iter,
-            Err(e) => {
-                return error!(
-                    self.log,
-                    "Unable to obtain root iter";
-                    "error" => format!("{:?}", e)
-                )
-            }
-        };
-
-        // Pick out the required blocks, ignoring skip-slots and stepping by the step parameter.
-        //
-        // NOTE: We don't mind if req.count * req.step overflows as it just ends the iterator early and
-        // the peer will get less blocks.
-        // The step parameter is quadratically weighted in the filter, so large values should be
-        // prevented before reaching this point.
-        let mut last_block_root = None;
-        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| {
-                slot.as_u64() < req.start_slot.saturating_add(req.count * req.step)
-            })
-            // map skip slots to None
-            .map(|(root, _)| {
-                let result = if Some(root) == last_block_root {
-                    None
-                } else {
-                    Some(root)
-                };
-                last_block_root = Some(root);
-                result
-            })
-            .step_by(req.step as usize)
-            .collect::<Vec<Option<Hash256>>>()
-        });
-
-        let block_roots = match maybe_block_roots {
-            Ok(block_roots) => block_roots,
-            Err(e) => {
-                error!(self.log, "Error during iteration over blocks"; "error" => format!("{:?}", e));
-                return;
-            }
-        };
-
-        // remove all skip slots
-        let block_roots = block_roots
-            .into_iter()
-            .filter_map(|root| root)
-            .collect::<Vec<_>>();
-
-        let mut blocks_sent = 0;
-        for root in block_roots {
-            if let Ok(Some(block)) = self.chain.store.get_block(&root) {
-                // Due to skip slots, blocks could be out of the range, we ensure they are in the
-                // range before sending
-                if block.slot() >= req.start_slot
-                    && block.slot() < req.start_slot + req.count * req.step
-                {
-                    blocks_sent += 1;
-                    self.network.send_response(
-                        peer_id.clone(),
-                        Response::BlocksByRange(Some(Box::new(block))),
-                        request_id,
-                    );
-                }
-            } else {
-                error!(
-                    self.log,
-                    "Block in the chain is not in the store";
-                    "request_root" => format!("{:}", root),
-                );
-            }
-        }
-
-        let current_slot = self
-            .chain
-            .slot()
-            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
-
-        if blocks_sent < (req.count as usize) {
-            debug!(
-                self.log,
-                "BlocksByRange Response Sent";
-                "peer" => peer_id.to_string(),
-                "msg" => "Failed to return all requested blocks",
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blocks_sent);
-        } else {
-            debug!(
-                self.log,
-                "Sending BlocksByRange Response";
-                "peer" => peer_id.to_string(),
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blocks_sent);
-        }
-
-        // send the stream terminator
-        self.network
-            .send_response(peer_id, Response::BlocksByRange(None), request_id);
+        self.send_beacon_processor_work(BeaconWorkEvent::blocks_by_range_request(
+            peer_id, request_id, req,
+        ))
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -549,18 +234,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) {
-        self.beacon_processor_send
-            .try_send(BeaconWorkEvent::gossip_beacon_block(
-                message_id, peer_id, block,
-            ))
-            .unwrap_or_else(|e| {
-                error!(
-                    &self.log,
-                    "Unable to send to gossip processor";
-                    "type" => "block gossip",
-                    "error" => e.to_string(),
-                )
-            })
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
+            message_id, peer_id, block,
+        ))
     }
 
     pub fn on_unaggregated_attestation_gossip(
@@ -571,22 +247,13 @@ impl<T: BeaconChainTypes> Processor<T> {
         subnet_id: SubnetId,
         should_process: bool,
     ) {
-        self.beacon_processor_send
-            .try_send(BeaconWorkEvent::unaggregated_attestation(
-                message_id,
-                peer_id,
-                unaggregated_attestation,
-                subnet_id,
-                should_process,
-            ))
-            .unwrap_or_else(|e| {
-                error!(
-                    &self.log,
-                    "Unable to send to gossip processor";
-                    "type" => "unaggregated attestation gossip",
-                    "error" => e.to_string(),
-                )
-            })
+        self.send_beacon_processor_work(BeaconWorkEvent::unaggregated_attestation(
+            message_id,
+            peer_id,
+            unaggregated_attestation,
+            subnet_id,
+            should_process,
+        ))
     }
 
     pub fn on_aggregated_attestation_gossip(
@@ -595,18 +262,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) {
-        self.beacon_processor_send
-            .try_send(BeaconWorkEvent::aggregated_attestation(
-                message_id, peer_id, aggregate,
-            ))
-            .unwrap_or_else(|e| {
-                error!(
-                    &self.log,
-                    "Unable to send to gossip processor";
-                    "type" => "aggregated attestation gossip",
-                    "error" => e.to_string(),
-                )
-            })
+        self.send_beacon_processor_work(BeaconWorkEvent::aggregated_attestation(
+            message_id, peer_id, aggregate,
+        ))
     }
 
     pub fn on_voluntary_exit_gossip(
@@ -615,20 +273,11 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         voluntary_exit: Box<SignedVoluntaryExit>,
     ) {
-        self.beacon_processor_send
-            .try_send(BeaconWorkEvent::gossip_voluntary_exit(
-                message_id,
-                peer_id,
-                voluntary_exit,
-            ))
-            .unwrap_or_else(|e| {
-                error!(
-                    &self.log,
-                    "Unable to send to gossip processor";
-                    "type" => "voluntary exit gossip",
-                    "error" => e.to_string(),
-                )
-            })
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_voluntary_exit(
+            message_id,
+            peer_id,
+            voluntary_exit,
+        ))
     }
 
     pub fn on_proposer_slashing_gossip(
@@ -637,20 +286,11 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         proposer_slashing: Box<ProposerSlashing>,
     ) {
-        self.beacon_processor_send
-            .try_send(BeaconWorkEvent::gossip_proposer_slashing(
-                message_id,
-                peer_id,
-                proposer_slashing,
-            ))
-            .unwrap_or_else(|e| {
-                error!(
-                    &self.log,
-                    "Unable to send to gossip processor";
-                    "type" => "proposer slashing gossip",
-                    "error" => e.to_string(),
-                )
-            })
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_proposer_slashing(
+            message_id,
+            peer_id,
+            proposer_slashing,
+        ))
     }
 
     pub fn on_attester_slashing_gossip(
@@ -659,19 +299,23 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
     ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_attester_slashing(
+            message_id,
+            peer_id,
+            attester_slashing,
+        ))
+    }
+
+    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T::EthSpec>) {
         self.beacon_processor_send
-            .try_send(BeaconWorkEvent::gossip_attester_slashing(
-                message_id,
-                peer_id,
-                attester_slashing,
-            ))
+            .try_send(work)
             .unwrap_or_else(|e| {
-                error!(
-                    &self.log,
-                    "Unable to send to gossip processor";
-                    "type" => "attester slashing gossip",
-                    "error" => e.to_string(),
-                )
+                let work_type = match &e {
+                    mpsc::error::TrySendError::Closed(work)
+                    | mpsc::error::TrySendError::Full(work) => work.work_type(),
+                };
+                error!(&self.log, "Unable to send message to the beacon processor";
+                    "error" => %e, "type" => work_type)
             })
     }
 }
@@ -679,14 +323,14 @@ impl<T: BeaconChainTypes> Processor<T> {
 /// Build a `StatusMessage` representing the state of the given `beacon_chain`.
 pub(crate) fn status_message<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
-) -> Option<StatusMessage> {
-    let head_info = beacon_chain.head_info().ok()?;
+) -> Result<StatusMessage, BeaconChainError> {
+    let head_info = beacon_chain.head_info()?;
     let genesis_validators_root = beacon_chain.genesis_validators_root;
 
     let fork_digest =
         ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
 
-    Some(StatusMessage {
+    Ok(StatusMessage {
         fork_digest,
         finalized_root: head_info.finalized_checkpoint.root,
         finalized_epoch: head_info.finalized_checkpoint.epoch,
@@ -697,6 +341,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 
 /// Wraps a Network Channel to employ various RPC related network functionality for the
 /// processor.
+#[derive(Clone)]
 pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
@@ -718,7 +363,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     }
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
-    pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+    pub fn _goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         self.inform_network(NetworkMessage::GoodbyePeer { peer_id, reason });
     }
 

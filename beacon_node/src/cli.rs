@@ -5,6 +5,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .visible_aliases(&["b", "bn", "beacon"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
+        .setting(clap::AppSettings::ColoredHelp)
         .about("The primary component which connects to the Ethereum 2.0 P2P network and \
                 downloads, verifies and stores blocks. Provides a HTTP API for querying \
                 the beacon chain and publishing messages to the network.")
@@ -29,6 +30,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         /*
          * Network parameters.
          */
+        .arg(
+            Arg::with_name("subscribe-all-subnets")
+                .long("subscribe-all-subnets")
+                .help("Subscribe to all subnets regardless of validator count. \
+                       This will also advertise the beacon node as being long-lived subscribed to all subnets.")
+                .takes_value(false),
+        )
         .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
@@ -171,8 +179,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
-                .default_value("")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5052).")
                 .takes_value(true),
         )
         /* Prometheus metrics HTTP server related arguments */
@@ -202,9 +212,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("metrics-allow-origin")
                 .long("metrics-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header for the Prometheus metrics HTTP server. \
-                    Use * to allow any origin (not recommended in production)")
-                .default_value("")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
         )
         /* Websocket related arguments */
@@ -269,6 +280,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("eth1-blocks-per-log-query")
+                .long("eth1-blocks-per-log-query")
+                .value_name("BLOCKS")
+                .help("Specifies the number of blocks that a deposit log query should span. \
+                    This will reduce the size of responses from the Eth1 endpoint.")
+                .default_value("1000")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
@@ -286,12 +306,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
-         * Purge.
+         * Database purging and compaction.
          */
         .arg(
             Arg::with_name("purge-db")
                 .long("purge-db")
                 .help("If present, the chain database will be deleted. Use with caution.")
+        )
+        .arg(
+            Arg::with_name("compact-db")
+                .long("compact-db")
+                .help("If present, apply compaction to the database on start-up. Use with caution. \
+                       It is generally not recommended unless auto-compaction is disabled.")
+        )
+        .arg(
+            Arg::with_name("auto-compact-db")
+                .long("auto-compact-db")
+                .help("Enable or disable automatic compaction of the database on finalization.")
+                .takes_value(true)
+                .default_value("true")
         )
 
         /*
@@ -312,13 +345,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("max-skip-slots")
                 .help(
                     "Refuse to skip more than this many slots when processing a block or attestation. \
-                    This prevents nodes on minority forks from wasting our time and RAM, \
-                    but might need to be raised or set to 'none' in times of extreme network \
-                    outage."
+                    This prevents nodes on minority forks from wasting our time and disk space, \
+                    but could also cause unnecessary consensus failures, so is disabled by default."
                 )
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
-                .default_value("700")
         )
         .arg(
             Arg::with_name("wss-checkpoint")

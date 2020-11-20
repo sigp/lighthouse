@@ -1,4 +1,4 @@
-TESTS_TAG := ac393b815b356c95569c028c215232b512df583d
+TESTS_TAG := 359085be9da6e5e19644977aa45947bcec5d99de
 GENERATE_DIR := generated-tests
 OUTPUT_DIR := interchange-tests
 TARBALL := $(OUTPUT_DIR)-$(TESTS_TAG).tar.gz
@@ -10,7 +10,7 @@ $(OUTPUT_DIR): $(TARBALL)
 	tar --strip-components=1 -xzf $^ -C $@
 
 $(TARBALL):
-	wget $(ARCHIVE_URL) -O $@
+	curl -L -o $@ $(ARCHIVE_URL)
 
 clean-test-files:
 	rm -rf $(OUTPUT_DIR)

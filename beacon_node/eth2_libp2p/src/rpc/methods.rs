@@ -16,7 +16,8 @@ pub type MaxRequestBlocks = U1024;
 pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
-type MaxErrorLen = U256;
+pub type MaxErrorLen = U256;
+pub const MAX_ERROR_LEN: u64 = 256;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -256,7 +257,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RPCResponseErrorCode {
     RateLimited,
     InvalidRequest,
@@ -276,10 +277,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
 
     /// Tells the codec whether to decode as an RPCResponse or an error.
     pub fn is_response(response_code: u8) -> bool {
-        match response_code {
-            0 => true,
-            _ => false,
-        }
+        matches!(response_code, 0)
     }
 
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
@@ -310,10 +308,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
 
     /// Returns true if this response always terminates the stream.
     pub fn close_after(&self) -> bool {
-        match self {
-            RPCCodedResponse::Success(_) => false,
-            _ => true,
-        }
+        !matches!(self, RPCCodedResponse::Success(_))
     }
 }
 
@@ -394,6 +389,22 @@ impl std::fmt::Display for BlocksByRangeRequest {
             "Start Slot: {}, Count: {}, Step: {}",
             self.start_slot, self.count, self.step
         )
+    }
+}
+
+impl slog::KV for StatusMessage {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        use slog::Value;
+        serializer.emit_str("fork_digest", &format!("{:?}", self.fork_digest))?;
+        Value::serialize(&self.finalized_epoch, record, "finalized_epoch", serializer)?;
+        serializer.emit_str("finalized_root", &self.finalized_root.to_string())?;
+        Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
+        serializer.emit_str("head_root", &self.head_root.to_string())?;
+        slog::Result::Ok(())
     }
 }
 

@@ -1,4 +1,4 @@
-//! Provides the `BeaconProcessor`, a mutli-threaded processor for messages received on the network
+//! Provides the `BeaconProcessor`, a multi-threaded processor for messages received on the network
 //! that need to be processed by the `BeaconChain`.
 //!
 //! Uses `tokio` tasks (instead of raw threads) to provide the following tasks:
@@ -26,7 +26,7 @@
 //!
 //! Then, there is a maximum of `n` "worker" blocking threads, where `n` is the CPU count.
 //!
-//! Whenever the manager receives a new parcel of work, it either:
+//! Whenever the manager receives a new parcel of work, it is either:
 //!
 //! - Provided to a newly-spawned worker tasks (if we are not already at `n` workers).
 //! - Added to a queue.
@@ -37,7 +37,10 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
-use eth2_libp2p::{MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
+    MessageId, NetworkGlobals, PeerId, PeerRequestId,
+};
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
@@ -48,12 +51,12 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
+
 use worker::Worker;
 
-mod chain_segment;
 mod worker;
 
-pub use chain_segment::ProcessId;
+pub use worker::ProcessId;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -98,10 +101,22 @@ const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
 /// be stored before we start dropping them.
 const MAX_CHAIN_SEGMENT_QUEUE_LEN: usize = 64;
 
+/// The maximum number of queued `StatusMessage` objects received from the network RPC that will be
+/// stored before we start dropping them.
+const MAX_STATUS_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `BlocksByRangeRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_BLOCKS_BY_RANGE_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `BlocksByRootRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
+
 /// The name of the manager tokio task.
-const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
+const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
 /// The name of the worker tokio tasks.
-const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
+const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
@@ -132,7 +147,7 @@ impl<T> FifoQueue<T> {
         if self.queue.len() == self.max_length {
             error!(
                 log,
-                "Block queue full";
+                "Work queue is full";
                 "msg" => "the system has insufficient resources for load",
                 "queue_len" => self.max_length,
                 "queue" => item_desc,
@@ -320,6 +335,51 @@ impl<E: EthSpec> WorkEvent<E> {
             work: Work::ChainSegment { process_id, blocks },
         }
     }
+
+    /// Create a new work event to process `StatusMessage`s from the RPC network.
+    pub fn status_message(peer_id: PeerId, message: StatusMessage) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::Status { peer_id, message },
+        }
+    }
+
+    /// Create a new work event to process `BlocksByRangeRequest`s from the RPC network.
+    pub fn blocks_by_range_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRangeRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlocksByRangeRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    /// Create a new work event to process `BlocksByRootRequest`s from the RPC network.
+    pub fn blocks_by_roots_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRootRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlocksByRootsRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    /// Get a `str` representation of the type of work this `WorkEvent` contains.
+    pub fn work_type(&self) -> &'static str {
+        self.work.str_id()
+    }
 }
 
 /// A consensus message (or multiple) from the network that requires processing.
@@ -365,6 +425,20 @@ pub enum Work<E: EthSpec> {
         process_id: ProcessId,
         blocks: Vec<SignedBeaconBlock<E>>,
     },
+    Status {
+        peer_id: PeerId,
+        message: StatusMessage,
+    },
+    BlocksByRangeRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRangeRequest,
+    },
+    BlocksByRootsRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRootRequest,
+    },
 }
 
 impl<E: EthSpec> Work<E> {
@@ -379,6 +453,9 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAttesterSlashing { .. } => "gossip_attester_slashing",
             Work::RpcBlock { .. } => "rpc_block",
             Work::ChainSegment { .. } => "chain_segment",
+            Work::Status { .. } => "status_processing",
+            Work::BlocksByRangeRequest { .. } => "blocks_by_range_request",
+            Work::BlocksByRootsRequest { .. } => "blocks_by_roots_request",
         }
     }
 }
@@ -452,6 +529,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
+
+        let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
+        let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
+        let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
 
         let executor = self.executor.clone();
 
@@ -534,13 +615,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
-                        // Check the aggregates, *then* the unaggregates
-                        // since we assume that aggregates are more valuable to local validators
-                        // and effectively give us more information with less signature
-                        // verification time.
+                        // Check the aggregates, *then* the unaggregates since we assume that
+                        // aggregates are more valuable to local validators and effectively give us
+                        // more information with less signature verification time.
                         } else if let Some(item) = aggregate_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
                         } else if let Some(item) = attestation_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
+                        // Check RPC methods next. Status messages are needed for sync so
+                        // prioritize them over syncing requests from other peers (BlocksByRange
+                        // and BlocksByRoot)
+                        } else if let Some(item) = status_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
+                        } else if let Some(item) = bbrange_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
+                        } else if let Some(item) = bbroots_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
@@ -605,6 +694,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
                             Work::ChainSegment { .. } => {
                                 chain_segment_queue.push(work, work_id, &self.log)
+                            }
+                            Work::Status { .. } => status_queue.push(work, work_id, &self.log),
+                            Work::BlocksByRangeRequest { .. } => {
+                                bbrange_queue.push(work, work_id, &self.log)
+                            }
+                            Work::BlocksByRootsRequest { .. } => {
+                                bbroots_queue.push(work, work_id, &self.log)
                             }
                         }
                     }
@@ -804,6 +900,26 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     Work::ChainSegment { process_id, blocks } => {
                         worker.process_chain_segment(process_id, blocks)
                     }
+                    /*
+                     * Processing of Status Messages.
+                     */
+                    Work::Status { peer_id, message } => worker.process_status(peer_id, message),
+                    /*
+                     * Processing of range syncing requests from other peers.
+                     */
+                    Work::BlocksByRangeRequest {
+                        peer_id,
+                        request_id,
+                        request,
+                    } => worker.handle_blocks_by_range_request(peer_id, request_id, request),
+                    /*
+                     * Processing of blocks by roots requests from other peers.
+                     */
+                    Work::BlocksByRootsRequest {
+                        peer_id,
+                        request_id,
+                        request,
+                    } => worker.handle_blocks_by_root_request(peer_id, request_id, request),
                 };
 
                 trace!(

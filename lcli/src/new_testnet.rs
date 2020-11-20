@@ -51,11 +51,11 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         spec.genesis_fork_version = v;
     }
 
-    let testnet: Eth2TestnetConfig<T> = Eth2TestnetConfig {
+    let testnet = Eth2TestnetConfig {
         deposit_contract_address: format!("{:?}", deposit_contract_address),
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
-        genesis_state: None,
+        genesis_state_bytes: None,
         yaml_config: Some(YamlConfig::from_spec::<T>(&spec)),
     };
 

@@ -90,33 +90,118 @@ fn file() {
 #[test]
 fn scrypt_params() {
     let keypair = Keypair::random();
+    let salt = vec![42; 32];
 
     let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
         .unwrap()
         .build()
         .unwrap();
-
     let json = keystore.to_json_string().unwrap();
     let decoded = Keystore::from_json_str(&json).unwrap();
-
     assert_eq!(
         decoded.decrypt_keypair(BAD_PASSWORD).err().unwrap(),
         Error::InvalidPassword,
         "should not decrypt with bad password"
     );
-
     assert_eq!(
         decoded.decrypt_keypair(GOOD_PASSWORD).unwrap().pk,
         keypair.pk,
         "should decrypt with good password"
     );
+
+    // n <= 1
+    let my_kdf = Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        n: 1,
+        p: 1,
+        r: 8,
+        salt: salt.clone().into(),
+    });
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build();
+    assert_eq!(keystore, Err(Error::InvalidScryptParam));
+
+    // p != 0
+    let my_kdf = Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        n: 16,
+        p: 0,
+        r: 8,
+        salt: salt.clone().into(),
+    });
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build();
+    assert_eq!(keystore, Err(Error::InvalidScryptParam));
+
+    // r != 0
+    let my_kdf = Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        n: 16,
+        p: 1,
+        r: 0,
+        salt: salt.clone().into(),
+    });
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build();
+    assert_eq!(keystore, Err(Error::InvalidScryptParam));
+
+    // 128 * n * p * r overflow
+    let my_kdf = Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        n: 1 << 31,
+        p: 1 << 31,
+        r: 1 << 31,
+        salt: salt.clone().into(),
+    });
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build();
+    assert_eq!(keystore, Err(Error::InvalidScryptParam));
+}
+
+#[test]
+fn pbkdf2_params() {
+    let keypair = Keypair::random();
+
+    let salt = vec![42; 32];
+
+    let my_kdf = Kdf::Pbkdf2(Pbkdf2 {
+        dklen: DKLEN,
+        c: 80_000_001,
+        prf: Prf::HmacSha256,
+        salt: salt.clone().into(),
+    });
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build();
+    assert_eq!(keystore, Err(Error::InvalidPbkdf2Param));
+
+    let my_kdf = Kdf::Pbkdf2(Pbkdf2 {
+        dklen: DKLEN + 1,
+        c: 4,
+        prf: Prf::HmacSha256,
+        salt: salt.clone().into(),
+    });
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build();
+    assert_eq!(keystore, Err(Error::InvalidPbkdf2Param));
 }
 
 #[test]
 fn custom_scrypt_kdf() {
     let keypair = Keypair::random();
 
-    let salt = vec![42];
+    let salt = vec![42; 32];
 
     let my_kdf = Kdf::Scrypt(Scrypt {
         dklen: DKLEN,
@@ -141,7 +226,7 @@ fn custom_scrypt_kdf() {
 fn custom_pbkdf2_kdf() {
     let keypair = Keypair::random();
 
-    let salt = vec![42];
+    let salt = vec![42; 32];
 
     let my_kdf = Kdf::Pbkdf2(Pbkdf2 {
         dklen: DKLEN,
@@ -159,4 +244,61 @@ fn custom_pbkdf2_kdf() {
         .unwrap();
 
     assert_eq!(keystore.kdf(), &my_kdf);
+}
+
+#[test]
+fn utf8_control_characters() {
+    let keypair = Keypair::random();
+
+    let invalid_character = 0u8;
+    let invalid_password = [invalid_character];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 0
+        })
+    );
+
+    let invalid_character = 0x1Fu8;
+    let invalid_password = [50, invalid_character, 50];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 1
+        })
+    );
+
+    let invalid_character = 0x80u8;
+    let invalid_password = [50, 50, invalid_character];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 2
+        })
+    );
+
+    let invalid_character = 0x7Fu8;
+    let invalid_password = [50, 50, 50, 50, 50, 50, invalid_character];
+    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+        .unwrap()
+        .build();
+    assert_eq!(
+        keystore,
+        Err(Error::InvalidPasswordCharacter {
+            character: invalid_character,
+            index: 6
+        })
+    );
 }

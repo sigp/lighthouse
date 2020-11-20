@@ -32,8 +32,8 @@ pub struct Config {
     pub delete_lockfiles: bool,
     /// If true, don't scan the validators dir for new keystores.
     pub disable_auto_discover: bool,
-    /// If true, don't re-register existing validators in definitions.yml for slashing protection.
-    pub strict_slashing_protection: bool,
+    /// If true, re-register existing validators in definitions.yml for slashing protection.
+    pub init_slashing_protection: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
     /// Configuration for the HTTP REST API.
@@ -58,7 +58,7 @@ impl Default for Config {
             allow_unsynced_beacon_node: false,
             delete_lockfiles: false,
             disable_auto_discover: false,
-            strict_slashing_protection: false,
+            init_slashing_protection: false,
             graffiti: None,
             http_api: <_>::default(),
         }
@@ -122,7 +122,7 @@ impl Config {
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
         config.delete_lockfiles = cli_args.is_present("delete-lockfiles");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
-        config.strict_slashing_protection = cli_args.is_present("strict-slashing-protection");
+        config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
 
         if let Some(input_graffiti) = cli_args.value_of("graffiti") {
             let graffiti_bytes = input_graffiti.as_bytes();

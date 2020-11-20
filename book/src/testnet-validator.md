@@ -3,27 +3,32 @@
 Joining an Eth2 testnet is a great way to get familiar with staking in Phase 0.
 All users should experiment with a testnet prior to staking mainnet ETH.
 
+**🚨🚨🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
+time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
+DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
+
 ## Supported Testnets
 
-Lighthouse supports four testnets:
+Lighthouse supports the "mainnet" network and four test networks:
 
 - [Medalla](https://github.com/goerli/medalla/tree/master/medalla) (default)
-- [Zinken](https://github.com/goerli/medalla/tree/master/zinken)
+- [Pyrmont](https://github.com/protolambda/pyrmont)
 - [Spadina](https://github.com/goerli/medalla/tree/master/spadina) (deprecated)
 - [Altona](https://github.com/goerli/medalla/tree/master/altona) (deprecated)
 
-When using Lighthouse, the `--network` flag selects a testnet. E.g.,
+When using Lighthouse, the `--` flag selects a network. E.g.,
 
 - `lighthouse` (no flag): Medalla.
+- `lighthouse --network mainnet`: Mainnet.
 - `lighthouse --network medalla`: Medalla.
-- `lighthouse --network zinken`: Zinken.
+- `lighthouse --network pyrmont`: Pyrmont.
 
 Using the correct `--network` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, always
 provide a `--network` flag instead of relying on the default.
 
 > Note: In these documents we use `--network MY_NETWORK` for demonstration. You
-> must replace `MY_NETWORK` with a valid testnet name.
+> must replace `MY_NETWORK` with a valid network name.
 
 ## Joining a Testnet
 
@@ -44,7 +49,7 @@ setting aside one or two hours for this process.
 The Ethereum Foundation provides an "Eth2 launch pad" for each active testnet:
 
 - [Medalla launchpad](https://medalla.launchpad.ethereum.org/)
-- [Zinken launchpad](https://zinken.launchpad.ethereum.org/)
+- [Pyrmont launchpad](https://pyrmont.launchpad.ethereum.org/)
 
 Please follow the steps on the appropriate launch pad site to generate
 validator keys and submit deposits. Make sure you select "Lighthouse" as your
@@ -115,6 +120,9 @@ lighthouse --network MY_NETWORK bn --staking
 lighthouse --network MY_NETWORK vc
 ```
 
+> Note: `~/.lighthouse/{network}` is the default directory which contains the keys and databases.
+> To specify a custom dir, see [this](#custom-directories) section
+
 #### Docker users
 
 Those using Docker images can start the processes with:
@@ -160,3 +168,20 @@ If you see any `ERRO` (error) logs, please reach out on
 issue](https://github.com/sigp/lighthouse/issues/new).
 
 Happy staking!
+
+
+## Custom directories
+
+Users can override the default Lighthouse data directories (`~/.lighthouse/{network}`) using the `--datadir` flag. The custom data directory mirrors the structure of any network specific default directory (e.g. `~/.lighthouse/medalla`).
+
+> Note: Users should specify different custom directories for different networks.
+
+Below is an example flow for importing validator keys, running a beacon node and validator client using a custom data directory `/var/lib/my-custom-dir` for the medalla testnet.
+
+```bash
+lighthouse --network medalla --datadir /var/lib/my-custom-dir account validator import --directory <PATH-TO-LAUNCHPAD-KEYS-DIRECTORY>
+lighthouse --network medalla --datadir /var/lib/my-custom-dir bn --staking
+lighthouse --network medalla --datadir /var/lib/my-custom-dir vc
+```
+The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md).
+After that, we simply run the beacon chain and validator client with the custom dir path.

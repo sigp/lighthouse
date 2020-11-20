@@ -36,13 +36,13 @@ lazy_static! {
         &["subnet"]
     );
 
-    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC: Result<GaugeVec> = try_create_float_gauge_vec(
         "gossipsub_avg_peer_score_per_topic",
         "Average peer's score per topic",
         &["topic_hash"]
     );
 
-    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC: Result<GaugeVec> = try_create_float_gauge_vec(
         "gossipsub_avg_peer_score_per_subnet_topic",
         "Average peer's score per subnet topic",
         &["subnet"]
@@ -53,6 +53,60 @@ lazy_static! {
         "Failed attestation publishes per subnet",
         &["subnet"]
     );
+
+    pub static ref SCORES_BELOW_ZERO_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_zero_per_client",
+        "Relative number of scores below zero per client",
+        &["Client"]
+    );
+    pub static ref SCORES_BELOW_GOSSIP_THRESHOLD_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_gossip_threshold_per_client",
+        "Relative number of scores below gossip threshold per client",
+        &["Client"]
+    );
+    pub static ref SCORES_BELOW_PUBLISH_THRESHOLD_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_publish_threshold_per_client",
+        "Relative number of scores below publish threshold per client",
+        &["Client"]
+    );
+    pub static ref SCORES_BELOW_GREYLIST_THRESHOLD_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_scores_below_greylist_threshold_per_client",
+        "Relative number of scores below greylist threshold per client",
+        &["Client"]
+    );
+
+    pub static ref MIN_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_min_scores_per_client",
+        "Minimum scores per client",
+        &["Client"]
+    );
+    pub static ref MEDIAN_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_median_scores_per_client",
+        "Median scores per client",
+        &["Client"]
+    );
+    pub static ref MEAN_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_mean_scores_per_client",
+        "Mean scores per client",
+        &["Client"]
+    );
+    pub static ref MAX_SCORES_PER_CLIENT: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_max_scores_per_client",
+        "Max scores per client",
+        &["Client"]
+    );
+    pub static ref BEACON_BLOCK_MESH_PEERS_PER_CLIENT: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "block_mesh_peers_per_client",
+            "Number of mesh peers for BeaconBlock topic per client",
+            &["Client"]
+        );
+    pub static ref BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "beacon_aggregate_and_proof_mesh_peers_per_client",
+            "Number of mesh peers for BeaconAggregateAndProof topic per client",
+            &["Client"]
+        );
 }
 
 lazy_static! {

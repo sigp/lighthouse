@@ -3,16 +3,9 @@ use std::collections::HashSet;
 use std::iter::FromIterator;
 use types::{Epoch, Hash256, PublicKey, Slot};
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum InterchangeFormat {
-    Complete,
-}
-
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InterchangeMetadata {
-    pub interchange_format: InterchangeFormat,
     #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub interchange_format_version: u64,
     pub genesis_validators_root: Hash256,
@@ -20,7 +13,7 @@ pub struct InterchangeMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct CompleteInterchangeData {
+pub struct InterchangeData {
     pub pubkey: PublicKey,
     pub signed_blocks: Vec<SignedBlock>,
     pub signed_attestations: Vec<SignedAttestation>,
@@ -49,7 +42,7 @@ pub struct SignedAttestation {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Interchange {
     pub metadata: InterchangeMetadata,
-    pub data: Vec<CompleteInterchangeData>,
+    pub data: Vec<InterchangeData>,
 }
 
 impl Interchange {

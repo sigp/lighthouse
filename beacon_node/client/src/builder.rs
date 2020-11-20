@@ -5,7 +5,6 @@ use beacon_chain::events::TeeEventHandler;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
-    migrate::{BackgroundMigrator, Migrate},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
@@ -17,14 +16,15 @@ use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use parking_lot::Mutex;
-use slog::{debug, info};
+use slog::{debug, info, warn};
 use ssz::Decode;
 use std::net::SocketAddr;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     SignedBeaconBlockHash,
@@ -51,7 +51,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
-    store_migrator: Option<T::StoreMigrator>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
     chain_spec: Option<ChainSpec>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
@@ -68,20 +67,9 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
 }
 
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
-    >
+impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>
 where
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -96,7 +84,6 @@ where
         Self {
             slot_clock: None,
             store: None,
-            store_migrator: None,
             runtime_context: None,
             chain_spec: None,
             beacon_chain_builder: None,
@@ -134,7 +121,6 @@ where
         config: ClientConfig,
     ) -> Result<Self, String> {
         let store = self.store.clone();
-        let store_migrator = self.store_migrator.take();
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
@@ -145,8 +131,6 @@ where
 
         let store =
             store.ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
-        let store_migrator = store_migrator
-            .ok_or_else(|| "beacon_chain_start_method requires a store migrator".to_string())?;
         let context = runtime_context
             .ok_or_else(|| "beacon_chain_start_method requires a runtime context".to_string())?
             .service_context("beacon".into());
@@ -156,7 +140,6 @@ where
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
-            .store_migrator(store_migrator)
             .data_dir(data_dir)
             .custom_spec(spec.clone())
             .chain_config(chain_config)
@@ -220,12 +203,75 @@ where
                     context.eth2_config().spec.clone(),
                 );
 
+                // If the HTTP API server is enabled, start an instance of it where it only
+                // contains a reference to the eth1 service (all non-eth1 endpoints will fail
+                // gracefully).
+                //
+                // Later in this function we will shutdown this temporary "waiting for genesis"
+                // server so the real one can be started later.
+                let (exit_tx, exit_rx) = oneshot::channel::<()>();
+                let http_listen_opt = if self.http_api_config.enabled {
+                    #[allow(clippy::type_complexity)]
+                    let ctx: Arc<
+                        http_api::Context<
+                            Witness<
+                                TSlotClock,
+                                TEth1Backend,
+                                TEthSpec,
+                                TEventHandler,
+                                THotStore,
+                                TColdStore,
+                            >,
+                        >,
+                    > = Arc::new(http_api::Context {
+                        config: self.http_api_config.clone(),
+                        chain: None,
+                        network_tx: None,
+                        network_globals: None,
+                        eth1_service: Some(genesis_service.eth1_service.clone()),
+                        log: context.log().clone(),
+                    });
+
+                    // Discard the error from the oneshot.
+                    let exit_future = async {
+                        let _ = exit_rx.await;
+                    };
+
+                    let (listen_addr, server) = http_api::serve(ctx, exit_future)
+                        .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+
+                    context
+                        .clone()
+                        .executor
+                        .spawn_without_exit(async move { server.await }, "http-api");
+
+                    Some(listen_addr)
+                } else {
+                    None
+                };
+
                 let genesis_state = genesis_service
                     .wait_for_genesis_state(
                         Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
                         context.eth2_config().spec.clone(),
                     )
                     .await?;
+
+                let _ = exit_tx.send(());
+
+                if let Some(http_listen) = http_listen_opt {
+                    // This is a bit of a hack to ensure that the HTTP server has indeed shutdown.
+                    //
+                    // We will restart it again after we've finished setting up for genesis.
+                    while TcpListener::bind(http_listen).is_err() {
+                        warn!(
+                            context.log(),
+                            "Waiting for HTTP server port to open";
+                            "port" => http_listen
+                        );
+                        tokio::time::delay_for(Duration::from_secs(1)).await;
+                    }
+                }
 
                 builder
                     .genesis_state(genesis_state)
@@ -337,17 +383,7 @@ where
     pub fn build(
         self,
     ) -> Result<
-        Client<
-            Witness<
-                TStoreMigrator,
-                TSlotClock,
-                TEth1Backend,
-                TEthSpec,
-                TEventHandler,
-                THotStore,
-                TColdStore,
-            >,
-        >,
+        Client<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>,
         String,
     > {
         let runtime_context = self
@@ -362,6 +398,7 @@ where
                 chain: self.beacon_chain.clone(),
                 network_tx: self.network_send.clone(),
                 network_globals: self.network_globals.clone(),
+                eth1_service: self.eth1_service.clone(),
                 log: log.clone(),
             });
 
@@ -415,20 +452,9 @@ where
     }
 }
 
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
-    >
+impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>
 where
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -469,10 +495,9 @@ where
     }
 }
 
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
     ClientBuilder<
         Witness<
-            TStoreMigrator,
             TSlotClock,
             TEth1Backend,
             TEthSpec,
@@ -482,7 +507,6 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
         >,
     >
 where
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -517,10 +541,9 @@ where
     }
 }
 
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
+impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            TStoreMigrator,
             TSlotClock,
             TEth1Backend,
             TEthSpec,
@@ -531,7 +554,6 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: Migrate<TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -563,44 +585,9 @@ where
     }
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
     ClientBuilder<
         Witness<
-            BackgroundMigrator<TEthSpec, THotStore, TColdStore>,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
-    >
-where
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-{
-    pub fn background_migrator(mut self) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "disk_store requires a log".to_string())?
-            .service_context("freezer_db".into());
-        let store = self.store.clone().ok_or_else(|| {
-            "background_migrator requires the store to be initialized".to_string()
-        })?;
-        self.store_migrator = Some(BackgroundMigrator::new(store, context.log().clone()));
-        Ok(self)
-    }
-}
-
-impl<TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<
-            TStoreMigrator,
             TSlotClock,
             CachingEth1Backend<TEthSpec>,
             TEthSpec,
@@ -610,7 +597,6 @@ impl<TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
         >,
     >
 where
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -669,7 +655,7 @@ where
                 })?
         };
 
-        self.eth1_service = None;
+        self.eth1_service = Some(backend.core.clone());
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
         backend.start(context.executor);
@@ -710,20 +696,11 @@ where
     }
 }
 
-impl<TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     ClientBuilder<
-        Witness<
-            TStoreMigrator,
-            SystemTimeSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
     >
 where
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,

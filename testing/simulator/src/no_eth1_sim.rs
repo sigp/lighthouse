@@ -2,8 +2,8 @@ use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
-    ValidatorFiles,
+    environment::EnvironmentBuilder, testing_client_config, testing_validator_config,
+    ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
@@ -52,11 +52,13 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let spec = &mut env.eth2_config.spec;
 
+    let total_validator_count = validators_per_node * node_count;
+
     spec.milliseconds_per_slot /= speed_up_factor;
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
-    spec.min_genesis_active_validator_count = 64;
+    spec.min_genesis_active_validator_count = total_validator_count as u64;
     spec.seconds_per_eth1_block = 1;
 
     let genesis_delay = Duration::from_secs(5);
@@ -67,7 +69,6 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let genesis_instant = Instant::now() + genesis_delay;
 
     let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-    let total_validator_count = validators_per_node * node_count;
 
     let context = env.core_context();
 
@@ -99,14 +100,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let add_validators_fut = async {
             for (i, files) in validator_files.into_iter().enumerate() {
                 network
-                    .add_validator_client(
-                        ValidatorConfig {
-                            disable_auto_discover: false,
-                            ..ValidatorConfig::default()
-                        },
-                        i,
-                        files,
-                    )
+                    .add_validator_client(testing_validator_config(), i, files)
                     .await?;
             }
 

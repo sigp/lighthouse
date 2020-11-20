@@ -10,7 +10,7 @@ source ./vars.env
 lcli \
 	--spec mainnet \
 	new-testnet \
-	--deposit-contract-address 0000000000000000000000000000000000000000 \
+	--deposit-contract-address 1234567890123456789012345678901234567890 \
 	--testnet-dir $TESTNET_DIR \
 	--min-genesis-active-validator-count $VALIDATOR_COUNT \
 	--force

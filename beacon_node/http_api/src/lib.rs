@@ -21,13 +21,14 @@ use eth2::{
     types::{self as api_types, ValidatorId},
     StatusCode,
 };
-use eth2_libp2p::{types::SyncState, NetworkGlobals, PubsubMessage};
+use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::{crit, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use state_id::StateId;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
@@ -38,10 +39,10 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
-    Hash256, ProposerSlashing, PublicKey, RelativeEpoch, SignedAggregateAndProof,
+    Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
-use warp::Filter;
+use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
 
 const API_PREFIX: &str = "eth";
@@ -62,6 +63,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub chain: Option<Arc<BeaconChain<T>>>,
     pub network_tx: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
+    pub eth1_service: Option<eth1::Service>,
     pub log: Logger,
 }
 
@@ -109,7 +111,11 @@ pub fn slog_logging(
 ) -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
     warp::log::custom(move |info| {
         match info.status() {
-            status if status == StatusCode::OK || status == StatusCode::NOT_FOUND => {
+            status
+                if status == StatusCode::OK
+                    || status == StatusCode::NOT_FOUND
+                    || status == StatusCode::PARTIAL_CONTENT =>
+            {
                 trace!(
                     log,
                     "Processed HTTP API request";
@@ -207,7 +213,19 @@ pub fn serve<T: BeaconChainTypes>(
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = ctx.config.clone();
     let log = ctx.log.clone();
-    let allow_origin = config.allow_origin.clone();
+
+    // Configure CORS.
+    let cors_builder = {
+        let builder = warp::cors()
+            .allow_methods(vec!["GET", "POST"])
+            .allow_headers(vec!["Content-Type"]);
+
+        warp_utils::cors::set_builder_origins(
+            builder,
+            config.allow_origin.as_deref(),
+            (config.listen_addr, config.listen_port),
+        )?
+    };
 
     // Sanity check.
     if !config.enabled {
@@ -283,6 +301,19 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
+    // Create a `warp` filter that provides access to the Eth1 service.
+    let inner_ctx = ctx.clone();
+    let eth1_service_filter = warp::any()
+        .map(move || inner_ctx.eth1_service.clone())
+        .and_then(|eth1_service| async move {
+            match eth1_service {
+                Some(eth1_service) => Ok(eth1_service),
+                None => Err(warp_utils::reject::custom_not_found(
+                    "The Eth1 service is not started. Use --eth1 on the CLI.".to_string(),
+                )),
+            }
+        });
+
     // Create a `warp` filter that rejects request whilst the node is syncing.
     let not_while_syncing_filter = warp::any()
         .and(network_globals.clone())
@@ -290,7 +321,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| async move {
                 match *network_globals.sync_state.read() {
-                    SyncState::SyncingFinalized { head_slot, .. } => {
+                    SyncState::SyncingFinalized { .. } => {
+                        let head_slot = chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)?;
+
                         let current_slot = chain
                             .slot_clock
                             .now_or_genesis()
@@ -311,7 +344,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )))
                         }
                     }
-                    SyncState::SyncingHead { .. } => Ok(()),
+                    SyncState::SyncingHead { .. } | SyncState::SyncTransition => Ok(()),
                     SyncState::Synced => Ok(()),
                     SyncState::Stalled => Err(warp_utils::reject::not_synced(
                         "sync is stalled".to_string(),
@@ -357,7 +390,13 @@ pub fn serve<T: BeaconChainTypes>(
     let beacon_states_path = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("states"))
-        .and(warp::path::param::<StateId>())
+        .and(warp::path::param::<StateId>().or_else(|_| {
+            blocking_task(|| {
+                Err(warp_utils::reject::custom_bad_request(
+                    "Invalid state ID".to_string(),
+                ))
+            })
+        }))
         .and(chain_filter.clone());
 
     // GET beacon/states/{state_id}/root
@@ -402,40 +441,113 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // GET beacon/states/{state_id}/validators
+    // GET beacon/states/{state_id}/validator_balances?id
+    let get_beacon_state_validator_balances = beacon_states_path
+        .clone()
+        .and(warp::path("validator_balances"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::ValidatorBalancesQuery>())
+        .and_then(
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query: api_types::ValidatorBalancesQuery| {
+                blocking_json_task(move || {
+                    state_id
+                        .map_state(&chain, |state| {
+                            Ok(state
+                                .validators
+                                .iter()
+                                .zip(state.balances.iter())
+                                .enumerate()
+                                // filter by validator id(s) if provided
+                                .filter(|(index, (validator, _))| {
+                                    query.id.as_ref().map_or(true, |ids| {
+                                        ids.0.iter().any(|id| match id {
+                                            ValidatorId::PublicKey(pubkey) => {
+                                                &validator.pubkey == pubkey
+                                            }
+                                            ValidatorId::Index(param_index) => {
+                                                *param_index == *index as u64
+                                            }
+                                        })
+                                    })
+                                })
+                                .map(|(index, (_, balance))| {
+                                    Some(api_types::ValidatorBalanceData {
+                                        index: index as u64,
+                                        balance: *balance,
+                                    })
+                                })
+                                .collect::<Vec<_>>())
+                        })
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/validators?id,status
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
+        .and(warp::query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
-        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || {
-                state_id
-                    .map_state(&chain, |state| {
-                        let epoch = state.current_epoch();
-                        let finalized_epoch = state.finalized_checkpoint.epoch;
-                        let far_future_epoch = chain.spec.far_future_epoch;
+        .and_then(
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
+                blocking_json_task(move || {
+                    state_id
+                        .map_state(&chain, |state| {
+                            let epoch = state.current_epoch();
+                            let finalized_epoch = state.finalized_checkpoint.epoch;
+                            let far_future_epoch = chain.spec.far_future_epoch;
 
-                        Ok(state
-                            .validators
-                            .iter()
-                            .zip(state.balances.iter())
-                            .enumerate()
-                            .map(|(index, (validator, balance))| api_types::ValidatorData {
-                                index: index as u64,
-                                balance: *balance,
-                                status: api_types::ValidatorStatus::from_validator(
-                                    Some(validator),
-                                    epoch,
-                                    finalized_epoch,
-                                    far_future_epoch,
-                                ),
-                                validator: validator.clone(),
-                            })
-                            .collect::<Vec<_>>())
-                    })
-                    .map(api_types::GenericResponse::from)
-            })
-        });
+                            Ok(state
+                                .validators
+                                .iter()
+                                .zip(state.balances.iter())
+                                .enumerate()
+                                // filter by validator id(s) if provided
+                                .filter(|(index, (validator, _))| {
+                                    query.id.as_ref().map_or(true, |ids| {
+                                        ids.0.iter().any(|id| match id {
+                                            ValidatorId::PublicKey(pubkey) => {
+                                                &validator.pubkey == pubkey
+                                            }
+                                            ValidatorId::Index(param_index) => {
+                                                *param_index == *index as u64
+                                            }
+                                        })
+                                    })
+                                })
+                                // filter by status(es) if provided and map the result
+                                .filter_map(|(index, (validator, balance))| {
+                                    let status = api_types::ValidatorStatus::from_validator(
+                                        Some(validator),
+                                        epoch,
+                                        finalized_epoch,
+                                        far_future_epoch,
+                                    );
+
+                                    if query
+                                        .status
+                                        .as_ref()
+                                        .map_or(true, |statuses| statuses.0.contains(&status))
+                                    {
+                                        Some(api_types::ValidatorData {
+                                            index: index as u64,
+                                            balance: *balance,
+                                            status,
+                                            validator: validator.clone(),
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>())
+                        })
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
 
     // GET beacon/states/{state_id}/validators/{validator_id}
     let get_beacon_state_validators_id = beacon_states_path
@@ -487,34 +599,29 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET beacon/states/{state_id}/committees/{epoch}
+    // GET beacon/states/{state_id}/committees?slot,index,epoch
     let get_beacon_state_committees = beacon_states_path
         .clone()
         .and(warp::path("committees"))
-        .and(warp::path::param::<Epoch>())
         .and(warp::query::<api_types::CommitteesQuery>())
         .and(warp::path::end())
         .and_then(
-            |state_id: StateId,
-             chain: Arc<BeaconChain<T>>,
-             epoch: Epoch,
-             query: api_types::CommitteesQuery| {
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
+                // the api spec says if the epoch is not present then the epoch of the state should be used
+                let query_state_id = query.epoch.map_or(state_id, |epoch| {
+                    StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                });
+
                 blocking_json_task(move || {
-                    state_id.map_state(&chain, |state| {
-                        let relative_epoch =
-                            RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(
-                                |_| {
-                                    warp_utils::reject::custom_bad_request(format!(
-                                        "state is epoch {} and only previous, current and next epochs are supported",
-                                        state.current_epoch()
-                                    ))
-                                },
-                            )?;
+                    query_state_id.map_state(&chain, |state| {
+                        let epoch = state.slot.epoch(T::EthSpec::slots_per_epoch());
 
                         let committee_cache = if state
-                            .committee_cache_is_initialized(relative_epoch)
+                            .committee_cache_is_initialized(RelativeEpoch::Current)
                         {
-                            state.committee_cache(relative_epoch).map(Cow::Borrowed)
+                            state
+                                .committee_cache(RelativeEpoch::Current)
+                                .map(Cow::Borrowed)
                         } else {
                             CommitteeCache::initialized(state, epoch, &chain.spec).map(Cow::Owned)
                         }
@@ -685,7 +792,7 @@ pub fn serve<T: BeaconChainTypes>(
      * beacon/blocks
      */
 
-    // POST beacon/blocks/{block_id}
+    // POST beacon/blocks
     let post_beacon_blocks = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
@@ -794,63 +901,119 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             attestation: Attestation<T::EthSpec>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             attestations: Vec<Attestation<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| {
                 blocking_json_task(move || {
-                    let attestation = chain
-                        .verify_unaggregated_attestation_for_gossip(attestation.clone(), None)
-                        .map_err(|e| {
-                            warp_utils::reject::object_invalid(format!(
-                                "gossip verification failed: {:?}",
-                                e
-                            ))
-                        })?;
+                    let mut failures = Vec::new();
 
-                    publish_pubsub_message(
-                        &network_tx,
-                        PubsubMessage::Attestation(Box::new((
-                            attestation.subnet_id(),
-                            attestation.attestation().clone(),
-                        ))),
-                    )?;
+                    for (index, attestation) in attestations.as_slice().iter().enumerate() {
+                        let attestation = match chain
+                            .verify_unaggregated_attestation_for_gossip(attestation.clone(), None)
+                        {
+                            Ok(attestation) => attestation,
+                            Err(e) => {
+                                error!(log,
+                                    "Failure verifying attestation for gossip";
+                                    "error" => ?e,
+                                    "request_index" => index,
+                                    "committee_index" => attestation.data.index,
+                                    "attestation_slot" => attestation.data.slot,
+                                );
+                                failures.push(api_types::Failure::new(
+                                    index,
+                                    format!("Verification: {:?}", e),
+                                ));
+                                // skip to the next attestation so we do not publish this one to gossip
+                                continue;
+                            }
+                        };
 
-                    chain
-                        .apply_attestation_to_fork_choice(&attestation)
-                        .map_err(|e| {
-                            warp_utils::reject::broadcast_without_import(format!(
-                                "not applied to fork choice: {:?}",
-                                e
-                            ))
-                        })?;
+                        publish_pubsub_message(
+                            &network_tx,
+                            PubsubMessage::Attestation(Box::new((
+                                attestation.subnet_id(),
+                                attestation.attestation().clone(),
+                            ))),
+                        )?;
 
-                    chain
-                        .add_to_naive_aggregation_pool(attestation)
-                        .map_err(|e| {
-                            warp_utils::reject::broadcast_without_import(format!(
-                                "not applied to naive aggregation pool: {:?}",
-                                e
-                            ))
-                        })?;
+                        let committee_index = attestation.attestation().data.index;
+                        let slot = attestation.attestation().data.slot;
 
-                    Ok(())
+                        if let Err(e) = chain.apply_attestation_to_fork_choice(&attestation) {
+                            error!(log,
+                                "Failure applying verified attestation to fork choice";
+                                "error" => ?e,
+                                "request_index" => index,
+                                "committee_index" => committee_index,
+                                "slot" => slot,
+                            );
+                            failures.push(api_types::Failure::new(
+                                index,
+                                format!("Fork choice: {:?}", e),
+                            ));
+                        };
+
+                        if let Err(e) = chain.add_to_naive_aggregation_pool(attestation) {
+                            error!(log,
+                                "Failure adding verified attestation to the naive aggregation pool";
+                                "error" => ?e,
+                                "request_index" => index,
+                                "committee_index" => committee_index,
+                                "slot" => slot,
+                            );
+                            failures.push(api_types::Failure::new(
+                                index,
+                                format!("Naive aggregation pool: {:?}", e),
+                            ));
+                        }
+                    }
+                    if failures.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::indexed_bad_request(
+                            "error processing attestations".to_string(),
+                            failures,
+                        ))
+                    }
                 })
             },
         );
 
-    // GET beacon/pool/attestations
+    // GET beacon/pool/attestations?committee_index,slot
     let get_beacon_pool_attestations = beacon_pool_path
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and_then(|chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || {
-                let mut attestations = chain.op_pool.get_all_attestations();
-                attestations.extend(chain.naive_aggregation_pool.read().iter().cloned());
-                Ok(api_types::GenericResponse::from(attestations))
-            })
-        });
+        .and(warp::query::<api_types::AttestationPoolQuery>())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>, query: api_types::AttestationPoolQuery| {
+                blocking_json_task(move || {
+                    let query_filter = |attestation: &Attestation<T::EthSpec>| {
+                        query
+                            .slot
+                            .map_or(true, |slot| slot == attestation.data.slot)
+                            && query
+                                .committee_index
+                                .map_or(true, |index| index == attestation.data.index)
+                    };
+
+                    let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
+                    attestations.extend(
+                        chain
+                            .naive_aggregation_pool
+                            .read()
+                            .iter()
+                            .cloned()
+                            .filter(query_filter),
+                    );
+                    Ok(api_types::GenericResponse::from(attestations))
+                })
+            },
+        );
 
     // POST beacon/pool/attester_slashings
     let post_beacon_pool_attester_slashings = beacon_pool_path
@@ -1104,10 +1267,28 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
+                let enr = network_globals.local_enr();
+                let p2p_addresses = enr.multiaddr_p2p_tcp();
+                let discovery_addresses = enr.multiaddr_p2p_udp();
                 Ok(api_types::GenericResponse::from(api_types::IdentityData {
                     peer_id: network_globals.local_peer_id().to_base58(),
-                    enr: network_globals.local_enr(),
-                    p2p_addresses: network_globals.listen_multiaddrs(),
+                    enr,
+                    p2p_addresses,
+                    discovery_addresses,
+                    metadata: api_types::MetaData {
+                        seq_number: network_globals.local_metadata.read().seq_number,
+                        attnets: format!(
+                            "0x{}",
+                            hex::encode(
+                                network_globals
+                                    .local_metadata
+                                    .read()
+                                    .attnets
+                                    .clone()
+                                    .into_bytes()
+                            ),
+                        ),
+                    },
                 }))
             })
         });
@@ -1157,22 +1338,360 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET node/health
+    let get_node_health = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            blocking_task(move || match *network_globals.sync_state.read() {
+                SyncState::SyncingFinalized { .. }
+                | SyncState::SyncingHead { .. }
+                | SyncState::SyncTransition => Ok(warp::reply::with_status(
+                    warp::reply(),
+                    warp::http::StatusCode::PARTIAL_CONTENT,
+                )),
+                SyncState::Synced => Ok(warp::reply::with_status(
+                    warp::reply(),
+                    warp::http::StatusCode::OK,
+                )),
+                SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                    "sync stalled, beacon chain may not yet be initialized.".to_string(),
+                )),
+            })
+        });
+
+    // GET node/peers/{peer_id}
+    let get_node_peers_by_id = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peers"))
+        .and(warp::path::param::<String>())
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(
+            |requested_peer_id: String, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                blocking_json_task(move || {
+                    let peer_id = PeerId::from_bytes(
+                        bs58::decode(requested_peer_id.as_str())
+                            .into_vec()
+                            .map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid peer id: {}",
+                                    e
+                                ))
+                            })?,
+                    )
+                    .map_err(|_| {
+                        warp_utils::reject::custom_bad_request("invalid peer id.".to_string())
+                    })?;
+
+                    if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
+                        let address = if let Some(socket_addr) =
+                            peer_info.seen_addresses.iter().next()
+                        {
+                            let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
+                            addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
+                            addr.to_string()
+                        } else if let Some(addr) = peer_info.listening_addresses.first() {
+                            addr.to_string()
+                        } else {
+                            String::new()
+                        };
+
+                        // the eth2 API spec implies only peers we have been connected to at some point should be included.
+                        if let Some(dir) = peer_info.connection_direction.as_ref() {
+                            return Ok(api_types::GenericResponse::from(api_types::PeerData {
+                                peer_id: peer_id.to_string(),
+                                enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                last_seen_p2p_address: address,
+                                direction: api_types::PeerDirection::from_connection_direction(
+                                    &dir,
+                                ),
+                                state: api_types::PeerState::from_peer_connection_status(
+                                    &peer_info.connection_status(),
+                                ),
+                            }));
+                        }
+                    }
+                    Err(warp_utils::reject::custom_not_found(
+                        "peer not found.".to_string(),
+                    ))
+                })
+            },
+        );
+
+    // GET node/peers
+    let get_node_peers = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peers"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::PeersQuery>())
+        .and(network_globals.clone())
+        .and_then(
+            |query: api_types::PeersQuery, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                blocking_json_task(move || {
+                    let mut peers: Vec<api_types::PeerData> = Vec::new();
+                    network_globals
+                        .peers
+                        .read()
+                        .peers()
+                        .for_each(|(peer_id, peer_info)| {
+                            let address =
+                                if let Some(socket_addr) = peer_info.seen_addresses.iter().next() {
+                                    let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
+                                    addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(
+                                        socket_addr.port(),
+                                    ));
+                                    addr.to_string()
+                                } else if let Some(addr) = peer_info.listening_addresses.first() {
+                                    addr.to_string()
+                                } else {
+                                    String::new()
+                                };
+
+                            // the eth2 API spec implies only peers we have been connected to at some point should be included.
+                            if let Some(dir) = peer_info.connection_direction.as_ref() {
+                                let direction =
+                                    api_types::PeerDirection::from_connection_direction(&dir);
+                                let state = api_types::PeerState::from_peer_connection_status(
+                                    &peer_info.connection_status(),
+                                );
+
+                                let state_matches = query.state.as_ref().map_or(true, |states| {
+                                    states.0.iter().any(|state_param| *state_param == state)
+                                });
+                                let direction_matches =
+                                    query.direction.as_ref().map_or(true, |directions| {
+                                        directions.0.iter().any(|dir_param| *dir_param == direction)
+                                    });
+
+                                if state_matches && direction_matches {
+                                    peers.push(api_types::PeerData {
+                                        peer_id: peer_id.to_string(),
+                                        enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                        last_seen_p2p_address: address,
+                                        direction,
+                                        state,
+                                    });
+                                }
+                            }
+                        });
+                    Ok(api_types::PeersData {
+                        meta: api_types::PeersMetaData {
+                            count: peers.len() as u64,
+                        },
+                        data: peers,
+                    })
+                })
+            },
+        );
+
+    // GET node/peer_count
+    let get_node_peer_count = eth1_v1
+        .and(warp::path("node"))
+        .and(warp::path("peer_count"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            blocking_json_task(move || {
+                let mut connected: u64 = 0;
+                let mut connecting: u64 = 0;
+                let mut disconnected: u64 = 0;
+                let mut disconnecting: u64 = 0;
+
+                network_globals
+                    .peers
+                    .read()
+                    .peers()
+                    .for_each(|(_, peer_info)| {
+                        let state = api_types::PeerState::from_peer_connection_status(
+                            &peer_info.connection_status(),
+                        );
+                        match state {
+                            api_types::PeerState::Connected => connected += 1,
+                            api_types::PeerState::Connecting => connecting += 1,
+                            api_types::PeerState::Disconnected => disconnected += 1,
+                            api_types::PeerState::Disconnecting => disconnecting += 1,
+                        }
+                    });
+
+                Ok(api_types::GenericResponse::from(api_types::PeerCount {
+                    disconnecting,
+                    connecting,
+                    connected,
+                    disconnected,
+                }))
+            })
+        });
     /*
      * validator
      */
 
-    // GET validator/duties/attester/{epoch}
-    let get_validator_duties_attester = eth1_v1
+    // GET validator/duties/proposer/{epoch}
+    let get_validator_duties_proposer = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("duties"))
+        .and(warp::path("proposer"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(chain_filter.clone())
+        .and(beacon_proposer_cache())
+        .and_then(
+            |epoch: Epoch,
+             chain: Arc<BeaconChain<T>>,
+             beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>| {
+                blocking_json_task(move || {
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    if epoch > current_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is ahead of the current epoch {}",
+                            epoch, current_epoch
+                        )));
+                    }
+
+                    if epoch == current_epoch {
+                        beacon_proposer_cache
+                            .lock()
+                            .get_proposers(&chain, epoch)
+                            .map(api_types::GenericResponse::from)
+                    } else {
+                        let state =
+                            StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                                .state(&chain)?;
+
+                        epoch
+                            .slot_iter(T::EthSpec::slots_per_epoch())
+                            .map(|slot| {
+                                state
+                                    .get_beacon_proposer_index(slot, &chain.spec)
+                                    .map_err(warp_utils::reject::beacon_state_error)
+                                    .and_then(|i| {
+                                        let pubkey =
+                                            chain.validator_pubkey(i)
+                                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                                .ok_or_else(||
+                                                    warp_utils::reject::beacon_chain_error(
+                                                        BeaconChainError::ValidatorPubkeyCacheIncomplete(i)
+                                                    )
+                                                )?;
+
+                                        Ok(api_types::ProposerData {
+                                            pubkey: PublicKeyBytes::from(pubkey),
+                                            validator_index: i as u64,
+                                            slot,
+                                        })
+                                    })
+                            })
+                            .collect::<Result<Vec<api_types::ProposerData>, _>>()
+                            .map(api_types::GenericResponse::from)
+                    }
+                })
+            },
+        );
+
+    // GET validator/blocks/{slot}
+    let get_validator_blocks = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("blocks"))
+        .and(warp::path::param::<Slot>())
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(chain_filter.clone())
+        .and_then(
+            |slot: Slot, query: api_types::ValidatorBlocksQuery, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "randao reveal is not valid BLS signature: {:?}",
+                            e
+                        ))
+                    })?;
+
+                    chain
+                        .produce_block(randao_reveal, slot, query.graffiti.map(Into::into))
+                        .map(|block_and_state| block_and_state.0)
+                        .map(api_types::GenericResponse::from)
+                        .map_err(warp_utils::reject::block_production_error)
+                })
+            },
+        );
+
+    // GET validator/attestation_data?slot,committee_index
+    let get_validator_attestation_data = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("attestation_data"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
+        .and(not_while_syncing_filter.clone())
+        .and(chain_filter.clone())
+        .and_then(
+            |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let current_slot = chain
+                        .slot()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    // allow a tolerance of one slot to account for clock skew
+                    if query.slot > current_slot + 1 {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request slot {} is more than one slot past the current slot {}",
+                            query.slot, current_slot
+                        )));
+                    }
+
+                    chain
+                        .produce_unaggregated_attestation(query.slot, query.committee_index)
+                        .map(|attestation| attestation.data)
+                        .map(api_types::GenericResponse::from)
+                        .map_err(warp_utils::reject::beacon_chain_error)
+                })
+            },
+        );
+
+    // GET validator/aggregate_attestation?attestation_data_root,slot
+    let get_validator_aggregate_attestation = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("aggregate_attestation"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
+        .and(not_while_syncing_filter.clone())
+        .and(chain_filter.clone())
+        .and_then(
+            |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    chain
+                        .get_aggregated_attestation_by_slot_and_root(
+                            query.slot,
+                            &query.attestation_data_root,
+                        )
+                        .map(api_types::GenericResponse::from)
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(
+                                "no matching aggregate found".to_string(),
+                            )
+                        })
+                })
+            },
+        );
+
+    // POST validator/duties/attester/{epoch}
+    let post_validator_duties_attester = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("attester"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(warp::query::<api_types::ValidatorDutiesQuery>())
+        .and(warp::body::json())
         .and(chain_filter.clone())
         .and_then(
-            |epoch: Epoch, query: api_types::ValidatorDutiesQuery, chain: Arc<BeaconChain<T>>| {
+            |epoch: Epoch, indices: api_types::ValidatorIndexData, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     let current_epoch = chain
                         .epoch()
@@ -1188,30 +1707,22 @@ pub fn serve<T: BeaconChainTypes>(
                     let validator_count = StateId::head()
                         .map_state(&chain, |state| Ok(state.validators.len() as u64))?;
 
-                    let indices = query
-                        .index
-                        .as_ref()
-                        .map(|index| index.0.clone())
-                        .map(Result::Ok)
-                        .unwrap_or_else(|| {
-                            Ok::<_, warp::Rejection>((0..validator_count).collect())
-                        })?;
-
                     let pubkeys = indices
-                        .into_iter()
-                        .filter(|i| *i < validator_count as u64)
+                        .0
+                        .iter()
+                        .filter(|i| **i < validator_count as u64)
                         .map(|i| {
                             let pubkey = chain
-                                .validator_pubkey(i as usize)
+                                .validator_pubkey(*i as usize)
                                 .map_err(warp_utils::reject::beacon_chain_error)?
                                 .ok_or_else(|| {
                                     warp_utils::reject::custom_bad_request(format!(
                                         "unknown validator index {}",
-                                        i
+                                        *i
                                     ))
                                 })?;
 
-                            Ok((i, pubkey))
+                            Ok((*i, pubkey))
                         })
                         .collect::<Result<Vec<_>, warp::Rejection>>()?;
 
@@ -1327,103 +1838,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET validator/duties/proposer/{epoch}
-    let get_validator_duties_proposer = eth1_v1
-        .and(warp::path("validator"))
-        .and(warp::path("duties"))
-        .and(warp::path("proposer"))
-        .and(warp::path::param::<Epoch>())
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(chain_filter.clone())
-        .and(beacon_proposer_cache())
-        .and_then(
-            |epoch: Epoch,
-             chain: Arc<BeaconChain<T>>,
-             beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>| {
-                blocking_json_task(move || {
-                    beacon_proposer_cache
-                        .lock()
-                        .get_proposers(&chain, epoch)
-                        .map(api_types::GenericResponse::from)
-                })
-            },
-        );
-
-    // GET validator/blocks/{slot}
-    let get_validator_blocks = eth1_v1
-        .and(warp::path("validator"))
-        .and(warp::path("blocks"))
-        .and(warp::path::param::<Slot>())
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(warp::query::<api_types::ValidatorBlocksQuery>())
-        .and(chain_filter.clone())
-        .and_then(
-            |slot: Slot, query: api_types::ValidatorBlocksQuery, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
-
-                    chain
-                        .produce_block(randao_reveal, slot, query.graffiti.map(Into::into))
-                        .map(|block_and_state| block_and_state.0)
-                        .map(api_types::GenericResponse::from)
-                        .map_err(warp_utils::reject::block_production_error)
-                })
-            },
-        );
-
-    // GET validator/attestation_data?slot,committee_index
-    let get_validator_attestation_data = eth1_v1
-        .and(warp::path("validator"))
-        .and(warp::path("attestation_data"))
-        .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
-        .and(not_while_syncing_filter.clone())
-        .and(chain_filter.clone())
-        .and_then(
-            |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    chain
-                        .produce_unaggregated_attestation(query.slot, query.committee_index)
-                        .map(|attestation| attestation.data)
-                        .map(api_types::GenericResponse::from)
-                        .map_err(warp_utils::reject::beacon_chain_error)
-                })
-            },
-        );
-
-    // GET validator/aggregate_attestation?attestation_data_root,slot
-    let get_validator_aggregate_attestation = eth1_v1
-        .and(warp::path("validator"))
-        .and(warp::path("aggregate_attestation"))
-        .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
-        .and(not_while_syncing_filter.clone())
-        .and(chain_filter.clone())
-        .and_then(
-            |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    chain
-                        .get_aggregated_attestation_by_slot_and_root(
-                            query.slot,
-                            &query.attestation_data_root,
-                        )
-                        .map(api_types::GenericResponse::from)
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(
-                                "no matching aggregate found".to_string(),
-                            )
-                        })
-                })
-            },
-        );
-
     // POST validator/aggregate_and_proofs
     let post_validator_aggregate_and_proofs = eth1_v1
         .and(warp::path("validator"))
@@ -1433,53 +1847,81 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             aggregate: SignedAggregateAndProof<T::EthSpec>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>, log: Logger| {
                 blocking_json_task(move || {
-                    let aggregate =
+                    let mut verified_aggregates = Vec::with_capacity(aggregates.len());
+                    let mut messages = Vec::with_capacity(aggregates.len());
+                    let mut failures = Vec::new();
+
+                    // Verify that all messages in the post are valid before processing further
+                    for (index, aggregate) in aggregates.as_slice().iter().enumerate() {
                         match chain.verify_aggregated_attestation_for_gossip(aggregate.clone()) {
-                            Ok(aggregate) => aggregate,
+                            Ok(verified_aggregate) => {
+                                messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
+                                    verified_aggregate.aggregate().clone(),
+                                )));
+                                verified_aggregates.push((index, verified_aggregate));
+                            }
                             // If we already know the attestation, don't broadcast it or attempt to
                             // further verify it. Return success.
                             //
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err(AttnError::AttestationAlreadyKnown(_)) => return Ok(()),
+                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
                             Err(e) => {
-                                return Err(warp_utils::reject::object_invalid(format!(
-                                    "gossip verification failed: {:?}",
-                                    e
-                                )))
-                            }
-                        };
+                                error!(log,
+                                    "Failure verifying aggregate and proofs";
+                                    "error" => format!("{:?}", e),
+                                    "request_index" => index,
+                                    "aggregator_index" => aggregate.message.aggregator_index,
+                                    "attestation_index" => aggregate.message.aggregate.data.index,
+                                    "attestation_slot" => aggregate.message.aggregate.data.slot,
+                                );
+                                failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
+                            },
+                        }
+                    }
 
-                    publish_pubsub_message(
-                        &network_tx,
-                        PubsubMessage::AggregateAndProofAttestation(Box::new(
-                            aggregate.aggregate().clone(),
-                        )),
-                    )?;
+                    // Publish aggregate attestations to the libp2p network
+                    if !messages.is_empty() {
+                        publish_network_message(&network_tx, NetworkMessage::Publish { messages })?;
+                    }
 
-                    chain
-                        .apply_attestation_to_fork_choice(&aggregate)
-                        .map_err(|e| {
-                            warp_utils::reject::broadcast_without_import(format!(
-                                "not applied to fork choice: {:?}",
-                                e
-                            ))
-                        })?;
+                    // Import aggregate attestations
+                    for (index, verified_aggregate) in verified_aggregates {
+                        if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
+                            error!(log,
+                                    "Failure applying verified aggregate attestation to fork choice";
+                                    "error" => format!("{:?}", e),
+                                    "request_index" => index,
+                                    "aggregator_index" => verified_aggregate.aggregate().message.aggregator_index,
+                                    "attestation_index" => verified_aggregate.attestation().data.index,
+                                    "attestation_slot" => verified_aggregate.attestation().data.slot,
+                                );
+                            failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
+                        }
+                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                            warn!(log,
+                                    "Could not add verified aggregate attestation to the inclusion pool";
+                                    "error" => format!("{:?}", e),
+                                    "request_index" => index,
+                                );
+                            failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
+                        }
+                    }
 
-                    chain.add_to_block_inclusion_pool(aggregate).map_err(|e| {
-                        warp_utils::reject::broadcast_without_import(format!(
-                            "not applied to block inclusion pool: {:?}",
-                            e
+                    if !failures.is_empty() {
+                        Err(warp_utils::reject::indexed_bad_request("error processing aggregate and proofs".to_string(),
+                            failures
                         ))
-                    })?;
-
-                    Ok(())
+                    } else {
+                        Ok(())
+                    }
                 })
             },
         );
@@ -1616,7 +2058,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::param::<Epoch>())
         .and(warp::path("global"))
         .and(warp::path::end())
-        .and(chain_filter)
+        .and(chain_filter.clone())
         .and_then(|epoch: Epoch, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 validator_inclusion::global_validator_inclusion_data(epoch, &chain)
@@ -1624,13 +2066,113 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/eth1/syncing
+    let get_lighthouse_eth1_syncing = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("syncing"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let head_info = chain
+                    .head_info()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_slot = chain
+                    .slot()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                chain
+                    .eth1_chain
+                    .as_ref()
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(
+                            "Eth1 sync is disabled. See the --eth1 CLI flag.".to_string(),
+                        )
+                    })
+                    .and_then(|eth1| {
+                        eth1.sync_status(head_info.genesis_time, current_slot, &chain.spec)
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "Unable to determine Eth1 sync status".to_string(),
+                                )
+                            })
+                    })
+                    .map(api_types::GenericResponse::from)
+            })
+        });
+
+    // GET lighthouse/eth1/block_cache
+    let get_lighthouse_eth1_block_cache = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("block_cache"))
+        .and(warp::path::end())
+        .and(eth1_service_filter.clone())
+        .and_then(|eth1_service: eth1::Service| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    eth1_service
+                        .blocks()
+                        .read()
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                ))
+            })
+        });
+
+    // GET lighthouse/eth1/deposit_cache
+    let get_lighthouse_eth1_deposit_cache = warp::path("lighthouse")
+        .and(warp::path("eth1"))
+        .and(warp::path("deposit_cache"))
+        .and(warp::path::end())
+        .and(eth1_service_filter)
+        .and_then(|eth1_service: eth1::Service| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    eth1_service
+                        .deposits()
+                        .read()
+                        .cache
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                ))
+            })
+        });
+
+    // GET lighthouse/beacon/states/{state_id}/ssz
+    let get_lighthouse_beacon_states_ssz = warp::path("lighthouse")
+        .and(warp::path("beacon"))
+        .and(warp::path("states"))
+        .and(warp::path::param::<StateId>())
+        .and(warp::path("ssz"))
+        .and(warp::path::end())
+        .and(chain_filter)
+        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
+            blocking_task(move || {
+                let state = state_id.state(&chain)?;
+                Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/ssz")
+                    .body(state.as_ssz_bytes())
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to create response: {}",
+                            e
+                        ))
+                    })
+            })
+        });
+
     // Define the ultimate set of routes that will be provided to the server.
     let routes = warp::get()
         .and(
             get_beacon_genesis
+                .boxed()
                 .or(get_beacon_state_root.boxed())
                 .or(get_beacon_state_fork.boxed())
                 .or(get_beacon_state_finality_checkpoints.boxed())
+                .or(get_beacon_state_validator_balances.boxed())
                 .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_validators_id.boxed())
                 .or(get_beacon_state_committees.boxed())
@@ -1651,7 +2193,10 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_node_identity.boxed())
                 .or(get_node_version.boxed())
                 .or(get_node_syncing.boxed())
-                .or(get_validator_duties_attester.boxed())
+                .or(get_node_health.boxed())
+                .or(get_node_peers_by_id.boxed())
+                .or(get_node_peers.boxed())
+                .or(get_node_peer_count.boxed())
                 .or(get_validator_duties_proposer.boxed())
                 .or(get_validator_blocks.boxed())
                 .or(get_validator_attestation_data.boxed())
@@ -1663,29 +2208,28 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_proto_array.boxed())
                 .or(get_lighthouse_validator_inclusion_global.boxed())
                 .or(get_lighthouse_validator_inclusion.boxed())
-                .boxed(),
+                .or(get_lighthouse_eth1_syncing.boxed())
+                .or(get_lighthouse_eth1_block_cache.boxed())
+                .or(get_lighthouse_eth1_deposit_cache.boxed())
+                .or(get_lighthouse_beacon_states_ssz.boxed()),
         )
-        .or(warp::post()
-            .and(
-                post_beacon_blocks
-                    .or(post_beacon_pool_attestations.boxed())
-                    .or(post_beacon_pool_attester_slashings.boxed())
-                    .or(post_beacon_pool_proposer_slashings.boxed())
-                    .or(post_beacon_pool_voluntary_exits.boxed())
-                    .or(post_validator_aggregate_and_proofs.boxed())
-                    .or(post_validator_beacon_committee_subscriptions.boxed())
-                    .boxed(),
-            )
-            .boxed())
-        .boxed()
-        // Maps errors into HTTP responses.
+        .or(warp::post().and(
+            post_beacon_blocks
+                .boxed()
+                .or(post_beacon_pool_attestations.boxed())
+                .or(post_beacon_pool_attester_slashings.boxed())
+                .or(post_beacon_pool_proposer_slashings.boxed())
+                .or(post_beacon_pool_voluntary_exits.boxed())
+                .or(post_validator_duties_attester.boxed())
+                .or(post_validator_aggregate_and_proofs.boxed())
+                .or(post_validator_beacon_committee_subscriptions.boxed()),
+        ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
         .with(prometheus_metrics())
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        // Maybe add some CORS headers.
-        .map(move |reply| warp_utils::reply::maybe_cors(reply, allow_origin.as_ref()));
+        .with(cors_builder.build());
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
         SocketAddrV4::new(config.listen_addr, config.listen_port),

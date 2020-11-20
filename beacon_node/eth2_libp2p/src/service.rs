@@ -9,22 +9,21 @@ use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction};
 use futures::prelude::*;
 use libp2p::core::{
-    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::boxed::Boxed,
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
 use libp2p::{
     core, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
-use slog::{crit, debug, info, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{Error, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -54,7 +53,7 @@ pub struct Service<TSpec: EthSpec> {
     pub local_peer_id: PeerId,
 
     /// The libp2p logger handle.
-    pub log: slog::Logger,
+    pub log: Logger,
 }
 
 impl<TSpec: EthSpec> Service<TSpec> {
@@ -62,7 +61,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
         executor: task_executor::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
-        log: &slog::Logger,
+        log: &Logger,
+        chain_spec: &ChainSpec,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
         trace!(log, "Libp2p Service starting");
@@ -105,8 +105,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
             let transport = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
-            let behaviour =
-                Behaviour::new(&local_keypair, config, network_globals.clone(), &log).await?;
+            let behaviour = Behaviour::new(
+                &local_keypair,
+                config,
+                network_globals.clone(),
+                &log,
+                chain_spec,
+            )
+            .await?;
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
@@ -200,6 +206,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         }
 
         let mut subscribed_topics: Vec<GossipKind> = vec![];
+
         for topic_kind in &config.topics {
             if swarm.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());
@@ -207,6 +214,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
             }
         }
+
         if !subscribed_topics.is_empty() {
             info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
         }
@@ -241,7 +249,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         self.swarm.report_peer(peer_id, action);
     }
 
-    // Disconnect and ban a peer, providing a reason.
+    /// Disconnect and ban a peer, providing a reason.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
         self.swarm.goodbye_peer(peer_id, reason);
     }
@@ -323,9 +331,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
 /// mplex as the multiplexing layer.
-fn build_transport(
-    local_private_key: Keypair,
-) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
+fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
     let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
@@ -333,15 +339,21 @@ fn build_transport(
         let trans_clone = transport.clone();
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
+
+    // mplex config
+    let mut mplex_config = libp2p::mplex::MplexConfig::new();
+    mplex_config.max_buffer_len(256);
+    mplex_config.max_buffer_len_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
+
     // Authentication
     Ok(transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(libp2p::mplex::MplexConfig::new())
-        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            libp2p::yamux::Config::default(),
+            mplex_config,
+        ))
         .timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(10))
-        .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed())
 }
 

@@ -1,6 +1,5 @@
 use slashing_protection::interchange::{
-    CompleteInterchangeData, Interchange, InterchangeFormat, InterchangeMetadata,
-    SignedAttestation, SignedBlock,
+    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation, SignedBlock,
 };
 use slashing_protection::interchange_test::TestCase;
 use slashing_protection::test_utils::{pubkey, DEFAULT_GENESIS_VALIDATORS_ROOT};
@@ -11,31 +10,54 @@ use types::{Epoch, Hash256, Slot};
 
 fn metadata(genesis_validators_root: Hash256) -> InterchangeMetadata {
     InterchangeMetadata {
-        interchange_format: InterchangeFormat::Complete,
         interchange_format_version: SUPPORTED_INTERCHANGE_FORMAT_VERSION,
         genesis_validators_root,
     }
 }
 
-#[allow(clippy::type_complexity)]
-fn interchange(data: Vec<(usize, Vec<u64>, Vec<(u64, u64)>)>) -> Interchange {
+type TestPubkey = usize;
+type TestBlocks = Vec<u64>;
+type TestBlocksWithRoots = Vec<(u64, Option<u64>)>;
+type TestAttestations = Vec<(u64, u64)>;
+type TestAttestationsWithRoots = Vec<(u64, u64, Option<u64>)>;
+
+fn interchange(data: Vec<(TestPubkey, TestBlocks, TestAttestations)>) -> Interchange {
     let data = data
         .into_iter()
-        .map(|(pk, blocks, attestations)| CompleteInterchangeData {
+        .map(|(pk, blocks, attestations)| {
+            (
+                pk,
+                blocks.into_iter().map(|slot| (slot, None)).collect(),
+                attestations
+                    .into_iter()
+                    .map(|(source, target)| (source, target, None))
+                    .collect(),
+            )
+        })
+        .collect();
+    interchange_with_signing_roots(data)
+}
+
+fn interchange_with_signing_roots(
+    data: Vec<(TestPubkey, TestBlocksWithRoots, TestAttestationsWithRoots)>,
+) -> Interchange {
+    let data = data
+        .into_iter()
+        .map(|(pk, blocks, attestations)| InterchangeData {
             pubkey: pubkey(pk),
             signed_blocks: blocks
                 .into_iter()
-                .map(|slot| SignedBlock {
+                .map(|(slot, signing_root)| SignedBlock {
                     slot: Slot::new(slot),
-                    signing_root: None,
+                    signing_root: signing_root.map(Hash256::from_low_u64_be),
                 })
                 .collect(),
             signed_attestations: attestations
                 .into_iter()
-                .map(|(source, target)| SignedAttestation {
+                .map(|(source, target, signing_root)| SignedAttestation {
                     source_epoch: Epoch::new(source),
                     target_epoch: Epoch::new(target),
-                    signing_root: None,
+                    signing_root: signing_root.map(Hash256::from_low_u64_be),
                 })
                 .collect(),
         })
@@ -110,11 +132,56 @@ fn main() {
             (0, 11, 12, true),
             (0, 20, 25, true),
         ]),
+        TestCase::new(
+            "single_validator_single_block_and_attestation_signing_root",
+            interchange_with_signing_roots(vec![(0, vec![(19, Some(1))], vec![(0, 1, Some(2))])]),
+        ),
+        TestCase::new(
+            "multiple_validators_multiple_blocks_and_attestations",
+            interchange(vec![
+                (
+                    0,
+                    vec![10, 15, 20],
+                    vec![(0, 1), (0, 2), (1, 3), (2, 4), (4, 5)],
+                ),
+                (
+                    1,
+                    vec![3, 4, 100],
+                    vec![(0, 0), (0, 1), (1, 2), (2, 5), (5, 6)],
+                ),
+                (2, vec![10, 15, 20], vec![(1, 2), (1, 3), (2, 4)]),
+            ]),
+        )
+        .with_blocks(vec![
+            (0, 9, false),
+            (0, 10, false),
+            (0, 21, true),
+            (0, 11, true),
+            (1, 2, false),
+            (1, 3, false),
+            (1, 0, false),
+            (1, 101, true),
+            (2, 9, false),
+            (2, 10, false),
+            (2, 22, true),
+        ])
+        .with_attestations(vec![
+            (0, 0, 5, false),
+            (0, 3, 6, false),
+            (0, 4, 6, true),
+            (0, 5, 7, true),
+            (0, 6, 8, true),
+            (1, 1, 7, false),
+            (1, 1, 4, true),
+            (1, 5, 7, true),
+            (2, 0, 0, false),
+            (2, 0, 1, false),
+            (2, 2, 5, true),
+        ]),
         TestCase::new("wrong_genesis_validators_root", interchange(vec![]))
             .gvr(Hash256::from_low_u64_be(1))
             .should_fail(),
     ];
-    // TODO: multi-validator test
 
     let args = std::env::args().collect::<Vec<_>>();
     let output_dir = Path::new(&args[1]);
