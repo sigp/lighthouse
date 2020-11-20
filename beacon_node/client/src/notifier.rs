@@ -184,15 +184,15 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "latest_cached_block_number" => status.latest_cached_block_number,
                         "latest_cached_timestamp" => status.latest_cached_block_timestamp,
                         "voting_target_timestamp" => status.voting_target_timestamp,
-                        "sync_percentage" => status.eth1_node_sync_status_percentage,
-                        "is_ok" => status.lighthouse_is_cached_and_ready
+                        "ready" => status.lighthouse_is_cached_and_ready
                     );
 
                     if !status.lighthouse_is_cached_and_ready {
                         warn!(
                             log,
                             "Syncing eth1 block cache";
-                            "sync_percentage" => status.eth1_node_sync_status_percentage,
+                            "target_timestamp" => status.voting_target_timestamp,
+                            "latest_timestamp" => status.latest_cached_block_timestamp,
                             "msg" => "block production impaired"
                         );
                     }
