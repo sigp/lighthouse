@@ -1929,6 +1929,7 @@ dependencies = [
  "state_processing",
  "task_executor",
  "tokio 0.3.4",
+ "tokio-compat-02",
  "toml",
  "tree_hash",
  "types",
