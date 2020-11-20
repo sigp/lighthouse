@@ -14,11 +14,7 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 #
 # Binaries will most likely be found in `./target/release`
 install:
-ifeq ($(TARGETPLATFORM), linux/arm64)
-	make build-aarch64-portable
-else
 	cargo install --path lighthouse --force --locked
-endif
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
