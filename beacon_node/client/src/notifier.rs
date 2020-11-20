@@ -193,7 +193,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             "Syncing eth1 block cache";
                             "target_timestamp" => status.voting_target_timestamp,
                             "latest_timestamp" => status.latest_cached_block_timestamp,
-                            "msg" => "block production impaired"
+                            "msg" => "block production temporarily impaired"
                         );
                     }
                 } else {
