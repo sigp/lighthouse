@@ -5,6 +5,7 @@ docker build --platform=local -o . git://github.com/docker/buildx;
 mkdir -p ~/.docker/cli-plugins;
 mv buildx ~/.docker/cli-plugins/docker-buildx;
 
+docker run --rm --privelaged multiarch/qemu-user-static --reset -p yes;
 docker buildx create --use --name cross-builder;
 
 # Build hook to run on Docker Hub to ensure that the image is built with `PORTABLE=true`.
