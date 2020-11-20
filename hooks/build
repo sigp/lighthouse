@@ -1,4 +1,16 @@
 #!/bin/bash
 
+export DOCKER_BUILDKIT=1;
+docker build --platform=local -o . git://github.com/docker/buildx;
+mkdir -p ~/.docker/cli-plugins;
+mv buildx ~/.docker/cli-plugins/docker-buildx;
+
+docker buildx create --use --name cross-builder;
+
 # Build hook to run on Docker Hub to ensure that the image is built with `PORTABLE=true`.
-docker build --build-arg PORTABLE=true -f $DOCKERFILE_PATH -t $IMAGE_NAME .
+docker buildx build \
+    --build-arg PORTABLE=true \
+    -f $DOCKERFILE_PATH \
+    -t $IMAGE_NAME \
+    --platform=linux/amd64,linux/arm64 .
+
