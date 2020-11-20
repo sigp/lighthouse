@@ -124,7 +124,7 @@ impl Config {
             E::SlotsPerEth1VotingPeriod::to_u64() * spec.milliseconds_per_slot / 1000;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
 
-        // Compute the number extra blocks we store prior to the voting period start blocks.
+        // Compute the number of extra blocks we store prior to the voting period start blocks.
         let follow_distance_tolerance_blocks =
             spec.eth1_follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;
 
