@@ -202,3 +202,91 @@ fn committee_topic_index(topic: &str) -> Option<SubnetId> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::GossipKind::*;
+    use super::*;
+
+    const GOOD_FORK_DIGEST: &str = "e1925f3b";
+    const BAD_PREFIX: &str = "tezos";
+    const BAD_FORK_DIGEST: &str = "e1925f3b4b";
+    const BAD_ENCODING: &str = "rlp";
+    const BAD_KIND: &str = "blocks";
+
+    fn topics() -> Vec<String> {
+        let mut topics = Vec::new();
+        let fork_digest: [u8; 4] = [1, 2, 3, 4];
+        for encoding in [GossipEncoding::SSZSnappy].iter() {
+            for kind in [
+                BeaconBlock,
+                BeaconAggregateAndProof,
+                Attestation(SubnetId::new(42)),
+                VoluntaryExit,
+                ProposerSlashing,
+                AttesterSlashing,
+            ]
+            .iter()
+            {
+                topics.push(GossipTopic::new(kind.clone(), encoding.clone(), fork_digest).into());
+            }
+        }
+        topics
+    }
+
+    fn create_topic(prefix: &str, fork_digest: &str, kind: &str, encoding: &str) -> String {
+        format!("/{}/{}/{}/{}", prefix, fork_digest, kind, encoding)
+    }
+
+    #[test]
+    fn test_decode() {
+        for topic in topics().iter() {
+            assert!(GossipTopic::decode(topic.as_str()).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_decode_malicious() {
+        let bad_prefix_str = create_topic(
+            BAD_PREFIX,
+            GOOD_FORK_DIGEST,
+            BEACON_BLOCK_TOPIC,
+            SSZ_SNAPPY_ENCODING_POSTFIX,
+        );
+        assert!(GossipTopic::decode(bad_prefix_str.as_str()).is_err());
+
+        let bad_digest_str = create_topic(
+            TOPIC_PREFIX,
+            BAD_FORK_DIGEST,
+            BEACON_BLOCK_TOPIC,
+            SSZ_SNAPPY_ENCODING_POSTFIX,
+        );
+        assert!(GossipTopic::decode(bad_digest_str.as_str()).is_err());
+
+        let bad_kind_str = create_topic(
+            TOPIC_PREFIX,
+            GOOD_FORK_DIGEST,
+            BAD_KIND,
+            SSZ_SNAPPY_ENCODING_POSTFIX,
+        );
+        assert!(GossipTopic::decode(bad_kind_str.as_str()).is_err());
+
+        let bad_encoding_str = create_topic(
+            TOPIC_PREFIX,
+            GOOD_FORK_DIGEST,
+            BEACON_BLOCK_TOPIC,
+            BAD_ENCODING,
+        );
+        assert!(GossipTopic::decode(bad_encoding_str.as_str()).is_err());
+
+        // Extra parts
+        assert!(
+            GossipTopic::decode("/eth2/e1925f3b/beacon_block/ssz_snappy/yolo").is_err(),
+            "should have exactly 5 parts"
+        );
+        // Empty string
+        assert!(GossipTopic::decode("").is_err());
+        // Empty parts
+        assert!(GossipTopic::decode("////").is_err());
+    }
+}

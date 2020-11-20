@@ -5,7 +5,7 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-pub mod processor;
+mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;

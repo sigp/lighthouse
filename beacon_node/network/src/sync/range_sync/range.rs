@@ -43,10 +43,9 @@ use super::chain::{ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
-use crate::router::processor::status_message;
+use crate::status::ToStatusMessage;
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::BatchProcessResult;
-use crate::sync::RequestId;
+use crate::sync::{BatchProcessResult, RequestId};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
 use eth2_libp2p::SyncInfo;
@@ -341,7 +340,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
         network.status_peers(self.beacon_chain.clone(), chain.peers());
 
-        let local = match status_message(&self.beacon_chain) {
+        let local = match self.beacon_chain.status_message() {
             Ok(status) => SyncInfo {
                 head_slot: status.head_slot,
                 head_root: status.head_root,
