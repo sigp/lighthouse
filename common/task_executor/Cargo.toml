@@ -11,3 +11,4 @@ futures = "0.3.7"
 exit-future = "0.2.0"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
+tokio-compat-02 = "0.1"

@@ -59,17 +59,13 @@ impl<E: EthSpec, S: 'static + Send + Sync> Handler<E, S> {
         let req = Request::from_parts(req_parts, body);
 
         // NOTE: The task executor now holds a weak reference to the global runtime. On shutdown
-        // there may be no runtime available.  Also the `spawn_blocking_handle` function bakes in
-        // the optional shutdown kill signal. So this task will be shutdown during lighthouse termination.
+        // there may be no runtime available.
         // All these edge cases must be handled here.
         let value = executor
             .spawn_blocking_handle(move || func(req, ctx), "remote_signer_request")
             .ok_or(ApiError::ServerError("Runtime does not exist".to_string()))?
             .await
-            .map_err(|_| ApiError::ServerError("Panic during execution".to_string()))?
-            .ok_or(ApiError::ServerError(
-                "The runtime was shutdown".to_string(),
-            ))??;
+            .map_err(|_| ApiError::ServerError("Panic during execution".to_string()))??;
 
         Ok(HandledRequest { value })
     }

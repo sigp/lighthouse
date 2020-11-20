@@ -5,6 +5,7 @@ use futures::prelude::*;
 use slog::{debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::Runtime;
+use tokio_compat_02::FutureExt;
 
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
@@ -62,7 +63,7 @@ impl TaskExecutor {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
             let int_gauge_1 = int_gauge.clone();
-            let future = future::select(Box::pin(task), exit).then(move |either| {
+            let future = future::select(Box::pin(task.compat()), exit).then(move |either| {
                 match either {
                     future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
                     future::Either::Right(_) => {
@@ -75,7 +76,6 @@ impl TaskExecutor {
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
-                let _guard = runtime.enter();
                 runtime.spawn(future);
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
@@ -99,10 +99,12 @@ impl TaskExecutor {
     ) {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             let int_gauge_1 = int_gauge.clone();
-            let future = task.then(move |_| {
-                int_gauge_1.dec();
-                futures::future::ready(())
-            });
+            let future = task
+                .then(move |_| {
+                    int_gauge_1.dec();
+                    futures::future::ready(())
+                })
+                .compat();
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
@@ -119,7 +121,6 @@ impl TaskExecutor {
     where
         F: FnOnce() + Send + 'static,
     {
-        let exit = self.exit.clone();
         let log = self.log.clone();
 
         if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
@@ -134,19 +135,14 @@ impl TaskExecutor {
                     return;
                 };
 
-                let future = future::select(join_handle, exit).then(move |either| {
-                    match either {
-                        future::Either::Left(_) => {
-                            trace!(log, "Blocking task completed"; "task" => name)
-                        }
-                        future::Either::Right(_) => {
-                            debug!(log, "Blocking task shutdown, exit received"; "task" => name)
-                        }
-                    }
+                let future = async move {
+                    match join_handle.await {
+                        Ok(_) => trace!(log, "Blocking task completed"; "task" => name),
+                        Err(e) => debug!(log, "Blocking task failed"; "error" => %e),
+                    };
                     timer.observe_duration();
                     int_gauge_1.dec();
-                    futures::future::ready(())
-                });
+                };
 
                 int_gauge.inc();
                 if let Some(runtime) = self.runtime.upgrade() {
@@ -190,7 +186,7 @@ impl TaskExecutor {
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
-                Some(runtime.spawn(future))
+                Some(runtime.spawn(future.compat()))
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
                 None
@@ -202,19 +198,19 @@ impl TaskExecutor {
 
     /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future returning
     /// a join handle to the future.
-    /// If the runtime doesn't exist, this will return None. If the future is exited before
-    /// completion awaiting the join handle will return None.
+    /// If the runtime doesn't exist, this will return None.
+    /// The Future returned behaves like the standard JoinHandle which can return an error if the
+    /// task failed.
     /// This function generates prometheus metrics on number of tasks and task duration.
     pub fn spawn_blocking_handle<F, R>(
         &self,
         task: F,
         name: &'static str,
-    ) -> Option<tokio::task::JoinHandle<Option<R>>>
+    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>>>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let exit = self.exit.clone();
         let log = self.log.clone();
 
         if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
@@ -229,35 +225,21 @@ impl TaskExecutor {
                     return None;
                 };
 
-                let future = future::select(join_handle, exit).then(move |either| {
-                    let future_result = match either {
-                        future::Either::Left((result, _)) => {
+                Some(async move {
+                    let result = match join_handle.await {
+                        Ok(result) => {
                             trace!(log, "Blocking task completed"; "task" => name);
-                            match result {
-                                Ok(result) => Some(result),
-                                Err(_) => {
-                                    debug!(log, "Blocking task ended unexpectedly");
-                                    None
-                                }
-                            }
+                            Ok(result)
                         }
-                        future::Either::Right(_) => {
-                            debug!(log, "Blocking task shutdown, exit received"; "task" => name);
-                            None
+                        Err(e) => {
+                            debug!(log, "Blocking task ended unexpectedly"; "error" => %e);
+                            Err(e)
                         }
                     };
                     timer.observe_duration();
                     int_gauge_1.dec();
-                    futures::future::ready(future_result)
-                });
-
-                int_gauge.inc();
-                if let Some(runtime) = self.runtime.upgrade() {
-                    Some(runtime.spawn(future))
-                } else {
-                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                    None
-                }
+                    result
+                })
             } else {
                 None
             }

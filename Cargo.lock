@@ -6548,6 +6548,7 @@ dependencies = [
  "lighthouse_metrics",
  "slog",
  "tokio 0.3.4",
+ "tokio-compat-02",
 ]
 
 [[package]]
