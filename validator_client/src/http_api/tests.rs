@@ -27,7 +27,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio_compat_02::FutureExt;
 
-const PASSWORD_BYTES: &[u8] = &[42, 13, 37];
+const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 
 type E = MainnetEthSpec;
 
