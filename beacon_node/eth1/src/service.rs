@@ -487,12 +487,12 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
 
-        let range = tokio_compat_02::FutureExt::compat(get_new_block_numbers(
+        let range = get_new_block_numbers(
             &endpoint,
             remote_highest_block_opt,
             next_required_block,
             follow_distance,
-        ))
+        )
         .await?;
 
         let block_number_chunks = if let Some(range) = range {
