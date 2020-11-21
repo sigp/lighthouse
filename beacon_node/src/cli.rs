@@ -38,6 +38,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("import-all-attestations")
+                .long("import-all-attestations")
+                .help("Import and aggregate all attestations, regardless of validator subscriptions. \
+                       This will only import attestations from already-subscribed subnets, use with \
+                       --subscribe-all-subnets to ensure all attestations are received for import.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
                 .short("z")
