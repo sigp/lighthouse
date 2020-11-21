@@ -153,7 +153,7 @@ pub struct Eth1SyncStatusData {
     pub head_block_timestamp: Option<u64>,
     pub latest_cached_block_number: Option<u64>,
     pub latest_cached_block_timestamp: Option<u64>,
-    pub voting_period_start_timestamp: u64,
+    pub voting_target_timestamp: u64,
     pub eth1_node_sync_status_percentage: f64,
     pub lighthouse_is_cached_and_ready: bool,
 }
