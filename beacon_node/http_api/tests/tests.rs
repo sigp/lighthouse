@@ -1808,7 +1808,7 @@ impl ApiTester {
     pub async fn test_get_lighthouse_staking(self) -> Self {
         let result = self.client.get_lighthouse_staking().await.unwrap();
 
-        assert_eq!(result, false);
+        assert_eq!(result, self.chain.eth1_chain.is_some());
 
         self
     }
