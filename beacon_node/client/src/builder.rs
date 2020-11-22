@@ -430,11 +430,11 @@ where
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_metrics::serve(ctx, exit)
-                .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+                .map_err(|e| format!("Unable to start HTTP metrics server: {:?}", e))?;
 
             runtime_context
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-api");
+                .spawn_without_exit(async move { server.await }, "http-metrics");
 
             Some(listen_addr)
         } else {

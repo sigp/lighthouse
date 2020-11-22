@@ -26,7 +26,7 @@ use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use slog::{crit, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_id::StateId;
@@ -116,7 +116,7 @@ pub fn slog_logging(
                     || status == StatusCode::NOT_FOUND
                     || status == StatusCode::PARTIAL_CONTENT =>
             {
-                trace!(
+                debug!(
                     log,
                     "Processed HTTP API request";
                     "elapsed" => format!("{:?}", info.elapsed()),
