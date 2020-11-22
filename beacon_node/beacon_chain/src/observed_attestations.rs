@@ -1,7 +1,6 @@
 //! Provides an `ObservedAttestations` struct which allows us to reject aggregated attestations if
 //! we've already seen the aggregated attestation.
 
-use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -116,16 +115,16 @@ impl SlotHashSet {
 /// Stores the roots of `Attestation` objects for some number of `Slots`, so we can determine if
 /// these have previously been seen on the network.
 pub struct ObservedAttestations<E: EthSpec> {
-    lowest_permissible_slot: RwLock<Slot>,
-    sets: RwLock<Vec<SlotHashSet>>,
+    lowest_permissible_slot: Slot,
+    sets: Vec<SlotHashSet>,
     _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> Default for ObservedAttestations<E> {
     fn default() -> Self {
         Self {
-            lowest_permissible_slot: RwLock::new(Slot::new(0)),
-            sets: RwLock::new(vec![]),
+            lowest_permissible_slot: Slot::new(0),
+            sets: vec![],
             _phantom: PhantomData,
         }
     }
@@ -136,7 +135,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
     ///
     /// `root` must equal `a.tree_hash_root()`.
     pub fn observe_attestation(
-        &self,
+        &mut self,
         a: &Attestation<E>,
         root_opt: Option<Hash256>,
     ) -> Result<ObserveOutcome, Error> {
@@ -144,7 +143,6 @@ impl<E: EthSpec> ObservedAttestations<E> {
         let root = root_opt.unwrap_or_else(|| a.tree_hash_root());
 
         self.sets
-            .write()
             .get_mut(index)
             .ok_or_else(|| Error::InvalidSetIndex(index))
             .and_then(|set| set.observe_attestation(a, root))
@@ -153,11 +151,10 @@ impl<E: EthSpec> ObservedAttestations<E> {
     /// Check to see if the `root` of `a` is in self.
     ///
     /// `root` must equal `a.tree_hash_root()`.
-    pub fn is_known(&self, a: &Attestation<E>, root: Hash256) -> Result<bool, Error> {
+    pub fn is_known(&mut self, a: &Attestation<E>, root: Hash256) -> Result<bool, Error> {
         let index = self.get_set_index(a.data.slot)?;
 
         self.sets
-            .read()
             .get(index)
             .ok_or_else(|| Error::InvalidSetIndex(index))
             .and_then(|set| set.is_known(a, root))
@@ -172,23 +169,21 @@ impl<E: EthSpec> ObservedAttestations<E> {
 
     /// Removes any attestations with a slot lower than `current_slot` and bars any future
     /// attestations with a slot lower than `current_slot - SLOTS_RETAINED`.
-    pub fn prune(&self, current_slot: Slot) {
+    pub fn prune(&mut self, current_slot: Slot) {
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_slot = current_slot - (self.max_capacity() - 1);
 
-        self.sets
-            .write()
-            .retain(|set| set.slot >= lowest_permissible_slot);
+        self.sets.retain(|set| set.slot >= lowest_permissible_slot);
 
-        *self.lowest_permissible_slot.write() = lowest_permissible_slot;
+        self.lowest_permissible_slot = lowest_permissible_slot;
     }
 
     /// Returns the index of `self.set` that matches `slot`.
     ///
     /// If there is no existing set for this slot one will be created. If `self.sets.len() >=
     /// Self::max_capacity()`, the set with the lowest slot will be replaced.
-    fn get_set_index(&self, slot: Slot) -> Result<usize, Error> {
-        let lowest_permissible_slot: Slot = *self.lowest_permissible_slot.read();
+    fn get_set_index(&mut self, slot: Slot) -> Result<usize, Error> {
+        let lowest_permissible_slot = self.lowest_permissible_slot;
 
         if slot < lowest_permissible_slot {
             return Err(Error::SlotTooLow {
@@ -202,15 +197,14 @@ impl<E: EthSpec> ObservedAttestations<E> {
             self.prune(slot)
         }
 
-        let mut sets = self.sets.write();
-
-        if let Some(index) = sets.iter().position(|set| set.slot == slot) {
+        if let Some(index) = self.sets.iter().position(|set| set.slot == slot) {
             return Ok(index);
         }
 
         // To avoid re-allocations, try and determine a rough initial capacity for the new set
         // by obtaining the mean size of all items in earlier epoch.
-        let (count, sum) = sets
+        let (count, sum) = self
+            .sets
             .iter()
             // Only include slots that are less than the given slot in the average. This should
             // generally avoid including recent slots that are still "filling up".
@@ -222,20 +216,21 @@ impl<E: EthSpec> ObservedAttestations<E> {
         // but considering it's approx. 128 * 32 bytes we're not wasting much.
         let initial_capacity = sum.checked_div(count).unwrap_or(128);
 
-        if sets.len() < self.max_capacity() as usize || sets.is_empty() {
-            let index = sets.len();
-            sets.push(SlotHashSet::new(slot, initial_capacity));
+        if self.sets.len() < self.max_capacity() as usize || self.sets.is_empty() {
+            let index = self.sets.len();
+            self.sets.push(SlotHashSet::new(slot, initial_capacity));
             return Ok(index);
         }
 
-        let index = sets
+        let index = self
+            .sets
             .iter()
             .enumerate()
             .min_by_key(|(_i, set)| set.slot)
             .map(|(i, _set)| i)
             .expect("sets cannot be empty due to previous .is_empty() check");
 
-        sets[index] = SlotHashSet::new(slot, initial_capacity);
+        self.sets[index] = SlotHashSet::new(slot, initial_capacity);
 
         Ok(index)
     }
@@ -259,7 +254,7 @@ mod tests {
         a
     }
 
-    fn single_slot_test(store: &ObservedAttestations<E>, slot: Slot) {
+    fn single_slot_test(store: &mut ObservedAttestations<E>, slot: Slot) {
         let attestations = (0..NUM_ELEMENTS as u64)
             .map(|i| get_attestation(slot, i))
             .collect::<Vec<_>>();
@@ -293,17 +288,13 @@ mod tests {
 
     #[test]
     fn single_slot() {
-        let store = ObservedAttestations::default();
+        let mut store = ObservedAttestations::default();
 
-        single_slot_test(&store, Slot::new(0));
+        single_slot_test(&mut store, Slot::new(0));
 
+        assert_eq!(store.sets.len(), 1, "should have a single set stored");
         assert_eq!(
-            store.sets.read().len(),
-            1,
-            "should have a single set stored"
-        );
-        assert_eq!(
-            store.sets.read()[0].len(),
+            store.sets[0].len(),
             NUM_ELEMENTS,
             "set should have NUM_ELEMENTS elements"
         );
@@ -311,13 +302,13 @@ mod tests {
 
     #[test]
     fn mulitple_contiguous_slots() {
-        let store = ObservedAttestations::default();
+        let mut store = ObservedAttestations::default();
         let max_cap = store.max_capacity();
 
         for i in 0..max_cap * 3 {
             let slot = Slot::new(i);
 
-            single_slot_test(&store, slot);
+            single_slot_test(&mut store, slot);
 
             /*
              * Ensure that the number of sets is correct.
@@ -325,14 +316,14 @@ mod tests {
 
             if i < max_cap {
                 assert_eq!(
-                    store.sets.read().len(),
+                    store.sets.len(),
                     i as usize + 1,
                     "should have a {} sets stored",
                     i + 1
                 );
             } else {
                 assert_eq!(
-                    store.sets.read().len(),
+                    store.sets.len(),
                     max_cap as usize,
                     "should have max_capacity sets stored"
                 );
@@ -342,7 +333,7 @@ mod tests {
              * Ensure that each set contains the correct number of elements.
              */
 
-            for set in &store.sets.read()[..] {
+            for set in &store.sets[..] {
                 assert_eq!(
                     set.len(),
                     NUM_ELEMENTS,
@@ -354,12 +345,7 @@ mod tests {
              *  Ensure that all the sets have the expected slots
              */
 
-            let mut store_slots = store
-                .sets
-                .read()
-                .iter()
-                .map(|set| set.slot)
-                .collect::<Vec<_>>();
+            let mut store_slots = store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
 
             assert!(
                 store_slots.len() <= store.max_capacity() as usize,
@@ -378,7 +364,7 @@ mod tests {
 
     #[test]
     fn mulitple_non_contiguous_slots() {
-        let store = ObservedAttestations::default();
+        let mut store = ObservedAttestations::default();
         let max_cap = store.max_capacity();
 
         let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
@@ -394,13 +380,13 @@ mod tests {
 
             let slot = Slot::from(i);
 
-            single_slot_test(&store, slot);
+            single_slot_test(&mut store, slot);
 
             /*
              * Ensure that each set contains the correct number of elements.
              */
 
-            for set in &store.sets.read()[..] {
+            for set in &store.sets[..] {
                 assert_eq!(
                     set.len(),
                     NUM_ELEMENTS,
@@ -412,12 +398,7 @@ mod tests {
              *  Ensure that all the sets have the expected slots
              */
 
-            let mut store_slots = store
-                .sets
-                .read()
-                .iter()
-                .map(|set| set.slot)
-                .collect::<Vec<_>>();
+            let mut store_slots = store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
 
             store_slots.sort_unstable();
 
@@ -426,7 +407,7 @@ mod tests {
                 "store size should not exceed max"
             );
 
-            let lowest = store.lowest_permissible_slot.read().as_u64();
+            let lowest = store.lowest_permissible_slot.as_u64();
             let highest = slot.as_u64();
             let expected_slots = (lowest..=highest)
                 .filter(|i| !to_skip.contains(i))

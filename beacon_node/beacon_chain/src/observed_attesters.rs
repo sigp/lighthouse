@@ -7,7 +7,6 @@
 //!   the same epoch
 
 use bitvec::vec::BitVec;
-use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{Attestation, Epoch, EthSpec, Unsigned};
@@ -148,16 +147,16 @@ impl Item for EpochHashSet {
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
 pub struct AutoPruningContainer<T, E: EthSpec> {
-    lowest_permissible_epoch: RwLock<Epoch>,
-    items: RwLock<HashMap<Epoch, T>>,
+    lowest_permissible_epoch: Epoch,
+    items: HashMap<Epoch, T>,
     _phantom: PhantomData<E>,
 }
 
 impl<T, E: EthSpec> Default for AutoPruningContainer<T, E> {
     fn default() -> Self {
         Self {
-            lowest_permissible_epoch: RwLock::new(Epoch::new(0)),
-            items: RwLock::new(HashMap::new()),
+            lowest_permissible_epoch: Epoch::new(0),
+            items: HashMap::new(),
             _phantom: PhantomData,
         }
     }
@@ -172,7 +171,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
     pub fn observe_validator(
-        &self,
+        &mut self,
         a: &Attestation<E>,
         validator_index: usize,
     ) -> Result<bool, Error> {
@@ -182,14 +181,13 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
 
         self.prune(epoch);
 
-        let mut items = self.items.write();
-
-        if let Some(item) = items.get_mut(&epoch) {
+        if let Some(item) = self.items.get_mut(&epoch) {
             Ok(item.insert(validator_index))
         } else {
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
             // by obtaining the mean size of all items in earlier epoch.
-            let (count, sum) = items
+            let (count, sum) = self
+                .items
                 .iter()
                 // Only include epochs that are less than the given slot in the average. This should
                 // generally avoid including recent epochs that are still "filling up".
@@ -201,7 +199,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
 
             let mut item = T::with_capacity(initial_capacity);
             item.insert(validator_index);
-            items.insert(epoch, item);
+            self.items.insert(epoch, item);
 
             Ok(false)
         }
@@ -223,7 +221,6 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
 
         let exists = self
             .items
-            .read()
             .get(&a.data.target.epoch)
             .map_or(false, |item| item.contains(validator_index));
 
@@ -233,10 +230,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
     /// Returns the number of validators that have been observed at the given `epoch`. Returns
     /// `None` if `self` does not have a cache for that epoch.
     pub fn observed_validator_count(&self, epoch: Epoch) -> Option<usize> {
-        self.items
-            .read()
-            .get(&epoch)
-            .map(|item| item.validator_count())
+        self.items.get(&epoch).map(|item| item.validator_count())
     }
 
     fn sanitize_request(&self, a: &Attestation<E>, validator_index: usize) -> Result<(), Error> {
@@ -245,7 +239,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         }
 
         let epoch = a.data.target.epoch;
-        let lowest_permissible_epoch: Epoch = *self.lowest_permissible_epoch.read();
+        let lowest_permissible_epoch = self.lowest_permissible_epoch;
         if epoch < lowest_permissible_epoch {
             return Err(Error::EpochTooLow {
                 epoch,
@@ -270,14 +264,13 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
     ///
     /// Also sets `self.lowest_permissible_epoch` with relation to `current_epoch` and
     /// `Self::max_capacity`.
-    pub fn prune(&self, current_epoch: Epoch) {
+    pub fn prune(&mut self, current_epoch: Epoch) {
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_epoch = current_epoch - (self.max_capacity().saturating_sub(1));
 
-        *self.lowest_permissible_epoch.write() = lowest_permissible_epoch;
+        self.lowest_permissible_epoch = lowest_permissible_epoch;
 
         self.items
-            .write()
             .retain(|epoch, _item| *epoch >= lowest_permissible_epoch);
     }
 }
@@ -301,7 +294,7 @@ mod tests {
                     a
                 }
 
-                fn single_epoch_test(store: &$type<E>, epoch: Epoch) {
+                fn single_epoch_test(store: &mut $type<E>, epoch: Epoch) {
                     let attesters = [0, 1, 2, 3, 5, 6, 7, 18, 22];
                     let a = &get_attestation(epoch);
 
@@ -334,26 +327,22 @@ mod tests {
 
                 #[test]
                 fn single_epoch() {
-                    let store = $type::default();
+                    let mut store = $type::default();
 
-                    single_epoch_test(&store, Epoch::new(0));
+                    single_epoch_test(&mut store, Epoch::new(0));
 
-                    assert_eq!(
-                        store.items.read().len(),
-                        1,
-                        "should have a single bitfield stored"
-                    );
+                    assert_eq!(store.items.len(), 1, "should have a single bitfield stored");
                 }
 
                 #[test]
                 fn mulitple_contiguous_epochs() {
-                    let store = $type::default();
+                    let mut store = $type::default();
                     let max_cap = store.max_capacity();
 
                     for i in 0..max_cap * 3 {
                         let epoch = Epoch::new(i);
 
-                        single_epoch_test(&store, epoch);
+                        single_epoch_test(&mut store, epoch);
 
                         /*
                          * Ensure that the number of sets is correct.
@@ -361,14 +350,14 @@ mod tests {
 
                         if i < max_cap {
                             assert_eq!(
-                                store.items.read().len(),
+                                store.items.len(),
                                 i as usize + 1,
                                 "should have a {} items stored",
                                 i + 1
                             );
                         } else {
                             assert_eq!(
-                                store.items.read().len(),
+                                store.items.len(),
                                 max_cap as usize,
                                 "should have max_capacity items stored"
                             );
@@ -380,7 +369,6 @@ mod tests {
 
                         let mut store_epochs = store
                             .items
-                            .read()
                             .iter()
                             .map(|(epoch, _set)| *epoch)
                             .collect::<Vec<_>>();
@@ -402,7 +390,7 @@ mod tests {
 
                 #[test]
                 fn mulitple_non_contiguous_epochs() {
-                    let store = $type::default();
+                    let mut store = $type::default();
                     let max_cap = store.max_capacity();
 
                     let to_skip = vec![1_u64, 3, 4, 5];
@@ -418,7 +406,7 @@ mod tests {
 
                         let epoch = Epoch::from(i);
 
-                        single_epoch_test(&store, epoch);
+                        single_epoch_test(&mut store, epoch);
 
                         /*
                          *  Ensure that all the sets have the expected slots
@@ -426,7 +414,6 @@ mod tests {
 
                         let mut store_epochs = store
                             .items
-                            .read()
                             .iter()
                             .map(|(epoch, _)| *epoch)
                             .collect::<Vec<_>>();
@@ -438,7 +425,7 @@ mod tests {
                             "store size should not exceed max"
                         );
 
-                        let lowest = store.lowest_permissible_epoch.read().as_u64();
+                        let lowest = store.lowest_permissible_epoch.as_u64();
                         let highest = epoch.as_u64();
                         let expected_epochs = (lowest..=highest)
                             .filter(|i| !to_skip.contains(i))

@@ -31,7 +31,7 @@ use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
@@ -181,20 +181,21 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
     pub naive_aggregation_pool: RwLock<NaiveAggregationPool<T::EthSpec>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
-    pub observed_attestations: ObservedAttestations<T::EthSpec>,
+    pub(crate) observed_attestations: RwLock<ObservedAttestations<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
-    pub observed_attesters: ObservedAttesters<T::EthSpec>,
+    pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
-    pub observed_aggregators: ObservedAggregators<T::EthSpec>,
+    pub(crate) observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
-    pub observed_block_producers: ObservedBlockProducers<T::EthSpec>,
+    pub(crate) observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
-    pub observed_voluntary_exits: ObservedOperations<SignedVoluntaryExit, T::EthSpec>,
+    pub(crate) observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
-    pub observed_proposer_slashings: ObservedOperations<ProposerSlashing, T::EthSpec>,
+    pub(crate) observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashing, T::EthSpec>>,
     /// Maintains a record of which validators we've seen attester slashings for.
-    pub observed_attester_slashings: ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>,
+    pub(crate) observed_attester_slashings:
+        Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
@@ -1158,9 +1159,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ObservationOutcome<SignedVoluntaryExit>, Error> {
         // NOTE: this could be more efficient if it avoided cloning the head state
         let wall_clock_state = self.wall_clock_state()?;
-        Ok(self
-            .observed_voluntary_exits
-            .verify_and_observe(exit, &wall_clock_state, &self.spec)?)
+        Ok(self.observed_voluntary_exits.lock().verify_and_observe(
+            exit,
+            &wall_clock_state,
+            &self.spec,
+        )?)
     }
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
@@ -1176,7 +1179,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposer_slashing: ProposerSlashing,
     ) -> Result<ObservationOutcome<ProposerSlashing>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
-        Ok(self.observed_proposer_slashings.verify_and_observe(
+        Ok(self.observed_proposer_slashings.lock().verify_and_observe(
             proposer_slashing,
             &wall_clock_state,
             &self.spec,
@@ -1196,7 +1199,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         attester_slashing: AttesterSlashing<T::EthSpec>,
     ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
-        Ok(self.observed_attester_slashings.verify_and_observe(
+        Ok(self.observed_attester_slashings.lock().verify_and_observe(
             attester_slashing,
             &wall_clock_state,
             &self.spec,
@@ -1506,7 +1509,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
         for a in &signed_block.message.body.attestations {
-            match self.observed_attestations.observe_attestation(a, None) {
+            match self
+                .observed_attestations
+                .write()
+                .observe_attestation(a, None)
+            {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
                 //
@@ -2091,7 +2098,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.fork_choice.write().prune()?;
         let new_finalized_checkpoint = head_state.finalized_checkpoint;
 
-        self.observed_block_producers.prune(
+        self.observed_block_producers.write().prune(
             new_finalized_checkpoint
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
