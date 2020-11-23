@@ -1,24 +1,4 @@
 #!/bin/bash
 
-export DOCKER_CLI_EXPERIMENTAL=enabled;
-export DOCKER_BUILDKIT=1;
-docker build --platform=local -o . git://github.com/docker/buildx;
-mkdir -p ~/.docker/cli-plugins;
-mv buildx ~/.docker/cli-plugins/docker-buildx;
-
-docker version;
-docker info;
-ls -al /proc/sys/fs/binfmt_misc/;
-
-docker run --privileged --rm tonistiigi/binfmt --install arm64;
-docker buildx rm cross-builder;
-docker buildx create --use --name cross-builder;
-
-docker buildx inspect --bootstrap;
-
 # Build hook to run on Docker Hub to ensure that the image is built with `PORTABLE=true`.
-docker buildx build \
-    --build-arg PORTABLE=true \
-    -f $DOCKERFILE_PATH \
-    -t $IMAGE_NAME \
-    --platform=linux/amd64,linux/arm64 .
+docker build --build-arg PORTABLE=true -f $DOCKERFILE_PATH -t $IMAGE_NAME .
