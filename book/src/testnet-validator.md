@@ -16,7 +16,7 @@ Lighthouse supports the "mainnet" network and four test networks:
 - [Spadina](https://github.com/goerli/medalla/tree/master/spadina) (deprecated)
 - [Altona](https://github.com/goerli/medalla/tree/master/altona) (deprecated)
 
-When using Lighthouse, the `--` flag selects a network. E.g.,
+When using Lighthouse, the `--network` flag selects a network. E.g.,
 
 - `lighthouse` (no flag): Medalla.
 - `lighthouse --network mainnet`: Mainnet.
