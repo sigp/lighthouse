@@ -93,7 +93,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     current_processing_batch: Option<BatchId>,
 
     /// Batches validated by this chain.
-    validated_batches: u8,
+    validated_batches: u64,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: Sender<BeaconWorkEvent<T::EthSpec>>,
@@ -167,7 +167,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Progress in epochs made by the chain
     pub fn validated_epochs(&self) -> u64 {
-        self.validated_batches as u64 * EPOCHS_PER_BATCH
+        self.validated_batches * EPOCHS_PER_BATCH
     }
 
     /// Removes a peer from the chain.
@@ -1038,7 +1038,7 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
         )?;
         serializer.emit_usize("batches", self.batches.len())?;
         serializer.emit_usize("peers", self.peers.len())?;
-        serializer.emit_u8("validated_batches", self.validated_batches)?;
+        serializer.emit_u64("validated_batches", self.validated_batches)?;
         serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }
