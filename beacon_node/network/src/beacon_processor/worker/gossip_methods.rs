@@ -1,31 +1,47 @@
-use super::{
-    chain_segment::{handle_chain_segment, ProcessId},
-    BlockResultSender,
-};
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId};
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn};
 use ssz::Encode;
-use std::sync::Arc;
-use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
-/// Contains the context necessary to import blocks, attestations, etc to the beacon chain.
-pub struct Worker<T: BeaconChainTypes> {
-    pub chain: Arc<BeaconChain<T>>,
-    pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    pub log: Logger,
-}
+use super::Worker;
 
 impl<T: BeaconChainTypes> Worker<T> {
+    /* Auxiliary functions */
+
+    /// Penalizes a peer for misbehaviour.
+    fn penalize_peer(&self, peer_id: PeerId, action: PeerAction) {
+        self.send_network_message(NetworkMessage::ReportPeer { peer_id, action })
+    }
+
+    /// Send a message on `message_tx` that the `message_id` sent by `peer_id` should be propagated on
+    /// the gossip network.
+    ///
+    /// Creates a log if there is an internal error.
+    /// Propagates the result of the validation for the given message to the network. If the result
+    /// is valid the message gets forwarded to other peers.
+    fn propagate_validation_result(
+        &self,
+        message_id: MessageId,
+        propagation_source: PeerId,
+        validation_result: MessageAcceptance,
+    ) {
+        self.send_network_message(NetworkMessage::ValidationResult {
+            propagation_source,
+            message_id,
+            validation_result,
+        })
+    }
+
+    /* Processing functions */
+
     /// Process the unaggregated attestation received from the gossip network and:
     ///
     /// - If it passes gossip propagation criteria, tell the network thread to forward it.
@@ -76,17 +92,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                     debug!(
                         self.log,
                         "Attestation invalid for fork choice";
-                        "reason" => format!("{:?}", e),
-                        "peer" => peer_id.to_string(),
-                        "beacon_block_root" => format!("{:?}", beacon_block_root)
+                        "reason" => ?e,
+                        "peer" => %peer_id,
+                        "beacon_block_root" => ?beacon_block_root
                     )
                 }
                 e => error!(
                     self.log,
                     "Error applying attestation to fork choice";
-                    "reason" => format!("{:?}", e),
-                    "peer" => peer_id.to_string(),
-                    "beacon_block_root" => format!("{:?}", beacon_block_root)
+                    "reason" => ?e,
+                    "peer" => %peer_id,
+                    "beacon_block_root" => ?beacon_block_root
                 ),
             }
         }
@@ -95,9 +111,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             debug!(
                 self.log,
                 "Attestation invalid for agg pool";
-                "reason" => format!("{:?}", e),
-                "peer" => peer_id.to_string(),
-                "beacon_block_root" => format!("{:?}", beacon_block_root)
+                "reason" => ?e,
+                "peer" => %peer_id,
+                "beacon_block_root" => ?beacon_block_root
             )
         }
 
@@ -149,17 +165,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                     debug!(
                         self.log,
                         "Aggregate invalid for fork choice";
-                        "reason" => format!("{:?}", e),
-                        "peer" => peer_id.to_string(),
-                        "beacon_block_root" => format!("{:?}", beacon_block_root)
+                        "reason" => ?e,
+                        "peer" => %peer_id,
+                        "beacon_block_root" => ?beacon_block_root
                     )
                 }
                 e => error!(
                     self.log,
                     "Error applying aggregate to fork choice";
-                    "reason" => format!("{:?}", e),
-                    "peer" => peer_id.to_string(),
-                    "beacon_block_root" => format!("{:?}", beacon_block_root)
+                    "reason" => ?e,
+                    "peer" => %peer_id,
+                    "beacon_block_root" => ?beacon_block_root
                 ),
             }
         }
@@ -168,9 +184,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             debug!(
                 self.log,
                 "Attestation invalid for op pool";
-                "reason" => format!("{:?}", e),
-                "peer" => peer_id.to_string(),
-                "beacon_block_root" => format!("{:?}", beacon_block_root)
+                "reason" => ?e,
+                "peer" => %peer_id,
+                "beacon_block_root" => ?beacon_block_root
             )
         }
 
@@ -255,7 +271,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 trace!(
                     self.log,
                     "Gossipsub block processed";
-                    "peer_id" => peer_id.to_string()
+                    "peer_id" => %peer_id
                 );
 
                 // The `MessageHandler` would be the place to put this, however it doesn't seem
@@ -270,7 +286,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     Err(e) => error!(
                         self.log,
                         "Fork choice failed";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                         "location" => "block gossip"
                     ),
                 }
@@ -281,7 +297,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 error!(
                     self.log,
                     "Block with unknown parent attempted to be processed";
-                    "peer_id" => peer_id.to_string()
+                    "peer_id" => %peer_id
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
@@ -323,7 +339,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Dropping exit for already exiting validator";
                     "validator_index" => validator_index,
-                    "peer" => peer_id.to_string()
+                    "peer" => %peer_id
                 );
                 return;
             }
@@ -332,8 +348,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Dropping invalid exit";
                     "validator_index" => validator_index,
-                    "peer" => peer_id.to_string(),
-                    "error" => format!("{:?}", e)
+                    "peer" => %peer_id,
+                    "error" => ?e
                 );
                 // These errors occur due to a fault in the beacon chain. It is not necessarily
                 // the fault on the peer.
@@ -377,7 +393,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Dropping proposer slashing";
                     "reason" => "Already seen a proposer slashing for that validator",
                     "validator_index" => validator_index,
-                    "peer" => peer_id.to_string()
+                    "peer" => %peer_id
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
@@ -389,8 +405,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Dropping invalid proposer slashing";
                     "validator_index" => validator_index,
-                    "peer" => peer_id.to_string(),
-                    "error" => format!("{:?}", e)
+                    "peer" => %peer_id,
+                    "error" => ?e
                 );
                 self.propagate_validation_result(
                     message_id,
@@ -430,7 +446,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Dropping attester slashing";
                     "reason" => "Slashings already known for all slashed validators",
-                    "peer" => peer_id.to_string()
+                    "peer" => %peer_id
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
@@ -439,8 +455,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Dropping invalid attester slashing";
-                    "peer" => peer_id.to_string(),
-                    "error" => format!("{:?}", e)
+                    "peer" => %peer_id,
+                    "error" => ?e
                 );
                 self.propagate_validation_result(
                     message_id,
@@ -458,88 +474,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
-            debug!(self.log, "Error importing attester slashing"; "error" => format!("{:?}", e));
+            debug!(self.log, "Error importing attester slashing"; "error" => ?e);
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL);
         } else {
             debug!(self.log, "Successfully imported attester slashing");
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
         }
-    }
-
-    /// Attempt to process a block received from a direct RPC request, returning the processing
-    /// result on the `result_tx` channel.
-    ///
-    /// Raises a log if there are errors publishing the result to the channel.
-    pub fn process_rpc_block(
-        self,
-        block: SignedBeaconBlock<T::EthSpec>,
-        result_tx: BlockResultSender<T::EthSpec>,
-    ) {
-        let block_result = self.chain.process_block(block);
-
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
-
-        if result_tx.send(block_result).is_err() {
-            crit!(self.log, "Failed return sync block result");
-        }
-    }
-
-    /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
-    /// thread if more blocks are needed to process it.
-    pub fn process_chain_segment(
-        self,
-        process_id: ProcessId,
-        blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
-    ) {
-        handle_chain_segment(self.chain, process_id, blocks, self.sync_tx, self.log)
-    }
-
-    /// Send a message on `message_tx` that the `message_id` sent by `peer_id` should be propagated on
-    /// the gossip network.
-    ///
-    /// Creates a log if there is an interal error.
-    /// Propagates the result of the validation fot the given message to the network. If the result
-    /// is valid the message gets forwarded to other peers.
-    fn propagate_validation_result(
-        &self,
-        message_id: MessageId,
-        propagation_source: PeerId,
-        validation_result: MessageAcceptance,
-    ) {
-        self.network_tx
-            .send(NetworkMessage::ValidationResult {
-                propagation_source,
-                message_id,
-                validation_result,
-            })
-            .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send propagation request to the network service"
-                )
-            });
-    }
-
-    /// Penalizes a peer for misbehaviour.
-    fn penalize_peer(&self, peer_id: PeerId, action: PeerAction) {
-        self.network_tx
-            .send(NetworkMessage::ReportPeer { peer_id, action })
-            .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send peer action to the network service"
-                )
-            });
-    }
-
-    /// Send a message to `sync_tx`.
-    ///
-    /// Creates a log if there is an interal error.
-    fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
-        self.sync_tx.send(message).unwrap_or_else(|e| {
-            error!(self.log, "Could not send message to the sync service";
-                "error" => %e)
-        });
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
@@ -567,9 +507,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 trace!(
                     self.log,
                     "Attestation is not within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots";
-                    "peer_id" => peer_id.to_string(),
-                    "block" => format!("{}", beacon_block_root),
-                    "type" => format!("{:?}", attestation_type),
+                    "peer_id" => %peer_id,
+                    "block" => %beacon_block_root,
+                    "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(
                     message_id,
@@ -657,9 +597,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 trace!(
                     self.log,
                     "Attestation already known";
-                    "peer_id" => peer_id.to_string(),
-                    "block" => format!("{}", beacon_block_root),
-                    "type" => format!("{:?}", attestation_type),
+                    "peer_id" => %peer_id,
+                    "block" => %beacon_block_root,
+                    "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
@@ -674,9 +614,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 trace!(
                     self.log,
                     "Aggregator already known";
-                    "peer_id" => peer_id.to_string(),
-                    "block" => format!("{}", beacon_block_root),
-                    "type" => format!("{:?}", attestation_type),
+                    "peer_id" => %peer_id,
+                    "block" => %beacon_block_root,
+                    "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
@@ -690,9 +630,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 trace!(
                     self.log,
                     "Prior attestation known";
-                    "peer_id" => peer_id.to_string(),
-                    "block" => format!("{}", beacon_block_root),
-                    "type" => format!("{:?}", attestation_type),
+                    "peer_id" => %peer_id,
+                    "block" => %beacon_block_root,
+                    "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
@@ -721,8 +661,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Attestation for unknown block";
-                    "peer_id" => peer_id.to_string(),
-                    "block" => format!("{}", beacon_block_root)
+                    "peer_id" => %peer_id,
+                    "block" => %beacon_block_root
                 );
                 // we don't know the block, get the sync manager to handle the block lookup
                 self.sync_tx
@@ -909,8 +849,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 error!(
                     self.log,
                     "Unable to validate aggregate";
-                    "peer_id" => peer_id.to_string(),
-                    "error" => format!("{:?}", e),
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
                 );
                 self.propagate_validation_result(
                     message_id,
@@ -925,10 +865,10 @@ impl<T: BeaconChainTypes> Worker<T> {
         debug!(
             self.log,
             "Invalid attestation from network";
-            "reason" => format!("{:?}", error),
-            "block" => format!("{}", beacon_block_root),
-            "peer_id" => peer_id.to_string(),
-            "type" => format!("{:?}", attestation_type),
+            "reason" => ?error,
+            "block" => %beacon_block_root,
+            "peer_id" => %peer_id,
+            "type" => ?attestation_type,
         );
     }
 }

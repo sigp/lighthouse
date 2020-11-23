@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
 
-const PASSWORD_BYTES: &[u8] = &[42, 13, 37];
+const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 
 type E = MainnetEthSpec;
 

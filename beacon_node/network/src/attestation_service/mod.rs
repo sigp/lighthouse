@@ -38,7 +38,7 @@ const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 ///  36s at 12s slot time
 const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum AttServiceMessage {
     /// Subscribe to the specified subnet id.
     Subscribe(SubnetId),
@@ -50,6 +50,32 @@ pub enum AttServiceMessage {
     EnrRemove(SubnetId),
     /// Discover peers for a list of `SubnetDiscovery`.
     DiscoverPeers(Vec<SubnetDiscovery>),
+}
+
+/// Note: This `PartialEq` impl is for use only in tests.
+/// The `DiscoverPeers` comparison is good enough for testing only.
+#[cfg(test)]
+impl PartialEq for AttServiceMessage {
+    fn eq(&self, other: &AttServiceMessage) -> bool {
+        match (self, other) {
+            (AttServiceMessage::Subscribe(a), AttServiceMessage::Subscribe(b)) => a == b,
+            (AttServiceMessage::Unsubscribe(a), AttServiceMessage::Unsubscribe(b)) => a == b,
+            (AttServiceMessage::EnrAdd(a), AttServiceMessage::EnrAdd(b)) => a == b,
+            (AttServiceMessage::EnrRemove(a), AttServiceMessage::EnrRemove(b)) => a == b,
+            (AttServiceMessage::DiscoverPeers(a), AttServiceMessage::DiscoverPeers(b)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                for i in 0..a.len() {
+                    if a[i].subnet_id != b[i].subnet_id || a[i].min_ttl != b[i].min_ttl {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// A particular subnet at a given slot.
@@ -95,6 +121,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// We are always subscribed to all subnets.
     subscribe_all_subnets: bool,
 
+    /// We process and aggregate all attestations on subscribed subnets.
+    import_all_attestations: bool,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -135,6 +164,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             subscribe_all_subnets: config.subscribe_all_subnets,
+            import_all_attestations: config.import_all_attestations,
             discovery_disabled: config.disable_discovery,
             log,
         }
@@ -260,6 +290,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
+        if self.import_all_attestations {
+            return true;
+        }
+
         let exact_subnet = ExactSubnet {
             subnet_id: subnet,
             slot: attestation.data.slot,

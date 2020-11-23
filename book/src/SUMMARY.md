@@ -3,6 +3,7 @@
 * [Introduction](./intro.md)
 * [Become a Testnet Validator](./testnet-validator.md)
 * [Installation](./installation.md)
+    * [System Requirements](./system-requirements.md)
     * [Pre-Built Binaries](./installation-binaries.md)
     * [Docker](./docker.md)
     * [Build from Source](./installation-source.md)

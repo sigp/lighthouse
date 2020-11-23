@@ -38,6 +38,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("import-all-attestations")
+                .long("import-all-attestations")
+                .help("Import and aggregate all attestations, regardless of validator subscriptions. \
+                       This will only import attestations from already-subscribed subnets, use with \
+                       --subscribe-all-subnets to ensure all attestations are received for import.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
                 .short("z")
@@ -277,6 +285,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
                 .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag. Defaults to http://127.0.0.1:8545.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("eth1-blocks-per-log-query")
+                .long("eth1-blocks-per-log-query")
+                .value_name("BLOCKS")
+                .help("Specifies the number of blocks that a deposit log query should span. \
+                    This will reduce the size of responses from the Eth1 endpoint.")
+                .default_value("1000")
                 .takes_value(true)
         )
         .arg(

@@ -197,6 +197,12 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.endpoint = val.to_string();
     }
 
+    if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
+        client_config.eth1.blocks_per_log_query = val
+            .parse()
+            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
+    }
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
@@ -266,6 +272,7 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
+    client_config.eth1.set_block_cache_truncation::<E>(spec);
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
@@ -401,6 +408,10 @@ pub fn set_network_config(
 
     if cli_args.is_present("subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
+    }
+
+    if cli_args.is_present("import-all-attestations") {
+        config.import_all_attestations = true;
     }
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {

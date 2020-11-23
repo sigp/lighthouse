@@ -11,7 +11,7 @@ use validator_dir::{
 };
 
 /// A very weak password with which to encrypt the keystores.
-pub const INSECURE_PASSWORD: &[u8] = &[30; 32];
+pub const INSECURE_PASSWORD: &[u8] = &[50; 51];
 
 /// Helper struct for configuring tests.
 struct BuildConfig {

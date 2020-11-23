@@ -163,8 +163,8 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 /// Represents the ssz length bounds for RPC messages.
 #[derive(Debug, PartialEq)]
 pub struct RpcLimits {
-    min: usize,
-    max: usize,
+    pub min: usize,
+    pub max: usize,
 }
 
 impl RpcLimits {

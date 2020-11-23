@@ -43,6 +43,9 @@ use validator_store::ValidatorStore;
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 
+/// The time between polls when waiting for genesis.
+const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
+
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -378,7 +381,18 @@ async fn init_from_beacon_node<E: EthSpec>(
             "seconds_to_wait" => (genesis_time - now).as_secs()
         );
 
-        delay_for(genesis_time - now).await;
+        // Start polling the node for pre-genesis information, cancelling the polling as soon as the
+        // timer runs out.
+        tokio::select! {
+            result = poll_whilst_waiting_for_genesis(beacon_node, genesis_time, context.log()) => result?,
+            () = delay_for(genesis_time - now) => ()
+        };
+
+        info!(
+            context.log(),
+            "Genesis has occurred";
+            "ms_since_genesis" => (genesis_time - now).as_millis()
+        );
     } else {
         info!(
             context.log(),
@@ -425,5 +439,52 @@ async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Resu
                 delay_for(RETRY_DELAY).await;
             }
         }
+    }
+}
+
+/// Request the version from the node, looping back and trying again on failure. Exit once the node
+/// has been contacted.
+async fn poll_whilst_waiting_for_genesis(
+    beacon_node: &BeaconNodeHttpClient,
+    genesis_time: Duration,
+    log: &Logger,
+) -> Result<(), String> {
+    loop {
+        match beacon_node.get_lighthouse_staking().await {
+            Ok(is_staking) => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| format!("Unable to read system time: {:?}", e))?;
+
+                if !is_staking {
+                    error!(
+                        log,
+                        "Staking is disabled for beacon node";
+                        "msg" => "this will caused missed duties",
+                        "info" => "see the --staking CLI flag on the beacon node"
+                    );
+                }
+
+                if now < genesis_time {
+                    info!(
+                        log,
+                        "Waiting for genesis";
+                        "bn_staking_enabled" => is_staking,
+                        "seconds_to_wait" => (genesis_time - now).as_secs()
+                    );
+                } else {
+                    break Ok(());
+                }
+            }
+            Err(e) => {
+                error!(
+                    log,
+                    "Error polling beacon node";
+                    "error" => format!("{:?}", e)
+                );
+            }
+        }
+
+        delay_for(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }
