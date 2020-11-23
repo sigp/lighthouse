@@ -39,8 +39,9 @@ OPTIONS:
             The number of validators to create, regardless of how many already exist
 
     -d, --datadir <DIR>
-            Root data directory for lighthouse keys and databases. Defaults to $HOME/.lighthouse/{default-network},
-            currently, $HOME/.lighthouse/medalla
+            Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
+            $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
+            separate custom datadirs for different networks.
         --debug-level <LEVEL>
             The verbosity level for emitting logs. [default: info]  [possible values: info, debug, trace, warn, error,
             crit]
@@ -48,14 +49,14 @@ OPTIONS:
             The GWEI value of the deposit amount. Defaults to the minimum amount required for an active validator
             (MAX_EFFECTIVE_BALANCE)
         --network <network>
-            Name of network lighthouse will connect to [possible values: medalla, altona, spadina, zinken]
-
+            Name of the Eth2 chain Lighthouse will sync and follow. [default: mainnet]  [possible values: medalla,
+            altona, spadina, pyrmont, mainnet, toledo]
         --secrets-dir <SECRETS_DIR>
             The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/{network}/secrets
 
-        --testnet <testnet>
-            Name of network lighthouse will connect to [possible values: medalla, altona]
-
+    -s, --spec <DEPRECATED>
+            This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
+            --network or --testnet-dir flags.
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
