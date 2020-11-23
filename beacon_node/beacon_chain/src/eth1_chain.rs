@@ -77,7 +77,7 @@ fn get_sync_status<T: EthSpec>(
     let period = T::SlotsPerEth1VotingPeriod::to_u64();
     // Since `period` is a "constant", we assume it is set sensibly.
     let voting_period_start_slot = (current_slot / period) * period;
-    let voting_period_start_timestamp = {
+    let voting_target_timestamp = {
         let period_start = slot_start_seconds::<T>(
             genesis_time,
             spec.milliseconds_per_slot,
@@ -125,14 +125,14 @@ fn get_sync_status<T: EthSpec>(
     // Lighthouse is "cached and ready" when it has cached enough blocks to cover the start of the
     // current voting period.
     let lighthouse_is_cached_and_ready =
-        latest_cached_block_timestamp.map_or(false, |t| t >= voting_period_start_timestamp);
+        latest_cached_block_timestamp.map_or(false, |t| t >= voting_target_timestamp);
 
     Some(Eth1SyncStatusData {
         head_block_number,
         head_block_timestamp,
         latest_cached_block_number,
         latest_cached_block_timestamp,
-        voting_period_start_timestamp,
+        voting_target_timestamp,
         eth1_node_sync_status_percentage,
         lighthouse_is_cached_and_ready,
     })
@@ -450,13 +450,14 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
             // If no votes exist, choose `state.eth1_data` as default vote.
             votes_to_consider
                 .iter()
-                .max_by(|(_, x), (_, y)| x.cmp(y))
+                .max_by_key(|(_, block_number)| *block_number)
                 .map(|vote| {
                     let vote = vote.0.clone();
                     debug!(
                         self.log,
                         "No valid eth1_data votes";
                         "outcome" => "Casting vote corresponding to last candidate eth1 block",
+                        "vote" => ?vote
                     );
                     vote
                 })

@@ -30,6 +30,7 @@
     * [Database Configuration](./advanced_database.md)
 	* [Local Testnets](./local-testnets.md)
     * [Advanced Networking](./advanced_networking.md)
+    * [Running a Slasher](./slasher.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
 * [FAQs](./faq.md)

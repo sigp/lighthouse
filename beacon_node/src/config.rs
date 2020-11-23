@@ -266,6 +266,7 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
+    client_config.eth1.set_block_cache_truncation::<E>(spec);
 
     info!(
         log,
@@ -351,6 +352,45 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
+    if cli_args.is_present("slasher") {
+        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
+            PathBuf::from(slasher_dir)
+        } else {
+            client_config.data_dir.join("slasher_db")
+        };
+
+        let mut slasher_config = slasher::Config::new(slasher_dir);
+
+        if let Some(update_period) = clap_utils::parse_optional(cli_args, "slasher-update-period")?
+        {
+            slasher_config.update_period = update_period;
+        }
+
+        if let Some(history_length) =
+            clap_utils::parse_optional(cli_args, "slasher-history-length")?
+        {
+            slasher_config.history_length = history_length;
+        }
+
+        if let Some(max_db_size_gbs) =
+            clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
+        {
+            slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
+        }
+
+        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
+            slasher_config.chunk_size = chunk_size;
+        }
+
+        if let Some(validator_chunk_size) =
+            clap_utils::parse_optional(cli_args, "slasher-validator-chunk-size")?
+        {
+            slasher_config.validator_chunk_size = validator_chunk_size;
+        }
+
+        client_config.slasher = Some(slasher_config);
+    }
+
     Ok(client_config)
 }
 
@@ -371,6 +411,10 @@ pub fn set_network_config(
 
     if cli_args.is_present("subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
+    }
+
+    if cli_args.is_present("import-all-attestations") {
+        config.import_all_attestations = true;
     }
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {

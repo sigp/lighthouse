@@ -1,5 +1,4 @@
 use derivative::Derivative;
-use parking_lot::Mutex;
 use smallvec::SmallVec;
 use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::HashSet;
@@ -25,7 +24,7 @@ pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
     /// For attester slashings, this is the set of all validators who would be slashed by
     /// previously seen attester slashings, i.e. those validators in the intersection of
     /// `attestation_1.attester_indices` and `attestation_2.attester_indices`.
-    observed_validator_indices: Mutex<HashSet<u64>>,
+    observed_validator_indices: HashSet<u64>,
     _phantom: PhantomData<(T, E)>,
 }
 
@@ -71,12 +70,12 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
 
 impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
     pub fn verify_and_observe(
-        &self,
+        &mut self,
         op: T,
         head_state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<ObservationOutcome<T>, T::Error> {
-        let mut observed_validator_indices = self.observed_validator_indices.lock();
+        let observed_validator_indices = &mut self.observed_validator_indices;
         let new_validator_indices = op.observed_validators();
 
         // If all of the new validator indices have been previously observed, short-circuit

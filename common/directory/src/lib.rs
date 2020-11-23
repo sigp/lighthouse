@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 pub use eth2_testnet_config::DEFAULT_HARDCODED_TESTNET;
-use std::fs::create_dir_all;
+use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
 
 /// Names for the default directories.
@@ -57,4 +57,22 @@ pub fn parse_path_or_default_with_flag(
             .join(get_testnet_name(matches))
             .join(flag),
     )
+}
+
+/// Get the approximate size of a directory and its contents.
+///
+/// Will skip unreadable files, and files. Not 100% accurate if files are being created and deleted
+/// while this function is running.
+pub fn size_of_dir(path: &Path) -> u64 {
+    if let Ok(iter) = fs::read_dir(path) {
+        iter.filter_map(std::result::Result::ok)
+            .map(size_of_dir_entry)
+            .sum()
+    } else {
+        0
+    }
+}
+
+fn size_of_dir_entry(dir: fs::DirEntry) -> u64 {
+    dir.metadata().map(|m| m.len()).unwrap_or(0)
 }

@@ -121,6 +121,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// We are always subscribed to all subnets.
     subscribe_all_subnets: bool,
 
+    /// We process and aggregate all attestations on subscribed subnets.
+    import_all_attestations: bool,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -161,6 +164,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             subscribe_all_subnets: config.subscribe_all_subnets,
+            import_all_attestations: config.import_all_attestations,
             discovery_disabled: config.disable_discovery,
             log,
         }
@@ -286,6 +290,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
+        if self.import_all_attestations {
+            return true;
+        }
+
         let exact_subnet = ExactSubnet {
             subnet_id: subnet,
             slot: attestation.data.slot,

@@ -31,6 +31,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
 /// Reasons for removing a chain
+#[derive(Debug)]
 pub enum RemoveChain {
     EmptyPeerPool,
     ChainCompleted,
@@ -101,7 +102,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum ChainSyncingState {
     /// The chain is not being synced.
     Stopped,
@@ -764,9 +765,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: PeerId,
     ) -> ProcessingResult {
-        if let ChainSyncingState::Stopped = self.state {
-            debug!(self.log, "Peer added to non-syncing chain"; "peer" => %peer_id)
-        }
         // add the peer without overwriting its active requests
         if self.peers.entry(peer_id).or_default().is_empty() {
             // Either new or not, this peer is idle, try to request more batches
@@ -1041,6 +1039,7 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
         serializer.emit_usize("batches", self.batches.len())?;
         serializer.emit_usize("peers", self.peers.len())?;
         serializer.emit_u8("validated_batches", self.validated_batches)?;
+        serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }
 }
@@ -1049,19 +1048,6 @@ use super::batch::WrongState as WrongBatchState;
 impl From<WrongBatchState> for RemoveChain {
     fn from(err: WrongBatchState) -> Self {
         RemoveChain::WrongBatchState(err.0)
-    }
-}
-
-impl std::fmt::Debug for RemoveChain {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // needed to avoid Debugging Strings
-        match self {
-            RemoveChain::ChainCompleted => f.write_str("ChainCompleted"),
-            RemoveChain::EmptyPeerPool => f.write_str("EmptyPeerPool"),
-            RemoveChain::ChainFailed(batch) => write!(f, "ChainFailed(batch: {} )", batch),
-            RemoveChain::WrongBatchState(reason) => write!(f, "WrongBatchState: {}", reason),
-            RemoveChain::WrongChainState(reason) => write!(f, "WrongChainState: {}", reason),
-        }
     }
 }
 

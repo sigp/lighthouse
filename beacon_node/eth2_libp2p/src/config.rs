@@ -84,6 +84,10 @@ pub struct Config {
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
 
+    /// Import/aggregate all attestations recieved on subscribed subnets for the duration of the
+    /// runtime.
+    pub import_all_attestations: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -185,6 +189,7 @@ impl Default for Config {
             disable_discovery: false,
             upnp_enabled: true,
             subscribe_all_subnets: false,
+            import_all_attestations: false,
             topics: Vec::new(),
         }
     }
