@@ -251,7 +251,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 Ok(received) => {
                     let awaiting_batches = batch_id.saturating_sub(
                         self.optimistic_start
-                            .unwrap_or_else(|| self.processing_target),
+                            .unwrap_or(self.processing_target),
                     ) / EPOCHS_PER_BATCH;
                     debug!(self.log, "Completed batch received"; "epoch" => batch_id, "blocks" => received, "awaiting_batches" => awaiting_batches);
 
