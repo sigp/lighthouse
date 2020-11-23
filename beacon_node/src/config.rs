@@ -258,13 +258,7 @@ pub fn get_config<E: EthSpec>(
      */
     let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
 
-    client_config.eth1.deposit_contract_address =
-        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
-    let spec_contract_address = format!("{:?}", spec.deposit_contract_address);
-    if client_config.eth1.deposit_contract_address != spec_contract_address {
-        return Err("Testnet contract address does not match spec".into());
-    }
-
+    client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
@@ -273,6 +267,13 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
     client_config.eth1.set_block_cache_truncation::<E>(spec);
+
+    info!(
+        log,
+        "Deposit contract";
+        "deploy_block" => client_config.eth1.deposit_contract_deploy_block,
+        "address" => &client_config.eth1.deposit_contract_address
+    );
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
@@ -593,15 +594,17 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
+/// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    let optional_testnet_config = if cli_args.is_present("testnet") {
-        clap_utils::parse_hardcoded_network(cli_args, "testnet")?
+    let optional_testnet_config = if cli_args.is_present("network") {
+        clap_utils::parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        Eth2TestnetConfig::hard_coded_default()?
+        return Err(
+            "No --network or --testnet-dir flags provided, cannot load config.".to_string(),
+        );
     };
     optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }

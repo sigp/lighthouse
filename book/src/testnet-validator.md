@@ -9,25 +9,26 @@ DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
 
 ## Supported Testnets
 
-Lighthouse supports four testnets:
+Lighthouse supports the "mainnet" network and four test networks:
 
 - [Medalla](https://github.com/goerli/medalla/tree/master/medalla) (default)
 - [Pyrmont](https://github.com/protolambda/pyrmont)
 - [Spadina](https://github.com/goerli/medalla/tree/master/spadina) (deprecated)
 - [Altona](https://github.com/goerli/medalla/tree/master/altona) (deprecated)
 
-When using Lighthouse, the `--testnet` flag selects a testnet. E.g.,
+When using Lighthouse, the `--network` flag selects a network. E.g.,
 
 - `lighthouse` (no flag): Medalla.
-- `lighthouse --testnet medalla`: Medalla.
-- `lighthouse --testnet pyrmont`: Pyrmont.
+- `lighthouse --network mainnet`: Mainnet.
+- `lighthouse --network medalla`: Medalla.
+- `lighthouse --network pyrmont`: Pyrmont.
 
-Using the correct `--testnet` flag is very important; using the wrong flag can
+Using the correct `--network` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, always
-provide a `--testnet` flag instead of relying on the default.
+provide a `--network` flag instead of relying on the default.
 
-> Note: In these documents we use `--testnet MY_TESTNET` for demonstration. You
-> must replace `MY_TESTNET` with a valid testnet name.
+> Note: In these documents we use `--network MY_NETWORK` for demonstration. You
+> must replace `MY_NETWORK` with a valid network name. E.g., `--network pyrmont`.
 
 ## Joining a Testnet
 
@@ -112,14 +113,14 @@ Starting these processes is different for binary and docker users:
 Those using the pre- or custom-built binaries can start the two processes with:
 
 ```bash
-lighthouse --testnet MY_TESTNET bn --staking
+lighthouse --network MY_NETWORK bn --staking
 ```
 
 ```bash
-lighthouse --testnet MY_TESTNET vc
+lighthouse --network MY_NETWORK vc
 ```
 
-> Note: `~/.lighthouse/{testnet}` is the default directory which contains the keys and databases.
+> Note: `~/.lighthouse/{network}` is the default directory which contains the keys and databases.
 > To specify a custom dir, see [this](#custom-directories) section
 
 #### Docker users
@@ -130,7 +131,7 @@ Those using Docker images can start the processes with:
 $ docker run \
 	--network host \
 	-v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
-	lighthouse --testnet MY_TESTNET bn --staking --http-address 0.0.0.0
+	lighthouse --network MY_NETWORK bn --staking --http-address 0.0.0.0
 ```
 
 ```bash
@@ -138,7 +139,7 @@ $ docker run \
 	--network host \
 	-v $HOME/.lighthouse:/root/.lighthouse \
 	sigp/lighthouse \
-	lighthouse --testnet MY_TESTNET vc
+	lighthouse --network MY_NETWORK vc
 ```
 
 ### Step 6. Leave Lighthouse running
@@ -171,16 +172,16 @@ Happy staking!
 
 ## Custom directories
 
-Users can override the default Lighthouse data directories (`~/.lighthouse/{testnet}`) using the `--datadir` flag. The custom data directory mirrors the structure of any testnet specific default directory (e.g. `~/.lighthouse/medalla`).
+Users can override the default Lighthouse data directories (`~/.lighthouse/{network}`) using the `--datadir` flag. The custom data directory mirrors the structure of any network specific default directory (e.g. `~/.lighthouse/medalla`).
 
-> Note: Users should specify different custom directories for different testnets.
+> Note: Users should specify different custom directories for different networks.
 
 Below is an example flow for importing validator keys, running a beacon node and validator client using a custom data directory `/var/lib/my-custom-dir` for the medalla testnet.
 
 ```bash
-lighthouse --testnet medalla --datadir /var/lib/my-custom-dir account validator import --directory <PATH-TO-LAUNCHPAD-KEYS-DIRECTORY>
-lighthouse --testnet medalla --datadir /var/lib/my-custom-dir bn --staking
-lighthouse --testnet medalla --datadir /var/lib/my-custom-dir vc
+lighthouse --network medalla --datadir /var/lib/my-custom-dir account validator import --directory <PATH-TO-LAUNCHPAD-KEYS-DIRECTORY>
+lighthouse --network medalla --datadir /var/lib/my-custom-dir bn --staking
+lighthouse --network medalla --datadir /var/lib/my-custom-dir vc
 ```
 The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md).
 After that, we simply run the beacon chain and validator client with the custom dir path.

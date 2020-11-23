@@ -35,7 +35,7 @@ section, all other users can use:
 
 
 ```bash
-lighthouse --testnet medalla account validator import --directory validator_keys
+lighthouse --network medalla account validator import --directory validator_keys
 ```
 
 Note: The user must specify the testnet that they are importing the keys for using the `--testnet` flag.
@@ -101,7 +101,7 @@ docker run -it \
 	-v $HOME/.lighthouse:/root/.lighthouse \
 	-v $(pwd)/validator_keys:/root/validator_keys \
 	sigp/lighthouse \
-	lighthouse --testnet medalla account validator import --directory /root/validator_keys
+	lighthouse --network MY_NETWORK account validator import --directory /root/validator_keys
 ```
 
 Here we use two `-v` volumes to attach:

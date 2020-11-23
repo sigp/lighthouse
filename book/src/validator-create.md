@@ -21,10 +21,11 @@ lighthouse account validator create --help
 Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key derivation scheme.
 
 USAGE:
-    lighthouse account_manager validator create [FLAGS] [OPTIONS] --wallet-name <WALLET_NAME> --wallet-password <WALLET_PASSWORD_PATH>
+    lighthouse account_manager validator create [FLAGS] [OPTIONS]
 
 FLAGS:
     -h, --help                         Prints help information
+        --stdin-inputs                 If present, read all user inputs from stdin instead of tty.
         --store-withdrawal-keystore    If present, the withdrawal keystore will be stored alongside the voting keypair.
                                        It is generally recommended to *not* store the withdrawal key and instead
                                        generate them from the wallet seed when required.
@@ -37,28 +38,34 @@ OPTIONS:
         --count <VALIDATOR_COUNT>
             The number of validators to create, regardless of how many already exist
 
-    -d, --datadir <DIR>                               Data directory for lighthouse keys and databases.
+    -d, --datadir <DIR>
+            Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
+            $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
+            separate custom datadirs for different networks.
         --debug-level <LEVEL>
             The verbosity level for emitting logs. [default: info]  [possible values: info, debug, trace, warn, error,
             crit]
         --deposit-gwei <DEPOSIT_GWEI>
             The GWEI value of the deposit amount. Defaults to the minimum amount required for an active validator
             (MAX_EFFECTIVE_BALANCE)
+        --network <network>
+            Name of the Eth2 chain Lighthouse will sync and follow. [default: mainnet]  [possible values: medalla,
+            altona, spadina, pyrmont, mainnet, toledo]
         --secrets-dir <SECRETS_DIR>
-            The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/{testnet}/secrets
+            The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/{network}/secrets
 
-        --testnet <testnet>
-            Name of network lighthouse will connect to [possible values: medalla, altona]
-
+    -s, --spec <DEPRECATED>
+            This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
+            --network or --testnet-dir flags.
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
-        --validator-dir <VALIDATOR_DIRECTORY>
-            The path where the validator directories will be created. Defaults to ~/.lighthouse/{testnet}/validators
-
-        --wallet-name <WALLET_NAME>                   Use the wallet identified by this name
+        --wallet-name <WALLET_NAME>                 Use the wallet identified by this name
         --wallet-password <WALLET_PASSWORD_PATH>
             A path to a file containing the password which will unlock the wallet.
+
+        --wallets-dir <wallets-dir>
+            A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets
 ```
 
 ## Example
@@ -67,19 +74,17 @@ The example assumes that the `wally` wallet was generated from the
 [wallet](./wallet-create.md) example.
 
 ```bash
-lighthouse --testnet medalla account validator create --name wally --wallet-password wally.pass --count 1
+lighthouse --network medalla account validator create --name wally --wallet-password wally.pass --count 1
 ```
 
 This command will:
 
 - Derive a single new BLS keypair from wallet `wally` in `~/.lighthouse/{testnet}/wallets`, updating it so that it generates a
     new key next time.
-- Create a new directory in `~/.lighthouse/{testnet}/validators` containing:
+- Create a new directory in `~/.lighthouse/{network}/validators` containing:
     - An encrypted keystore containing the validators voting keypair.
 	- An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`
 		for most testnets and mainnet) which can be submitted to the deposit
-		contract for the medalla testnet. Other testnets can be set via the
-		`--testnet` CLI param.
-- Store a password to the validators voting keypair in `~/.lighthouse/{testnet}/secrets`.
-
-where `testnet` is the name of the testnet passed in the `--testnet` parameter (default is `medalla`).
+		contract for the Medalla testnet. Other testnets can be set via the
+		`--network` CLI param.
+- Store a password to the validators voting keypair in `~/.lighthouse/{network}/secrets`.

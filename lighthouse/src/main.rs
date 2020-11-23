@@ -47,7 +47,7 @@ fn main() {
                 .long("spec")
                 .value_name("DEPRECATED")
                 .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --testnet or --testnet-dir flags.")
+                    value is now derived from the --network or --testnet-dir flags.")
                 .takes_value(true)
                 .global(true)
         )
@@ -93,8 +93,8 @@ fn main() {
                 .global(true)
                 .help(
                     "Used to specify a custom root data directory for lighthouse keys and databases. \
-                    Defaults to $HOME/.lighthouse/{testnet} where testnet is the value of the `testnet` flag \
-                    Note: Users should specify separate custom datadirs for different testnets.")
+                    Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
+                    Note: Users should specify separate custom datadirs for different networks.")
                 .takes_value(true),
         )
         .arg(
@@ -111,12 +111,13 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("testnet")
-                .long("testnet")
-                .value_name("testnet")
-                .help("Name of network lighthouse will connect to")
+            Arg::with_name("network")
+                .long("network")
+                .value_name("network")
+                .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
+                .default_value(DEFAULT_HARDCODED_TESTNET)
                 .takes_value(true)
                 .global(true)
 
@@ -176,12 +177,11 @@ fn load_testnet_config(matches: &ArgMatches) -> Result<Eth2TestnetConfig, String
     if matches.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(matches, "testnet-dir")?
             .ok_or_else(|| "Unable to load testnet dir".to_string())
-    } else if matches.is_present("testnet") {
-        clap_utils::parse_hardcoded_network(matches, "testnet")?
+    } else if matches.is_present("network") {
+        clap_utils::parse_hardcoded_network(matches, "network")?
             .ok_or_else(|| "Unable to load hard coded network config".to_string())
     } else {
-        Eth2TestnetConfig::hard_coded_default()?
-            .ok_or_else(|| "Unable to load default network config".to_string())
+        Err("No --network or --testnet-dir flags provided, cannot start.".to_string())
     }
 }
 
@@ -192,7 +192,7 @@ fn run<E: EthSpec>(
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
-            "{}bit architecture is not supported (64bit only).",
+            "{}-bit architecture is not supported (64-bit only).",
             std::mem::size_of::<usize>() * 8
         ));
     }
@@ -244,18 +244,18 @@ fn run<E: EthSpec>(
     // Creating a command which can run both might be useful future works.
 
     // Print an indication of which network is currently in use.
-    let optional_testnet = clap_utils::parse_optional::<String>(matches, "testnet")?;
+    let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
     let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
 
     let testnet_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
         (None, None) => DEFAULT_HARDCODED_TESTNET.to_string(),
-        (Some(_), Some(_)) => panic!("CLI prevents both --testnet and --testnet-dir"),
+        (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
-        eprintln!("Running account manager for {} testnet", testnet_name);
+        eprintln!("Running account manager for {} network", testnet_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 

@@ -188,13 +188,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let beacon_node_spec = yaml_config.apply_to_chain_spec::<T>(&T::default_spec())
             .ok_or_else(||
                     "The minimal/mainnet spec type of the beacon node does not match the validator client. \
-                    See the --testnet command.".to_string()
+                    See the --network command.".to_string()
             )?;
 
         if context.eth2_config.spec != beacon_node_spec {
             return Err(
                 "The beacon node is using a different Eth2 specification to this validator client. \
-                See the --testnet command."
+                See the --network command."
                     .to_string(),
             );
         }

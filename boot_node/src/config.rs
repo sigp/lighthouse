@@ -30,7 +30,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
         // Try and grab testnet config from input CLI params
         let eth2_testnet_config = {
-            if matches.is_present("testnet") {
+            if matches.is_present("network") {
                 Some(get_eth2_testnet_config(&matches)?)
             } else {
                 None

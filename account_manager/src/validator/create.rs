@@ -52,7 +52,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
                 .value_name(WALLETS_DIR_FLAG)
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
                 .takes_value(true)
                 .conflicts_with("datadir"),
         )
@@ -62,7 +62,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/{testnet}/secrets",
+                    Defaults to ~/.lighthouse/{network}/secrets",
                 )
                 .conflicts_with("datadir")
                 .takes_value(true),
