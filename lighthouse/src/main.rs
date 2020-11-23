@@ -47,7 +47,7 @@ fn main() {
                 .long("spec")
                 .value_name("DEPRECATED")
                 .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --testnet or --testnet-dir flags.")
+                    value is now derived from the --network or --testnet-dir flags.")
                 .takes_value(true)
                 .global(true)
         )
@@ -114,9 +114,10 @@ fn main() {
             Arg::with_name("network")
                 .long("network")
                 .value_name("network")
-                .help("Name of network lighthouse will connect to")
+                .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
+                .default_value(DEFAULT_HARDCODED_TESTNET)
                 .takes_value(true)
                 .global(true)
 
@@ -176,12 +177,11 @@ fn load_testnet_config(matches: &ArgMatches) -> Result<Eth2TestnetConfig, String
     if matches.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(matches, "testnet-dir")?
             .ok_or_else(|| "Unable to load testnet dir".to_string())
-    } else if matches.is_present("testnet") {
-        clap_utils::parse_hardcoded_network(matches, "testnet")?
+    } else if matches.is_present("network") {
+        clap_utils::parse_hardcoded_network(matches, "network")?
             .ok_or_else(|| "Unable to load hard coded network config".to_string())
     } else {
-        Eth2TestnetConfig::hard_coded_default()?
-            .ok_or_else(|| "Unable to load default network config".to_string())
+        Err("No --network or --testnet-dir flags provided, cannot start.".to_string())
     }
 }
 

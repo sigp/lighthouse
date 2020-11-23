@@ -267,6 +267,13 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
 
+    info!(
+        log,
+        "Deposit contract";
+        "deploy_block" => client_config.eth1.deposit_contract_deploy_block,
+        "address" => &client_config.eth1.deposit_contract_address
+    );
+
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
@@ -551,7 +558,9 @@ pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfi
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        Eth2TestnetConfig::hard_coded_default()?
+        return Err(
+            "No --network or --testnet-dir flags provided, cannot load config.".to_string(),
+        );
     };
     optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }

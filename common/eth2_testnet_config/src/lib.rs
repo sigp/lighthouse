@@ -55,7 +55,7 @@ const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
 const TOLEDO: HardcodedNet = define_net!(toledo, include_toledo_file);
 
 const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO];
-pub const DEFAULT_HARDCODED_TESTNET: &str = "medalla";
+pub const DEFAULT_HARDCODED_TESTNET: &str = "mainnet";
 
 /// Specifies an Eth2 testnet.
 ///
@@ -71,10 +71,6 @@ pub struct Eth2TestnetConfig {
 }
 
 impl Eth2TestnetConfig {
-    /// Returns the default hard coded testnet.
-    pub fn hard_coded_default() -> Result<Option<Self>, String> {
-        Self::constant(DEFAULT_HARDCODED_TESTNET)
-    }
     /// When Lighthouse is built it includes zero or more "hardcoded" network specifications. This
     /// function allows for instantiating one of these nets by name.
     pub fn constant(name: &str) -> Result<Option<Self>, String> {
@@ -316,11 +312,9 @@ mod tests {
     ) {
         let temp_dir = TempDir::new("eth2_testnet_test").expect("should create temp dir");
         let base_dir = temp_dir.path().join("my_testnet");
-        let deposit_contract_address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413".to_string();
         let deposit_contract_deploy_block = 42;
 
         let testnet: Eth2TestnetConfig = Eth2TestnetConfig {
-            deposit_contract_address,
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
