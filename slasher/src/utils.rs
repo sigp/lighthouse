@@ -25,7 +25,7 @@ impl<T> TxnMapFull<T, Error> for Result<T, Error> {
         match self {
             Ok(x) => Ok(Some(x)),
             Err(Error::DatabaseError(lmdb::Error::MapFull)) => Ok(None),
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e),
         }
     }
 }
