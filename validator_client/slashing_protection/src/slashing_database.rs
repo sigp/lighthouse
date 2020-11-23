@@ -136,6 +136,13 @@ impl SlashingDatabase {
     #[cfg(windows)]
     fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {}
 
+    /// Creates an empty transaction. Used to test whether the database is locked.
+    pub fn test_transaction(&self) -> Result<(), NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        Transaction::new(&mut conn, TransactionBehavior::Exclusive)?;
+        Ok(())
+    }
+
     /// Register a validator with the slashing protection database.
     ///
     /// This allows the validator to record their signatures in the database, and check
