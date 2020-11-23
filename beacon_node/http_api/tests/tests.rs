@@ -1815,6 +1815,14 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_get_lighthouse_staking(self) -> Self {
+        let result = self.client.get_lighthouse_staking().await.unwrap();
+
+        assert_eq!(result, self.chain.eth1_chain.is_some());
+
+        self
+    }
 }
 
 #[tokio::test(core_threads = 2)]
@@ -2087,5 +2095,7 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_eth1_deposit_cache()
         .await
         .test_get_lighthouse_beacon_states_ssz()
+        .await
+        .test_get_lighthouse_staking()
         .await;
 }

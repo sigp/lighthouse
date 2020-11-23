@@ -356,4 +356,16 @@ impl BeaconNodeHttpClient {
             .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
             .transpose()
     }
+
+    /// `GET lighthouse/staking`
+    pub async fn get_lighthouse_staking(&self) -> Result<bool, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("staking");
+
+        self.get_opt::<(), _>(path).await.map(|opt| opt.is_some())
+    }
 }

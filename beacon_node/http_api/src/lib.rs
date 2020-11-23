@@ -2147,7 +2147,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::param::<StateId>())
         .and(warp::path("ssz"))
         .and(warp::path::end())
-        .and(chain_filter)
+        .and(chain_filter.clone())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
                 let state = state_id.state(&chain)?;
@@ -2161,6 +2161,25 @@ pub fn serve<T: BeaconChainTypes>(
                             e
                         ))
                     })
+            })
+        });
+
+    // GET lighthouse/staking
+    let get_lighthouse_staking = warp::path("lighthouse")
+        .and(warp::path("staking"))
+        .and(warp::path::end())
+        .and(chain_filter)
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                if chain.eth1_chain.is_some() {
+                    Ok(())
+                } else {
+                    Err(warp_utils::reject::custom_not_found(
+                        "staking is not enabled, \
+                        see the --staking CLI flag"
+                            .to_string(),
+                    ))
+                }
             })
         });
 
@@ -2211,7 +2230,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_syncing.boxed())
                 .or(get_lighthouse_eth1_block_cache.boxed())
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
-                .or(get_lighthouse_beacon_states_ssz.boxed()),
+                .or(get_lighthouse_beacon_states_ssz.boxed())
+                .or(get_lighthouse_staking.boxed()),
         )
         .or(warp::post().and(
             post_beacon_blocks
