@@ -408,6 +408,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     if self.to_be_downloaded <= self.processing_target {
                         self.to_be_downloaded = self.processing_target + EPOCHS_PER_BATCH;
                     }
+                    self.request_batches(network)?;
                 }
             }
         } else {
@@ -462,19 +463,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.advance_chain(network, batch_id);
                     // we register so that on chain switching we don't try it again
                     self.attempted_optimistic_starts.insert(batch_id);
-                    self.processing_target += EPOCHS_PER_BATCH;
-                } else if let Some(epoch) = self.optimistic_start {
+                } else if self.optimistic_start == Some(batch_id) {
                     // check if this batch corresponds to an optimistic batch. In this case, we
                     // reject it as an optimistic candidate since the batch was empty
-                    if epoch == batch_id {
-                        self.reject_optimistic_batch(
-                            network,
-                            false, /* do not re-request */
-                            "batch was empty",
-                        )?;
-                    } else {
-                        self.processing_target += EPOCHS_PER_BATCH;
-                    }
+                    self.reject_optimistic_batch(
+                        network,
+                        false, /* do not re-request */
+                        "batch was empty",
+                    )?;
+                }
+
+                if batch_id == self.processing_target {
+                    self.processing_target += EPOCHS_PER_BATCH;
                 }
 
                 // check if the chain has completed syncing
