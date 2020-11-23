@@ -3,8 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
     http::{
-        get_block, get_block_number, get_deposit_logs_in_range, get_network_id, BlockQuery,
-        Eth1NetworkId, Log,
+        get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
+        BlockQuery, Eth1Id, Log,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -16,10 +16,12 @@ use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{interval_at, Duration, Instant};
-use types::ChainSpec;
+use types::{ChainSpec, EthSpec, Unsigned};
 
-/// Indicates the default eth1 network we use for the deposit contract.
-pub const DEFAULT_NETWORK_ID: Eth1NetworkId = Eth1NetworkId::Goerli;
+/// Indicates the default eth1 network id we use for the deposit contract.
+pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
+/// Indicates the default eth1 chain id we use for the deposit contract.
+pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
@@ -32,6 +34,9 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
 
+/// A factor used to reduce the eth1 follow distance to account for discrepancies in the block time.
+const ETH1_BLOCK_TIME_TOLERANCE_FACTOR: u64 = 4;
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// The remote node is less synced that we expect, it is not useful until has done more
@@ -39,7 +44,7 @@ pub enum Error {
     RemoteNotSynced {
         next_required_block: u64,
         remote_highest_block: u64,
-        follow_distance: u64,
+        reduced_follow_distance: u64,
     },
     /// Failed to download a block from the eth1 node.
     BlockDownloadFailed(String),
@@ -84,7 +89,9 @@ pub struct Config {
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
     /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
-    pub network_id: Eth1NetworkId,
+    pub network_id: Eth1Id,
+    /// The eth1 chain id where the deposit contract is deployed (Goerli/Mainnet).
+    pub chain_id: Eth1Id,
     /// Defines the first block that the `DepositCache` will start searching for deposit logs.
     ///
     /// Setting too high can result in missed logs. Setting too low will result in unnecessary
@@ -109,12 +116,38 @@ pub struct Config {
     pub max_blocks_per_update: Option<usize>,
 }
 
+impl Config {
+    /// Sets the block cache to a length that is suitable for the given `EthSpec` and `ChainSpec`.
+    pub fn set_block_cache_truncation<E: EthSpec>(&mut self, spec: &ChainSpec) {
+        // Compute the number of eth1 blocks in an eth1 voting period.
+        let seconds_per_voting_period =
+            E::SlotsPerEth1VotingPeriod::to_u64() * spec.milliseconds_per_slot / 1000;
+        let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
+
+        // Compute the number of extra blocks we store prior to the voting period start blocks.
+        let follow_distance_tolerance_blocks =
+            spec.eth1_follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;
+
+        // Ensure we can store two full windows of voting blocks.
+        let voting_windows = eth1_blocks_per_voting_period * 2;
+
+        // Extend the cache to account for varying eth1 block times and the follow distance
+        // tolerance blocks.
+        let length = voting_windows
+            + (voting_windows / ETH1_BLOCK_TIME_TOLERANCE_FACTOR)
+            + follow_distance_tolerance_blocks;
+
+        self.block_cache_truncation = Some(length as usize);
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             endpoint: "http://localhost:8545".into(),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
             network_id: DEFAULT_NETWORK_ID,
+            chain_id: DEFAULT_CHAIN_ID,
             deposit_contract_deploy_block: 1,
             lowest_cached_block_number: 1,
             follow_distance: 128,
@@ -154,6 +187,18 @@ impl Service {
             }),
             log,
         }
+    }
+
+    /// Returns the follow distance that has been shortened to accommodate for differences in the
+    /// spacing between blocks.
+    ///
+    /// ## Notes
+    ///
+    /// This is useful since the spec declares `SECONDS_PER_ETH1_BLOCK` to be `14`, whilst it is
+    /// actually `15` on Goerli.
+    pub fn reduced_follow_distance(&self) -> u64 {
+        let full = self.config().follow_distance;
+        full.saturating_sub(full / ETH1_BLOCK_TIME_TOLERANCE_FACTOR)
     }
 
     /// Return byte representation of deposit and block caches.
@@ -387,23 +432,36 @@ impl Service {
 
     async fn do_update(&self, update_interval: Duration) -> Result<(), ()> {
         let endpoint = self.config().endpoint.clone();
-        let config_network = self.config().network_id.clone();
-        let result =
+        let config_network_id = self.config().network_id.clone();
+        let config_chain_id = self.config().chain_id.clone();
+        let network_id_result =
             get_network_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
-        match result {
-            Ok(network_id) => {
-                if network_id != config_network {
+        let chain_id_result =
+            get_chain_id(&endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS)).await;
+        match (network_id_result, chain_id_result) {
+            (Ok(network_id), Ok(chain_id)) => {
+                if network_id != config_network_id {
                     crit!(
                         self.log,
-                        "Invalid eth1 network. Please switch to correct network";
-                        "expected" => format!("{:?}",config_network),
+                        "Invalid eth1 network id. Please switch to correct network id";
+                        "expected" => format!("{:?}",config_network_id),
                         "received" => format!("{:?}",network_id),
                         "warning" => WARNING_MSG,
                     );
                     return Ok(());
                 }
+                if chain_id != config_chain_id {
+                    crit!(
+                        self.log,
+                        "Invalid eth1 chain id. Please switch to correct chain id";
+                        "expected" => format!("{:?}",config_chain_id),
+                        "received" => format!("{:?}", chain_id),
+                        "warning" => WARNING_MSG,
+                    );
+                    return Ok(());
+                }
             }
-            Err(_) => {
+            _ => {
                 crit!(
                     self.log,
                     "Error connecting to eth1 node. Please ensure that you have an eth1 http server running locally on http://localhost:8545 or \
@@ -453,7 +511,7 @@ impl Service {
         remote_highest_block_opt: Option<u64>,
     ) -> Result<DepositCacheUpdateOutcome, Error> {
         let endpoint = self.config().endpoint.clone();
-        let follow_distance = self.config().follow_distance;
+        let reduced_follow_distance = self.reduced_follow_distance();
         let deposit_contract_address = self.config().deposit_contract_address.clone();
 
         let blocks_per_log_query = self.config().blocks_per_log_query;
@@ -473,7 +531,7 @@ impl Service {
             &endpoint,
             remote_highest_block_opt,
             next_required_block,
-            follow_distance,
+            reduced_follow_distance,
         )
         .await?;
 
@@ -614,13 +672,13 @@ impl Service {
             .unwrap_or_else(|| self.config().lowest_cached_block_number);
 
         let endpoint = self.config().endpoint.clone();
-        let follow_distance = self.config().follow_distance;
+        let reduced_follow_distance = self.reduced_follow_distance();
 
         let range = get_new_block_numbers(
             &endpoint,
             remote_highest_block_opt,
             next_required_block,
-            follow_distance,
+            reduced_follow_distance,
         )
         .await?;
         // Map the range of required blocks into a Vec.
@@ -760,7 +818,7 @@ async fn get_new_block_numbers<'a>(
     endpoint: &str,
     remote_highest_block_opt: Option<u64>,
     next_required_block: u64,
-    follow_distance: u64,
+    reduced_follow_distance: u64,
 ) -> Result<Option<RangeInclusive<u64>>, Error> {
     let remote_highest_block = if let Some(block_number) = remote_highest_block_opt {
         block_number
@@ -769,7 +827,7 @@ async fn get_new_block_numbers<'a>(
             .map_err(Error::GetBlockNumberFailed)
             .await?
     };
-    let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
+    let remote_follow_block = remote_highest_block.saturating_sub(reduced_follow_distance);
 
     if next_required_block <= remote_follow_block {
         Ok(Some(next_required_block..=remote_follow_block))
@@ -777,12 +835,12 @@ async fn get_new_block_numbers<'a>(
         // If this is the case, the node must have gone "backwards" in terms of it's sync
         // (i.e., it's head block is lower than it was before).
         //
-        // We assume that the `follow_distance` should be sufficient to ensure this never
+        // We assume that the `reduced_follow_distance` should be sufficient to ensure this never
         // happens, otherwise it is an error.
         Err(Error::RemoteNotSynced {
             next_required_block,
             remote_highest_block,
-            follow_distance,
+            reduced_follow_distance,
         })
     } else {
         // Return an empty range.
@@ -842,11 +900,34 @@ async fn download_eth1_block(
 mod tests {
     use super::*;
     use toml;
+    use types::MainnetEthSpec;
 
     #[test]
     fn serde_serialize() {
         let serialized =
             toml::to_string(&Config::default()).expect("Should serde encode default config");
         toml::from_str::<Config>(&serialized).expect("Should serde decode default config");
+    }
+
+    #[test]
+    fn block_cache_size() {
+        let mut config = Config::default();
+
+        let spec = MainnetEthSpec::default_spec();
+
+        config.set_block_cache_truncation::<MainnetEthSpec>(&spec);
+
+        let len = config.block_cache_truncation.unwrap();
+
+        let seconds_per_voting_period =
+            <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64()
+                * (spec.milliseconds_per_slot / 1000);
+        let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
+        let reduce_follow_distance_blocks =
+            config.follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;
+
+        let minimum_len = eth1_blocks_per_voting_period * 2 + reduce_follow_distance_blocks;
+
+        assert!(len > minimum_len as usize);
     }
 }

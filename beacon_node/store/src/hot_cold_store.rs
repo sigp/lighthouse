@@ -1,7 +1,7 @@
 use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
-use crate::config::StoreConfig;
+use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
@@ -9,8 +9,8 @@ use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    PruningCheckpoint, SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY,
-    SCHEMA_VERSION_KEY, SPLIT_KEY,
+    CompactionTimestamp, PruningCheckpoint, SchemaVersion, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
+    CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
 use crate::{
@@ -31,6 +31,7 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use types::*;
 
 /// Defines how blocks should be replayed on states.
@@ -187,8 +188,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             *db.split.write() = split;
         }
 
-        // Finally, run a garbage collection pass.
+        // Run a garbage collection pass.
         db.remove_garbage()?;
+
+        // If configured, run a foreground compaction pass.
+        if db.config.compact_on_init {
+            info!(db.log, "Running foreground compaction");
+            db.compact()?;
+            info!(db.log, "Foreground compaction complete");
+        }
 
         Ok(db)
     }
@@ -829,13 +837,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load previously-stored config from disk.
-    fn load_config(&self) -> Result<Option<StoreConfig>, Error> {
+    fn load_config(&self) -> Result<Option<OnDiskStoreConfig>, Error> {
         self.hot_db.get(&CONFIG_KEY)
     }
 
     /// Write the config to disk.
     fn store_config(&self) -> Result<(), Error> {
-        self.hot_db.put(&CONFIG_KEY, &self.config)
+        self.hot_db.put(&CONFIG_KEY, &self.config.as_disk_config())
     }
 
     /// Load the split point from disk.
@@ -932,6 +940,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    /// Return `true` if compaction on finalization/pruning is enabled.
+    pub fn compact_on_prune(&self) -> bool {
+        self.config.compact_on_prune
+    }
+
     /// Load the checkpoint to begin pruning from (the "old finalized checkpoint").
     pub fn load_pruning_checkpoint(&self) -> Result<Option<Checkpoint>, Error> {
         Ok(self
@@ -943,6 +956,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Create a staged store for the pruning checkpoint.
     pub fn pruning_checkpoint_store_op(&self, checkpoint: Checkpoint) -> KeyValueStoreOp {
         PruningCheckpoint { checkpoint }.as_kv_store_op(PRUNING_CHECKPOINT_KEY)
+    }
+
+    /// Load the timestamp of the last compaction as a `Duration` since the UNIX epoch.
+    pub fn load_compaction_timestamp(&self) -> Result<Option<Duration>, Error> {
+        Ok(self
+            .hot_db
+            .get(&COMPACTION_TIMESTAMP_KEY)?
+            .map(|c: CompactionTimestamp| Duration::from_secs(c.0)))
+    }
+
+    /// Store the timestamp of the last compaction as a `Duration` since the UNIX epoch.
+    pub fn store_compaction_timestamp(&self, compaction_timestamp: Duration) -> Result<(), Error> {
+        self.hot_db.put(
+            &COMPACTION_TIMESTAMP_KEY,
+            &CompactionTimestamp(compaction_timestamp.as_secs()),
+        )
     }
 }
 

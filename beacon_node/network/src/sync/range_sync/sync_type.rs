@@ -1,8 +1,8 @@
 //! Contains logic about identifying which Sync to perform given PeerSyncInfo of ourselves and
 //! of a remote.
 
-use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2_libp2p::SyncInfo;
 use std::sync::Arc;
 
 /// The type of Range sync that should be done relative to our current state.
@@ -19,8 +19,8 @@ impl RangeSyncType {
     /// `PeerSyncInfo`.
     pub fn new<T: BeaconChainTypes>(
         chain: &Arc<BeaconChain<T>>,
-        local_info: &PeerSyncInfo,
-        remote_info: &PeerSyncInfo,
+        local_info: &SyncInfo,
+        remote_info: &SyncInfo,
     ) -> RangeSyncType {
         // Check for finalized chain sync
         //

@@ -98,9 +98,29 @@ impl std::fmt::Display for Client {
     }
 }
 
+impl ClientKind {
+    pub fn as_static_ref(&self) -> &'static str {
+        use ClientKind::*;
+        match self {
+            Lighthouse => "Lighthouse",
+            Nimbus => "Nimbus",
+            Teku => "Teku",
+            Prysm => "Prysm",
+            Lodestar => "Lodestar",
+            Unknown => "Unknown",
+        }
+    }
+}
+
+impl AsRef<str> for ClientKind {
+    fn as_ref(&self) -> &str {
+        self.as_static_ref()
+    }
+}
+
 impl std::fmt::Display for ClientKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        f.write_str(self.as_ref())
     }
 }
 

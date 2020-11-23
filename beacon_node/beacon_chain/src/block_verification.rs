@@ -418,6 +418,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Check that we have not already received a block with a valid signature for this slot.
         if chain
             .observed_block_producers
+            .read()
             .proposer_has_been_observed(&block.message)
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
@@ -472,6 +473,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // have a race-condition when verifying two blocks simultaneously.
         if chain
             .observed_block_producers
+            .write()
             .observe_proposer(&block.message)
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {

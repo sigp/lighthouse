@@ -260,7 +260,7 @@ impl ChainSpec {
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 16_384,
-            min_genesis_time: 1_578_009_600, // Jan 3, 2020
+            min_genesis_time: 1606824000, // Dec 1, 2020
             hysteresis_quotient: 4,
             hysteresis_downward_multiplier: 1,
             hysteresis_upward_multiplier: 5,
@@ -324,7 +324,7 @@ impl ChainSpec {
             seconds_per_eth1_block: 14,
             deposit_chain_id: 1,
             deposit_network_id: 1,
-            deposit_contract_address: "1234567890123456789012345678901234567890"
+            deposit_contract_address: "00000000219ab540356cbb839cbe05303d7705fa"
                 .parse()
                 .expect("chain spec deposit contract address"),
 
@@ -354,6 +354,7 @@ impl ChainSpec {
             target_committee_size: 4,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
+            min_genesis_time: 1578009600,
             eth1_follow_distance: 16,
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
             shard_committee_period: 64,
@@ -366,6 +367,9 @@ impl ChainSpec {
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
             deposit_network_id: 5,
+            deposit_contract_address: "1234567890123456789012345678901234567890"
+                .parse()
+                .expect("minimal chain spec deposit address"),
             boot_nodes,
             ..ChainSpec::mainnet()
         }
@@ -375,7 +379,7 @@ impl ChainSpec {
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
     ///
     /// This method only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
-    /// (e.g., Medalla, Zinken, Spadina, Altona, etc.).
+    /// (e.g., Medalla, Pyrmont, Spadina, Altona, etc.).
     pub fn v012_legacy() -> Self {
         let boot_nodes = vec![];
 
@@ -598,7 +602,8 @@ impl YamlConfig {
         Some(match self.config_name.as_str() {
             "mainnet" => EthSpecId::Mainnet,
             "minimal" => EthSpecId::Minimal,
-            "zinken" => EthSpecId::V012Legacy,
+            "toledo" => EthSpecId::Mainnet,
+            "pyrmont" => EthSpecId::Mainnet,
             "spadina" => EthSpecId::V012Legacy,
             "medalla" => EthSpecId::V012Legacy,
             "altona" => EthSpecId::V012Legacy,

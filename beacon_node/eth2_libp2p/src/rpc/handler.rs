@@ -14,7 +14,7 @@ use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
 use libp2p::swarm::NegotiatedSubstream;
-use slog::{crit, debug, warn};
+use slog::{crit, debug, trace, warn};
 use smallvec::SmallVec;
 use std::{
     collections::hash_map::Entry,
@@ -238,7 +238,9 @@ where
     /// Initiates the handler's shutdown process, sending an optional last message to the peer.
     pub fn shutdown(&mut self, final_msg: Option<(RequestId, RPCRequest<TSpec>)>) {
         if matches!(self.state, HandlerState::Active) {
-            debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
+            if !self.dial_queue.is_empty() {
+                debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
+            }
             // we now drive to completion communications already dialed/established
             while let Some((id, req)) = self.dial_queue.pop() {
                 self.pending_errors.push(HandlerErr::Outbound {
@@ -283,8 +285,11 @@ where
         let inbound_info = if let Some(info) = self.inbound_substreams.get_mut(&inbound_id) {
             info
         } else {
-            warn!(self.log, "Stream has expired. Response not sent";
-                "response" => response.to_string(), "id" => inbound_id);
+            if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
+                // the stream is closed after sending the expected number of responses
+                trace!(self.log, "Inbound stream has expired, response not sent";
+                    "response" => %response, "id" => inbound_id);
+            }
             return;
         };
 
@@ -624,6 +629,7 @@ where
                             // if we can't close right now, put the substream back and try again later
                             Poll::Pending => info.state = InboundState::Idle(substream),
                             Poll::Ready(res) => {
+                                // The substream closed, we remove it
                                 substreams_to_remove.push(*id);
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay.remove(delay_key);
@@ -665,6 +671,15 @@ where
                                     substreams_to_remove.push(*id);
                                     if let Some(ref delay_key) = info.delay_key {
                                         self.inbound_substreams_delay.remove(delay_key);
+                                    }
+                                } else {
+                                    // If we are not removing this substream, we reset the timer.
+                                    // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
+                                    if let Some(ref delay_key) = info.delay_key {
+                                        self.inbound_substreams_delay.reset(
+                                            delay_key,
+                                            Duration::from_secs(RESPONSE_TIMEOUT),
+                                        );
                                     }
                                 }
 

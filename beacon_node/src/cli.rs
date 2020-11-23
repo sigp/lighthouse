@@ -31,6 +31,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Network parameters.
          */
         .arg(
+            Arg::with_name("subscribe-all-subnets")
+                .long("subscribe-all-subnets")
+                .help("Subscribe to all subnets regardless of validator count. \
+                       This will also advertise the beacon node as being long-lived subscribed to all subnets.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("import-all-attestations")
+                .long("import-all-attestations")
+                .help("Import and aggregate all attestations, regardless of validator subscriptions. \
+                       This will only import attestations from already-subscribed subnets, use with \
+                       --subscribe-all-subnets to ensure all attestations are received for import.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
                 .short("z")
@@ -273,6 +288,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("eth1-blocks-per-log-query")
+                .long("eth1-blocks-per-log-query")
+                .value_name("BLOCKS")
+                .help("Specifies the number of blocks that a deposit log query should span. \
+                    This will reduce the size of responses from the Eth1 endpoint.")
+                .default_value("1000")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
@@ -290,12 +314,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
-         * Purge.
+         * Database purging and compaction.
          */
         .arg(
             Arg::with_name("purge-db")
                 .long("purge-db")
                 .help("If present, the chain database will be deleted. Use with caution.")
+        )
+        .arg(
+            Arg::with_name("compact-db")
+                .long("compact-db")
+                .help("If present, apply compaction to the database on start-up. Use with caution. \
+                       It is generally not recommended unless auto-compaction is disabled.")
+        )
+        .arg(
+            Arg::with_name("auto-compact-db")
+                .long("auto-compact-db")
+                .help("Enable or disable automatic compaction of the database on finalization.")
+                .takes_value(true)
+                .default_value("true")
         )
 
         /*
