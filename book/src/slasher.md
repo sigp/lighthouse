@@ -74,7 +74,7 @@ either you can halve the space required.
 If you want a better estimate you can use this formula:
 
 ```
-352 * V * N + (16 * V * N)/(C * K) + 15000 * N
+360 * V * N + (16 * V * N)/(C * K) + 15000 * N
 ```
 
 where
