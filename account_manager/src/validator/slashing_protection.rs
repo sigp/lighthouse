@@ -102,7 +102,7 @@ pub fn cli_run<T: EthSpec>(
                 epoch.map_or("?".to_string(), |epoch| format!("{}", epoch.as_u64()))
             };
             let display_attestation = |source, target| match (source, target) {
-                (None, None) => format!("none"),
+                (None, None) => "none".to_string(),
                 (source, target) => format!("{}=>{}", display_epoch(source), display_epoch(target)),
             };
 

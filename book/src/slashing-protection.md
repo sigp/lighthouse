@@ -61,7 +61,7 @@ Examples where it is **ineffective** are:
 ## Import and Export
 
 Lighthouse supports the slashing protection interchange format described in [EIP-3076][]. An
-interchange file is a record of blocks and attestations signing by a set of validator keys –
+interchange file is a record of blocks and attestations signed by a set of validator keys –
 basically a portable slashing protection database!
 
 With your validator client stopped, you can import a `.json` interchange file from another client

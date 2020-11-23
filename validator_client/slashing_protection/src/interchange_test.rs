@@ -68,7 +68,11 @@ impl MultiTestCase {
                 test_case.interchange.clone(),
                 self.genesis_validators_root,
             ) {
-                Ok(failed_records) => {
+                Ok(import_outcomes) => {
+                    let failed_records = import_outcomes
+                        .iter()
+                        .filter(|o| o.failed())
+                        .collect::<Vec<_>>();
                     if !test_case.should_succeed {
                         panic!(
                             "test `{}` succeeded on import when it should have failed",

@@ -764,6 +764,8 @@ impl SlashingDatabase {
         Ok(())
     }
 
+    /// Remove all attestations for `public_key` with
+    /// `(source, target) < (new_min_source, new_min_target)`.
     pub fn prune_signed_attestations(
         &self,
         public_key: &PublicKey,
@@ -860,6 +862,12 @@ pub enum InterchangeImportOutcome {
         pubkey: PublicKey,
         error: NotSafe,
     },
+}
+
+impl InterchangeImportOutcome {
+    pub fn failed(&self) -> bool {
+        matches!(self, InterchangeImportOutcome::Failure { .. })
+    }
 }
 
 #[derive(Debug)]
