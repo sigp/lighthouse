@@ -7,8 +7,10 @@ mkdir -p ~/.docker/cli-plugins;
 mv buildx ~/.docker/cli-plugins/docker-buildx;
 
 docker version;
+docker info;
+ls -al /proc/sys/fs/binfmt_misc/;
 
-docker run --privileged --rm tonistiigi/binfmt --install all;
+docker run --privileged --rm tonistiigi/binfmt --install arm64;
 docker buildx rm cross-builder;
 docker buildx create --use --name cross-builder;
 
