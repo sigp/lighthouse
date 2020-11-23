@@ -36,3 +36,4 @@ rand = "0.7.3"
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 directory = { path = "../common/directory" }
+tokio-compat-02 = "0.1"

@@ -2,6 +2,7 @@ use clap::ArgMatches;
 use environment::Environment;
 use futures::compat::Future01CompatExt;
 use std::path::PathBuf;
+use tokio_compat_02::FutureExt;
 use types::EthSpec;
 use web3::{
     transports::Ipc,
@@ -21,23 +22,26 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches<'_>) -> Result<
         Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
     let web3 = Web3::new(transport);
 
-    env.runtime().block_on(async {
-        let _ = web3
-            .eth()
-            .send_transaction(TransactionRequest {
-                from,
-                to: Some(contract_address),
-                gas: Some(U256::from(400_000)),
-                gas_price: None,
-                value: Some(U256::zero()),
-                data: Some(STEAL_FN_SIGNATURE.into()),
-                nonce: None,
-                condition: None,
-            })
-            .compat()
-            .await
-            .map_err(|e| format!("Failed to call steal fn: {:?}", e))?;
+    env.runtime().block_on(
+        async {
+            let _ = web3
+                .eth()
+                .send_transaction(TransactionRequest {
+                    from,
+                    to: Some(contract_address),
+                    gas: Some(U256::from(400_000)),
+                    gas_price: None,
+                    value: Some(U256::zero()),
+                    data: Some(STEAL_FN_SIGNATURE.into()),
+                    nonce: None,
+                    condition: None,
+                })
+                .compat()
+                .await
+                .map_err(|e| format!("Failed to call steal fn: {:?}", e))?;
 
-        Ok(())
-    })
+            Ok(())
+        }
+        .compat(),
+    )
 }

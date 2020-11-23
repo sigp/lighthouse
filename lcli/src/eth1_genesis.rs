@@ -5,6 +5,7 @@ use genesis::{Eth1Config, Eth1GenesisService};
 use ssz::Encode;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio_compat_02::FutureExt;
 use types::EthSpec;
 
 /// Interval between polling the eth1 node for genesis information.
@@ -49,19 +50,22 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
     let genesis_service =
         Eth1GenesisService::new(config, env.core_context().log().clone(), spec.clone());
 
-    env.runtime().block_on(async {
-        let _ = genesis_service
-            .wait_for_genesis_state::<T>(ETH1_GENESIS_UPDATE_INTERVAL, spec)
-            .await
-            .map(move |genesis_state| {
-                eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
-                eth2_testnet_config.force_write_to_file(testnet_dir)
-            })
-            .map_err(|e| format!("Failed to find genesis: {}", e))?;
+    env.runtime().block_on(
+        async {
+            let _ = genesis_service
+                .wait_for_genesis_state::<T>(ETH1_GENESIS_UPDATE_INTERVAL, spec)
+                .await
+                .map(move |genesis_state| {
+                    eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
+                    eth2_testnet_config.force_write_to_file(testnet_dir)
+                })
+                .map_err(|e| format!("Failed to find genesis: {}", e))?;
 
-        info!("Starting service to produce genesis BeaconState from eth1");
-        info!("Connecting to eth1 http endpoint: {}", endpoint);
+            info!("Starting service to produce genesis BeaconState from eth1");
+            info!("Connecting to eth1 http endpoint: {}", endpoint);
 
-        Ok(())
-    })
+            Ok(())
+        }
+        .compat(),
+    )
 }
