@@ -233,7 +233,7 @@ fn main() {
                         .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
-                        .help("The URL to the eth1 JSON-RPC http API."),
+                        .help("Deprecated. Use --eth1-endpoints."),
                 )
                 .arg(
                     Arg::with_name("eth1-endpoints")
@@ -243,7 +243,7 @@ fn main() {
                         .conflicts_with("eth1-endpoint")
                         .help("One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
                                 If multiple endpoints are given the endpoints are used as \
-                                fallbacks in the given order."),
+                                fallback in the given order."),
                 )
         )
         .subcommand(

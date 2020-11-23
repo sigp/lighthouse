@@ -8,10 +8,13 @@ use crate::{
     },
     inner::{DepositUpdater, Inner},
 };
+use fallback::{Fallback, FallbackError};
 use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
+use std::fmt::Debug;
+use std::future::Future;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -35,78 +38,23 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
 
-/// Applies the given function $func_name to all usable endpoints of $endpoints until
-/// one of them returns Ok or if no usable endpoint is left it returns the error of the last usable
-/// endpoint. If no endpoint is usable it returns None. Usability of endpoints is checked lazily
-/// using the EndpointsCache structure. For each endpoint if it returns an error the on_err function
-/// is called.
-macro_rules! with_fallback_and_on_err {
-    ( $func_name: ident;$endpoints: expr, $($params: expr),*; $on_err: ident ) => {
-        {
-            let mut result = None;
-            for endpoint in &$endpoints.endpoints {
-                if $endpoints.is_usable(endpoint).await {
-                    let endpoint_str = &endpoint.0;
-                    crate::metrics::inc_counter_vec(
-                        &crate::metrics::ENDPOINT_REQUESTS,
-                        &[endpoint_str]
-                    );
-                    match $func_name(endpoint_str, $($params,)*).await {
-                        Ok(t) => {
-                            result = Some(Ok(t));
-                            break;
-                        },
-                        Err(t) => {
-                            crate::metrics::inc_counter_vec(
-                                &crate::metrics::ENDPOINT_ERRORS,
-                                &[endpoint_str]
-                            );
-                            $on_err(&t, endpoint, &$endpoints.log).await;
-                            result = Some(Err(t));
-                        }
-                    }
-                }
-            }
-            result
-        }
-    }
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum EndpointError {
+    NotReachable,
+    WrongNetworkId,
+    WrongChainId,
+    FarBehind,
 }
 
-async fn on_err_ignore<T>(_: T, _: &(String, TRwLock<Option<bool>>), _: &Logger) {
-    //do nothing
-}
+type EndpointState = Result<(), EndpointError>;
 
-async fn handle_node_far_behind_error(
-    e: &Error,
-    endpoint: &(String, TRwLock<Option<bool>>),
-    log: &Logger,
-) {
-    if let Error::RemoteFarBehind(timestamp) = *e {
-        *endpoint.1.write().await = Some(false);
-        warn!(
-            log,
-            "Eth1 endpoint is far behind. Trying fallbacks ...";
-            "endpoint" => &endpoint.0,
-            "last_seen_block_unix_timestamp" => timestamp
-        )
-    }
-}
-
-/// Applies the given function $func_name to all usable endpoints of $endpoints until
-/// one of them returns Ok or if no usable endpoint is left it returns the error of the last usable
-/// endpoint. If no endpoint is usable it returns None. Usability of endpoints is checked lazily
-/// using the EndpointsCache structure.
-macro_rules! with_fallbacks {
-    ( $func_name: ident;$endpoints: expr, $($params: expr),* ) => {
-        with_fallback_and_on_err!($func_name; $endpoints $(, $params)*; on_err_ignore);
-    }
-}
+type EndpointWithState = (String, TRwLock<Option<EndpointState>>);
 
 /// A cache structure to lazily check usability of endpoints. An endpoint is usable if it is
 /// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
 /// is not usable.
 pub struct EndpointsCache {
-    pub endpoints: Vec<(String, TRwLock<Option<bool>>)>,
+    pub fallback: Fallback<EndpointWithState>,
     pub config_network_id: Eth1Id,
     pub config_chain_id: Eth1Id,
     pub log: Logger,
@@ -115,7 +63,7 @@ pub struct EndpointsCache {
 impl EndpointsCache {
     /// Checks the usability of an endpoint. Results get cached and therefore only the first call
     /// for each endpoint does the real check.
-    async fn is_usable<'a>(&self, endpoint: &'a (String, TRwLock<Option<bool>>)) -> bool {
+    async fn state(&self, endpoint: &EndpointWithState) -> EndpointState {
         if let Some(result) = *endpoint.1.read().await {
             return result;
         }
@@ -124,38 +72,74 @@ impl EndpointsCache {
             return result;
         }
         crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[&endpoint.0]);
-        let is_ok = test_endpoint(
+        let state = endpoint_state(
             &endpoint.0,
             &self.config_network_id,
             &self.config_chain_id,
             &self.log,
         )
-        .await
-        .is_ok();
-        *value = Some(is_ok);
-        if is_ok {
-            true
-        } else {
+        .await;
+        *value = Some(state);
+        if state.is_err() {
             crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_ERRORS, &[&endpoint.0]);
-            false
         }
+        state
+    }
+
+    pub async fn first_success<'a, F, O, R>(
+        &'a self,
+        func: F,
+    ) -> Result<O, FallbackError<SingleEndpointError>>
+    where
+        F: Fn(&'a str) -> R,
+        R: Future<Output = Result<O, SingleEndpointError>>,
+    {
+        let func = &func;
+        self.fallback
+            .first_success(|endpoint| async move {
+                match self.state(endpoint).await {
+                    Ok(()) => {
+                        let endpoint_str = &endpoint.0;
+                        crate::metrics::inc_counter_vec(
+                            &crate::metrics::ENDPOINT_REQUESTS,
+                            &[endpoint_str],
+                        );
+                        match func(&endpoint.0).await {
+                            Ok(t) => Ok(t),
+                            Err(t) => {
+                                crate::metrics::inc_counter_vec(
+                                    &crate::metrics::ENDPOINT_ERRORS,
+                                    &[endpoint_str],
+                                );
+                                if let SingleEndpointError::EndpointError(e) = &t {
+                                    *endpoint.1.write().await = Some(Err(*e));
+                                }
+                                Err(t)
+                            }
+                        }
+                    }
+                    Err(e) => Err(SingleEndpointError::EndpointError(e)),
+                }
+            })
+            .await
     }
 }
 
 /// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
 /// chain id. Otherwise it returns `Err`.
-async fn test_endpoint(
+async fn endpoint_state(
     endpoint: &str,
     config_network_id: &Eth1Id,
     config_chain_id: &Eth1Id,
     log: &Logger,
-) -> Result<(), ()> {
+) -> EndpointState {
     let error_connecting = |_| {
         warn!(
             log,
-            "Error connecting to eth1 node. Trying fallbacks ...";
+            "Error connecting to eth1 node. Trying fallback ...";
             "endpoint" => endpoint,
         );
+        EndpointError::NotReachable
     };
     let network_id = get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
@@ -164,12 +148,12 @@ async fn test_endpoint(
         warn!(
             log,
             "Invalid eth1 network id. Please switch to correct network id. Trying \
-             fallbacks ...";
+             fallback ...";
             "endpoint" => endpoint,
             "expected" => format!("{:?}",config_network_id),
             "received" => format!("{:?}",network_id),
         );
-        return Err(());
+        return Err(EndpointError::WrongNetworkId);
     }
     let chain_id = get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
@@ -178,12 +162,12 @@ async fn test_endpoint(
         warn!(
             log,
             "Invalid eth1 chain id. Please switch to correct chain id. Trying \
-             fallbacks ...";
+             fallback ...";
             "endpoint" => endpoint,
             "expected" => format!("{:?}",config_chain_id),
             "received" => format!("{:?}", chain_id),
         );
-        Err(())
+        Err(EndpointError::WrongChainId)
     } else {
         Ok(())
     }
@@ -208,7 +192,7 @@ async fn get_remote_head_and_new_block_ranges(
         Option<RangeInclusive<u64>>,
         Option<RangeInclusive<u64>>,
     ),
-    Error,
+    SingleEndpointError,
 > {
     let remote_head_block = download_eth1_block(endpoint, service.inner.clone(), None).await?;
     let now = SystemTime::now()
@@ -216,12 +200,18 @@ async fn get_remote_head_and_new_block_ranges(
         .map(|d| d.as_secs())
         .unwrap_or(u64::MAX);
     if remote_head_block.timestamp + node_far_behind_seconds < now {
-        return Err(Error::RemoteFarBehind(remote_head_block.timestamp));
+        warn!(
+            service.log,
+            "Eth1 endpoint is far behind. Trying fallback ...";
+            "endpoint" => endpoint,
+            "last_seen_block_unix_timestamp" => remote_head_block.timestamp
+        );
+        return Err(SingleEndpointError::EndpointError(EndpointError::FarBehind));
     }
 
     let handle_remote_not_synced = |e| {
-        if let Error::RemoteNotSynced { .. } = e {
-            warn!(service.log, "Eth1 node not synced. Trying fallbacks..."; "endpoint" => endpoint);
+        if let SingleEndpointError::RemoteNotSynced { .. } = e {
+            warn!(service.log, "Eth1 node not synced. Trying fallback..."; "endpoint" => endpoint);
         }
         e
     };
@@ -244,16 +234,18 @@ async fn relevant_new_block_numbers_from_endpoint(
     endpoint: &str,
     service: &Service,
     head_type: HeadType,
-) -> Result<Option<RangeInclusive<u64>>, Error> {
+) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
     let remote_highest_block =
         get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-            .map_err(Error::GetBlockNumberFailed)
+            .map_err(SingleEndpointError::GetBlockNumberFailed)
             .await?;
     service.relevant_new_block_numbers(remote_highest_block, head_type)
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Error {
+pub enum SingleEndpointError {
+    /// Endpoint is currently not functional.
+    EndpointError(EndpointError),
     /// The remote node is less synced that we expect, it is not useful until has done more
     /// syncing.
     RemoteNotSynced {
@@ -271,6 +263,10 @@ pub enum Error {
     GetDepositCountFailed(String),
     /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
     /// There was an inconsistency when adding a block to the cache.
     FailedToInsertEth1Block(BlockCacheError),
     /// There was an inconsistency when adding a deposit to the cache.
@@ -280,12 +276,10 @@ pub enum Error {
         block_range: Range<u64>,
         error: String,
     },
-    /// No endpoints is online and has the correct network and chain id
-    NoAvailableEndpoints,
+    /// All possible endpoints returned a `SingleEndpointError`.
+    FallbackError(FallbackError<SingleEndpointError>),
     /// There was an unexpected internal error.
     Internal(String),
-    /// The latest remote block is far behind now. Contains the timestamp of the latest block.
-    RemoteFarBehind(u64),
 }
 
 /// The success message for an Eth1Data cache update.
@@ -542,10 +536,12 @@ impl Service {
         let config_network_id = self.config().network_id.clone();
         let config_chain_id = self.config().chain_id.clone();
         EndpointsCache {
-            endpoints: endpoints
-                .into_iter()
-                .map(|s| (s, TRwLock::new(None)))
-                .collect(),
+            fallback: Fallback::new(
+                endpoints
+                    .into_iter()
+                    .map(|s| (s, TRwLock::new(None)))
+                    .collect(),
+            ),
             config_network_id,
             config_chain_id,
             log: self.log.clone(),
@@ -566,31 +562,46 @@ impl Service {
         let endpoints = self.init_endpoints();
         let node_far_behind_seconds = self.inner.config.read().node_far_behind_seconds;
 
-        let process_err = |e| {
-            if let Error::NoAvailableEndpoints = e {
-                crit!(
-                    self.log,
-                    "Couldn't connect to any eth1 node. Please ensure that you have an eth1 http \
-                     server running locally on http://localhost:8545 or specify one or more \
-                     (remote) endpoints using \
-                     `--eth1-endpoints <COMMA-SEPARATED-SERVER-ADDRESSES>`. \
-                     Also ensure that `eth` and `net` apis are enabled on the eth1 http server";
-                     "warning" => WARNING_MSG
-                );
+        let process_single_err = |e: &FallbackError<SingleEndpointError>| {
+            match e {
+                FallbackError::AllErrored(errors) => {
+                    if errors
+                        .iter()
+                        .all(|error| matches!(error, SingleEndpointError::EndpointError(_)))
+                    {
+                        crit!(
+                            self.log,
+                            "Couldn't connect to any eth1 node. Please ensure that you have an \
+                             eth1 http server running locally on http://localhost:8545 or specify \
+                             one or more (remote) endpoints using \
+                             `--eth1-endpoints <COMMA-SEPARATED-SERVER-ADDRESSES>`. \
+                             Also ensure that `eth` and `net` apis are enabled on the eth1 http \
+                             server";
+                             "warning" => WARNING_MSG
+                        );
+                    }
+                }
             }
-            e
+            endpoints.fallback.map_format_error(|s| &s.0, &e)
+        };
+
+        let process_err = |e: Error| match &e {
+            Error::FallbackError(f) => process_single_err(f),
+            e => format!("{:?}", e),
         };
 
         let (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache) =
-            with_fallback_and_on_err!(
-                get_remote_head_and_new_block_ranges;
-                &endpoints,
-                &self,
-                node_far_behind_seconds;
-                handle_node_far_behind_error
-            )
-            .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
-            .map_err(|e| format!("Failed to update Eth1 service: {:?}", process_err(e)))?;
+            endpoints
+                .first_success(|e| async move {
+                    get_remote_head_and_new_block_ranges(e, &self, node_far_behind_seconds).await
+                })
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Failed to update Eth1 service: {:?}",
+                        process_single_err(&e)
+                    )
+                })?;
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 
@@ -680,7 +691,7 @@ impl Service {
         &self,
         remote_highest_block: u64,
         head_type: HeadType,
-    ) -> Result<Option<RangeInclusive<u64>>, Error> {
+    ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
         let follow_distance = self.config().follow_distance;
         let next_required_block = match head_type {
             HeadType::Deposit => self
@@ -732,12 +743,12 @@ impl Service {
         let range = {
             match new_block_numbers {
                 Some(range) => range,
-                None => with_fallbacks!(relevant_new_block_numbers_from_endpoint;
-                    endpoints,
-                    &self,
-                    HeadType::Deposit
-                )
-                .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
+                None => endpoints
+                    .first_success(|e| async move {
+                        relevant_new_block_numbers_from_endpoint(e, &self, HeadType::Deposit).await
+                    })
+                    .await
+                    .map_err(Error::FallbackError)?,
             }
         };
 
@@ -756,27 +767,32 @@ impl Service {
             Vec::new()
         };
 
+        let deposit_contract_address_ref: &str = &deposit_contract_address;
         let logs: Vec<(Range<u64>, Vec<Log>)> =
             stream::try_unfold(block_number_chunks.into_iter(), |mut chunks| async {
                 match chunks.next() {
                     Some(chunk) => {
-                        let chunk_1 = chunk.clone();
-                        match with_fallbacks!(get_deposit_logs_in_range;
-                            &endpoints,
-                            &deposit_contract_address,
-                            chunk.clone(),
-                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS)
-                        ) {
-                            None => Err(Error::NoAvailableEndpoints),
-                            Some(Ok(logs)) => Ok(Some(((chunk_1, logs), chunks))),
-                            Some(Err(e)) => Err(Error::GetDepositLogsFailed(e)),
-                        }
+                        let chunk_ref = &chunk;
+                        endpoints
+                            .first_success(|e| async move {
+                                get_deposit_logs_in_range(
+                                    e,
+                                    deposit_contract_address_ref,
+                                    chunk_ref.clone(),
+                                    Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
+                                )
+                                .await
+                                .map_err(SingleEndpointError::GetDepositLogsFailed)
+                            })
+                            .await
+                            .map(|logs| Some(((chunk, logs), chunks)))
                     }
                     None => Ok(None),
                 }
             })
             .try_collect()
-            .await?;
+            .await
+            .map_err(Error::FallbackError)?;
 
         let mut logs_imported = 0;
         for (block_range, log_chunk) in logs.iter() {
@@ -872,12 +888,13 @@ impl Service {
         let range = {
             match new_block_numbers {
                 Some(range) => range,
-                None => with_fallbacks!(relevant_new_block_numbers_from_endpoint;
-                    endpoints,
-                    &self,
-                    HeadType::BlockCache
-                )
-                .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))?,
+                None => endpoints
+                    .first_success(|e| async move {
+                        relevant_new_block_numbers_from_endpoint(e, &self, HeadType::BlockCache)
+                            .await
+                    })
+                    .await
+                    .map_err(Error::FallbackError)?,
             }
         };
 
@@ -931,12 +948,11 @@ impl Service {
             |mut block_numbers| async {
                 match block_numbers.next() {
                     Some(block_number) => {
-                        match with_fallbacks!(download_eth1_block;
-                            &endpoints,
-                            self.inner.clone(),
-                            Some(block_number)
-                        )
-                        .unwrap_or_else(|| Err(Error::NoAvailableEndpoints))
+                        match endpoints
+                            .first_success(|e| async move {
+                                download_eth1_block(e, self.inner.clone(), Some(block_number)).await
+                            })
+                            .await
                         {
                             Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
                             Err(e) => Err(e),
@@ -947,7 +963,8 @@ impl Service {
             },
         )
         .try_collect()
-        .await?;
+        .await
+        .map_err(Error::FallbackError)?;
 
         let mut blocks_imported = 0;
         for eth1_block in eth1_blocks {
@@ -1026,7 +1043,7 @@ fn relevant_block_range(
     remote_highest_block: u64,
     next_required_block: u64,
     follow_distance: u64,
-) -> Result<Option<RangeInclusive<u64>>, Error> {
+) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
     let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
 
     if next_required_block <= remote_follow_block {
@@ -1037,7 +1054,7 @@ fn relevant_block_range(
         //
         // We assume that the `follow_distance` should be sufficient to ensure this never
         // happens, otherwise it is an error.
-        Err(Error::RemoteNotSynced {
+        Err(SingleEndpointError::RemoteNotSynced {
             next_required_block,
             remote_highest_block,
             follow_distance,
@@ -1058,7 +1075,7 @@ async fn download_eth1_block(
     endpoint: &str,
     cache: Arc<Inner>,
     block_number_opt: Option<u64>,
-) -> Result<Eth1Block, Error> {
+) -> Result<Eth1Block, SingleEndpointError> {
     let deposit_root = block_number_opt.and_then(|block_number| {
         cache
             .deposit_cache
@@ -1083,7 +1100,7 @@ async fn download_eth1_block(
             .unwrap_or_else(|| BlockQuery::Latest),
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
-    .map_err(Error::BlockDownloadFailed)
+    .map_err(SingleEndpointError::BlockDownloadFailed)
     .await?;
 
     Ok(Eth1Block {

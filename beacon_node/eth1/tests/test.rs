@@ -803,7 +803,7 @@ mod persist {
     }
 }
 
-/// Tests for eth1 fallbacks
+/// Tests for eth1 fallback
 mod fallbacks {
     use super::*;
     use tokio::time::delay_for;
