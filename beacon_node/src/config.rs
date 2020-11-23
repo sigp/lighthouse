@@ -258,13 +258,7 @@ pub fn get_config<E: EthSpec>(
      */
     let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
 
-    client_config.eth1.deposit_contract_address =
-        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
-    let spec_contract_address = format!("{:?}", spec.deposit_contract_address);
-    if client_config.eth1.deposit_contract_address != spec_contract_address {
-        return Err("Testnet contract address does not match spec".into());
-    }
-
+    client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
