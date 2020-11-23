@@ -143,7 +143,7 @@ pub fn try_create_float_gauge_vec(
     Ok(counter_vec)
 }
 
-/// Attempts to create a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// Attempts to create a `IntCounterVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_counter_vec(
     name: &str,
@@ -218,6 +218,12 @@ pub fn get_int_counter(
 pub fn inc_counter_vec(int_counter_vec: &Result<IntCounterVec>, name: &[&str]) {
     if let Some(counter) = get_int_counter(int_counter_vec, name) {
         counter.inc()
+    }
+}
+
+pub fn inc_counter_vec_by(int_counter_vec: &Result<IntCounterVec>, name: &[&str], amount: i64) {
+    if let Some(counter) = get_int_counter(int_counter_vec, name) {
+        counter.inc_by(amount);
     }
 }
 

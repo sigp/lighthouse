@@ -16,6 +16,7 @@ use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use parking_lot::Mutex;
+use slasher::{Slasher, SlasherServer};
 use slog::{debug, info, warn};
 use ssz::Decode;
 use std::net::SocketAddr;
@@ -64,6 +65,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
     websocket_listen_addr: Option<SocketAddr>,
+    slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -97,6 +99,7 @@ where
             http_api_config: <_>::default(),
             http_metrics_config: <_>::default(),
             websocket_listen_addr: None,
+            slasher: None,
             eth_spec_instance,
         }
     }
@@ -110,6 +113,11 @@ where
     /// Specifies the `ChainSpec`.
     pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
         self.chain_spec = Some(spec);
+        self
+    }
+
+    pub fn slasher(mut self, slasher: Arc<Slasher<TEthSpec>>) -> Self {
+        self.slasher = Some(slasher);
         self
     }
 
@@ -145,6 +153,12 @@ where
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
             .graffiti(graffiti);
+
+        let builder = if let Some(slasher) = self.slasher.clone() {
+            builder.slasher(slasher)
+        } else {
+            builder
+        };
 
         let chain_exists = builder
             .store_contains_beacon_chain()
@@ -343,6 +357,27 @@ where
         self
     }
 
+    /// Immediately start the slasher service.
+    ///
+    /// Error if no slasher is configured.
+    pub fn start_slasher_server(&self) -> Result<(), String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "slasher requires a runtime_context")?
+            .service_context("slasher_server_ctxt".into());
+        let slasher = self
+            .slasher
+            .clone()
+            .ok_or_else(|| "slasher server requires a slasher")?;
+        let slot_clock = self
+            .slot_clock
+            .clone()
+            .ok_or_else(|| "slasher server requires a slot clock")?;
+        SlasherServer::run(slasher, slot_clock, &context.executor);
+        Ok(())
+    }
+
     /// Immediately starts the service that periodically logs information each slot.
     pub fn notifier(self) -> Result<Self, String> {
         let context = self
@@ -441,6 +476,10 @@ where
             debug!(log, "Metrics server is disabled");
             None
         };
+
+        if self.slasher.is_some() {
+            self.start_slasher_server()?;
+        }
 
         Ok(Client {
             beacon_chain: self.beacon_chain,

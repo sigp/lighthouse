@@ -67,7 +67,7 @@ use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
-    PublicKey, RelativeEpoch, SignedBeaconBlock, Slot,
+    PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -268,6 +268,27 @@ impl<T: EthSpec> From<DBError> for BlockError<T> {
     }
 }
 
+/// Information about invalid blocks which might still be slashable despite being invalid.
+pub enum BlockSlashInfo<TErr> {
+    /// The block is invalid, but its proposer signature wasn't checked.
+    SignatureNotChecked(SignedBeaconBlockHeader, TErr),
+    /// The block's proposer signature is invalid, so it will never be slashable.
+    SignatureInvalid(TErr),
+    /// The signature is valid but the attestation is invalid in some other way.
+    SignatureValid(SignedBeaconBlockHeader, TErr),
+}
+
+impl<E: EthSpec> BlockSlashInfo<BlockError<E>> {
+    pub fn from_early_error(header: SignedBeaconBlockHeader, e: BlockError<E>) -> Self {
+        match e {
+            BlockError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
+            // `InvalidSignature` could indicate any signature in the block, so we want
+            // to recheck the proposer signature alone.
+            _ => BlockSlashInfo::SignatureNotChecked(header, e),
+        }
+    }
+}
+
 /// Verify all signatures (except deposit signatures) on all blocks in the `chain_segment`. If all
 /// signatures are valid, the `chain_segment` is mapped to a `Vec<SignatureVerifiedBlock>` that can
 /// later be transformed into a `FullyVerifiedBlock` without re-checking the signatures. If any
@@ -369,11 +390,51 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
 /// Implemented on types that can be converted into a `FullyVerifiedBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
-pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes> {
+pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>>;
+    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        self.into_fully_verified_block_slashable(chain)
+            .map(|fully_verified| {
+                // Supply valid block to slasher.
+                if let Some(slasher) = chain.slasher.as_ref() {
+                    slasher.accept_block_header(fully_verified.block.signed_block_header());
+                }
+                fully_verified
+            })
+            .map_err(|slash_info| {
+                // Process invalid blocks to see if they are suitable for the slasher.
+                if let Some(slasher) = chain.slasher.as_ref() {
+                    let (verified_header, error) = match slash_info {
+                        BlockSlashInfo::SignatureNotChecked(header, e) => {
+                            if verify_header_signature(chain, &header).is_ok() {
+                                (header, e)
+                            } else {
+                                return e;
+                            }
+                        }
+                        BlockSlashInfo::SignatureInvalid(e) => return e,
+                        BlockSlashInfo::SignatureValid(header, e) => (header, e),
+                    };
+
+                    slasher.accept_block_header(verified_header);
+                    error
+                } else {
+                    match slash_info {
+                        BlockSlashInfo::SignatureNotChecked(_, e)
+                        | BlockSlashInfo::SignatureInvalid(e)
+                        | BlockSlashInfo::SignatureValid(_, e) => e,
+                    }
+                }
+            })
+    }
+
+    /// Convert the block to fully-verified form while producing data to aid checking slashability.
+    fn into_fully_verified_block_slashable(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
 }
@@ -506,12 +567,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
 impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for GossipVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
-    fn into_fully_verified_block(
+    fn into_fully_verified_block_slashable(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        let fully_verified = SignatureVerifiedBlock::from_gossip_verified_block(self, chain)?;
-        fully_verified.into_fully_verified_block(chain)
+    ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
+        let fully_verified =
+            SignatureVerifiedBlock::from_gossip_verified_block_check_slashable(self, chain)?;
+        fully_verified.into_fully_verified_block_slashable(chain)
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -558,6 +620,15 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         }
     }
 
+    /// As for `new` above but producing `BlockSlashInfo`.
+    pub fn check_slashable(
+        block: SignedBeaconBlock<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
+        let header = block.signed_block_header();
+        Self::new(block, chain).map_err(|e| BlockSlashInfo::from_early_error(header, e))
+    }
+
     /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify
     /// the proposer signature.
     pub fn from_gossip_verified_block(
@@ -589,18 +660,30 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             Err(BlockError::InvalidSignature)
         }
     }
+
+    /// Same as `from_gossip_verified_block` but producing slashing-relevant data as well.
+    pub fn from_gossip_verified_block_check_slashable(
+        from: GossipVerifiedBlock<T>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
+        let header = from.block.signed_block_header();
+        Self::from_gossip_verified_block(from, chain)
+            .map_err(|e| BlockSlashInfo::from_early_error(header, e))
+    }
 }
 
 impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignatureVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
-    fn into_fully_verified_block(
+    fn into_fully_verified_block_slashable(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
+    ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
+        let header = self.block.signed_block_header();
         let (parent, block) = if let Some(parent) = self.parent {
             (parent, self.block)
         } else {
-            load_parent(self.block, chain)?
+            load_parent(self.block, chain)
+                .map_err(|e| BlockSlashInfo::SignatureValid(header.clone(), e))?
         };
 
         FullyVerifiedBlock::from_signature_verified_components(
@@ -609,6 +692,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignatureVerifiedBlock<T
             parent,
             chain,
         )
+        .map_err(|e| BlockSlashInfo::SignatureValid(header, e))
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -619,11 +703,12 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignatureVerifiedBlock<T
 impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoFullyVerifiedBlock` to complete verification.
-    fn into_fully_verified_block(
+    fn into_fully_verified_block_slashable(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        SignatureVerifiedBlock::new(self, chain)?.into_fully_verified_block(chain)
+    ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
+        SignatureVerifiedBlock::check_slashable(self, chain)?
+            .into_fully_verified_block_slashable(chain)
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -1123,6 +1208,38 @@ fn get_signature_verifier<'a, E: EthSpec>(
         },
         spec,
     )
+}
+
+/// Verify that `header` was signed with a valid signature from its proposer.
+///
+/// Return `Ok(())` if the signature is valid, and an `Err` otherwise.
+fn verify_header_signature<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    header: &SignedBeaconBlockHeader,
+) -> Result<(), BlockError<T::EthSpec>> {
+    let proposer_pubkey = get_validator_pubkey_cache(chain)?
+        .get(header.message.proposer_index as usize)
+        .cloned()
+        .ok_or_else(|| BlockError::UnknownValidator(header.message.proposer_index))?;
+    let (fork, genesis_validators_root) = chain
+        .with_head(|head| {
+            Ok((
+                head.beacon_state.fork,
+                head.beacon_state.genesis_validators_root,
+            ))
+        })
+        .map_err(|e: BlockError<T::EthSpec>| e)?;
+
+    if header.verify_signature::<T::EthSpec>(
+        &proposer_pubkey,
+        &fork,
+        genesis_validators_root,
+        &chain.spec,
+    ) {
+        Ok(())
+    } else {
+        Err(BlockError::ProposalSignatureInvalid)
+    }
 }
 
 fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {

@@ -68,6 +68,8 @@ members = [
     "remote_signer/backend",
     "remote_signer/client",
 
+    "slasher",
+
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/node_test_rig",

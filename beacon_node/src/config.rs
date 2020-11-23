@@ -351,6 +351,43 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
+    if cli_args.is_present("slasher") {
+        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
+            PathBuf::from(slasher_dir)
+        } else {
+            client_config.data_dir.join("slasher_db")
+        };
+
+        let mut slasher_config = slasher::Config::new(slasher_dir);
+
+        if let Some(update_period) = clap_utils::parse_optional(cli_args, "slasher-update-period")?
+        {
+            slasher_config.update_period = update_period;
+        }
+
+        if let Some(history_length) =
+            clap_utils::parse_optional(cli_args, "slasher-history-length")?
+        {
+            slasher_config.history_length = history_length;
+        }
+
+        if let Some(max_db_size) = clap_utils::parse_optional(cli_args, "slasher-max-db-size")? {
+            slasher_config.max_db_size_gbs = max_db_size;
+        }
+
+        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
+            slasher_config.chunk_size = chunk_size;
+        }
+
+        if let Some(validator_chunk_size) =
+            clap_utils::parse_optional(cli_args, "slasher-validator-chunk-size")?
+        {
+            slasher_config.validator_chunk_size = validator_chunk_size;
+        }
+
+        client_config.slasher = Some(slasher_config);
+    }
+
     Ok(client_config)
 }
 

@@ -359,6 +359,80 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
         )
+        /*
+         * Slasher.
+         */
+        .arg(
+            Arg::with_name("slasher")
+                .long("slasher")
+                .help(
+                    "Run a slasher alongside the beacon node. It is currently only recommended for \
+                     expert users because of the immaturity of the slasher UX and the extra \
+                     resources required."
+                )
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("slasher-dir")
+                .long("slasher-dir")
+                .help(
+                    "Set the slasher's database directory."
+                )
+                .value_name("PATH")
+                .takes_value(true)
+                .requires("slasher")
+        )
+        .arg(
+            Arg::with_name("slasher-update-period")
+                .long("slasher-update-period")
+                .help(
+                    "Configure how often the slasher runs batch processing."
+                )
+                .value_name("SECONDS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-history-length")
+                .long("slasher-history-length")
+                .help(
+                    "Configure how many epochs of history the slasher keeps. Immutable after \
+                     initialization."
+                )
+                .value_name("EPOCHS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-max-db-size")
+                .long("slasher-max-db-size")
+                .help(
+                    "Maximum size of the LMDB database used by the slasher."
+                )
+                .value_name("GIGABYTES")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-chunk-size")
+                .long("slasher-chunk-size")
+                .help(
+                    "Number of epochs per validator per chunk stored on disk."
+                )
+                .value_name("EPOCHS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-validator-chunk-size")
+                .long("slasher-validator-chunk-size")
+                .help(
+                    "Number of validators per chunk stored on disk."
+                )
+                .value_name("NUM_VALIDATORS")
+                .requires("slasher")
+                .takes_value(true)
+        )
         .arg(
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")

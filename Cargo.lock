@@ -536,6 +536,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_yaml",
+ "slasher",
  "slog",
  "sloggers",
  "slot_clock",
@@ -576,6 +577,7 @@ dependencies = [
  "node_test_rig",
  "rand 0.7.3",
  "serde",
+ "slasher",
  "slog",
  "slog-async",
  "slog-term",
@@ -1046,6 +1048,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_yaml",
+ "slasher",
  "slog",
  "slog-async",
  "sloggers",
@@ -3771,6 +3774,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 
 [[package]]
+name = "lmdb"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b0908efb5d6496aa977d96f91413da2635a902e5e31dbef0bfb88986c248539"
+dependencies = [
+ "bitflags 1.2.1",
+ "libc",
+ "lmdb-sys",
+]
+
+[[package]]
+name = "lmdb-sys"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5b392838cfe8858e86fac37cf97a0e8c55cc60ba0a18365cadc33092f128ce9"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5887,6 +5912,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c111b5bd5695e56cffe5129854aa230b39c93a305372fdbb2668ca2394eea9f8"
 
 [[package]]
+name = "slasher"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "byteorder",
+ "directory",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "flate2",
+ "lazy_static",
+ "lighthouse_metrics",
+ "lmdb",
+ "lmdb-sys",
+ "maplit",
+ "parking_lot 0.11.0",
+ "rand 0.7.3",
+ "rayon",
+ "safe_arith",
+ "serde",
+ "serde_derive",
+ "slog",
+ "sloggers",
+ "slot_clock",
+ "task_executor",
+ "tempdir",
+ "tokio 0.2.23",
+ "tree_hash",
+ "tree_hash_derive",
+ "types",
+]
+
+[[package]]
 name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
@@ -6199,6 +6256,7 @@ version = "0.2.0"
 dependencies = [
  "criterion",
  "db-key",
+ "directory",
  "eth2_ssz",
  "eth2_ssz_derive",
  "itertools 0.9.0",
