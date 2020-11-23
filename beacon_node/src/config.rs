@@ -371,8 +371,10 @@ pub fn get_config<E: EthSpec>(
             slasher_config.history_length = history_length;
         }
 
-        if let Some(max_db_size) = clap_utils::parse_optional(cli_args, "slasher-max-db-size")? {
-            slasher_config.max_db_size_gbs = max_db_size;
+        if let Some(max_db_size_gbs) =
+            clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
+        {
+            slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
         }
 
         if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {

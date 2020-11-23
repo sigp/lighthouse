@@ -41,11 +41,15 @@ pub enum Error {
     ProposerKeyCorrupt {
         length: usize,
     },
+    IndexedAttestationKeyCorrupt {
+        length: usize,
+    },
     MissingIndexedAttestation {
         root: Hash256,
     },
     MissingAttesterKey,
     MissingProposerKey,
+    MissingIndexedAttestationKey,
     AttesterRecordInconsistentRoot,
 }
 

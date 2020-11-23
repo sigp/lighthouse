@@ -7,7 +7,7 @@ pub const DEFAULT_CHUNK_SIZE: usize = 16;
 pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
 pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
-pub const DEFAULT_MAX_DB_SIZE: usize = 256;
+pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -18,8 +18,8 @@ pub struct Config {
     pub history_length: usize,
     /// Update frequency in seconds.
     pub update_period: u64,
-    /// Maximum size of the LMDB database in gigabytes.
-    pub max_db_size_gbs: usize,
+    /// Maximum size of the LMDB database in megabytes.
+    pub max_db_size_mbs: usize,
 }
 
 impl Config {
@@ -30,7 +30,7 @@ impl Config {
             validator_chunk_size: DEFAULT_VALIDATOR_CHUNK_SIZE,
             history_length: DEFAULT_HISTORY_LENGTH,
             update_period: DEFAULT_UPDATE_PERIOD,
-            max_db_size_gbs: DEFAULT_MAX_DB_SIZE,
+            max_db_size_mbs: DEFAULT_MAX_DB_SIZE,
         }
     }
 
@@ -38,7 +38,7 @@ impl Config {
         if self.chunk_size == 0
             || self.validator_chunk_size == 0
             || self.history_length == 0
-            || self.max_db_size_gbs == 0
+            || self.max_db_size_mbs == 0
         {
             Err(Error::ConfigInvalidZeroParameter {
                 config: self.clone(),
