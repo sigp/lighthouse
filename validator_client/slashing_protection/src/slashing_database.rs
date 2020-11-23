@@ -575,7 +575,7 @@ impl SlashingDatabase {
         &self,
         interchange: Interchange,
         genesis_validators_root: Hash256,
-    ) -> Result<Vec<(PublicKey, NotSafe)>, InterchangeError> {
+    ) -> Result<Vec<InterchangeImportOutcome>, InterchangeError> {
         let version = interchange.metadata.interchange_format_version;
         if version != SUPPORTED_INTERCHANGE_FORMAT_VERSION {
             return Err(InterchangeError::UnsupportedVersion(version));
@@ -590,30 +590,31 @@ impl SlashingDatabase {
 
         let mut conn = self.conn_pool.get()?;
 
-        let mut failed_records = vec![];
+        let mut import_outcomes = vec![];
 
         for record in interchange.data {
             let pubkey = record.pubkey.clone();
             let txn = conn.transaction()?;
             match self.import_interchange_record(record, &txn) {
-                Ok(()) => {
+                Ok(summary) => {
+                    import_outcomes.push(InterchangeImportOutcome::Success { pubkey, summary });
                     txn.commit()?;
                 }
-                Err(e) => {
-                    failed_records.push((pubkey, e));
+                Err(error) => {
+                    import_outcomes.push(InterchangeImportOutcome::Failure { pubkey, error });
                 }
             }
         }
 
-        Ok(failed_records)
+        Ok(import_outcomes)
     }
 
     pub fn import_interchange_record(
         &self,
         mut record: InterchangeData,
         txn: &Transaction,
-    ) -> Result<(), NotSafe> {
-        self.register_validators_in_txn(std::iter::once(&record.pubkey), &txn)?;
+    ) -> Result<ValidatorSummary, NotSafe> {
+        self.register_validators_in_txn(std::iter::once(&record.pubkey), txn)?;
 
         // Insert all signed blocks, sorting them so that the minimum bounds are not
         // violated by blocks earlier in the file.
@@ -626,7 +627,7 @@ impl SlashingDatabase {
                     .signing_root
                     .map(SigningRoot::from)
                     .unwrap_or_default(),
-                &txn,
+                txn,
             )?;
         }
 
@@ -634,7 +635,7 @@ impl SlashingDatabase {
         // This ensures we don't sign anything less than the min slot after successful import,
         // which is signficant if we have imported two files with a "gap" in between.
         if let Some(new_min_slot) = record.signed_blocks.iter().map(|block| block.slot).min() {
-            self.prune_signed_blocks(&record.pubkey, new_min_slot, &txn)?;
+            self.prune_signed_blocks(&record.pubkey, new_min_slot, txn)?;
         }
 
         // Insert all signed attestations.
@@ -650,7 +651,7 @@ impl SlashingDatabase {
                     .signing_root
                     .map(SigningRoot::from)
                     .unwrap_or_default(),
-                &txn,
+                txn,
             )?;
         }
 
@@ -662,10 +663,12 @@ impl SlashingDatabase {
             .map(|attestation| (attestation.source_epoch, attestation.target_epoch))
             .min()
         {
-            self.prune_signed_attestations(&record.pubkey, new_min_source, new_min_target, &txn)?;
+            self.prune_signed_attestations(&record.pubkey, new_min_source, new_min_target, txn)?;
         }
 
-        Ok(())
+        let summary = self.validator_summary(&record.pubkey, txn)?;
+
+        Ok(summary)
     }
 
     pub fn export_interchange_info(
@@ -793,6 +796,70 @@ impl SlashingDatabase {
             .query_row(params![], |row| row.get(0))?;
         Ok(count)
     }
+
+    /// Get a summary of a validator's slashing protection data for consumption by the user.
+    pub fn validator_summary(
+        &self,
+        public_key: &PublicKey,
+        txn: &Transaction,
+    ) -> Result<ValidatorSummary, NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
+        let (min_block_slot, max_block_slot) = txn
+            .prepare(
+                "SELECT MIN(slot), MAX(slot)
+                 FROM signed_blocks
+                 WHERE validator_id = ?1",
+            )?
+            .query_row(params![validator_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+        let (
+            min_attestation_source,
+            min_attestation_target,
+            max_attestation_source,
+            max_attestation_target,
+        ) = txn
+            .prepare(
+                "SELECT MIN(source_epoch), MIN(target_epoch), MAX(source_epoch), MAX(target_epoch)
+                 FROM signed_attestations
+                 WHERE validator_id = ?1",
+            )?
+            .query_row(params![validator_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?;
+
+        Ok(ValidatorSummary {
+            min_block_slot,
+            max_block_slot,
+            min_attestation_source,
+            min_attestation_target,
+            max_attestation_source,
+            max_attestation_target,
+        })
+    }
+}
+
+/// Minimum and maximum slots and epochs signed by a validator.
+#[derive(Debug)]
+pub struct ValidatorSummary {
+    pub min_block_slot: Option<Slot>,
+    pub max_block_slot: Option<Slot>,
+    pub min_attestation_source: Option<Epoch>,
+    pub min_attestation_target: Option<Epoch>,
+    pub max_attestation_source: Option<Epoch>,
+    pub max_attestation_target: Option<Epoch>,
+}
+
+/// The result of importing a single entry from an interchange file.
+#[derive(Debug)]
+pub enum InterchangeImportOutcome {
+    Success {
+        pubkey: PublicKey,
+        summary: ValidatorSummary,
+    },
+    Failure {
+        pubkey: PublicKey,
+        error: NotSafe,
+    },
 }
 
 #[derive(Debug)]

@@ -11,7 +11,9 @@ pub mod test_utils;
 
 pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
 pub use crate::signed_block::{InvalidBlock, SignedBlock};
-pub use crate::slashing_database::{SlashingDatabase, SUPPORTED_INTERCHANGE_FORMAT_VERSION};
+pub use crate::slashing_database::{
+    InterchangeImportOutcome, SlashingDatabase, SUPPORTED_INTERCHANGE_FORMAT_VERSION,
+};
 use rusqlite::Error as SQLError;
 use std::io::{Error as IOError, ErrorKind};
 use std::string::ToString;
