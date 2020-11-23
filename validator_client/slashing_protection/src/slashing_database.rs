@@ -136,7 +136,7 @@ impl SlashingDatabase {
     #[cfg(windows)]
     fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {}
 
-    /// Creates an empty transaction. Used to test whether the database is locked.
+    /// Creates an empty transaction and drops it. Used to test whether the database is locked.
     pub fn test_transaction(&self) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
         Transaction::new(&mut conn, TransactionBehavior::Exclusive)?;
