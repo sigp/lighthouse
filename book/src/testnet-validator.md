@@ -28,7 +28,7 @@ result in penalties, slashings or lost deposits. As a rule of thumb, always
 provide a `--network` flag instead of relying on the default.
 
 > Note: In these documents we use `--network MY_NETWORK` for demonstration. You
-> must replace `MY_NETWORK` with a valid network name.
+> must replace `MY_NETWORK` with a valid network name. E.g., `--network pyrmont`.
 
 ## Joining a Testnet
 
