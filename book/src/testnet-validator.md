@@ -11,7 +11,7 @@ instructions but with a few differences:
 1. Use the appropriate Eth2 launchpad website:
     - [Medalla](https://github.com/goerli/medalla/tree/master/medalla)
     - [Pyrmont](https://github.com/protolambda/pyrmont)
-1. Instead of `--testnet mainnet`, use the appropriate testnet flag:
+1. Instead of `--network mainnet`, use the appropriate network flag:
    - `--testnet pyrmont`: Pyrmont.
    - `--testnet medalla`: Medalla.
 1. Use a Goeli Eth1 node instead of a mainnet one:
