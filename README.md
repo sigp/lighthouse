@@ -12,6 +12,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Book Link]: https://lighthouse-book.sigmaprime.io
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
+[blog]: https://lighthouse.sigmaprime.io
 
 [Documentation](https://lighthouse-book.sigmaprime.io)
 
@@ -39,12 +40,11 @@ as the canonical Eth2 deposit contract address.
 
 ## Documentation
 
-The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information
-for testnet users and developers.
+The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information for users and
+developers.
 
-If you'd like some background on Sigma Prime, please see the [Lighthouse Update
-\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or
-[sigmaprime.io](https://sigmaprime.io).
+The Lighthouse team maintains a blog at [lighthouse.sigmaprime.io][blog] which contains periodical
+progress updates, roadmap insights and interesting findings.
 
 ## Branches
 
