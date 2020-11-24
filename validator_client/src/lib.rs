@@ -37,7 +37,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
-use types::{EthSpec, Hash256, YamlConfig};
+use types::{EthSpec, Hash256};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -181,23 +181,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             BeaconNodeHttpClient::from_components(beacon_node_url, beacon_node_http_client);
 
         // Perform some potentially long-running initialization tasks.
-        let (yaml_config, genesis_time, genesis_validators_root) = tokio::select! {
+        let (genesis_time, genesis_validators_root) = tokio::select! {
             tuple = init_from_beacon_node(&beacon_node, &context) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
-        let beacon_node_spec = yaml_config.apply_to_chain_spec::<T>(&T::default_spec())
-            .ok_or_else(||
-                    "The minimal/mainnet spec type of the beacon node does not match the validator client. \
-                    See the --network command.".to_string()
-            )?;
-
-        if context.eth2_config.spec != beacon_node_spec {
-            return Err(
-                "The beacon node is using a different Eth2 specification to this validator client. \
-                See the --network command."
-                    .to_string(),
-            );
-        }
 
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
@@ -331,7 +318,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_node: &BeaconNodeHttpClient,
     context: &RuntimeContext<E>,
-) -> Result<(YamlConfig, u64, Hash256), String> {
+) -> Result<(u64, Hash256), String> {
     // Wait for the beacon node to come online.
     wait_for_node(beacon_node, context.log()).await?;
 
@@ -340,6 +327,22 @@ async fn init_from_beacon_node<E: EthSpec>(
         .await
         .map_err(|e| format!("Unable to read spec from beacon node: {:?}", e))?
         .data;
+
+    let beacon_node_spec = yaml_config
+        .apply_to_chain_spec::<E>(&E::default_spec())
+        .ok_or_else(|| {
+            "The minimal/mainnet spec type of the beacon node does not match the validator client. \
+                See the --network command."
+                .to_string()
+        })?;
+
+    if context.eth2_config.spec != beacon_node_spec {
+        return Err(
+            "The beacon node is using a different Eth2 specification to this validator client. \
+            See the --network command."
+                .to_string(),
+        );
+    }
 
     let genesis = loop {
         match beacon_node.get_beacon_genesis().await {
@@ -401,11 +404,7 @@ async fn init_from_beacon_node<E: EthSpec>(
         );
     }
 
-    Ok((
-        yaml_config,
-        genesis.genesis_time,
-        genesis.genesis_validators_root,
-    ))
+    Ok((genesis.genesis_time, genesis.genesis_validators_root))
 }
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
