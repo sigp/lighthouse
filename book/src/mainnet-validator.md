@@ -14,8 +14,7 @@ managing servers. You'll also need at least 32 ETH!
 
 For those with an understanding of Eth2 and server maintenance, you'll find that running Lighthouse
 is as easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact
-with it on a day-to-day basis. The difficulty of setting up Lighthouse is comparable (or perhaps
-easier than) setting up NGINX with a TLS certificate.
+with it on a day-to-day basis.
 
 Being educated is critical to validator success. Before submitting your mainnet deposit, we
 recommend:
