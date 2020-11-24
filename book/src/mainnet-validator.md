@@ -21,7 +21,7 @@ recommend:
 
 - Thoroughly exploring the [Eth2 Launchpad][launchpad] website
   - Try running through the deposit process *without* actually submitting a deposit.
-- Read through this documentation, especially the [Slashing Protection][slashing] section.
+- Reading through this documentation, especially the [Slashing Protection][slashing] section.
 - Running a [testnet validator][testnet-validator].
 - Performing a web search and doing your own research.
 
