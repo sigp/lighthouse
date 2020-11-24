@@ -143,7 +143,7 @@ If you are updating to new release binaries, it will be the same process as desc
 
 If you are updating by rebuilding from source, see [here.](./installation-source.md#updating-lighthouse)
 
-If you are running the docker image provided by SigP on dockerhub, you can update to specific versions, for example:
+If you are running the docker image provided by Sigma Prime on Dockerhub, you can update to specific versions, for example:
 
 ```bash
 $ docker pull sigp/lighthouse:v1.0.0
