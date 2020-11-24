@@ -192,6 +192,14 @@ pub fn cli_run<T: EthSpec>(
             )
         })?;
 
+    // Create an empty transaction and drops it. Used to test if the database is locked.
+    slashing_protection.test_transaction().map_err(|e| {
+        format!(
+            "Cannot create keys while the validator client is running: {:?}",
+            e
+        )
+    })?;
+
     for i in 0..n {
         let voting_password = random_password();
         let withdrawal_password = random_password();
