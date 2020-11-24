@@ -13,10 +13,10 @@ instructions but with a few differences:
     - [Pyrmont](https://github.com/protolambda/pyrmont)
 1. Instead of `--network mainnet`, use the appropriate network flag:
    - `--network pyrmont`: Pyrmont.
-   - `--testnet medalla`: Medalla.
-1. Use a Goeli Eth1 node instead of a mainnet one:
+   - `--network medalla`: Medalla.
+1. Use a Goerli Eth1 node instead of a mainnet one:
    - For Geth, this means using `geth --goerli --http`.
-1. Notice that Lighthouse will sort its files in a different directory by default:
+1. Notice that Lighthouse will store its files in a different directory by default:
    - `~/.lighthouse/pyrmont`: Pyrmont.
    - `~/.lighthouse/medalla`: Medalla.
 
