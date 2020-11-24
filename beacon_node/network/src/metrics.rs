@@ -406,6 +406,17 @@ lazy_static! {
     );
 }
 
+lazy_static! {
+    /*
+     * Sync related metrics
+     */
+    pub static ref PEERS_PER_SYNC_TYPE: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "sync_peers_per_type",
+        "Number of connected peers per sync status type",
+        &["sync_type"]
+    );
+}
+
 pub fn register_attestation_error(error: &AttnError) {
     match error {
         AttnError::FutureEpoch { .. } => inc_counter(&GOSSIP_ATTESTATION_ERROR_FUTURE_EPOCH),
