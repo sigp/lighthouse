@@ -14,16 +14,16 @@ use account_utils::{
     ZeroizeString,
 };
 use eth2_keystore::Keystore;
+use lockfile::{Lockfile, LockfileError};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 use types::{Keypair, PublicKey};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
-use std::ops::{Deref, DerefMut};
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
@@ -32,9 +32,7 @@ const USE_STDIN: bool = false;
 pub enum Error {
     /// Refused to open a validator with an existing lockfile since that validator may be in-use by
     /// another process.
-    LockfileExists(PathBuf),
-    /// There was a filesystem error when creating the lockfile.
-    UnableToCreateLockfile(io::Error),
+    LockfileError(LockfileError),
     /// The voting public key in the definition did not match the one in the keystore.
     VotingPublicKeyMismatch {
         definition: Box<PublicKey>,
@@ -67,6 +65,12 @@ pub enum Error {
     DuplicatePublicKey,
 }
 
+impl From<LockfileError> for Error {
+    fn from(error: LockfileError) -> Self {
+        Self::LockfileError(error)
+    }
+}
+
 /// A method used by a validator to sign messages.
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
@@ -75,7 +79,7 @@ pub enum SigningMethod {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     LocalKeystore {
         voting_keystore_path: PathBuf,
-        voting_keystore_lockfile_path: PathBuf,
+        voting_keystore_lockfile: Lockfile,
         voting_keystore: Keystore,
         voting_keypair: Keypair,
     },
@@ -102,43 +106,6 @@ fn get_lockfile_path(file_path: &PathBuf) -> Option<PathBuf> {
         })
 }
 
-fn create_lock_file(
-    file_path: &PathBuf,
-    delete_lockfiles: bool,
-    log: &Logger,
-) -> Result<(), Error> {
-    if file_path.exists() {
-        if delete_lockfiles {
-            warn!(
-                log,
-                "Deleting validator lockfile";
-                "file" => format!("{:?}", file_path)
-            );
-
-            fs::remove_file(file_path).map_err(Error::UnableToDeleteLockfile)?;
-        } else {
-            return Err(Error::LockfileExists(file_path.clone()));
-        }
-    }
-    // Create a new lockfile.
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(file_path)
-        .map_err(Error::UnableToCreateLockfile)?;
-    Ok(())
-}
-
-fn remove_lock(lock_path: &PathBuf) {
-    if lock_path.exists() {
-        if let Err(e) = fs::remove_file(&lock_path) {
-            eprintln!("Failed to remove {:?}: {:?}", lock_path, e)
-        }
-    } else {
-        eprintln!("Lockfile missing: {:?}", lock_path)
-    }
-}
-
 impl InitializedValidator {
     /// Instantiate `self` from a `ValidatorDefinition`.
     ///
@@ -150,8 +117,6 @@ impl InitializedValidator {
     /// If the validator is unable to be initialized for whatever reason.
     async fn from_definition(
         def: ValidatorDefinition,
-        delete_lockfiles: bool,
-        log: &Logger,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
     ) -> Result<Self, Error> {
@@ -182,7 +147,7 @@ impl InitializedValidator {
                     // to keep if off the core executor. This also has the fortunate effect of
                     // interrupting the potentially long-running task during shut down.
                     let (password, keypair) = tokio::task::spawn_blocking(move || {
-                        Ok(
+                        Result::<_, Error>::Ok(
                             match (voting_keystore_password_path, voting_keystore_password) {
                                 // If the password is supplied, use it and ignore the path
                                 // (if supplied).
@@ -226,15 +191,15 @@ impl InitializedValidator {
                 }
 
                 // Append a `.lock` suffix to the voting keystore.
-                let voting_keystore_lockfile_path = get_lockfile_path(&voting_keystore_path)
+                let lockfile_path = get_lockfile_path(&voting_keystore_path)
                     .ok_or_else(|| Error::BadVotingKeystorePath(voting_keystore_path.clone()))?;
 
-                create_lock_file(&voting_keystore_lockfile_path, delete_lockfiles, &log)?;
+                let voting_keystore_lockfile = Lockfile::new(lockfile_path)?;
 
                 Ok(Self {
                     signing_method: SigningMethod::LocalKeystore {
                         voting_keystore_path,
-                        voting_keystore_lockfile_path,
+                        voting_keystore_lockfile,
                         voting_keystore: voting_keystore.clone(),
                         voting_keypair,
                     },
@@ -254,20 +219,6 @@ impl InitializedValidator {
     pub fn voting_keypair(&self) -> &Keypair {
         match &self.signing_method {
             SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
-        }
-    }
-}
-
-/// Custom drop implementation to allow for `LocalKeystore` to remove lockfiles.
-impl Drop for InitializedValidator {
-    fn drop(&mut self) {
-        match &self.signing_method {
-            SigningMethod::LocalKeystore {
-                voting_keystore_lockfile_path,
-                ..
-            } => {
-                remove_lock(voting_keystore_lockfile_path);
-            }
         }
     }
 }
@@ -316,8 +267,6 @@ fn unlock_keystore_via_stdin_password(
 ///
 /// Forms the fundamental list of validators that are managed by this validator client instance.
 pub struct InitializedValidators {
-    /// If `true`, delete any validator keystore lockfiles that would prevent starting.
-    delete_lockfiles: bool,
     /// A list of validator definitions which can be stored on-disk.
     definitions: ValidatorDefinitions,
     /// The directory that the `self.definitions` will be saved into.
@@ -328,47 +277,14 @@ pub struct InitializedValidators {
     log: Logger,
 }
 
-pub struct LockedData<T> {
-    data: T,
-    lock_path: PathBuf,
-}
-
-impl<T> LockedData<T> {
-    fn new(data: T, lock_path: PathBuf) -> Self {
-        Self { data, lock_path }
-    }
-}
-
-impl<T> Deref for LockedData<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
-}
-
-impl<T> DerefMut for LockedData<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
-    }
-}
-
-impl<T> Drop for LockedData<T> {
-    fn drop(&mut self) {
-        remove_lock(&self.lock_path);
-    }
-}
-
 impl InitializedValidators {
     /// Instantiates `Self`, initializing all validators in `definitions`.
     pub async fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
-        delete_lockfiles: bool,
         log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
-            delete_lockfiles,
             validators_dir,
             definitions,
             validators: HashMap::default(),
@@ -566,23 +482,11 @@ impl InitializedValidators {
         let key_cache_path = KeyCache::cache_file_path(&self.validators_dir);
         let cache_lockfile_path = get_lockfile_path(&key_cache_path)
             .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
-        create_lock_file(&cache_lockfile_path, self.delete_lockfiles, &self.log)?;
+        let _cache_lockfile = Lockfile::new(cache_lockfile_path)?;
 
-        let mut key_cache = LockedData::new(
-            {
-                let cache = KeyCache::open_or_create(&self.validators_dir).map_err(|e| {
-                    remove_lock(&cache_lockfile_path);
-                    Error::UnableToOpenKeyCache(e)
-                })?;
-                self.decrypt_key_cache(cache, &mut key_stores)
-                    .await
-                    .map_err(|e| {
-                        remove_lock(&cache_lockfile_path);
-                        e
-                    })?
-            },
-            cache_lockfile_path,
-        );
+        let cache = KeyCache::open_or_create(&self.validators_dir)
+            .map_err(|e| Error::UnableToOpenKeyCache(e))?;
+        let mut key_cache = self.decrypt_key_cache(cache, &mut key_stores).await?;
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
@@ -602,8 +506,6 @@ impl InitializedValidators {
 
                         match InitializedValidator::from_definition(
                             def.clone(),
-                            self.delete_lockfiles,
-                            &self.log,
                             &mut key_cache,
                             &mut key_stores,
                         )

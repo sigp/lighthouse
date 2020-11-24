@@ -2274,6 +2274,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "fuchsia-cprng"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3789,6 +3799,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
 dependencies = [
  "scopeguard",
+]
+
+[[package]]
+name = "lockfile"
+version = "0.1.0"
+dependencies = [
+ "fs2",
 ]
 
 [[package]]
@@ -7385,6 +7402,7 @@ dependencies = [
  "libc",
  "libsecp256k1",
  "lighthouse_version",
+ "lockfile",
  "logging",
  "parking_lot 0.11.1",
  "rand 0.7.3",
