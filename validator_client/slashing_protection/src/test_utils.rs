@@ -135,7 +135,7 @@ fn roundtrip_database(dir: &TempDir, db: &SlashingDatabase, is_empty: bool) {
     let new_db =
         SlashingDatabase::create(&dir.path().join("roundtrip_slashing_protection.sqlite")).unwrap();
     new_db
-        .import_interchange_info(&exported, DEFAULT_GENESIS_VALIDATORS_ROOT)
+        .import_interchange_info(exported.clone(), DEFAULT_GENESIS_VALIDATORS_ROOT)
         .unwrap();
     let reexported = new_db
         .export_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)

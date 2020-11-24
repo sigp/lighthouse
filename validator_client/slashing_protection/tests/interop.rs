@@ -1,4 +1,4 @@
-use slashing_protection::interchange_test::TestCase;
+use slashing_protection::interchange_test::MultiTestCase;
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -17,7 +17,7 @@ fn generated() {
         .map(Result::unwrap)
     {
         let file = File::open(entry.path()).unwrap();
-        let test_case: TestCase = serde_json::from_reader(&file).unwrap();
+        let test_case: MultiTestCase = serde_json::from_reader(&file).unwrap();
         test_case.run();
     }
 }

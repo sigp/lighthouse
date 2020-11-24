@@ -23,6 +23,9 @@ use types::{Epoch, Hash256, Slot};
 /// The number of head syncing chains to sync at a time.
 const PARALLEL_HEAD_CHAINS: usize = 2;
 
+/// Minimum work we require a finalized chain to do before picking a chain with more peers.
+const MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS: u64 = 10;
+
 /// The state of the long range/batch sync.
 #[derive(Clone)]
 pub enum RangeSyncState {
@@ -252,7 +255,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         local_head_epoch: Epoch,
     ) {
         // Find the chain with most peers and check if it is already syncing
-        if let Some((mut new_id, peers)) = self
+        if let Some((mut new_id, max_peers)) = self
             .finalized_chains
             .iter()
             .max_by_key(|(_, chain)| chain.available_peers())
@@ -266,7 +269,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 } else {
                     // chains are different, check that they don't have the same number of peers
                     if let Some(syncing_chain) = self.finalized_chains.get_mut(&syncing_id) {
-                        if syncing_chain.available_peers() > peers {
+                        if max_peers > syncing_chain.available_peers()
+                            && syncing_chain.validated_epochs()
+                                > MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS
+                        {
                             syncing_chain.stop_syncing();
                             old_id = Some(Some(syncing_id));
                         } else {

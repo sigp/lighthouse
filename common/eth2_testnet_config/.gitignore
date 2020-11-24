@@ -3,4 +3,3 @@ schlesi-*
 witti-*
 /altona*
 built_in_testnet_configs/*/genesis.ssz
-!built_in_testnet_configs/mainnet/genesis.ssz

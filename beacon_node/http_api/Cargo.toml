@@ -31,4 +31,4 @@ bs58 = "0.3.1"
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { version = "0.1.0-alpha.13", features = ["libp2p"] }
+discv5 = { git = "https://github.com/sigp/discv5", rev = "fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0", features = ["libp2p"] }

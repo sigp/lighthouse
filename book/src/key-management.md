@@ -1,5 +1,10 @@
 # Key Management
 
+[launchpad]: https://launchpad.ethereum.org/
+
+>
+> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
+
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
 master key, making the validators keys _children_ of the master key. This
@@ -37,17 +42,17 @@ items, starting at one easy-to-backup mnemonic and ending with multiple
 keypairs. Creating a single validator looks like this:
 
 1. Create a **wallet** and record the **mnemonic**:
-    - `lighthouse --testnet medalla account wallet create --name wally --password-file wally.pass`
+    - `lighthouse --network pyrmont account wallet create --name wally --password-file wally.pass`
 1. Create the voting and withdrawal **keystores** for one validator:
-	- `lighthouse --testnet medalla account validator create --wallet-name wally --wallet-password wally.pass --count 1`
+	- `lighthouse --network pyrmont account validator create --wallet-name wally --wallet-password wally.pass --count 1`
 
 
-In step (1), we created a wallet in `~/.lighthouse/{testnet}/wallets` with the name
+In step (1), we created a wallet in `~/.lighthouse/{network}/wallets` with the name
 `wally`. We encrypted this using a pre-defined password in the
 `wally.pass` file. Then, in step (2), we created one new validator in the
-`~/.lighthouse/{testnet}/validators` directory using `wally` (unlocking it with
+`~/.lighthouse/{network}/validators` directory using `wally` (unlocking it with
 `wally.pass`) and storing the passwords to the validators voting key in
-`~/.lighthouse/{testnet}/secrets`.
+`~/.lighthouse/{network}/secrets`.
 
 Thanks to the hierarchical key derivation scheme, we can delete all of the
 aforementioned directories and then regenerate them as long as we remembered
@@ -65,16 +70,14 @@ There are three important directories in Lighthouse validator key management:
 
 - `wallets/`: contains encrypted wallets which are used for hierarchical
 	key derivation.
-	- Defaults to `~/.lighthouse/{testnet}/wallets`
+	- Defaults to `~/.lighthouse/{network}/wallets`
 - `validators/`: contains a directory for each validator containing
 	encrypted keystores and other validator-specific data.
-	- Defaults to `~/.lighthouse/{testnet}/validators`
+	- Defaults to `~/.lighthouse/{network}/validators`
 - `secrets/`: since the validator signing keys are "hot", the validator process
 	needs access to the passwords to decrypt the keystores in the validators
 	dir. These passwords are stored here.
-	- Defaults to `~/.lighthouse/{testnet}/secrets`
-
-where `testnet` is the name of the testnet passed in the `--testnet` parameter (default is `medalla`).
+	- Defaults to `~/.lighthouse/{network}/secrets` where `network` is the name of the network passed in the `--network` parameter (default is `mainnet`).
 
 When the validator client boots, it searches the `validators/` for directories
 containing voting keystores. When it discovers a keystore, it searches the
