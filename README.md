@@ -24,11 +24,11 @@ Lighthouse is:
 
 - Ready for use on Eth2 mainnet.
 - Fully open-source, licensed under Apache 2.0.
-- Security-focused. Fuzzing has begun and security reviews are underway.
+- Security-focused. Fuzzing techniques have been continuously applied and several external security reviews have been performed.
 - Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the
-	Ethereum Foundation, ConsenSys and private individuals.
+	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
 - Actively involved in the specification and security analysis of the
 	Ethereum 2.0 specification.
 
