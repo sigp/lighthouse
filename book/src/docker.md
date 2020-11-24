@@ -67,10 +67,10 @@ $ docker run lighthouse:local lighthouse --help
 You can run a Docker beacon node with the following command:
 
 ```bash
-$ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network medalla beacon --http --http-address 0.0.0.0
+$ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network mainnet beacon --http --http-address 0.0.0.0
 ```
 
-> To join the altona testnet, use --network altona instead.
+> To join the Pyrmont testnet, use `--network pyrmont` instead.
 
 > The `-p` and `-v` and values are described below.
 

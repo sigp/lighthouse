@@ -1,8 +1,9 @@
 # Create a validator
 
-**🚨🚨🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
-time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
-DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
+[launchpad]: https://launchpad.ethereum.org/
+
+>
+> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
 
 Validators are fundamentally represented by a BLS keypair. In Lighthouse, we
 use a [wallet](./wallet-create.md) to generate these keypairs. Once a wallet
@@ -74,17 +75,17 @@ The example assumes that the `wally` wallet was generated from the
 [wallet](./wallet-create.md) example.
 
 ```bash
-lighthouse --network medalla account validator create --name wally --wallet-password wally.pass --count 1
+lighthouse --network pyrmont account validator create --name wally --wallet-password wally.pass --count 1
 ```
 
 This command will:
 
-- Derive a single new BLS keypair from wallet `wally` in `~/.lighthouse/{testnet}/wallets`, updating it so that it generates a
+- Derive a single new BLS keypair from wallet `wally` in `~/.lighthouse/{network}/wallets`, updating it so that it generates a
     new key next time.
 - Create a new directory in `~/.lighthouse/{network}/validators` containing:
     - An encrypted keystore containing the validators voting keypair.
 	- An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`
 		for most testnets and mainnet) which can be submitted to the deposit
-		contract for the Medalla testnet. Other testnets can be set via the
+		contract for the Pyrmont testnet. Other testnets can be set via the
 		`--network` CLI param.
 - Store a password to the validators voting keypair in `~/.lighthouse/{network}/secrets`.

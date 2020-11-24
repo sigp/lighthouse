@@ -10,19 +10,19 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Chat Link]: https://discord.gg/cyAszAh
 [Book Status]:https://img.shields.io/badge/user--docs-master-informational
 [Book Link]: https://lighthouse-book.sigmaprime.io
+[stable]: https://github.com/sigp/lighthouse/tree/stable
+[unstable]: https://github.com/sigp/lighthouse/tree/unstable
+[blog]: https://lighthouse.sigmaprime.io
 
 [Documentation](https://lighthouse-book.sigmaprime.io)
 
 ![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
 
-**🚨🚨🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
-time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
-DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
-
 ## Overview
 
 Lighthouse is:
 
+- Ready for use on Eth2 mainnet.
 - Fully open-source, licensed under Apache 2.0.
 - Security-focused. Fuzzing has begun and security reviews are underway.
 - Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
@@ -32,44 +32,28 @@ Lighthouse is:
 - Actively involved in the specification and security analysis of the
 	Ethereum 2.0 specification.
 
-Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
-
 ## Eth2 Deposit Contract
 
 The Lighthouse team acknowledges
 [`0x00000000219ab540356cBB839Cbe05303d7705Fa`](https://etherscan.io/address/0x00000000219ab540356cbb839cbe05303d7705fa)
 as the canonical Eth2 deposit contract address.
 
-## Development Status
-
-Current development overview:
-
-- Specification `v1.0.0` implemented, optimized and passing test vectors.
-- Rust-native libp2p with Gossipsub and Discv5.
-- RESTful JSON API via HTTP server.
-- Events via WebSocket.
-- Metrics via Prometheus.
-
-### Roadmap
-
-- ~~**April 2019**: Inital single-client testnets.~~
-- ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- ~~**Q1 2020**: `lighthouse-0.1.0` release: All major phase 0 features implemented.~~
-- ~~**Q2 2020**: Public, multi-client testnet with user-facing functionality.~~
-- ~~**Q2 2020**: Third-party security review.~~
-- ~~**Q4 2020**: Long-lived, multi-client Beacon Chain testnet~~
-- **Q4 2020**: Additional third-party security reviews.
-- **Q4 2020**: Production Beacon Chain (tentative).
-
-
 ## Documentation
 
-The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information
-for testnet users and developers.
+The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information for users and
+developers.
 
-If you'd like some background on Sigma Prime, please see the [Lighthouse Update
-\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or
-[sigmaprime.io](https://sigmaprime.io).
+The Lighthouse team maintains a blog at [lighthouse.sigmaprime.io][blog] which contains periodical
+progress updates, roadmap insights and interesting findings.
+
+## Branches
+
+Lighthouse maintains two permanent branches:
+
+- [`stable`][stable]: Always points to the latest stable release.
+  - This is ideal for most users.
+- [`unstable`][unstable]: Used for development, contains the latest PRs.
+  - Developers should base thier PRs on this branch.
 
 ## Contributing
 
