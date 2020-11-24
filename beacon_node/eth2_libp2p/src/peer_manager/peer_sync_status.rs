@@ -67,6 +67,18 @@ impl PeerSyncStatus {
     }
 }
 
+impl AsRef<str> for PeerSyncStatus {
+    fn as_ref(&self) -> &str {
+        match self {
+            PeerSyncStatus::Advanced { .. } => "advanced",
+            PeerSyncStatus::Behind { .. } => "behind",
+            PeerSyncStatus::Synced { .. } => "synced",
+            PeerSyncStatus::Unknown => "unknown",
+            PeerSyncStatus::IrrelevantPeer => "irrelevant",
+        }
+    }
+}
+
 impl std::fmt::Display for PeerSyncStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let rpr = match self {
