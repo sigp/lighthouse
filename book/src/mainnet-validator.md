@@ -5,26 +5,33 @@
 [testnet-validator]: ./testnet-validator.md
 [custom-datadir]: ./custom-datadir.md
 [license]: https://github.com/sigp/lighthouse/blob/master/LICENSE
+[slashing]: ./slashing-protection.md
+[discord]: https://discord.gg/cyAszAh
 
-Becoming an Eth2 validator is rewarding, but it's not for the faint of heart at this stage. You'll
-need to be familiar with the rules of staking (e.g., rewards, penalties, etc.) and also configuring
-and managing servers. You'll also need at least 32 ETH!
+Becoming an Eth2 validator is rewarding, but it's not for the faint of heart. You'll need to be
+familiar with the rules of staking (e.g., rewards, penalties, etc.) and also configuring and
+managing servers. You'll also need at least 32 ETH!
 
-For those with an understanding of Eth2 and server maintainence, you'll find that running Lighthouse
-is as easy as running any other production-grade server. Install it, start it, monitor it and keep
-it updated. You shouldn't need to interact with it on a day-to-day basis, apart from ensuring it's
-still running.
+For those with an understanding of Eth2 and server maintenance, you'll find that running Lighthouse
+is as easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact
+with it on a day-to-day basis. The difficulty of setting up Lighthouse is comparable (or perhaps
+easier than) setting up NGINX with a TLS certificate.
 
-Before starting your journey, we recommend throughly exploring the [Eth2 Launchpad][launchpad]
-website, being sure to read the checklist and the FAQs. Additionally, having *at least* a skim
-through each page in this book is advised. Doing some search-engine work and finding some other
-articles and tutorials is also recommended; being educated is critical to being a successful
-validator.
+Being educated is critical to validator success. Before submitting your mainnet deposit, we
+recommend:
 
-By far, the best learning experience is to run a [Testnet Validator][testnet-validator]. You can get
-hands-on experience with all the tools and it's a great way to test your staking hardware. We
-recommend *all* mainnet validators to run a testnet validator initally; 32 ETH is a significant
-outlay and joining a testnet is a great way to "try before you buy".
+- Thoroughly exploring the [Eth2 Launchpad][launchpad] website
+  - Try running through the deposit process *without* actually submitting a deposit.
+- Read through this documentation, especially the [Slashing Protection][slashing] section.
+- Running a [testnet validator][testnet-validator].
+- Performing a web search and doing your own research.
+
+By far, the best technical learning experience is to run a [Testnet Validator][testnet-validator].
+You can get hands-on experience with all the tools and it's a great way to test your staking
+hardware. We recommend *all* mainnet validators to run a testnet validator initially; 32 ETH is a
+significant outlay and joining a testnet is a great way to "try before you buy".
+
+Remember, if you get stuck you can always reach out on our [Discord][discord].
 
 >
 > **Please note**: the Lighthouse team does not take any responsibility for losses or damages
