@@ -122,7 +122,7 @@ define_net!(spadina, include_spadina_file, "spadina", true);
 
 define_net!(pyrmont, include_pyrmont_file, "pyrmont", true);
 
-define_net!(mainnet, include_mainnet_file, "mainnet", false);
+define_net!(mainnet, include_mainnet_file, "mainnet", true);
 
 define_net!(toledo, include_toledo_file, "toledo", true);
 
