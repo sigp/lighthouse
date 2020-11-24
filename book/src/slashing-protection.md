@@ -60,9 +60,9 @@ Examples where it is **ineffective** are:
 
 ## Import and Export
 
-Lighthouse supports v5 of the slashing protection interchange format described
-[here][interchange-spec]. An interchange file is a record of all blocks and attestations
-signing by a set of validator keys – basically a portable slashing protection database!
+Lighthouse supports the slashing protection interchange format described in [EIP-3076][]. An
+interchange file is a record of blocks and attestations signed by a set of validator keys –
+basically a portable slashing protection database!
 
 With your validator client stopped, you can import a `.json` interchange file from another client
 using this command:
@@ -86,9 +86,10 @@ You can export Lighthouse's database for use with another client with this comma
 lighthouse account validator slashing-protection export <lighthouse_interchange.json>
 ```
 
-The validator client needs to be stopped in order to export.
+The validator client needs to be stopped in order to export, to guarantee that the data exported is
+up to date.
 
-[interchange-spec]: https://hackmd.io/@sproul/Bk0Y0qdGD
+[EIP-3076]: https://eips.ethereum.org/EIPS/eip-3076
 
 ## Troubleshooting
 
@@ -133,6 +134,43 @@ Sep 29 15:15:05.303 CRIT Not signing slashable attestation       error: InvalidA
 
 This log is still marked as `CRIT` because in general it should occur only very rarely,
 and _could_ indicate a serious error or misconfiguration (see [Avoiding Slashing](#avoiding-slashing)).
+
+### Slashable Data in Import
+
+If you receive a warning when trying to import an [interchange file](#import-and-export) about
+the file containing slashable data, then you must carefully consider whether you want to continue.
+
+There are several potential causes for this warning, each of which require a different reaction. If
+you have seen the warning for multiple validator keys, the cause could be different for each of them.
+
+1. Your validator has actually signed slashable data. If this is the case, you should assess
+   whether your validator has been slashed (or is likely to be slashed). It's up to you
+   whether you'd like to continue.
+2. You have exported data from Lighthouse to another client, and then back to Lighthouse,
+   _in a way that didn't preserve the signing roots_. A message with no signing roots
+   is considered slashable with respect to _any_ other message at the same slot/epoch,
+   so even if it was signed by Lighthouse originally, Lighthouse has no way of knowing this.
+   If you're sure you haven't run Lighthouse and the other client simultaneously, you
+   can [drop Lighthouse's DB in favour of the interchange file](#drop-and-re-import).
+3. You have imported the same interchange file (which lacks signing roots) twice, e.g. from Teku.
+   It might be safe to continue as-is, or you could consider a [Drop and
+   Re-import](#drop-and-re-import).
+
+#### Drop and Re-import
+
+If you'd like to prioritize an interchange file over any existing database stored by Lighthouse
+then you can _move_ (not delete) Lighthouse's database and replace it like so:
+
+```bash
+mv $datadir/validators/slashing_protection.sqlite ~/slashing_protection_backup.sqlite
+```
+
+```
+lighthouse account validator slashing-protection import <my_interchange.json>
+```
+
+If your interchange file doesn't cover all of your validators, you shouldn't do this. Please reach
+out on Discord if you need help.
 
 ## Limitation of Liability
 

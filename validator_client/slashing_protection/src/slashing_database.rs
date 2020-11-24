@@ -4,7 +4,7 @@ use crate::interchange::{
 };
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
-use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock};
+use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::{File, OpenOptions};
@@ -231,7 +231,7 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
@@ -281,7 +281,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         // Although it's not required to avoid slashing, we disallow attestations
         // which are obviously invalid by virtue of their source epoch exceeding their target.
@@ -410,14 +410,14 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
     ) -> Result<(), NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
         txn.execute(
             "INSERT INTO signed_blocks (validator_id, slot, signing_root)
              VALUES (?1, ?2, ?3)",
-            params![validator_id, slot, signing_root.as_bytes()],
+            params![validator_id, slot, signing_root.to_hash256().as_bytes()],
         )?;
         Ok(())
     }
@@ -432,7 +432,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
     ) -> Result<(), NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
@@ -443,7 +443,7 @@ impl SlashingDatabase {
                 validator_id,
                 att_source_epoch,
                 att_target_epoch,
-                att_signing_root.as_bytes()
+                att_signing_root.to_hash256().as_bytes()
             ],
         )?;
         Ok(())
@@ -464,7 +464,7 @@ impl SlashingDatabase {
         self.check_and_insert_block_signing_root(
             validator_pubkey,
             block_header.slot,
-            block_header.signing_root(domain),
+            block_header.signing_root(domain).into(),
         )
     }
 
@@ -473,7 +473,7 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
@@ -492,7 +492,7 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         slot: Slot,
-        signing_root: Hash256,
+        signing_root: SigningRoot,
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let safe = self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
@@ -515,7 +515,7 @@ impl SlashingDatabase {
         attestation: &AttestationData,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
-        let attestation_signing_root = attestation.signing_root(domain);
+        let attestation_signing_root = attestation.signing_root(domain).into();
         self.check_and_insert_attestation_signing_root(
             validator_pubkey,
             attestation.source.epoch,
@@ -530,7 +530,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
@@ -551,7 +551,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
-        att_signing_root: Hash256,
+        att_signing_root: SigningRoot,
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let safe = self.check_attestation(
@@ -575,11 +575,14 @@ impl SlashingDatabase {
     }
 
     /// Import slashing protection from another client in the interchange format.
+    ///
+    /// Return a vector of public keys and errors for any validators whose data could not be
+    /// imported.
     pub fn import_interchange_info(
         &self,
-        interchange: &Interchange,
+        interchange: Interchange,
         genesis_validators_root: Hash256,
-    ) -> Result<(), InterchangeError> {
+    ) -> Result<Vec<InterchangeImportOutcome>, InterchangeError> {
         let version = interchange.metadata.interchange_format_version;
         if version != SUPPORTED_INTERCHANGE_FORMAT_VERSION {
             return Err(InterchangeError::UnsupportedVersion(version));
@@ -592,37 +595,87 @@ impl SlashingDatabase {
             });
         }
 
-        // Import atomically, to prevent registering validators with partial information.
         let mut conn = self.conn_pool.get()?;
-        let txn = conn.transaction()?;
 
-        for record in &interchange.data {
-            self.register_validators_in_txn(std::iter::once(&record.pubkey), &txn)?;
+        let mut import_outcomes = vec![];
 
-            // Insert all signed blocks.
-            for block in &record.signed_blocks {
-                self.check_and_insert_block_signing_root_txn(
-                    &record.pubkey,
-                    block.slot,
-                    block.signing_root.unwrap_or_else(Hash256::zero),
-                    &txn,
-                )?;
-            }
-
-            // Insert all signed attestations.
-            for attestation in &record.signed_attestations {
-                self.check_and_insert_attestation_signing_root_txn(
-                    &record.pubkey,
-                    attestation.source_epoch,
-                    attestation.target_epoch,
-                    attestation.signing_root.unwrap_or_else(Hash256::zero),
-                    &txn,
-                )?;
+        for record in interchange.data {
+            let pubkey = record.pubkey.clone();
+            let txn = conn.transaction()?;
+            match self.import_interchange_record(record, &txn) {
+                Ok(summary) => {
+                    import_outcomes.push(InterchangeImportOutcome::Success { pubkey, summary });
+                    txn.commit()?;
+                }
+                Err(error) => {
+                    import_outcomes.push(InterchangeImportOutcome::Failure { pubkey, error });
+                }
             }
         }
-        txn.commit()?;
 
-        Ok(())
+        Ok(import_outcomes)
+    }
+
+    pub fn import_interchange_record(
+        &self,
+        mut record: InterchangeData,
+        txn: &Transaction,
+    ) -> Result<ValidatorSummary, NotSafe> {
+        self.register_validators_in_txn(std::iter::once(&record.pubkey), txn)?;
+
+        // Insert all signed blocks, sorting them so that the minimum bounds are not
+        // violated by blocks earlier in the file.
+        record.signed_blocks.sort_unstable_by_key(|b| b.slot);
+        for block in &record.signed_blocks {
+            self.check_and_insert_block_signing_root_txn(
+                &record.pubkey,
+                block.slot,
+                block
+                    .signing_root
+                    .map(SigningRoot::from)
+                    .unwrap_or_default(),
+                txn,
+            )?;
+        }
+
+        // Prune blocks less than the min slot from this interchange file.
+        // This ensures we don't sign anything less than the min slot after successful import,
+        // which is signficant if we have imported two files with a "gap" in between.
+        if let Some(new_min_slot) = record.signed_blocks.iter().map(|block| block.slot).min() {
+            self.prune_signed_blocks(&record.pubkey, new_min_slot, txn)?;
+        }
+
+        // Insert all signed attestations.
+        record
+            .signed_attestations
+            .sort_unstable_by_key(|att| (att.source_epoch, att.target_epoch));
+        for attestation in &record.signed_attestations {
+            self.check_and_insert_attestation_signing_root_txn(
+                &record.pubkey,
+                attestation.source_epoch,
+                attestation.target_epoch,
+                attestation
+                    .signing_root
+                    .map(SigningRoot::from)
+                    .unwrap_or_default(),
+                txn,
+            )?;
+        }
+
+        // Prune attestations less than the min source and target from this interchange file.
+        // See the rationale for blocks above.
+        if let Some((new_min_source, new_min_target)) = record
+            .signed_attestations
+            .iter()
+            .map(|attestation| (attestation.source_epoch, attestation.target_epoch))
+            .min()
+        {
+            self.prune_signed_attestations(&record.pubkey, new_min_source, new_min_target, txn)?;
+        }
+
+        let summary = self.validator_summary(&record.pubkey, txn)?;
+
+        Ok(summary)
     }
 
     pub fn export_interchange_info(
@@ -641,7 +694,8 @@ impl SlashingDatabase {
         txn.prepare(
             "SELECT public_key, slot, signing_root
              FROM signed_blocks, validators
-             WHERE signed_blocks.validator_id = validators.id",
+             WHERE signed_blocks.validator_id = validators.id
+             ORDER BY slot ASC",
         )?
         .query_and_then(params![], |row| {
             let validator_pubkey: String = row.get(0)?;
@@ -659,7 +713,8 @@ impl SlashingDatabase {
         txn.prepare(
             "SELECT public_key, source_epoch, target_epoch, signing_root
              FROM signed_attestations, validators
-             WHERE signed_attestations.validator_id = validators.id",
+             WHERE signed_attestations.validator_id = validators.id
+             ORDER BY source_epoch ASC, target_epoch ASC",
         )?
         .query_and_then(params![], |row| {
             let validator_pubkey: String = row.get(0)?;
@@ -698,6 +753,50 @@ impl SlashingDatabase {
         Ok(Interchange { metadata, data })
     }
 
+    /// Remove all blocks for `public_key` with slots less than `new_min_slot`.
+    pub fn prune_signed_blocks(
+        &self,
+        public_key: &PublicKey,
+        new_min_slot: Slot,
+        txn: &Transaction,
+    ) -> Result<(), NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
+
+        txn.execute(
+            "DELETE FROM signed_blocks
+             WHERE validator_id = ?1 AND slot < ?2",
+            params![validator_id, new_min_slot],
+        )?;
+
+        Ok(())
+    }
+
+    /// Remove all attestations for `public_key` with
+    /// `(source, target) < (new_min_source, new_min_target)`.
+    pub fn prune_signed_attestations(
+        &self,
+        public_key: &PublicKey,
+        new_min_source: Epoch,
+        new_min_target: Epoch,
+        txn: &Transaction,
+    ) -> Result<(), NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
+
+        // Delete attestations with source *and* target less than the minimums.
+        // Assuming `(new_min_source, new_min_target)` was successfully
+        // inserted into the database, then any other attestation in the database
+        // can't have just its source or just its target less than the new minimum.
+        // I.e. the following holds:
+        //   a.source < new_min_source <--> a.target < new_min_target
+        txn.execute(
+            "DELETE FROM signed_attestations
+             WHERE validator_id = ?1 AND source_epoch < ?2 AND target_epoch < ?3",
+            params![validator_id, new_min_source, new_min_target],
+        )?;
+
+        Ok(())
+    }
+
     pub fn num_validator_rows(&self) -> Result<u32, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
@@ -705,6 +804,76 @@ impl SlashingDatabase {
             .prepare("SELECT COALESCE(COUNT(*), 0) FROM validators")?
             .query_row(params![], |row| row.get(0))?;
         Ok(count)
+    }
+
+    /// Get a summary of a validator's slashing protection data for consumption by the user.
+    pub fn validator_summary(
+        &self,
+        public_key: &PublicKey,
+        txn: &Transaction,
+    ) -> Result<ValidatorSummary, NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
+        let (min_block_slot, max_block_slot) = txn
+            .prepare(
+                "SELECT MIN(slot), MAX(slot)
+                 FROM signed_blocks
+                 WHERE validator_id = ?1",
+            )?
+            .query_row(params![validator_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+        let (
+            min_attestation_source,
+            min_attestation_target,
+            max_attestation_source,
+            max_attestation_target,
+        ) = txn
+            .prepare(
+                "SELECT MIN(source_epoch), MIN(target_epoch), MAX(source_epoch), MAX(target_epoch)
+                 FROM signed_attestations
+                 WHERE validator_id = ?1",
+            )?
+            .query_row(params![validator_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?;
+
+        Ok(ValidatorSummary {
+            min_block_slot,
+            max_block_slot,
+            min_attestation_source,
+            min_attestation_target,
+            max_attestation_source,
+            max_attestation_target,
+        })
+    }
+}
+
+/// Minimum and maximum slots and epochs signed by a validator.
+#[derive(Debug)]
+pub struct ValidatorSummary {
+    pub min_block_slot: Option<Slot>,
+    pub max_block_slot: Option<Slot>,
+    pub min_attestation_source: Option<Epoch>,
+    pub min_attestation_target: Option<Epoch>,
+    pub max_attestation_source: Option<Epoch>,
+    pub max_attestation_target: Option<Epoch>,
+}
+
+/// The result of importing a single entry from an interchange file.
+#[derive(Debug)]
+pub enum InterchangeImportOutcome {
+    Success {
+        pubkey: PublicKey,
+        summary: ValidatorSummary,
+    },
+    Failure {
+        pubkey: PublicKey,
+        error: NotSafe,
+    },
+}
+
+impl InterchangeImportOutcome {
+    pub fn failed(&self) -> bool {
+        matches!(self, InterchangeImportOutcome::Failure { .. })
     }
 }
 
