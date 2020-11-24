@@ -120,7 +120,10 @@ pub fn build_or_load_enr<T: EthSpec>(
     Ok(local_enr)
 }
 
-pub fn create_enr_builder_from_config<T: EnrKey>(config: &NetworkConfig) -> EnrBuilder<T> {
+pub fn create_enr_builder_from_config<T: EnrKey>(
+    config: &NetworkConfig,
+    enable_tcp: bool,
+) -> EnrBuilder<T> {
     let mut builder = EnrBuilder::new("v4");
     if let Some(enr_address) = config.enr_address {
         builder.ip(enr_address);
@@ -129,8 +132,10 @@ pub fn create_enr_builder_from_config<T: EnrKey>(config: &NetworkConfig) -> EnrB
         builder.udp(udp_port);
     }
     // we always give it our listening tcp port
-    let tcp_port = config.enr_tcp_port.unwrap_or_else(|| config.libp2p_port);
-    builder.tcp(tcp_port).tcp(config.libp2p_port);
+    if enable_tcp {
+        let tcp_port = config.enr_tcp_port.unwrap_or_else(|| config.libp2p_port);
+        builder.tcp(tcp_port);
+    }
     builder
 }
 
@@ -140,7 +145,7 @@ pub fn build_enr<T: EthSpec>(
     config: &NetworkConfig,
     enr_fork_id: EnrForkId,
 ) -> Result<Enr, String> {
-    let mut builder = create_enr_builder_from_config(config);
+    let mut builder = create_enr_builder_from_config(config, true);
 
     // set the `eth2` field on our ENR
     builder.add_value(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes());
