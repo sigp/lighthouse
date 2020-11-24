@@ -42,9 +42,9 @@ items, starting at one easy-to-backup mnemonic and ending with multiple
 keypairs. Creating a single validator looks like this:
 
 1. Create a **wallet** and record the **mnemonic**:
-    - `lighthouse --testnet medalla account wallet create --name wally --password-file wally.pass`
+    - `lighthouse --network pyrmont account wallet create --name wally --password-file wally.pass`
 1. Create the voting and withdrawal **keystores** for one validator:
-	- `lighthouse --testnet medalla account validator create --wallet-name wally --wallet-password wally.pass --count 1`
+	- `lighthouse --network pyrmont account validator create --wallet-name wally --wallet-password wally.pass --count 1`
 
 
 In step (1), we created a wallet in `~/.lighthouse/{network}/wallets` with the name
@@ -77,9 +77,7 @@ There are three important directories in Lighthouse validator key management:
 - `secrets/`: since the validator signing keys are "hot", the validator process
 	needs access to the passwords to decrypt the keystores in the validators
 	dir. These passwords are stored here.
-	- Defaults to `~/.lighthouse/{network}/secrets`
-
-where `network` is the name of the network passed in the `--network` parameter (default is `medalla`).
+	- Defaults to `~/.lighthouse/{network}/secrets` where `network` is the name of the network passed in the `--network` parameter (default is `mainnet`).
 
 When the validator client boots, it searches the `validators/` for directories
 containing voting keystores. When it discovers a keystore, it searches the

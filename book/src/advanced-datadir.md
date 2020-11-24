@@ -4,7 +4,7 @@ Users can override the default Lighthouse data directories (e.g., `~/.lighthouse
 
 > Note: Users should specify different custom directories for different networks.
 
-Below is an example flow for importing validator keys, running a beacon node and validator client using a custom data directory `/var/lib/my-custom-dir` for the medalla testnet.
+Below is an example flow for importing validator keys, running a beacon node and validator client using a custom data directory `/var/lib/my-custom-dir` for the Pyrmont testnet.
 
 ```bash
 lighthouse --network mainnet --datadir /var/lib/my-custom-dir account validator import --directory <PATH-TO-LAUNCHPAD-KEYS-DIRECTORY>

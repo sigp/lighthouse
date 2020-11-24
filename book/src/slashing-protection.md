@@ -97,8 +97,8 @@ The validator client needs to be stopped in order to export.
 If the slashing protection database cannot be found, it will manifest in an error like this:
 
 ```
-Oct 12 14:41:26.415 CRIT Failed to start validator client        reason: Failed to open slashing protection database: SQLError("Unable to open database: Error(Some(\"unable to open database file: /home/karlm/.lighthouse/medalla/validators/slashing_protection.sqlite\"))").
-Ensure that `slashing_protection.sqlite` is in "/home/karlm/.lighthouse/medalla/validators" folder
+Oct 12 14:41:26.415 CRIT Failed to start validator client        reason: Failed to open slashing protection database: SQLError("Unable to open database: Error(Some(\"unable to open database file: /home/karlm/.lighthouse/mainnet/validators/slashing_protection.sqlite\"))").
+Ensure that `slashing_protection.sqlite` is in "/home/karlm/.lighthouse/mainnet/validators" folder
 ```
 
 Usually this indicates that during some manual intervention the slashing database has been
@@ -108,7 +108,7 @@ never see this error (see [Initialization](#initialization)).
 
 The safest way to remedy this error is to find your old slashing protection database and move
 it to the correct location. In our example that would be
-`~/.lighthouse/medalla/validators/slashing_protection.sqlite`. You can search for your old database
+`~/.lighthouse/mainnet/validators/slashing_protection.sqlite`. You can search for your old database
 using a tool like `find`, `fd`, or your file manager's GUI. Ask on the Lighthouse Discord if you're
 not sure.
 

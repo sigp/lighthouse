@@ -40,7 +40,7 @@ The slasher has several configuration options that control its functioning.
 * Argument: path to directory
 
 By default the slasher stores data in the `slasher_db` directory inside the beacon node's datadir,
-e.g. `~/.lighthouse/{testnet}/beacon/slasher_db`. You can use this flag to change that storage
+e.g. `~/.lighthouse/{network}/beacon/slasher_db`. You can use this flag to change that storage
 directory.
 
 ### History Length

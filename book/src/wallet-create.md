@@ -59,11 +59,11 @@ OPTIONS:
 
 ## Example
 
-Creates a new wallet named `wally` and saves it in `~/.lighthouse/medalla/wallets` with a randomly generated password saved
+Creates a new wallet named `wally` and saves it in `~/.lighthouse/pyrmont/wallets` with a randomly generated password saved
 to `./wallet.pass`:
 
 ```bash
-lighthouse --testnet medalla account wallet create --name wally --password-file wally.pass
+lighthouse --network pyrmont account wallet create --name wally --password-file wally.pass
 ```
 
 > Notes:
