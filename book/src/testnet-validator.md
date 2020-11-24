@@ -12,7 +12,7 @@ instructions but with a few differences:
     - [Medalla](https://github.com/goerli/medalla/tree/master/medalla)
     - [Pyrmont](https://github.com/protolambda/pyrmont)
 1. Instead of `--network mainnet`, use the appropriate network flag:
-   - `--testnet pyrmont`: Pyrmont.
+   - `--network pyrmont`: Pyrmont.
    - `--testnet medalla`: Medalla.
 1. Use a Goeli Eth1 node instead of a mainnet one:
    - For Geth, this means using `geth --goerli --http`.
