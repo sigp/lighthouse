@@ -182,6 +182,10 @@ impl<T: BeaconChainTypes> Router<T> {
         // an error could have occurred.
         match response {
             Response::Status(status_message) => {
+                if !self.network_globals.peers.read().is_connected(&peer_id) {
+                    debug!(self.log, "Dropping status response of disconnected peer"; "peer_id" => %peer_id, status_message);
+                    return;
+                }
                 self.processor.on_status_response(peer_id, status_message);
             }
             Response::BlocksByRange(beacon_block) => {
