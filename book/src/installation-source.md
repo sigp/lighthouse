@@ -16,9 +16,9 @@ Instructions](#detailed-instructions) below. If you have further issues, see
 
 ## Updating lighthouse
 
-You can update lighthouse to a specific version by running the commands below. The `lighthouse`
+You can update Lighthouse to a specific version by running the commands below. The `lighthouse`
 directory will be the location you cloned Lighthouse to during the installation process.
-And `${VERSION}` will be the version you wish to build in the format `vX.X.X`.
+`${VERSION}` will be the version you wish to build in the format `vX.X.X`.
 
 - `cd lighthouse`
 - `git fetch`
