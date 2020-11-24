@@ -83,8 +83,8 @@ See ["Configuring the `PATH` environment variable"
 Make sure you are running the latest version of Rust. If you have installed Rust using rustup, simply type `$ rustup update`.
 
 If compilation fails with `(signal: 9, SIGKILL: kill)`, this could mean your machine ran out of
-memory out of memory during compilation. If you are on a resource-constrained device you could look
-into [cross compilation](./cross-compiling.md).
+memory during compilation. If you are on a resource-constrained device you can
+look into [cross compilation](./cross-compiling.md).
 
 If compilation fails with `error: linking with cc failed: exit code: 1`, try running `cargo clean`.
 
