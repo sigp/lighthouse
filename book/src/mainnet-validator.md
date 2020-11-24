@@ -108,7 +108,7 @@ Once you have geth installed, use this command to start your Eth1 node:
 Follow the [Lighthouse Installation Instructions](./installation.md) to install
 Lighthouse from one of the available options.
 
-Proceed to the next step once you've successfully installed Lighthouse and view
+Proceed to the next step once you've successfully installed Lighthouse and viewed
 its `--version` info.
 
 > Note: Some of the instructions vary when using Docker, ensure you follow the
