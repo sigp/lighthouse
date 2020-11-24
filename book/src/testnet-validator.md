@@ -1,6 +1,8 @@
 # Become a Testnet Validator
 
 [mainnet-validator]: ./mainnet-validator.md
+[pyrmont-launchpad]: https://pyrmont.launchpad.ethereum.org/
+[medalla-launchpad]: https://medalla.launchpad.ethereum.org/
 
 Joining an Eth2 testnet is a great way to get familiar with staking in Phase 0.  All users should
 experiment with a testnet prior to staking mainnet ETH.
@@ -9,8 +11,8 @@ To join a testnet, you can follow the [Become an Eth2 Mainnet Validator][mainnet
 instructions but with a few differences:
 
 1. Use the appropriate Eth2 launchpad website:
-    - [Medalla](https://github.com/goerli/medalla/tree/master/medalla)
-    - [Pyrmont](https://github.com/protolambda/pyrmont)
+    - [Pyrmont][pyrmont-launchpad]
+    - [Medalla][medalla-launchpad]
 1. Instead of `--network mainnet`, use the appropriate network flag:
    - `--network pyrmont`: Pyrmont.
    - `--network medalla`: Medalla.
