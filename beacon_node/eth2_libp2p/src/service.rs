@@ -335,11 +335,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 }
 
+type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
+
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
 /// mplex as the multiplexing layer.
 fn build_transport(
     local_private_key: Keypair,
-) -> std::io::Result<(Boxed<(PeerId, StreamMuxerBox)>, Arc<BandwidthSinks>)> {
+) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
     let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
