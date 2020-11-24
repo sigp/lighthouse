@@ -4,6 +4,8 @@
 
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
+[stable]: https://github.com/sigp/lighthouse/tree/stable
+[unstable]: https://github.com/sigp/lighthouse/tree/unstable
 
 
 Lighthouse welcomes contributions. If you are interested in contributing to the
@@ -23,6 +25,15 @@ To start contributing,
 
 If you have questions, please reach out via
 [Discord](https://discord.gg/cyAszAh).
+
+## Branches
+
+Lighthouse maintains two permanent branches:
+
+- [`stable`][stable]: Always points to the latest stable release.
+  - This is ideal for most users.
+- [`unstable`][unstable]: Used for development, contains the latest PRs.
+  - Developers should base thier PRs on this branch.
 
 ## Ethereum 2.0
 

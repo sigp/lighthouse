@@ -47,6 +47,7 @@ command).
 ```bash
 git clone https://github.com/sigp/lighthouse.git
 cd lighthouse
+git checkout stable
 make
 ```
 
