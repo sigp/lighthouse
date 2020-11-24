@@ -810,4 +810,14 @@ mod tests {
         let db2 = SlashingDatabase::open(&file).unwrap();
         check(&db2);
     }
+
+    #[test]
+    fn test_transaction_failure() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("db.sqlite");
+        let _db1 = SlashingDatabase::create(&file).unwrap();
+
+        let db2 = SlashingDatabase::open(&file).unwrap();
+        db2.test_transaction().unwrap_err();
+    }
 }
