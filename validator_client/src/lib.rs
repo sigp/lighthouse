@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod http_metrics;
 mod initialized_validators;
 mod is_synced;
 mod key_cache;
@@ -49,6 +50,7 @@ const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
+#[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
     duties_service: DutiesService<SystemTimeSlotClock, T>,
@@ -57,6 +59,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
+    http_metrics_listen_addr: Option<SocketAddr>,
     config: Config,
 }
 
@@ -246,6 +249,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_store,
             config,
             http_api_listen_addr: None,
+            http_metrics_listen_addr: None,
         })
     }
 
@@ -308,6 +312,30 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             Some(listen_addr)
         } else {
             info!(log, "HTTP API server is disabled");
+            None
+        };
+
+        self.http_metrics_listen_addr = if self.config.http_metrics.enabled {
+            let ctx: Arc<http_metrics::Context<T>> = Arc::new(http_metrics::Context {
+                config: self.config.http_metrics.clone(),
+                // TODO: wrap this in an arc so we dont end up with copies of config and stuff.
+                vc: self.clone(),
+                log: log.clone(),
+            });
+
+            let exit = self.context.executor.exit();
+
+            let (listen_addr, server) = http_metrics::serve(ctx, exit)
+                .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
+
+            self.context
+                .clone()
+                .executor
+                .spawn_without_exit(async move { server.await }, "metrics-api");
+
+            Some(listen_addr)
+        } else {
+            info!(log, "HTTP metrics server is disabled");
             None
         };
 

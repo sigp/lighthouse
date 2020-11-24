@@ -16,3 +16,5 @@ safe_arith = { path = "../../consensus/safe_arith" }
 serde = { version = "1.0.116", features = ["derive"] }
 tokio = { version = "0.2.22", features = ["sync"] }
 headers = "0.3.2"
+lighthouse_metrics = { path = "../lighthouse_metrics" }
+lazy_static = "1.4.0"
