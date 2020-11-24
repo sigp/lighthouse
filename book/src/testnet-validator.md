@@ -2,7 +2,6 @@
 
 [mainnet-validator]: ./mainnet-validator.md
 [pyrmont-launchpad]: https://pyrmont.launchpad.ethereum.org/
-[medalla-launchpad]: https://medalla.launchpad.ethereum.org/
 
 Joining an Eth2 testnet is a great way to get familiar with staking in Phase 0.  All users should
 experiment with a testnet prior to staking mainnet ETH.
@@ -12,15 +11,12 @@ instructions but with a few differences:
 
 1. Use the appropriate Eth2 launchpad website:
     - [Pyrmont][pyrmont-launchpad]
-    - [Medalla][medalla-launchpad]
 1. Instead of `--network mainnet`, use the appropriate network flag:
    - `--network pyrmont`: Pyrmont.
-   - `--network medalla`: Medalla.
 1. Use a Goerli Eth1 node instead of a mainnet one:
    - For Geth, this means using `geth --goerli --http`.
 1. Notice that Lighthouse will store its files in a different directory by default:
    - `~/.lighthouse/pyrmont`: Pyrmont.
-   - `~/.lighthouse/medalla`: Medalla.
 
 >
 > **Never use real ETH to join a testnet!** All of the testnets listed here use Goerli ETH which is
