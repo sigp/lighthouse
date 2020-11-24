@@ -36,7 +36,7 @@ Remember, if you get stuck you can always reach out on our [Discord][discord].
 > **Please note**: the Lighthouse team does not take any responsibility for losses or damages
 > occured through the use of Lighthouse. We have an experienced internal security team and have
 > undergone multiple third-party security-reviews, however the possibility of bugs or malicious
-> interference remain a real and constant threat. Validators should be prepared to lose some rewards
+> interference remains a real and constant threat. Validators should be prepared to lose some rewards
 > due to the actions of other actors on the Eth2 network or software bugs. See the
 > [software license][license] for more detail on liability.
 
