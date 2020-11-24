@@ -1,5 +1,10 @@
 # Create a wallet
 
+[launchpad]: https://launchpad.ethereum.org/
+
+>
+> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
+
 A wallet allows for generating practically unlimited validators from an
 easy-to-remember 24-word string (a mnemonic). As long as that mnemonic is
 backed up, all validator keys can be trivially re-generated.

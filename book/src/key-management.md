@@ -1,5 +1,10 @@
 # Key Management
 
+[launchpad]: https://launchpad.ethereum.org/
+
+>
+> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
+
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
 master key, making the validators keys _children_ of the master key. This
