@@ -5,7 +5,7 @@ use crate::{
     NetworkConfig,
 };
 use crate::{error, metrics};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
     Gossipsub, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
@@ -281,7 +281,7 @@ fn spawn_service<T: BeaconChainTypes>(
                 _ = service.gossipsub_parameter_update.next() => {
                     if let Ok(slot) = service.beacon_chain.slot() {
                         if let Some(active_validators) = service.beacon_chain.with_head(|head| {
-                                Ok(
+                                Ok::<_, BeaconChainError>(
                                     head
                                     .beacon_state
                                     .get_cached_active_validator_indices(RelativeEpoch::Current)

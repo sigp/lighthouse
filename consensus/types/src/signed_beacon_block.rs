@@ -1,6 +1,6 @@
 use crate::{
     test_utils::TestRandom, BeaconBlock, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
-    SignedRoot, SigningData, Slot,
+    SignedBeaconBlockHeader, SignedRoot, SigningData, Slot,
 };
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
@@ -80,6 +80,14 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         };
 
         self.signature.verify(pubkey, message)
+    }
+
+    /// Produce a signed beacon block header corresponding to this block.
+    pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        SignedBeaconBlockHeader {
+            message: self.message.block_header(),
+            signature: self.signature.clone(),
+        }
     }
 
     /// Convenience accessor for the block's slot.

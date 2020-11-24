@@ -171,6 +171,38 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "current_slot" => current_slot,
                 );
             }
+
+            // Perform some logging about the eth1 chain
+            if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
+                if let Some(status) =
+                    eth1_chain.sync_status(head_info.genesis_time, current_slot, &beacon_chain.spec)
+                {
+                    debug!(
+                        log,
+                        "Eth1 cache sync status";
+                        "eth1_head_block" => status.head_block_number,
+                        "latest_cached_block_number" => status.latest_cached_block_number,
+                        "latest_cached_timestamp" => status.latest_cached_block_timestamp,
+                        "voting_target_timestamp" => status.voting_target_timestamp,
+                        "ready" => status.lighthouse_is_cached_and_ready
+                    );
+
+                    if !status.lighthouse_is_cached_and_ready {
+                        warn!(
+                            log,
+                            "Syncing eth1 block cache";
+                            "target_timestamp" => status.voting_target_timestamp,
+                            "latest_timestamp" => status.latest_cached_block_timestamp,
+                            "msg" => "block production temporarily impaired"
+                        );
+                    }
+                } else {
+                    error!(
+                        log,
+                        "Unable to determine eth1 sync status";
+                    );
+                }
+            }
         }
         Ok::<(), ()>(())
     };

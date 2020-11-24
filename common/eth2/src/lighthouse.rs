@@ -153,7 +153,7 @@ pub struct Eth1SyncStatusData {
     pub head_block_timestamp: Option<u64>,
     pub latest_cached_block_number: Option<u64>,
     pub latest_cached_block_timestamp: Option<u64>,
-    pub voting_period_start_timestamp: u64,
+    pub voting_target_timestamp: u64,
     pub eth1_node_sync_status_percentage: f64,
     pub lighthouse_is_cached_and_ready: bool,
 }
@@ -355,5 +355,17 @@ impl BeaconNodeHttpClient {
             .await?
             .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
             .transpose()
+    }
+
+    /// `GET lighthouse/staking`
+    pub async fn get_lighthouse_staking(&self) -> Result<bool, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("staking");
+
+        self.get_opt::<(), _>(path).await.map(|opt| opt.is_some())
     }
 }
