@@ -50,6 +50,16 @@ lazy_static! {
         "Failed gossip publishes",
         &["topic_hash"]
     );
+    pub static ref INBOUND_LIBP2P_BYTES: Result<IntCounter> =
+        try_create_int_counter("libp2p_inbound_bytes", "The inbound bandwidth over libp2p");
+    pub static ref OUTBOUND_LIBP2P_BYTES: Result<IntCounter> = try_create_int_counter(
+        "libp2p_outbound_bytes",
+        "The outbound bandwidth over libp2p"
+    );
+    pub static ref TOTAL_LIBP2P_BANDWIDTH: Result<IntCounter> = try_create_int_counter(
+        "libp2p_total_bandwidth",
+        "The total inbound/outbound bandwidth over libp2p"
+    );
 }
 
 pub fn scrape_discovery_metrics() {
