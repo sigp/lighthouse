@@ -56,7 +56,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/{testnet}/secrets",
+                    Defaults to ~/.lighthouse/{network}/secrets",
                 )
                 .takes_value(true),
         )

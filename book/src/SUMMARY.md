@@ -1,8 +1,10 @@
 # Summary
 
 * [Introduction](./intro.md)
-* [Become a Testnet Validator](./testnet-validator.md)
+* [Become a Validator](./mainnet-validator.md)
+    * [Become a Testnet Validator](./testnet-validator.md)
 * [Installation](./installation.md)
+    * [System Requirements](./system-requirements.md)
     * [Pre-Built Binaries](./installation-binaries.md)
     * [Docker](./docker.md)
     * [Build from Source](./installation-source.md)
@@ -26,9 +28,11 @@
 		* [Signature Header](./api-vc-sig-header.md)
 	* [Prometheus Metrics](./advanced_metrics.md)
 * [Advanced Usage](./advanced.md)
+    * [Custom Data Directories](./advanced-datadir.md)
     * [Database Configuration](./advanced_database.md)
 	* [Local Testnets](./local-testnets.md)
     * [Advanced Networking](./advanced_networking.md)
+    * [Running a Slasher](./slasher.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
 * [FAQs](./faq.md)

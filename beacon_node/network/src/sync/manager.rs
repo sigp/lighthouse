@@ -38,8 +38,8 @@ use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
-use crate::router::processor::status_message;
 use crate::service::NetworkMessage;
+use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
 use eth2_libp2p::types::{NetworkGlobals, SyncState};
@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// ours that we consider it fully sync'd with respect to our current chain.
     fn add_peer(&mut self, peer_id: PeerId, remote: SyncInfo) {
         // ensure the beacon chain still exists
-        let local = match status_message(&self.chain) {
+        let local = match self.chain.status_message() {
             Ok(status) => SyncInfo {
                 head_slot: status.head_slot,
                 head_root: status.head_root,

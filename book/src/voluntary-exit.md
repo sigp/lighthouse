@@ -27,7 +27,7 @@ In order to initiate an exit, users can use the `lighthouse account validator ex
 
 - The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Eth2.0 Standard API](https://ethereum.github.io/eth2.0-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
 
-- The `--testnet` flag is used to specify a particular testnet (default is `medalla`).
+- The `--network` flag is used to specify a particular Eth2 network (default is `pyrmont`).
 
 - The `--password-file` flag is used to specify the path to the file containing the password for the voting keystore. If this flag is not provided, the user will be prompted to enter the password.
 

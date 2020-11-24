@@ -6,6 +6,7 @@ Compilation should be easy. In fact, if you already have Rust installed all you
 need is:
 
 - `git clone https://github.com/sigp/lighthouse.git`
+- `git checkout stable`
 - `cd lighthouse`
 - `make`
 

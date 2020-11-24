@@ -13,15 +13,12 @@ clients to form a resilient and decentralized proof-of-stake blockchain.
 We implement the specification as defined in the
 [ethereum/eth2.0-specs](https://github.com/ethereum/eth2.0-specs) repository.
 
-**🚨🚨🚨 Note: Lighthouse is not *yet* ready to produce mainnet deposits. The developers will require some
-time to test against the mainnet deposit contract, once it is released. DO NOT SUBMIT VALIDATOR
-DEPOSITS WITH LIGHTHOUSE. 🚨🚨🚨**
-
 ## Topics
 
 You may read this book from start to finish, or jump to some of these topics:
 
 - Follow the [Installation Guide](./installation.md) to install Lighthouse.
+- Learn about [becoming a mainnet validator](./mainnet-validator.md).
 - Get hacking with the [Development Environment Guide](./setup.md).
 - Utilize the whole stack by starting a [local testnet](./local-testnets.md).
 - Query the [RESTful HTTP API](./api.md) using `curl`.

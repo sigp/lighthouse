@@ -43,3 +43,4 @@ clap_utils = { path = "../common/clap_utils" }
 hyper = "0.13.8"
 lighthouse_version = { path = "../common/lighthouse_version" }
 hex = "0.4.2"
+slasher = { path = "../slasher" }

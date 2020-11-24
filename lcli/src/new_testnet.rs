@@ -35,6 +35,8 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         };
     }
 
+    spec.deposit_contract_address = deposit_contract_address;
+
     maybe_update!("min-genesis-time", min_genesis_time);
     maybe_update!("min-deposit-amount", min_deposit_amount);
     maybe_update!(
@@ -52,7 +54,6 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     }
 
     let testnet = Eth2TestnetConfig {
-        deposit_contract_address: format!("{:?}", deposit_contract_address),
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
         genesis_state_bytes: None,

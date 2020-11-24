@@ -23,7 +23,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path to search for validator directories. \
-                    Defaults to ~/.lighthouse/{testnet}/validators",
+                    Defaults to ~/.lighthouse/{network}/validators",
                 )
                 .takes_value(true)
                 .conflicts_with("datadir"),

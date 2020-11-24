@@ -1,8 +1,6 @@
 use super::http::Log;
 use ssz::Decode;
-use state_processing::per_block_processing::signature_sets::{
-    deposit_pubkey_signature_message, deposit_signature_set,
-};
+use state_processing::per_block_processing::signature_sets::deposit_pubkey_signature_message;
 use types::{ChainSpec, DepositData, Hash256, PublicKeyBytes, SignatureBytes};
 
 pub use eth2::lighthouse::DepositLog;
@@ -53,7 +51,9 @@ impl Log {
         };
 
         let signature_is_valid = deposit_pubkey_signature_message(&deposit_data, spec)
-            .map_or(false, |msg| deposit_signature_set(&msg).verify());
+            .map_or(false, |(public_key, signature, msg)| {
+                signature.verify(&public_key, msg)
+            });
 
         Ok(DepositLog {
             deposit_data,

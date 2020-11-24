@@ -1,7 +1,6 @@
 //! Provides the `ObservedBlockProducers` struct which allows for rejecting gossip blocks from
 //! validators that have already produced a block.
 
-use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{BeaconBlock, EthSpec, Slot, Unsigned};
@@ -27,8 +26,8 @@ pub enum Error {
 /// active_validator_count`, however in reality that is more like `slots_since_finality *
 /// known_distinct_shufflings` which is much smaller.
 pub struct ObservedBlockProducers<E: EthSpec> {
-    finalized_slot: RwLock<Slot>,
-    items: RwLock<HashMap<Slot, HashSet<u64>>>,
+    finalized_slot: Slot,
+    items: HashMap<Slot, HashSet<u64>>,
     _phantom: PhantomData<E>,
 }
 
@@ -36,8 +35,8 @@ impl<E: EthSpec> Default for ObservedBlockProducers<E> {
     /// Instantiates `Self` with `finalized_slot == 0`.
     fn default() -> Self {
         Self {
-            finalized_slot: RwLock::new(Slot::new(0)),
-            items: RwLock::new(HashMap::new()),
+            finalized_slot: Slot::new(0),
+            items: HashMap::new(),
             _phantom: PhantomData,
         }
     }
@@ -53,12 +52,11 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn observe_proposer(&self, block: &BeaconBlock<E>) -> Result<bool, Error> {
+    pub fn observe_proposer(&mut self, block: &BeaconBlock<E>) -> Result<bool, Error> {
         self.sanitize_block(block)?;
 
         let did_not_exist = self
             .items
-            .write()
             .entry(block.slot)
             .or_insert_with(|| HashSet::with_capacity(E::SlotsPerEpoch::to_usize()))
             .insert(block.proposer_index);
@@ -79,7 +77,6 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
 
         let exists = self
             .items
-            .read()
             .get(&block.slot)
             .map_or(false, |set| set.contains(&block.proposer_index));
 
@@ -92,7 +89,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
             return Err(Error::ValidatorIndexTooHigh(block.proposer_index));
         }
 
-        let finalized_slot = *self.finalized_slot.read();
+        let finalized_slot = self.finalized_slot;
         if finalized_slot > 0 && block.slot <= finalized_slot {
             return Err(Error::FinalizedBlock {
                 slot: block.slot,
@@ -109,15 +106,13 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     /// equal to or less than `finalized_slot`.
     ///
     /// No-op if `finalized_slot == 0`.
-    pub fn prune(&self, finalized_slot: Slot) {
+    pub fn prune(&mut self, finalized_slot: Slot) {
         if finalized_slot == 0 {
             return;
         }
 
-        *self.finalized_slot.write() = finalized_slot;
-        self.items
-            .write()
-            .retain(|slot, _set| *slot > finalized_slot);
+        self.finalized_slot = finalized_slot;
+        self.items.retain(|slot, _set| *slot > finalized_slot);
     }
 }
 
@@ -137,10 +132,10 @@ mod tests {
 
     #[test]
     fn pruning() {
-        let cache = ObservedBlockProducers::default();
+        let mut cache = ObservedBlockProducers::default();
 
-        assert_eq!(*cache.finalized_slot.read(), 0, "finalized slot is zero");
-        assert_eq!(cache.items.read().len(), 0, "no slots should be present");
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 0, "no slots should be present");
 
         // Slot 0, proposer 0
         let block_a = &get_block(0, 0);
@@ -155,16 +150,11 @@ mod tests {
          * Preconditions.
          */
 
-        assert_eq!(*cache.finalized_slot.read(), 0, "finalized slot is zero");
-        assert_eq!(
-            cache.items.read().len(),
-            1,
-            "only one slot should be present"
-        );
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(0))
                 .expect("slot zero should be present")
                 .len(),
@@ -178,16 +168,11 @@ mod tests {
 
         cache.prune(Slot::new(0));
 
-        assert_eq!(*cache.finalized_slot.read(), 0, "finalized slot is zero");
-        assert_eq!(
-            cache.items.read().len(),
-            1,
-            "only one slot should be present"
-        );
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(0))
                 .expect("slot zero should be present")
                 .len(),
@@ -201,11 +186,11 @@ mod tests {
 
         cache.prune(E::slots_per_epoch().into());
         assert_eq!(
-            *cache.finalized_slot.read(),
+            cache.finalized_slot,
             Slot::from(E::slots_per_epoch()),
             "finalized slot is updated"
         );
-        assert_eq!(cache.items.read().len(), 0, "no items left");
+        assert_eq!(cache.items.len(), 0, "no items left");
 
         /*
          * Check that we can't insert a finalized block
@@ -223,7 +208,7 @@ mod tests {
             "cant insert finalized block"
         );
 
-        assert_eq!(cache.items.read().len(), 0, "block was not added");
+        assert_eq!(cache.items.len(), 0, "block was not added");
 
         /*
          * Check that we _can_ insert a non-finalized block
@@ -240,15 +225,10 @@ mod tests {
             "can insert non-finalized block"
         );
 
-        assert_eq!(
-            cache.items.read().len(),
-            1,
-            "only one slot should be present"
-        );
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(three_epochs))
                 .expect("the three epochs slot should be present")
                 .len(),
@@ -264,20 +244,15 @@ mod tests {
         cache.prune(two_epochs.into());
 
         assert_eq!(
-            *cache.finalized_slot.read(),
+            cache.finalized_slot,
             Slot::from(two_epochs),
             "finalized slot is updated"
         );
 
-        assert_eq!(
-            cache.items.read().len(),
-            1,
-            "only one slot should be present"
-        );
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(three_epochs))
                 .expect("the three epochs slot should be present")
                 .len(),
@@ -288,7 +263,7 @@ mod tests {
 
     #[test]
     fn simple_observations() {
-        let cache = ObservedBlockProducers::default();
+        let mut cache = ObservedBlockProducers::default();
 
         // Slot 0, proposer 0
         let block_a = &get_block(0, 0);
@@ -314,16 +289,11 @@ mod tests {
             "observing again indicates true"
         );
 
-        assert_eq!(*cache.finalized_slot.read(), 0, "finalized slot is zero");
-        assert_eq!(
-            cache.items.read().len(),
-            1,
-            "only one slot should be present"
-        );
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(0))
                 .expect("slot zero should be present")
                 .len(),
@@ -355,12 +325,11 @@ mod tests {
             "observing slot 1 again indicates true"
         );
 
-        assert_eq!(*cache.finalized_slot.read(), 0, "finalized slot is zero");
-        assert_eq!(cache.items.read().len(), 2, "two slots should be present");
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 2, "two slots should be present");
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(0))
                 .expect("slot zero should be present")
                 .len(),
@@ -370,7 +339,6 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(1))
                 .expect("slot zero should be present")
                 .len(),
@@ -402,12 +370,11 @@ mod tests {
             "observing new proposer again indicates true"
         );
 
-        assert_eq!(*cache.finalized_slot.read(), 0, "finalized slot is zero");
-        assert_eq!(cache.items.read().len(), 2, "two slots should be present");
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 2, "two slots should be present");
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(0))
                 .expect("slot zero should be present")
                 .len(),
@@ -417,7 +384,6 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .read()
                 .get(&Slot::new(1))
                 .expect("slot zero should be present")
                 .len(),

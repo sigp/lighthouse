@@ -37,11 +37,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
-use types::{EthSpec, Hash256, YamlConfig};
+use types::{EthSpec, Hash256};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
+
+/// The time between polls when waiting for genesis.
+const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
@@ -178,23 +181,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             BeaconNodeHttpClient::from_components(beacon_node_url, beacon_node_http_client);
 
         // Perform some potentially long-running initialization tasks.
-        let (yaml_config, genesis_time, genesis_validators_root) = tokio::select! {
+        let (genesis_time, genesis_validators_root) = tokio::select! {
             tuple = init_from_beacon_node(&beacon_node, &context) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
-        let beacon_node_spec = yaml_config.apply_to_chain_spec::<T>(&T::default_spec())
-            .ok_or_else(||
-                    "The minimal/mainnet spec type of the beacon node does not match the validator client. \
-                    See the --testnet command.".to_string()
-            )?;
-
-        if context.eth2_config.spec != beacon_node_spec {
-            return Err(
-                "The beacon node is using a different Eth2 specification to this validator client. \
-                See the --testnet command."
-                    .to_string(),
-            );
-        }
 
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
@@ -328,7 +318,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_node: &BeaconNodeHttpClient,
     context: &RuntimeContext<E>,
-) -> Result<(YamlConfig, u64, Hash256), String> {
+) -> Result<(u64, Hash256), String> {
     // Wait for the beacon node to come online.
     wait_for_node(beacon_node, context.log()).await?;
 
@@ -337,6 +327,22 @@ async fn init_from_beacon_node<E: EthSpec>(
         .await
         .map_err(|e| format!("Unable to read spec from beacon node: {:?}", e))?
         .data;
+
+    let beacon_node_spec = yaml_config
+        .apply_to_chain_spec::<E>(&E::default_spec())
+        .ok_or_else(|| {
+            "The minimal/mainnet spec type of the beacon node does not match the validator client. \
+                See the --network command."
+                .to_string()
+        })?;
+
+    if context.eth2_config.spec != beacon_node_spec {
+        return Err(
+            "The beacon node is using a different Eth2 specification to this validator client. \
+            See the --network command."
+                .to_string(),
+        );
+    }
 
     let genesis = loop {
         match beacon_node.get_beacon_genesis().await {
@@ -378,7 +384,18 @@ async fn init_from_beacon_node<E: EthSpec>(
             "seconds_to_wait" => (genesis_time - now).as_secs()
         );
 
-        delay_for(genesis_time - now).await;
+        // Start polling the node for pre-genesis information, cancelling the polling as soon as the
+        // timer runs out.
+        tokio::select! {
+            result = poll_whilst_waiting_for_genesis(beacon_node, genesis_time, context.log()) => result?,
+            () = delay_for(genesis_time - now) => ()
+        };
+
+        info!(
+            context.log(),
+            "Genesis has occurred";
+            "ms_since_genesis" => (genesis_time - now).as_millis()
+        );
     } else {
         info!(
             context.log(),
@@ -387,11 +404,7 @@ async fn init_from_beacon_node<E: EthSpec>(
         );
     }
 
-    Ok((
-        yaml_config,
-        genesis.genesis_time,
-        genesis.genesis_validators_root,
-    ))
+    Ok((genesis.genesis_time, genesis.genesis_validators_root))
 }
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
@@ -425,5 +438,52 @@ async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Resu
                 delay_for(RETRY_DELAY).await;
             }
         }
+    }
+}
+
+/// Request the version from the node, looping back and trying again on failure. Exit once the node
+/// has been contacted.
+async fn poll_whilst_waiting_for_genesis(
+    beacon_node: &BeaconNodeHttpClient,
+    genesis_time: Duration,
+    log: &Logger,
+) -> Result<(), String> {
+    loop {
+        match beacon_node.get_lighthouse_staking().await {
+            Ok(is_staking) => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| format!("Unable to read system time: {:?}", e))?;
+
+                if !is_staking {
+                    error!(
+                        log,
+                        "Staking is disabled for beacon node";
+                        "msg" => "this will caused missed duties",
+                        "info" => "see the --staking CLI flag on the beacon node"
+                    );
+                }
+
+                if now < genesis_time {
+                    info!(
+                        log,
+                        "Waiting for genesis";
+                        "bn_staking_enabled" => is_staking,
+                        "seconds_to_wait" => (genesis_time - now).as_secs()
+                    );
+                } else {
+                    break Ok(());
+                }
+            }
+            Err(e) => {
+                error!(
+                    log,
+                    "Error polling beacon node";
+                    "error" => format!("{:?}", e)
+                );
+            }
+        }
+
+        delay_for(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }
