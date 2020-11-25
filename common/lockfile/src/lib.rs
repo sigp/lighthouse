@@ -3,7 +3,12 @@ use std::fs::{self, File};
 use std::io;
 use std::path::PathBuf;
 
-/// Cross-platform file lock that auto-deletes on drop, but doesn't fail if the file already exists.
+/// Cross-platform file lock that auto-deletes on drop.
+///
+/// This lockfile uses OS locking primitives (`flock` on Unix, `LockFile` on Windows), and will
+/// only fail if locked by another process. I.e. if the file being locked already exists but isn't
+/// locked, then it can still be locked. This is relevant if an ungraceful shutdown (SIGKILL, power
+/// outage) caused the lockfile not to be deleted.
 #[derive(Debug)]
 pub struct Lockfile {
     file: File,
