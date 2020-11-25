@@ -59,8 +59,6 @@ pub enum Error {
     UnableToReadPasswordFromUser(String),
     /// There was an error running a tokio async task.
     TokioJoin(tokio::task::JoinError),
-    /// There was a filesystem error when deleting a lockfile.
-    UnableToDeleteLockfile(io::Error),
     /// Cannot initialize the same validator twice.
     DuplicatePublicKey,
 }
