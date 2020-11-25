@@ -1,4 +1,5 @@
 use super::Context;
+use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::EthSpec;
 
@@ -10,6 +11,8 @@ pub const FULL_UPDATE: &str = "full_update";
 pub const BEACON_BLOCK: &str = "beacon_block";
 pub const ATTESTATIONS: &str = "attestations";
 pub const AGGREGATES: &str = "aggregates";
+pub const CURRENT_EPOCH: &str = "current_epoch";
+pub const NEXT_EPOCH: &str = "next_epoch";
 
 pub use lighthouse_metrics::*;
 
@@ -67,6 +70,16 @@ lazy_static::lazy_static! {
         "Duration to perform beacon block service tasks",
         &["task"]
     );
+    pub static ref PROPOSER_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "vc_beacon_block_proposer_count",
+        "Number of beacon block proposers on this host",
+        &["task"]
+    );
+    pub static ref ATTESTER_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "vc_beacon_attester_count",
+        "Number of attesters on this host",
+        &["task"]
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(
@@ -97,6 +110,29 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 &TOTAL_VALIDATORS_COUNT,
                 initialized_validators.num_total() as i64,
             );
+        }
+
+        if let Some(duties_service) = &shared.duties_service {
+            if let Some(slot) = duties_service.slot_clock.now() {
+                let current_epoch = slot.epoch(T::slots_per_epoch());
+                let next_epoch = current_epoch + 1;
+
+                set_int_gauge(
+                    &PROPOSER_COUNT,
+                    &[CURRENT_EPOCH],
+                    duties_service.proposer_count(current_epoch) as i64,
+                );
+                set_int_gauge(
+                    &ATTESTER_COUNT,
+                    &[CURRENT_EPOCH],
+                    duties_service.attester_count(current_epoch) as i64,
+                );
+                set_int_gauge(
+                    &ATTESTER_COUNT,
+                    &[NEXT_EPOCH],
+                    duties_service.attester_count(next_epoch) as i64,
+                );
+            }
         }
     }
 
