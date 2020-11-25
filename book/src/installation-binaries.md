@@ -20,8 +20,8 @@ Additionally there is also a `-portable` suffix which indicates if the `portable
 
 ## Usage
 
-Each binary is contained in a `.tar.gz` archive. For this example, lets use the
-`v0.2.13` release and assume the user needs a portable `x86_64` binary.
+Each binary is contained in a `.tar.gz` archive. For this example, lets assume the user needs
+a portable `x86_64` binary.
 
 > Whilst this example uses `v0.2.13` we recommend always using the latest release.
 

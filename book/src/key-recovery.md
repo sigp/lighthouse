@@ -43,12 +43,12 @@ keystores that correspond to one or more indices in the mnemonic:
 
 
 For each of the indices recovered in the above commands, a directory will be
-created in the `--validator-dir` location (default `~/.lighthouse/{testnet}/validators`)
+created in the `--validator-dir` location (default `~/.lighthouse/{network}/validators`)
 which contains all the information necessary to run a validator using the
 `lighthouse vc` command. The password to this new keystore will be placed in
-the `--secrets-dir` (default `~/.lighthouse/{testnet}/secrets`).
+the `--secrets-dir` (default `~/.lighthouse/{network}/secrets`).
 
-where `testnet` is the name of the testnet passed in the `--testnet` parameter (default is `medalla`).
+where `network` is the name of the Eth2 network passed in the `--network` parameter (default is `mainnet`).
 
 ## Recover a EIP-2386 wallet
 

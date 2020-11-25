@@ -27,7 +27,7 @@ use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use slog::{crit, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_id::StateId;
@@ -121,7 +121,7 @@ pub fn slog_logging(
                     || status == StatusCode::NOT_FOUND
                     || status == StatusCode::PARTIAL_CONTENT =>
             {
-                trace!(
+                debug!(
                     log,
                     "Processed HTTP API request";
                     "elapsed" => format!("{:?}", info.elapsed()),
@@ -2169,6 +2169,25 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/staking
+    let get_lighthouse_staking = warp::path("lighthouse")
+        .and(warp::path("staking"))
+        .and(warp::path::end())
+        .and(chain_filter)
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                if chain.eth1_chain.is_some() {
+                    Ok(())
+                } else {
+                    Err(warp_utils::reject::custom_not_found(
+                        "staking is not enabled, \
+                        see the --staking CLI flag"
+                            .to_string(),
+                    ))
+                }
+            })
+        });
+
     fn merge_streams<T: EthSpec>(
         stream_map: StreamMap<String, Receiver<EventKind<T>>>,
     ) -> impl Stream<Item = Result<impl ServerSentEvent + Send + 'static, ServerSentEventError>>
@@ -2274,6 +2293,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_syncing.boxed())
                 .or(get_lighthouse_eth1_block_cache.boxed())
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
+                .or(get_lighthouse_beacon_states_ssz.boxed())
+                .or(get_lighthouse_staking.boxed()),
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_events.boxed()),
         )

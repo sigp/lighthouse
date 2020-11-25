@@ -41,7 +41,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
 
     let mut config = Eth1Config::default();
     config.endpoint = endpoint.to_string();
-    config.deposit_contract_address = eth2_testnet_config.deposit_contract_address.clone();
+    config.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     config.deposit_contract_deploy_block = eth2_testnet_config.deposit_contract_deploy_block;
     config.lowest_cached_block_number = eth2_testnet_config.deposit_contract_deploy_block;
     config.follow_distance = spec.eth1_follow_distance / 2;

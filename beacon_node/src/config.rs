@@ -237,13 +237,7 @@ pub fn get_config<E: EthSpec>(
      */
     let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
 
-    client_config.eth1.deposit_contract_address =
-        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
-    let spec_contract_address = format!("{:?}", spec.deposit_contract_address);
-    if client_config.eth1.deposit_contract_address != spec_contract_address {
-        return Err("Testnet contract address does not match spec".into());
-    }
-
+    client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
@@ -251,6 +245,14 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
+    client_config.eth1.set_block_cache_truncation::<E>(spec);
+
+    info!(
+        log,
+        "Deposit contract";
+        "deploy_block" => client_config.eth1.deposit_contract_deploy_block,
+        "address" => &client_config.eth1.deposit_contract_address
+    );
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
@@ -329,6 +331,45 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
+    if cli_args.is_present("slasher") {
+        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
+            PathBuf::from(slasher_dir)
+        } else {
+            client_config.data_dir.join("slasher_db")
+        };
+
+        let mut slasher_config = slasher::Config::new(slasher_dir);
+
+        if let Some(update_period) = clap_utils::parse_optional(cli_args, "slasher-update-period")?
+        {
+            slasher_config.update_period = update_period;
+        }
+
+        if let Some(history_length) =
+            clap_utils::parse_optional(cli_args, "slasher-history-length")?
+        {
+            slasher_config.history_length = history_length;
+        }
+
+        if let Some(max_db_size_gbs) =
+            clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
+        {
+            slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
+        }
+
+        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
+            slasher_config.chunk_size = chunk_size;
+        }
+
+        if let Some(validator_chunk_size) =
+            clap_utils::parse_optional(cli_args, "slasher-validator-chunk-size")?
+        {
+            slasher_config.validator_chunk_size = validator_chunk_size;
+        }
+
+        client_config.slasher = Some(slasher_config);
+    }
+
     Ok(client_config)
 }
 
@@ -349,6 +390,10 @@ pub fn set_network_config(
 
     if cli_args.is_present("subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
+    }
+
+    if cli_args.is_present("import-all-attestations") {
+        config.import_all_attestations = true;
     }
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
@@ -528,15 +573,17 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
+/// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    let optional_testnet_config = if cli_args.is_present("testnet") {
-        clap_utils::parse_hardcoded_network(cli_args, "testnet")?
+    let optional_testnet_config = if cli_args.is_present("network") {
+        clap_utils::parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        Eth2TestnetConfig::hard_coded_default()?
+        return Err(
+            "No --network or --testnet-dir flags provided, cannot load config.".to_string(),
+        );
     };
     optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }

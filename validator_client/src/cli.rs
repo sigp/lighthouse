@@ -47,7 +47,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The directory which contains the password to unlock the validator \
                     voting keypairs. Each password should be contained in a file where the \
                     name is the 0x-prefixed hex representation of the validators voting public \
-                    key. Defaults to ~/.lighthouse/{testnet}/secrets.",
+                    key. Defaults to ~/.lighthouse/{network}/secrets.",
                 )
                 .takes_value(true)
                 .conflicts_with("datadir")

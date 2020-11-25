@@ -1,11 +1,12 @@
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use slashing_protection::{
-    interchange::Interchange, SlashingDatabase, SLASHING_PROTECTION_FILENAME,
+    interchange::Interchange, InterchangeImportOutcome, SlashingDatabase,
+    SLASHING_PROTECTION_FILENAME,
 };
 use std::fs::File;
 use std::path::PathBuf;
-use types::{BeaconState, EthSpec};
+use types::{BeaconState, Epoch, EthSpec, Slot};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -84,17 +85,64 @@ pub fn cli_run<T: EthSpec>(
                     )
                 })?;
 
-            slashing_protection_database
-                .import_interchange_info(&interchange, genesis_validators_root)
+            let outcomes = slashing_protection_database
+                .import_interchange_info(interchange, genesis_validators_root)
                 .map_err(|e| {
                     format!(
-                        "Error during import, no data imported: {:?}\n\
+                        "Error during import: {:?}\n\
                          IT IS NOT SAFE TO START VALIDATING",
                         e
                     )
                 })?;
 
-            eprintln!("Import completed successfully");
+            let display_slot = |slot: Option<Slot>| {
+                slot.map_or("none".to_string(), |slot| format!("{}", slot.as_u64()))
+            };
+            let display_epoch = |epoch: Option<Epoch>| {
+                epoch.map_or("?".to_string(), |epoch| format!("{}", epoch.as_u64()))
+            };
+            let display_attestation = |source, target| match (source, target) {
+                (None, None) => "none".to_string(),
+                (source, target) => format!("{}=>{}", display_epoch(source), display_epoch(target)),
+            };
+
+            let mut num_failed = 0;
+
+            for outcome in &outcomes {
+                match outcome {
+                    InterchangeImportOutcome::Success { pubkey, summary } => {
+                        eprintln!("- {:?} SUCCESS min block: {}, max block: {}, min attestation: {}, max attestation: {}",
+                            pubkey,
+                            display_slot(summary.min_block_slot),
+                            display_slot(summary.max_block_slot),
+                            display_attestation(summary.min_attestation_source, summary.min_attestation_target),
+                            display_attestation(summary.max_attestation_source,
+                            summary.max_attestation_target),
+                        );
+                    }
+                    InterchangeImportOutcome::Failure { pubkey, error } => {
+                        eprintln!("- {:?} ERROR: {:?}", pubkey, error);
+                        num_failed += 1;
+                    }
+                }
+            }
+
+            if num_failed == 0 {
+                eprintln!("Import completed successfully.");
+                eprintln!(
+                    "Please double-check that the minimum and maximum blocks and slots above \
+                     match your expectations."
+                );
+            } else {
+                eprintln!(
+                    "WARNING: history was NOT imported for {} of {} records",
+                    num_failed,
+                    outcomes.len()
+                );
+                eprintln!("IT IS NOT SAFE TO START VALIDATING");
+                eprintln!("Please see https://lighthouse-book.sigmaprime.io/slashing-protection.html#slashable-data-in-import");
+                return Err("Partial import".to_string());
+            }
 
             Ok(())
         }

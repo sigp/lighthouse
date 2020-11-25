@@ -16,7 +16,7 @@ useful.
 ## Introducing the `validator_definitions.yml` file
 
 The `validator_definitions.yml` file is located in the `validator-dir`, which
-defaults to `~/.lighthouse/{testnet}/validators`. It is a
+defaults to `~/.lighthouse/{network}/validators`. It is a
 [YAML](https://en.wikipedia.org/wiki/YAML) encoded file defining exactly which
 validators the validator client will (and won't) act for.
 
@@ -92,7 +92,7 @@ name identical to the `voting_public_key` value.
 Lets assume the following directory structure:
 
 ```
-~/.lighthouse/{testnet}/validators
+~/.lighthouse/{network}/validators
 ├── john
 │   └── voting-keystore.json
 ├── sally
@@ -135,7 +135,7 @@ In order for the validator client to decrypt the validators, they will need to
 ensure their `secrets-dir` is organised as below:
 
 ```
-~/.lighthouse/{testnet}/secrets
+~/.lighthouse/{network}/secrets
 ├── 0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477
 ├── 0xaa440c566fcf34dedf233baf56cf5fb05bb420d9663b4208272545608c27c13d5b08174518c758ecd814f158f2b4a337
 └── 0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007

@@ -31,6 +31,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
 /// Reasons for removing a chain
+#[derive(Debug)]
 pub enum RemoveChain {
     EmptyPeerPool,
     ChainCompleted,
@@ -92,7 +93,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     current_processing_batch: Option<BatchId>,
 
     /// Batches validated by this chain.
-    validated_batches: u8,
+    validated_batches: u64,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: Sender<BeaconWorkEvent<T::EthSpec>>,
@@ -101,7 +102,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum ChainSyncingState {
     /// The chain is not being synced.
     Stopped,
@@ -166,7 +167,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Progress in epochs made by the chain
     pub fn validated_epochs(&self) -> u64 {
-        self.validated_batches as u64 * EPOCHS_PER_BATCH
+        self.validated_batches * EPOCHS_PER_BATCH
     }
 
     /// Removes a peer from the chain.
@@ -248,10 +249,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
             match batch.download_completed() {
                 Ok(received) => {
-                    let awaiting_batches = batch_id.saturating_sub(
-                        self.optimistic_start
-                            .unwrap_or_else(|| self.processing_target),
-                    ) / EPOCHS_PER_BATCH;
+                    let awaiting_batches = batch_id
+                        .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
+                        / EPOCHS_PER_BATCH;
                     debug!(self.log, "Completed batch received"; "epoch" => batch_id, "blocks" => received, "awaiting_batches" => awaiting_batches);
 
                     // pre-emptively request more blocks from peers whilst we process current blocks,
@@ -407,6 +407,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     if self.to_be_downloaded <= self.processing_target {
                         self.to_be_downloaded = self.processing_target + EPOCHS_PER_BATCH;
                     }
+                    self.request_batches(network)?;
                 }
             }
         } else {
@@ -461,19 +462,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.advance_chain(network, batch_id);
                     // we register so that on chain switching we don't try it again
                     self.attempted_optimistic_starts.insert(batch_id);
-                    self.processing_target += EPOCHS_PER_BATCH;
-                } else if let Some(epoch) = self.optimistic_start {
+                } else if self.optimistic_start == Some(batch_id) {
                     // check if this batch corresponds to an optimistic batch. In this case, we
                     // reject it as an optimistic candidate since the batch was empty
-                    if epoch == batch_id {
-                        self.reject_optimistic_batch(
-                            network,
-                            false, /* do not re-request */
-                            "batch was empty",
-                        )?;
-                    } else {
-                        self.processing_target += EPOCHS_PER_BATCH;
-                    }
+                    self.reject_optimistic_batch(
+                        network,
+                        false, /* do not re-request */
+                        "batch was empty",
+                    )?;
+                }
+
+                if batch_id == self.processing_target {
+                    self.processing_target += EPOCHS_PER_BATCH;
                 }
 
                 // check if the chain has completed syncing
@@ -764,9 +764,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: PeerId,
     ) -> ProcessingResult {
-        if let ChainSyncingState::Stopped = self.state {
-            debug!(self.log, "Peer added to non-syncing chain"; "peer" => %peer_id)
-        }
         // add the peer without overwriting its active requests
         if self.peers.entry(peer_id).or_default().is_empty() {
             // Either new or not, this peer is idle, try to request more batches
@@ -1040,7 +1037,8 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
         )?;
         serializer.emit_usize("batches", self.batches.len())?;
         serializer.emit_usize("peers", self.peers.len())?;
-        serializer.emit_u8("validated_batches", self.validated_batches)?;
+        serializer.emit_u64("validated_batches", self.validated_batches)?;
+        serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }
 }
@@ -1049,19 +1047,6 @@ use super::batch::WrongState as WrongBatchState;
 impl From<WrongBatchState> for RemoveChain {
     fn from(err: WrongBatchState) -> Self {
         RemoveChain::WrongBatchState(err.0)
-    }
-}
-
-impl std::fmt::Debug for RemoveChain {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // needed to avoid Debugging Strings
-        match self {
-            RemoveChain::ChainCompleted => f.write_str("ChainCompleted"),
-            RemoveChain::EmptyPeerPool => f.write_str("EmptyPeerPool"),
-            RemoveChain::ChainFailed(batch) => write!(f, "ChainFailed(batch: {} )", batch),
-            RemoveChain::WrongBatchState(reason) => write!(f, "WrongBatchState: {}", reason),
-            RemoveChain::WrongChainState(reason) => write!(f, "WrongChainState: {}", reason),
-        }
     }
 }
 

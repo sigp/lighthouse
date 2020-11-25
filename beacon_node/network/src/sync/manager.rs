@@ -274,9 +274,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let sync_type = remote_sync_type(&local, &remote, &self.chain);
 
         // update the state of the peer.
-        self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
+        let should_add = self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
 
-        if matches!(sync_type, PeerSyncType::Advanced) {
+        if matches!(sync_type, PeerSyncType::Advanced) && should_add {
             self.range_sync
                 .add_peer(&mut self.network, local, peer_id, remote);
         }
@@ -597,23 +597,32 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     /// Updates the syncing state of a peer.
+    /// Return whether the peer should be used for range syncing or not, according to its
+    /// connection status.
     fn update_peer_sync_state(
         &mut self,
         peer_id: &PeerId,
         local_sync_info: &SyncInfo,
         remote_sync_info: &SyncInfo,
         sync_type: &PeerSyncType,
-    ) {
+    ) -> bool {
+        // NOTE: here we are gracefully handling two race conditions: Receiving the status message
+        // of a peer that is 1) disconnected 2) not in the PeerDB.
+
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let new_state = sync_type.as_sync_status(remote_sync_info);
             let rpr = new_state.to_string();
-            if peer_info.sync_status.update(new_state) {
+            let was_updated = peer_info.sync_status.update(new_state);
+            if was_updated {
                 debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
                     "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,
-                    "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch);
+                    "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch,
+                    "is_connected" => peer_info.is_connected());
             }
+            peer_info.is_connected()
         } else {
             crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
+            false
         }
     }
 
