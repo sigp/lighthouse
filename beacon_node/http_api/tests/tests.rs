@@ -1378,8 +1378,19 @@ impl ApiTester {
                     .client
                     .post_validator_duties_attester(epoch, indices.as_slice())
                     .await
+                    .unwrap();
+
+                let dependent_root = self
+                    .chain
+                    .root_at_slot(
+                        (self.chain.epoch().unwrap() - 1).start_slot(E::slots_per_epoch()) - 1,
+                    )
                     .unwrap()
-                    .data;
+                    .unwrap();
+
+                assert_eq!(results.dependent_root, dependent_root);
+
+                let result_duties = results.data;
 
                 let mut state = self
                     .chain
@@ -1397,7 +1408,7 @@ impl ApiTester {
                     .filter(|i| **i < state.validators.len() as u64)
                     .count();
 
-                assert_eq!(results.len(), expected_len);
+                assert_eq!(result_duties.len(), expected_len);
 
                 for (indices_set, &i) in indices.iter().enumerate() {
                     if let Some(duty) = state
@@ -1414,7 +1425,7 @@ impl ApiTester {
                             slot: duty.slot,
                         };
 
-                        let result = results
+                        let result = result_duties
                             .iter()
                             .find(|duty| duty.validator_index == i)
                             .unwrap();
@@ -1426,7 +1437,7 @@ impl ApiTester {
                         );
                     } else {
                         assert!(
-                            !results.iter().any(|duty| duty.validator_index == i),
+                            !result_duties.iter().any(|duty| duty.validator_index == i),
                             "validator index should not exist in response"
                         );
                     }
@@ -1440,12 +1451,17 @@ impl ApiTester {
     pub async fn test_get_validator_duties_proposer(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
 
+        let dependent_root = self
+            .chain
+            .root_at_slot(self.chain.epoch().unwrap().start_slot(E::slots_per_epoch()) - 1)
+            .unwrap()
+            .unwrap();
+
         let result = self
             .client
             .get_validator_duties_proposer(current_epoch)
             .await
-            .unwrap()
-            .data;
+            .unwrap();
 
         let mut state = self.chain.head_beacon_state().unwrap();
 
@@ -1457,7 +1473,7 @@ impl ApiTester {
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
             .unwrap();
 
-        let expected = current_epoch
+        let expected_duties = current_epoch
             .slot_iter(E::slots_per_epoch())
             .map(|slot| {
                 let index = state
@@ -1472,6 +1488,11 @@ impl ApiTester {
                 }
             })
             .collect::<Vec<_>>();
+
+        let expected = DutiesResponse {
+            data: expected_duties,
+            dependent_root,
+        };
 
         assert_eq!(result, expected);
 
@@ -1880,23 +1901,26 @@ impl ApiTester {
         // Submit the next block, which is on an epoch boundary, so this will produce a finalized
         // checkpoint event, head event, and block event
         let block_root = self.next_block.canonical_root();
-        let slot = self.next_block.slot();
+
+        // current_duty_dependent_root = block root because this is the first slot of the epoch
+        let current_duty_dependent_root = self.chain.head_beacon_block_root().unwrap();
+        let current_slot = self.chain.slot().unwrap();
+        let next_slot = self.next_block.slot();
         let finalization_distance = E::slots_per_epoch() * 2;
 
         let expected_block = EventKind::Block(SseBlock {
             block: block_root,
-            slot,
+            slot: next_slot,
         });
 
         let expected_head = EventKind::Head(SseHead {
             block: block_root,
-            slot,
+            slot: next_slot,
             state: self.next_block.state_root(),
-            // target root = block root because this is the first slot of the epoch
-            target_root: block_root,
-            previous_target_root: self
+            current_duty_dependent_root,
+            previous_duty_dependent_root: self
                 .chain
-                .root_at_slot(slot - E::slots_per_epoch())
+                .root_at_slot(current_slot - E::slots_per_epoch())
                 .unwrap()
                 .unwrap(),
             epoch_transition: true,
@@ -1905,12 +1929,12 @@ impl ApiTester {
         let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
             block: self
                 .chain
-                .root_at_slot(slot - finalization_distance)
+                .root_at_slot(next_slot - finalization_distance)
                 .unwrap()
                 .unwrap(),
             state: self
                 .chain
-                .state_root_at_slot(slot - finalization_distance)
+                .state_root_at_slot(next_slot - finalization_distance)
                 .unwrap()
                 .unwrap(),
             epoch: Epoch::new(3),

@@ -831,7 +831,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_duties_proposer(
         &self,
         epoch: Epoch,
-    ) -> Result<GenericResponse<Vec<ProposerData>>, Error> {
+    ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
@@ -918,7 +918,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         indices: &[u64],
-    ) -> Result<GenericResponse<Vec<AttesterData>>, Error> {
+    ) -> Result<DutiesResponse<Vec<AttesterData>>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()

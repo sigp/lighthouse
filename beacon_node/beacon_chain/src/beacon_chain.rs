@@ -1252,11 +1252,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 exit
             })?)
-        Ok(self.observed_voluntary_exits.lock().verify_and_observe(
-            exit,
-            &wall_clock_state,
-            &self.spec,
-        )?)
     }
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
@@ -2130,16 +2125,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Register a server-sent event if necessary
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_head_subscribers() {
-                if let Ok(Some(target_root)) = self.root_at_slot(target_epoch_start_slot) {
-                    if let Ok(Some(previous_target_root)) =
-                        self.root_at_slot(prev_target_epoch_start_slot)
+                if let Ok(Some(current_duty_dependent_root)) =
+                    self.root_at_slot(target_epoch_start_slot - 1)
+                {
+                    if let Ok(Some(previous_duty_dependent_root)) =
+                        self.root_at_slot(prev_target_epoch_start_slot - 1)
                     {
                         event_handler.register(EventKind::Head(SseHead {
                             slot: head_slot,
                             block: beacon_block_root,
                             state: state_root,
-                            target_root,
-                            previous_target_root,
+                            current_duty_dependent_root,
+                            previous_duty_dependent_root,
                             epoch_transition: is_epoch_transition,
                         }));
                     } else {

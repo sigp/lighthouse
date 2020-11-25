@@ -149,6 +149,13 @@ impl fmt::Display for StateId {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
+pub struct DutiesResponse<T: Serialize + serde::de::DeserializeOwned> {
+    pub dependent_root: Hash256,
+    pub data: T,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct GenericResponse<T: Serialize + serde::de::DeserializeOwned> {
     pub data: T,
 }
@@ -658,8 +665,8 @@ pub struct SseHead {
     pub slot: Slot,
     pub block: Hash256,
     pub state: Hash256,
-    pub target_root: Hash256,
-    pub previous_target_root: Hash256,
+    pub current_duty_dependent_root: Hash256,
+    pub previous_duty_dependent_root: Hash256,
     pub epoch_transition: bool,
 }
 

@@ -1560,14 +1560,24 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     if epoch == current_epoch {
+                        let target_epoch_start_slot = (current_epoch - 1)
+                            .start_slot(T::EthSpec::slots_per_epoch());
+                        let dependent_root = chain.root_at_slot(target_epoch_start_slot - 1)
+                            .map_err(warp_utils::reject::beacon_chain_error)?.unwrap_or(chain.genesis_block_root);
+
                         beacon_proposer_cache
                             .lock()
                             .get_proposers(&chain, epoch)
-                            .map(api_types::GenericResponse::from)
+                            .map(|duties| api_types::DutiesResponse{ data: duties, dependent_root} )
                     } else {
                         let state =
                             StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
                                 .state(&chain)?;
+
+                        let target_epoch_start_slot = state.current_epoch()
+                            .start_slot(T::EthSpec::slots_per_epoch());
+                        let dependent_root = chain.root_at_slot(target_epoch_start_slot - 1)
+                            .map_err(warp_utils::reject::beacon_chain_error)?.unwrap_or(chain.genesis_block_root);
 
                         epoch
                             .slot_iter(T::EthSpec::slots_per_epoch())
@@ -1593,7 +1603,13 @@ pub fn serve<T: BeaconChainTypes>(
                                     })
                             })
                             .collect::<Result<Vec<api_types::ProposerData>, _>>()
-                            .map(api_types::GenericResponse::from)
+                            .map(|duties| {
+
+                                api_types::DutiesResponse{
+                                    dependent_root,
+                                    data: duties,
+                                }
+                            })
                     }
                 })
             },
@@ -1762,9 +1778,9 @@ pub fn serve<T: BeaconChainTypes>(
                     //
                     // The idea is to stop historical requests from washing out the cache on the
                     // beacon chain, whilst allowing a VC to request duties quickly.
-                    let duties = if epoch == current_epoch {
+                    let (duties, dependent_root) = if epoch == current_epoch {
                         // Fast path.
-                        pubkeys
+                        let duties = pubkeys
                             .into_iter()
                             // Exclude indices which do not represent a known public key and a
                             // validator duty.
@@ -1777,7 +1793,16 @@ pub fn serve<T: BeaconChainTypes>(
                                         .map(|duty| convert(i, pubkey, duty)),
                                 )
                             })
-                            .collect::<Result<Vec<_>, warp::Rejection>>()?
+                            .collect::<Result<Vec<_>, warp::Rejection>>()?;
+
+                        let previous_epoch_start_slot =
+                            (current_epoch - 1).start_slot(T::EthSpec::slots_per_epoch());
+                        let dependent_root = chain
+                            .root_at_slot(previous_epoch_start_slot - 1)
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            .unwrap_or(chain.genesis_block_root);
+
+                        (duties, dependent_root)
                     } else {
                         // If the head state is equal to or earlier than the request epoch, use it.
                         let mut state = chain
@@ -1824,7 +1849,7 @@ pub fn serve<T: BeaconChainTypes>(
                         state
                             .build_committee_cache(relative_epoch, &chain.spec)
                             .map_err(warp_utils::reject::beacon_state_error)?;
-                        pubkeys
+                        let duties = pubkeys
                             .into_iter()
                             .filter_map(|(i, pubkey)| {
                                 Some(
@@ -1835,10 +1860,23 @@ pub fn serve<T: BeaconChainTypes>(
                                         .map(|duty| convert(i, pubkey, duty)),
                                 )
                             })
-                            .collect::<Result<Vec<_>, warp::Rejection>>()?
+                            .collect::<Result<Vec<_>, warp::Rejection>>()?;
+
+                        let previous_epoch_start_slot = state
+                            .previous_epoch()
+                            .start_slot(T::EthSpec::slots_per_epoch());
+                        let dependent_root = chain
+                            .root_at_slot(previous_epoch_start_slot - 1)
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            .unwrap_or(chain.genesis_block_root);
+
+                        (duties, dependent_root)
                     };
 
-                    Ok(api_types::GenericResponse::from(duties))
+                    Ok(api_types::DutiesResponse {
+                        dependent_root,
+                        data: duties,
+                    })
                 })
             },
         );
@@ -2173,7 +2211,7 @@ pub fn serve<T: BeaconChainTypes>(
     let get_lighthouse_staking = warp::path("lighthouse")
         .and(warp::path("staking"))
         .and(warp::path::end())
-        .and(chain_filter)
+        .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 if chain.eth1_chain.is_some() {
@@ -2294,8 +2332,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_block_cache.boxed())
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
-                .or(get_lighthouse_staking.boxed()),
-                .or(get_lighthouse_beacon_states_ssz.boxed())
+                .or(get_lighthouse_staking.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
