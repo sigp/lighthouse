@@ -606,8 +606,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         remote_sync_info: &SyncInfo,
         sync_type: &PeerSyncType,
     ) -> bool {
-        // NOTE: here we are gracefully handle two race conditions: Receiving the status message of
-        // a peer that is 1) disconnected 2) not in the PeerDB.
+        // NOTE: here we are gracefully handling two race conditions: Receiving the status message
+        // of a peer that is 1) disconnected 2) not in the PeerDB.
 
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let new_state = sync_type.as_sync_status(remote_sync_info);
