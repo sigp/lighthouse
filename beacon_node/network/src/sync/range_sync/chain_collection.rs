@@ -6,6 +6,7 @@
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
@@ -63,7 +64,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     }
 
     /// Updates the Syncing state of the collection after a chain is removed.
-    fn on_chain_removed(&mut self, id: &ChainId, was_syncing: bool) {
+    fn on_chain_removed(&mut self, id: &ChainId, was_syncing: bool, sync_type: RangeSyncType) {
+        let _ = metrics::get_int_gauge(&metrics::SYNCING_CHAINS_COUNT, &[sync_type.as_str()])
+            .map(|m| m.dec());
+
         match self.state {
             RangeSyncState::Finalized(ref syncing_id) => {
                 if syncing_id == id {
@@ -136,7 +140,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 RangeSyncType::Head => self.head_chains.remove(&id),
             };
             let chain = chain.expect("Chain exists");
-            self.on_chain_removed(&id, chain.is_syncing());
+            self.on_chain_removed(&id, chain.is_syncing(), sync_type);
             results.push((chain, sync_type, reason));
         }
         results
@@ -160,7 +164,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             // Search in our finalized chains first
             if let Err(remove_reason) = func(entry.get_mut()) {
                 let chain = entry.remove();
-                self.on_chain_removed(&id, chain.is_syncing());
+                self.on_chain_removed(&id, chain.is_syncing(), RangeSyncType::Finalized);
                 Ok((Some((chain, remove_reason)), RangeSyncType::Finalized))
             } else {
                 Ok((None, RangeSyncType::Finalized))
@@ -169,7 +173,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             // Search in our head chains next
             if let Err(remove_reason) = func(entry.get_mut()) {
                 let chain = entry.remove();
-                self.on_chain_removed(&id, chain.is_syncing());
+                self.on_chain_removed(&id, chain.is_syncing(), RangeSyncType::Head);
                 Ok((Some((chain, remove_reason)), RangeSyncType::Head))
             } else {
                 Ok((None, RangeSyncType::Head))
@@ -311,7 +315,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     error!(self.log, "Chain removed while switching chains"; "chain" => new_id, "reason" => ?remove_reason);
                 }
                 self.finalized_chains.remove(&new_id);
-                self.on_chain_removed(&new_id, true);
+                self.on_chain_removed(&new_id, true, RangeSyncType::Finalized);
             }
         }
     }
@@ -424,7 +428,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of finalized chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing()));
+                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Finalized));
                 false
             } else {
                 true
@@ -435,7 +439,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of date head chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing()));
+                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Head));
                 false
             } else {
                 true
@@ -443,8 +447,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         });
 
         // update the state of the collection
-        for (id, was_syncing) in removed_chains {
-            self.on_chain_removed(&id, was_syncing);
+        for (id, was_syncing, sync_type) in removed_chains {
+            self.on_chain_removed(&id, was_syncing, sync_type);
         }
     }
 
@@ -480,7 +484,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
                     }
                     let chain = entry.remove();
-                    self.on_chain_removed(&id, chain.is_syncing());
+                    self.on_chain_removed(&id, chain.is_syncing(), sync_type);
                 }
             }
             Entry::Vacant(entry) => {
@@ -496,6 +500,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 debug_assert_eq!(new_chain.get_id(), id);
                 debug!(self.log, "New chain added to sync"; "peer_id" => peer_rpr, "sync_type" => ?sync_type, &new_chain);
                 entry.insert(new_chain);
+                let _ =
+                    metrics::get_int_gauge(&metrics::SYNCING_CHAINS_COUNT, &[sync_type.as_str()])
+                        .map(|m| m.inc());
             }
         }
     }

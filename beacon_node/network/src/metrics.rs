@@ -411,10 +411,16 @@ lazy_static! {
      * Sync related metrics
      */
     pub static ref PEERS_PER_SYNC_TYPE: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "sync_peers_per_type",
+        "sync_peers_per_status",
         "Number of connected peers per sync status type",
-        &["sync_type"]
+        &["sync_status"]
     );
+    pub static ref SYNCING_CHAINS_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "sync_range_chains",
+        "Number of Syncing chains in range, per range type",
+        &["range_type"]
+    );
+
 }
 
 pub fn register_attestation_error(error: &AttnError) {
