@@ -1,3 +1,4 @@
+use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::{types::StateId, BeaconNodeHttpClient};
 use futures::StreamExt;
@@ -161,6 +162,9 @@ impl<T: SlotClock + 'static> ForkService<T> {
 
     /// Attempts to download the `Fork` from the server.
     async fn do_update(self) -> Result<(), ()> {
+        let _timer =
+            metrics::start_timer_vec(&metrics::FORK_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
+
         let fork = self
             .inner
             .beacon_node

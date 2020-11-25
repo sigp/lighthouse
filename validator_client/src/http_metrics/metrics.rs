@@ -6,6 +6,10 @@ pub const SUCCESS: &str = "success";
 pub const SLASHABLE: &str = "slashable";
 pub const SAME_DATA: &str = "same_data";
 pub const UNREGISTERED: &str = "unregistered";
+pub const FULL_UPDATE: &str = "full_update";
+pub const BEACON_BLOCK: &str = "beacon_block";
+pub const ATTESTATIONS: &str = "attestations";
+pub const AGGREGATES: &str = "aggregates";
 
 pub use lighthouse_metrics::*;
 
@@ -42,6 +46,26 @@ lazy_static::lazy_static! {
         "vc_signed_selection_proofs_total",
         "Total count of attempted SelectionProof signings",
         &["status"]
+    );
+    pub static ref DUTIES_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+        "vc_duties_service_task_times_seconds",
+        "Duration to perform duties service tasks",
+        &["task"]
+    );
+    pub static ref FORK_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+        "vc_fork_service_task_times_seconds",
+        "Duration to perform fork service tasks",
+        &["task"]
+    );
+    pub static ref ATTESTATION_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+        "vc_attestation_service_task_times_seconds",
+        "Duration to perform attestation service tasks",
+        &["task"]
+    );
+    pub static ref BLOCK_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+        "vc_beacon_block_service_task_times_seconds",
+        "Duration to perform beacon block service tasks",
+        &["task"]
     );
 }
 
