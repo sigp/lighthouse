@@ -19,7 +19,7 @@ pub enum LockfileError {
 impl Lockfile {
     /// Obtain an exclusive lock on the file at `path`, creating it if it doesn't exist.
     pub fn new(path: PathBuf) -> Result<Self, LockfileError> {
-        let file = File::create(&path).map_err(|e| LockfileError::UnableToCreateFile(e))?;
+        let file = File::create(&path).map_err(LockfileError::UnableToCreateFile)?;
         file.try_lock_exclusive()
             .map_err(|e| LockfileError::FileLocked(path.clone(), e))?;
         Ok(Self { file, path })

@@ -3,7 +3,9 @@ use crate::builder::{
     WITHDRAWAL_KEYSTORE_FILE,
 };
 use deposit_contract::decode_eth1_tx_data;
+use derivative::Derivative;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
+use lockfile::{Lockfile, LockfileError};
 use std::fs::{read, remove_file, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -19,8 +21,7 @@ pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
 #[derive(Debug)]
 pub enum Error {
     DirectoryDoesNotExist(PathBuf),
-    DirectoryLocked(PathBuf),
-    UnableToCreateLockfile(io::Error),
+    LockfileError(LockfileError),
     UnableToOpenKeystore(io::Error),
     UnableToReadKeystore(KeystoreError),
     UnableToOpenPassword(io::Error),
@@ -58,19 +59,22 @@ pub struct Eth1DepositData {
 
 /// Provides a wrapper around a directory containing validator information.
 ///
-/// Creates/deletes a lockfile in `self.dir` to attempt to prevent concurrent access from multiple
+/// Holds a lockfile in `self.dir` to attempt to prevent concurrent access from multiple
 /// processes.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Derivative)]
+#[derivative(PartialEq)]
 pub struct ValidatorDir {
     dir: PathBuf,
+    #[derivative(PartialEq = "ignore")]
+    lockfile: Lockfile,
 }
 
 impl ValidatorDir {
-    /// Open `dir`, creating a lockfile to prevent concurrent access.
+    /// Open `dir`, obtaining a lockfile to prevent concurrent access.
     ///
     /// ## Errors
     ///
-    /// If there is a filesystem error or if a lockfile already exists.
+    /// If there is a filesystem error or if the lockfile is locked by another process.
     pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, Error> {
         let dir: &Path = dir.as_ref();
         let dir: PathBuf = dir.into();
@@ -79,49 +83,9 @@ impl ValidatorDir {
             return Err(Error::DirectoryDoesNotExist(dir));
         }
 
-        let lockfile = dir.join(LOCK_FILE);
-        if lockfile.exists() {
-            return Err(Error::DirectoryLocked(dir));
-        } else {
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(lockfile)
-                .map_err(Error::UnableToCreateLockfile)?;
-        }
+        let lockfile = Lockfile::new(dir.join(LOCK_FILE)).map_err(Error::LockfileError)?;
 
-        Ok(Self { dir })
-    }
-
-    /// Open `dir`, regardless or not if a lockfile exists.
-    ///
-    /// Returns `(validator_dir, lockfile_existed)`, where `lockfile_existed == true` if a lockfile
-    /// was already present before opening. Creates a lockfile if one did not already exist.
-    ///
-    /// ## Errors
-    ///
-    /// If there is a filesystem error.
-    pub fn force_open<P: AsRef<Path>>(dir: P) -> Result<(Self, bool), Error> {
-        let dir: &Path = dir.as_ref();
-        let dir: PathBuf = dir.into();
-
-        if !dir.exists() {
-            return Err(Error::DirectoryDoesNotExist(dir));
-        }
-
-        let lockfile = dir.join(LOCK_FILE);
-
-        let lockfile_exists = lockfile.exists();
-
-        if !lockfile_exists {
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(lockfile)
-                .map_err(Error::UnableToCreateLockfile)?;
-        }
-
-        Ok((Self { dir }, lockfile_exists))
+        Ok(Self { dir, lockfile })
     }
 
     /// Returns the `dir` provided to `Self::open`.

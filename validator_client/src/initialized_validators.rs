@@ -484,8 +484,8 @@ impl InitializedValidators {
             .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
         let _cache_lockfile = Lockfile::new(cache_lockfile_path)?;
 
-        let cache = KeyCache::open_or_create(&self.validators_dir)
-            .map_err(|e| Error::UnableToOpenKeyCache(e))?;
+        let cache =
+            KeyCache::open_or_create(&self.validators_dir).map_err(Error::UnableToOpenKeyCache)?;
         let mut key_cache = self.decrypt_key_cache(cache, &mut key_stores).await?;
 
         let mut disabled_uuids = HashSet::new();

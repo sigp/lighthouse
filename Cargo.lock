@@ -7435,8 +7435,10 @@ version = "0.1.0"
 dependencies = [
  "bls",
  "deposit_contract",
+ "derivative",
  "eth2_keystore",
  "hex",
+ "lockfile",
  "rand 0.7.3",
  "rayon",
  "slog",
