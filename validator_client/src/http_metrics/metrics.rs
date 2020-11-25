@@ -27,7 +27,7 @@ lazy_static::lazy_static! {
     );
     pub static ref TOTAL_VALIDATORS_COUNT: Result<IntGauge> = try_create_int_gauge(
         "vc_validators_total_count",
-        "Number of disabled validators"
+        "Number of total validators (enabled and disabled)"
     );
 
     pub static ref SIGNED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(

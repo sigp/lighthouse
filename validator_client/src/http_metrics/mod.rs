@@ -63,7 +63,7 @@ impl Default for Config {
         Self {
             enabled: false,
             listen_addr: Ipv4Addr::new(127, 0, 0, 1),
-            listen_port: 5054,
+            listen_port: 5064,
             allow_origin: None,
         }
     }
