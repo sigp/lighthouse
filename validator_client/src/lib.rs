@@ -29,6 +29,7 @@ use futures::channel::mpsc;
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
+use parking_lot::RwLock;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -59,7 +60,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
-    http_metrics_listen_addr: Option<SocketAddr>,
+    http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
     config: Config,
 }
 
@@ -86,6 +87,35 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "beacon_node" => &config.beacon_node,
             "validator_dir" => format!("{:?}", config.validator_dir),
         );
+
+        // Optionally start the metrics server.
+        let http_metrics_ctx = if config.http_metrics.enabled {
+            let shared = http_metrics::Shared {
+                validator_store: None,
+                genesis_time: None,
+            };
+
+            let ctx: Arc<http_metrics::Context<T>> = Arc::new(http_metrics::Context {
+                config: config.http_metrics.clone(),
+                shared: RwLock::new(shared),
+                log: log.clone(),
+            });
+
+            let exit = context.executor.exit();
+
+            let (_listen_addr, server) = http_metrics::serve(ctx.clone(), exit)
+                .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
+
+            context
+                .clone()
+                .executor
+                .spawn_without_exit(async move { server.await }, "metrics-api");
+
+            Some(ctx)
+        } else {
+            info!(log, "HTTP metrics server is disabled");
+            None
+        };
 
         let mut validator_defs = ValidatorDefinitions::open_or_create(&config.validator_dir)
             .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
@@ -189,6 +219,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
 
+        // Update the metrics server.
+        if let Some(ctx) = &http_metrics_ctx {
+            ctx.shared.write().genesis_time = Some(genesis_time);
+        }
+
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
@@ -209,6 +244,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             fork_service.clone(),
             log.clone(),
         );
+
+        // Update the metrics server.
+        if let Some(ctx) = &http_metrics_ctx {
+            ctx.shared.write().validator_store = Some(validator_store.clone());
+        }
 
         info!(
             log,
@@ -236,9 +276,15 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock)
             .validator_store(validator_store.clone())
-            .beacon_node(beacon_node)
+            .beacon_node(beacon_node.clone())
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
+
+        // Wait until genesis has occured.
+        //
+        // It seems most sensible to move this into the `start_service` function, but I'm caution
+        // of making too many changes this close to genesis (<1 week).
+        wait_for_genesis(&beacon_node, genesis_time, &context).await?;
 
         Ok(Self {
             context,
@@ -249,7 +295,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_store,
             config,
             http_api_listen_addr: None,
-            http_metrics_listen_addr: None,
+            http_metrics_ctx,
         })
     }
 
@@ -315,30 +361,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             None
         };
 
-        self.http_metrics_listen_addr = if self.config.http_metrics.enabled {
-            let ctx: Arc<http_metrics::Context<T>> = Arc::new(http_metrics::Context {
-                config: self.config.http_metrics.clone(),
-                // TODO: wrap this in an arc so we dont end up with copies of config and stuff.
-                vc: self.clone(),
-                log: log.clone(),
-            });
-
-            let exit = self.context.executor.exit();
-
-            let (listen_addr, server) = http_metrics::serve(ctx, exit)
-                .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
-
-            self.context
-                .clone()
-                .executor
-                .spawn_without_exit(async move { server.await }, "metrics-api");
-
-            Some(listen_addr)
-        } else {
-            info!(log, "HTTP metrics server is disabled");
-            None
-        };
-
         Ok(())
     }
 }
@@ -348,7 +370,7 @@ async fn init_from_beacon_node<E: EthSpec>(
     context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     // Wait for the beacon node to come online.
-    wait_for_node(beacon_node, context.log()).await?;
+    wait_for_connectivity(beacon_node, context.log()).await?;
 
     let yaml_config = beacon_node
         .get_config_spec()
@@ -395,10 +417,18 @@ async fn init_from_beacon_node<E: EthSpec>(
         delay_for(RETRY_DELAY).await;
     };
 
+    Ok((genesis.genesis_time, genesis.genesis_validators_root))
+}
+
+async fn wait_for_genesis<E: EthSpec>(
+    beacon_node: &BeaconNodeHttpClient,
+    genesis_time: u64,
+    context: &RuntimeContext<E>,
+) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("Unable to read system time: {:?}", e))?;
-    let genesis_time = Duration::from_secs(genesis.genesis_time);
+    let genesis_time = Duration::from_secs(genesis_time);
 
     // If the time now is less than (prior to) genesis, then delay until the
     // genesis instant.
@@ -432,12 +462,15 @@ async fn init_from_beacon_node<E: EthSpec>(
         );
     }
 
-    Ok((genesis.genesis_time, genesis.genesis_validators_root))
+    Ok(())
 }
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Result<(), String> {
+async fn wait_for_connectivity(
+    beacon_node: &BeaconNodeHttpClient,
+    log: &Logger,
+) -> Result<(), String> {
     // Try to get the version string from the node, looping until success is returned.
     loop {
         let log = log.clone();

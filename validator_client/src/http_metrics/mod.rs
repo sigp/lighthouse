@@ -3,10 +3,12 @@
 //! For other endpoints, see the `http_api` crate.
 mod metrics;
 
-use crate::ProductionValidatorClient;
+use crate::ValidatorStore;
 use lighthouse_version::version_with_platform;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
+use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
@@ -31,12 +33,18 @@ impl From<String> for Error {
     }
 }
 
+/// Contains objects which have shared access from inside/outside of the metrics server.
+pub struct Shared<T: EthSpec> {
+    pub validator_store: Option<ValidatorStore<SystemTimeSlotClock, T>>,
+    pub genesis_time: Option<u64>,
+}
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: EthSpec> {
     pub config: Config,
-    pub vc: ProductionValidatorClient<T>,
+    pub shared: RwLock<Shared<T>>,
     pub log: Logger,
 }
 
