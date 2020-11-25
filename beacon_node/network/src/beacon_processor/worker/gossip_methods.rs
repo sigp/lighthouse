@@ -511,6 +511,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => %beacon_block_root,
                     "type" => ?attestation_type,
                 );
+
+                // Peers that are slow or not to spec can spam us with these messages draining our
+                // bandwidth. We therefore penalize these peers when they do this.
+                self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
+
+                // Do not propagate these messages.
                 self.propagate_validation_result(
                     message_id,
                     peer_id.clone(),
