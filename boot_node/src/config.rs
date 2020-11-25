@@ -79,14 +79,8 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
 
-        let mut local_enr = create_enr_builder_from_config(&network_config, false)
-            .build(&local_key)
-            .map_err(|e| format!("Failed to build ENR: {:?}", e))?;
-
-        use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
-
         // build the enr_fork_id and add it to the local_enr if it exists
-        if let Some(config) = eth2_testnet_config.as_ref() {
+        let enr_fork = if let Some(config) = eth2_testnet_config.as_ref() {
             let spec = config
                 .yaml_config
                 .as_ref()
@@ -103,22 +97,37 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                     genesis_state.genesis_validators_root,
                 );
 
-                // add to the local_enr
-                if let Err(e) = local_enr.insert("eth2", &enr_fork.as_ssz_bytes(), &local_key) {
-                    slog::warn!(logger, "Could not update eth2 field"; "error" => ?e);
-                }
+                Some(enr_fork.as_ssz_bytes())
             } else {
                 slog::warn!(
                     logger,
                     "No genesis state provided. No Eth2 field added to the ENR"
                 );
+                None
             }
         } else {
             slog::warn!(
                 logger,
                 "No testnet config provided. Not setting an eth2 field"
             );
-        }
+            None
+        };
+
+        // Build the local ENR
+
+        let mut local_enr = {
+            let mut builder = create_enr_builder_from_config(&network_config, false);
+
+            // If we know of the ENR field, add it to the initial construction
+            if let Some(enr_fork_bytes) = enr_fork {
+                builder.add_value("eth2", &enr_fork_bytes);
+            }
+            builder
+                .build(&local_key)
+                .map_err(|e| format!("Failed to build ENR: {:?}", e))?
+        };
+
+        use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
 
         let auto_update = matches.is_present("enable-enr_auto_update");
 
