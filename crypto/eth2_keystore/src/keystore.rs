@@ -65,7 +65,6 @@ pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
     InvalidPasswordBytes,
-    InvalidPasswordCharacter { character: u8, index: usize },
     InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
     EmptyPassword,
@@ -166,8 +165,6 @@ impl Keystore {
         path: String,
         description: String,
     ) -> Result<Self, Error> {
-        validate_password_utf8_characters(password)?;
-
         let secret: ZeroizeHash = keypair.sk.serialize();
 
         let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
@@ -337,6 +334,8 @@ pub fn encrypt(
     validate_parameters(kdf)?;
     let mut password = normalize(password)?;
 
+    password.retain(|c| !is_control_character(c));
+
     let derived_key = derive_key(&password.as_bytes(), &kdf)?;
 
     // TODO: remove if using `ZeroizeString`
@@ -371,6 +370,8 @@ pub fn encrypt(
 pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     let mut password = normalize(password)?;
 
+    password.retain(|c| !is_control_character(c));
+
     validate_parameters(&crypto.kdf.params)?;
 
     let cipher_message = &crypto.cipher.message;
@@ -404,34 +405,10 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     Ok(plain_text)
 }
 
-/// Verifies that a password does not contain UTF-8 control characters.
-pub fn validate_password_utf8_characters(password: &[u8]) -> Result<(), Error> {
-    for (i, char) in password.iter().enumerate() {
-        // C0 - 0x00 to 0x1F
-        if *char <= 0x1F {
-            return Err(Error::InvalidPasswordCharacter {
-                character: *char,
-                index: i,
-            });
-        }
-
-        // C1 - 0x80 to 0x9F
-        if *char >= 0x80 && *char <= 0x9F {
-            return Err(Error::InvalidPasswordCharacter {
-                character: *char,
-                index: i,
-            });
-        }
-
-        // Backspace
-        if *char == 0x7F {
-            return Err(Error::InvalidPasswordCharacter {
-                character: *char,
-                index: i,
-            });
-        }
-    }
-    Ok(())
+/// Returns true if the given char is a UTF-8 control character and false otherwise.
+pub fn is_control_character(c: char) -> bool {
+    // 0x00 - 0x1F + 0x80 - 0x9F + 0x7F
+    c.is_control()
 }
 
 /// Takes a slice of bytes and returns a NKFD normalized string representation.
