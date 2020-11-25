@@ -302,3 +302,49 @@ fn utf8_control_characters() {
         })
     );
 }
+
+fn print(s: &str) {
+    for i in s.as_bytes() {
+        println!("{:x} {}", i, i);
+    }
+    println!("");
+}
+
+#[test]
+fn normalization() {
+    use unicode_normalization::UnicodeNormalization;
+
+    let keypair = Keypair::random();
+    let password_str = "Zoë";
+
+    let password_nfc: String = password_str.nfc().collect();
+    let password_nfkd: String = password_str.nfkd().collect();
+
+    print(&password_nfc);
+    print(&password_nfkd);
+
+    assert_ne!(password_nfc, password_nfkd);
+
+    let keystore_nfc = KeystoreBuilder::new(&keypair, password_nfc.as_bytes(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let keystore_nfkd = KeystoreBuilder::new(&keypair, password_nfkd.as_bytes(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    assert_eq!(keystore_nfc, keystore_nfkd);
+
+    // Decode same keystore with nfc and nfkd form passwords
+    let decoded_nfc = keystore_nfc
+        .decrypt_keypair(password_nfc.as_bytes())
+        .unwrap();
+    let decoded_nfkd = keystore_nfc
+        .decrypt_keypair(password_nfkd.as_bytes())
+        .unwrap();
+
+    assert_eq!(decoded_nfc.pk, keypair.pk);
+    assert_eq!(decoded_nfkd.pk, keypair.pk);
+}
