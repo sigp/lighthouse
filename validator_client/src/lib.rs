@@ -93,6 +93,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             let shared = http_metrics::Shared {
                 validator_store: None,
                 genesis_time: None,
+                duties_service: None,
             };
 
             let ctx: Arc<http_metrics::Context<T>> = Arc::new(http_metrics::Context {
@@ -245,11 +246,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             log.clone(),
         );
 
-        // Update the metrics server.
-        if let Some(ctx) = &http_metrics_ctx {
-            ctx.shared.write().validator_store = Some(validator_store.clone());
-        }
-
         info!(
             log,
             "Loaded validator keypair store";
@@ -263,6 +259,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("duties".into()))
             .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
             .build()?;
+
+        // Update the metrics server.
+        if let Some(ctx) = &http_metrics_ctx {
+            ctx.shared.write().validator_store = Some(validator_store.clone());
+            ctx.shared.write().duties_service = Some(duties_service.clone());
+        }
 
         let block_service = BlockServiceBuilder::new()
             .slot_clock(slot_clock.clone())
