@@ -673,6 +673,7 @@ where
                                     if let Some(ref delay_key) = info.delay_key {
                                         self.inbound_substreams_delay.remove(delay_key);
                                     }
+                                    break;
                                 } else {
                                     // If we are not removing this substream, we reset the timer.
                                     // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
