@@ -220,6 +220,111 @@ impl ApiTester {
         }
     }
 
+    pub fn new_from_genesis() -> Self {
+        let harness = BeaconChainHarness::new(
+            MainnetEthSpec,
+            generate_deterministic_keypairs(VALIDATOR_COUNT),
+        );
+
+        harness.advance_slot();
+
+        let head = harness.chain.head().unwrap();
+
+        let (next_block, _next_state) =
+            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+
+        let attestations = harness
+            .get_unaggregated_attestations(
+                &AttestationStrategy::AllValidators,
+                &head.beacon_state,
+                head.beacon_block_root,
+                harness.chain.slot().unwrap(),
+            )
+            .into_iter()
+            .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
+        let proposer_slashing = harness.make_proposer_slashing(2);
+        let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
+
+        let chain = Arc::new(harness.chain);
+
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
+
+        let log = null_logger().unwrap();
+
+        // Default metadata
+        let meta_data = MetaData {
+            seq_number: SEQ_NUMBER,
+            attnets: EnrBitfield::<MainnetEthSpec>::default(),
+        };
+        let enr_key = CombinedKey::generate_secp256k1();
+        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+        let enr_clone = enr.clone();
+        let network_globals = NetworkGlobals::new(enr, TCP_PORT, UDP_PORT, meta_data, vec![], &log);
+
+        let peer_id = PeerId::random();
+        network_globals.peers.write().connect_ingoing(
+            &peer_id,
+            EXTERNAL_ADDR.parse().unwrap(),
+            None,
+        );
+
+        *network_globals.sync_state.write() = SyncState::Synced;
+
+        let eth1_service =
+            eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
+
+        let context = Arc::new(Context {
+            config: Config {
+                enabled: true,
+                listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+                listen_port: 0,
+                allow_origin: None,
+            },
+            chain: Some(chain.clone()),
+            network_tx: Some(network_tx),
+            network_globals: Some(Arc::new(network_globals)),
+            eth1_service: Some(eth1_service),
+            log,
+        });
+        let ctx = context.clone();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server_shutdown = async {
+            // It's not really interesting why this triggered, just that it happened.
+            let _ = shutdown_rx.await;
+        };
+        let (listening_socket, server) = http_api::serve(ctx, server_shutdown).unwrap();
+
+        tokio::spawn(async { server.await });
+
+        let client = BeaconNodeHttpClient::new(
+            Url::parse(&format!(
+                "http://{}:{}",
+                listening_socket.ip(),
+                listening_socket.port()
+            ))
+            .unwrap(),
+        );
+
+        Self {
+            chain,
+            client,
+            next_block,
+            attestations,
+            attester_slashing,
+            proposer_slashing,
+            voluntary_exit,
+            _server_shutdown: shutdown_tx,
+            validator_keypairs: harness.validator_keypairs,
+            network_rx,
+            local_enr: enr_clone,
+            external_peer_id: peer_id,
+        }
+    }
+
     fn skip_slots(self, count: u64) -> Self {
         for _ in 0..count {
             self.chain
@@ -1953,6 +2058,43 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_get_events_from_genesis(self) -> Self {
+        let topics = vec![EventTopic::Block, EventTopic::Head];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        let block_root = self.next_block.canonical_root();
+        let next_slot = self.next_block.slot();
+
+        let expected_block = EventKind::Block(SseBlock {
+            block: block_root,
+            slot: next_slot,
+        });
+
+        let expected_head = EventKind::Head(SseHead {
+            block: block_root,
+            slot: next_slot,
+            state: self.next_block.state_root(),
+            current_duty_dependent_root: self.chain.genesis_block_root,
+            previous_duty_dependent_root: self.chain.genesis_block_root,
+            epoch_transition: false,
+        });
+
+        self.client
+            .post_beacon_blocks(&self.next_block)
+            .await
+            .unwrap();
+
+        let block_events = poll_events(&mut events_future, 2, Duration::from_millis(10000)).await;
+        dbg!(&block_events);
+        assert_eq!(block_events.as_slice(), &[expected_block, expected_head]);
+
+        self
+    }
 }
 
 async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin, T: EthSpec>(
@@ -1982,6 +2124,13 @@ async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin
 #[tokio::test(core_threads = 2)]
 async fn get_events() {
     ApiTester::new().test_get_events().await;
+}
+
+#[tokio::test(core_threads = 2)]
+async fn get_events_from_genesis() {
+    ApiTester::new_from_genesis()
+        .test_get_events_from_genesis()
+        .await;
 }
 
 #[tokio::test(core_threads = 2)]
