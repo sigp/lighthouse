@@ -24,6 +24,9 @@ use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::str;
+use unicode_normalization::UnicodeNormalization;
+use zeroize::Zeroize;
 
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
@@ -61,6 +64,7 @@ pub const DEFAULT_PBKDF2_C: u32 = 262_144;
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
+    InvalidPasswordBytes,
     InvalidPasswordCharacter { character: u8, index: usize },
     InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
@@ -331,8 +335,12 @@ pub fn encrypt(
     cipher: &Cipher,
 ) -> Result<(Vec<u8>, [u8; HASH_SIZE]), Error> {
     validate_parameters(kdf)?;
+    let mut password = normalize(password)?;
 
-    let derived_key = derive_key(&password, &kdf)?;
+    let derived_key = derive_key(&password.as_bytes(), &kdf)?;
+
+    // TODO: remove if using `ZeroizeString`
+    password.zeroize();
 
     // Encrypt secret.
     let mut cipher_text = plain_text.to_vec();
@@ -361,12 +369,17 @@ pub fn encrypt(
 /// - The provided password is incorrect.
 /// - The `crypto.kdf` is badly formed (e.g., has some values set to zero).
 pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
+    let mut password = normalize(password)?;
+
     validate_parameters(&crypto.kdf.params)?;
 
     let cipher_message = &crypto.cipher.message;
 
     // Generate derived key
-    let derived_key = derive_key(password, &crypto.kdf.params)?;
+    let derived_key = derive_key(password.as_bytes(), &crypto.kdf.params)?;
+
+    // TODO: remove if using `ZeroizeString`
+    password.zeroize();
 
     // Mismatching checksum indicates an invalid password.
     if &generate_checksum(&derived_key, cipher_message.as_bytes())[..]
@@ -419,6 +432,16 @@ pub fn validate_password_utf8_characters(password: &[u8]) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// Takes a slice of bytes and returns a NKFD normalized string representation.
+///
+/// Returns an error if the bytes are not valid utf8.
+pub fn normalize(bytes: &[u8]) -> Result<String, Error> {
+    Ok(str::from_utf8(bytes)
+        .map_err(|_| Error::InvalidPasswordBytes)?
+        .nfkd()
+        .collect::<String>()) // TODO(pawan): Use ZeroizeString instead
 }
 
 /// Generates a checksum to indicate that the `derived_key` is associated with the
