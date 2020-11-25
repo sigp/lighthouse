@@ -86,6 +86,14 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             )
         })?;
 
+    // Create an empty transaction and drop it. Used to test if the database is locked.
+    slashing_protection.test_transaction().map_err(|e| {
+        format!(
+            "Cannot import keys while the validator client is running: {:?}",
+            e
+        )
+    })?;
+
     eprintln!("validator-dir path: {:?}", validator_dir);
     // Collect the paths for the keystores that should be imported.
     let keystore_paths = match (keystore, keystores_dir) {

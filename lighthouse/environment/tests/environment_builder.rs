@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
 use std::path::PathBuf;
 use types::{V012LegacyEthSpec, YamlConfig};
 
@@ -14,7 +14,7 @@ fn builder() -> EnvironmentBuilder<V012LegacyEthSpec> {
 }
 
 fn eth2_testnet_config() -> Option<Eth2TestnetConfig> {
-    Eth2TestnetConfig::hard_coded_default().expect("should decode hard_coded params")
+    Eth2TestnetConfig::constant(DEFAULT_HARDCODED_TESTNET).expect("should decode mainnet params")
 }
 
 mod setup_eth2_config {

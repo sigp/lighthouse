@@ -52,7 +52,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
                 .value_name(WALLETS_DIR_FLAG)
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
                 .takes_value(true)
                 .conflicts_with("datadir"),
         )
@@ -62,7 +62,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/{testnet}/secrets",
+                    Defaults to ~/.lighthouse/{network}/secrets",
                 )
                 .conflicts_with("datadir")
                 .takes_value(true),
@@ -191,6 +191,14 @@ pub fn cli_run<T: EthSpec>(
                 e
             )
         })?;
+
+    // Create an empty transaction and drops it. Used to test if the database is locked.
+    slashing_protection.test_transaction().map_err(|e| {
+        format!(
+            "Cannot create keys while the validator client is running: {:?}",
+            e
+        )
+    })?;
 
     for i in 0..n {
         let voting_password = random_password();

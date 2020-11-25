@@ -22,7 +22,7 @@ The API token can be obtained via two methods:
 ### Method 1: Reading from a file
 
 The API token is stored as a file in the `validators` directory. For most users
-this is `~/.lighthouse/{testnet}/validators/api-token.txt`. Here's an
+this is `~/.lighthouse/{network}/validators/api-token.txt`. Here's an
 example using the `cat` command to print the token to the terminal, but any
 text editor will suffice:
 

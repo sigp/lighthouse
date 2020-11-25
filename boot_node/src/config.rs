@@ -30,7 +30,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
         // Try and grab testnet config from input CLI params
         let eth2_testnet_config = {
-            if matches.is_present("testnet") {
+            if matches.is_present("network") {
                 Some(get_eth2_testnet_config(&matches)?)
             } else {
                 None
@@ -79,7 +79,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
 
-        let mut local_enr = create_enr_builder_from_config(&network_config)
+        let mut local_enr = create_enr_builder_from_config(&network_config, false)
             .build(&local_key)
             .map_err(|e| format!("Failed to build ENR: {:?}", e))?;
 

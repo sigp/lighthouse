@@ -25,7 +25,7 @@ website). If this is not the case, simply change the `--directory` to point to
 the `validator_keys` directory.
 
 Now, assuming that the user is in the `eth2-deposit-cli` directory and they're
-using the default (`~/.lighthouse/{testnet}/validators`) `validators` directory (specify a different one using
+using the default (`~/.lighthouse/{network}/validators`) `validators` directory (specify a different one using
 `--validators-dir` flag), they can follow these steps:
 
 ### 1. Run the `lighthouse account validator import` command.
@@ -35,10 +35,10 @@ section, all other users can use:
 
 
 ```bash
-lighthouse --testnet medalla account validator import --directory validator_keys
+lighthouse --network mainnet account validator import --directory validator_keys
 ```
 
-Note: The user must specify the testnet that they are importing the keys for using the `--testnet` flag.
+Note: The user must specify the Eth2 network that they are importing the keys for using the `--network` flag.
 
 
 After which they will be prompted for a password for each keystore discovered:
@@ -101,7 +101,7 @@ docker run -it \
 	-v $HOME/.lighthouse:/root/.lighthouse \
 	-v $(pwd)/validator_keys:/root/validator_keys \
 	sigp/lighthouse \
-	lighthouse --testnet medalla account validator import --directory /root/validator_keys
+	lighthouse --network MY_NETWORK account validator import --directory /root/validator_keys
 ```
 
 Here we use two `-v` volumes to attach:
