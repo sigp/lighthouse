@@ -2,14 +2,48 @@ use super::Context;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::EthSpec;
 
+pub const SUCCESS: &str = "success";
+pub const SLASHABLE: &str = "slashable";
+pub const SAME_DATA: &str = "same_data";
+pub const UNREGISTERED: &str = "unregistered";
+
+pub use lighthouse_metrics::*;
+
 lazy_static::lazy_static! {
-    pub static ref GENESIS_DISTANCE: Result<Gauge> = try_create_float_gauge(
+    pub static ref GENESIS_DISTANCE: Result<IntGauge> = try_create_int_gauge(
         "vc_genesis_distance_seconds",
         "Distance between now and genesis time"
     );
-}
+    pub static ref ENABLED_VALIDATORS_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_validators_enabled_count",
+        "Number of enabled validators"
+    );
+    pub static ref TOTAL_VALIDATORS_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_validators_total_count",
+        "Number of disabled validators"
+    );
 
-pub use lighthouse_metrics::*;
+    pub static ref SIGNED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signed_beacon_blocks_total",
+        "Total count of attempted block signings",
+        &["status"]
+    );
+    pub static ref SIGNED_ATTESTATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signed_attestations_total",
+        "Total count of attempted Attestation signings",
+        &["status"]
+    );
+    pub static ref SIGNED_AGGREGATES_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signed_aggregates_total",
+        "Total count of attempted SignedAggregateAndProof signings",
+        &["status"]
+    );
+    pub static ref SIGNED_SELECTION_PROOFS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signed_selection_proofs_total",
+        "Total count of attempted SelectionProof signings",
+        &["status"]
+    );
+}
 
 pub fn gather_prometheus_metrics<T: EthSpec>(
     ctx: &Context<T>,
@@ -22,9 +56,23 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
 
         if let Some(genesis_time) = shared.genesis_time {
             if let Some(now) = SystemTime::now().duration_since(UNIX_EPOCH).ok() {
-                let distance = now.as_secs() as f64 - genesis_time as f64;
-                set_float_gauge(&GENESIS_DISTANCE, distance);
+                let distance = now.as_secs() as i64 - genesis_time as i64;
+                set_gauge(&GENESIS_DISTANCE, distance);
             }
+        }
+
+        if let Some(validator_store) = &shared.validator_store {
+            let initialized_validators_lock = validator_store.initialized_validators();
+            let initialized_validators = initialized_validators_lock.read();
+
+            set_gauge(
+                &ENABLED_VALIDATORS_COUNT,
+                initialized_validators.num_enabled() as i64,
+            );
+            set_gauge(
+                &TOTAL_VALIDATORS_COUNT,
+                initialized_validators.num_total() as i64,
+            );
         }
     }
 

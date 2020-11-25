@@ -1,7 +1,7 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
-mod metrics;
+pub mod metrics;
 
 use crate::ValidatorStore;
 use lighthouse_version::version_with_platform;
