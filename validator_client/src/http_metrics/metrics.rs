@@ -92,7 +92,7 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
         let shared = ctx.shared.read();
 
         if let Some(genesis_time) = shared.genesis_time {
-            if let Some(now) = SystemTime::now().duration_since(UNIX_EPOCH).ok() {
+            if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
                 let distance = now.as_secs() as i64 - genesis_time as i64;
                 set_gauge(&GENESIS_DISTANCE, distance);
             }
