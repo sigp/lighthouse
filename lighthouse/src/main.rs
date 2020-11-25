@@ -266,16 +266,9 @@ fn run<E: EthSpec>(
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
         log,
-        "Configured for testnet";
+        "Configured for network";
         "name" => &testnet_name
     );
-
-    if testnet_name == "mainnet" {
-        warn!(
-            log,
-            "The mainnet specification is being used. This not recommended (yet)."
-        )
-    }
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
