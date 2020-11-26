@@ -57,12 +57,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("delete-lockfiles")
             .long("delete-lockfiles")
             .help(
-                "If present, ignore and delete any keystore lockfiles encountered during start up. \
-                This is useful if the validator client did not exit gracefully on the last run. \
-                WARNING: lockfiles help prevent users from accidentally running the same validator \
-                using two different validator clients, an action that likely leads to slashing. \
-                Ensure you are certain that there are no other validator client instances running \
-                that might also be using the same keystores."
+                "DEPRECATED. This flag does nothing and will be removed in a future release."
             )
         )
         .arg(
