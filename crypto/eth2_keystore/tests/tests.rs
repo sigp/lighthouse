@@ -275,13 +275,6 @@ fn utf8_control_characters() {
     assert_eq!(decoded2.pk, keypair.pk);
 }
 
-fn print(s: &str) {
-    for i in s.as_bytes() {
-        println!("{:x} {}", i, i);
-    }
-    println!("");
-}
-
 #[test]
 fn normalization() {
     use unicode_normalization::UnicodeNormalization;
@@ -291,9 +284,6 @@ fn normalization() {
 
     let password_nfc: String = password_str.nfc().collect();
     let password_nfkd: String = password_str.nfkd().collect();
-
-    print(&password_nfc);
-    print(&password_nfkd);
 
     assert_ne!(password_nfc, password_nfkd);
 
