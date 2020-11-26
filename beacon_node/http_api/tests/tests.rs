@@ -1487,11 +1487,9 @@ impl ApiTester {
 
                 let dependent_root = self
                     .chain
-                    .root_at_slot(
-                        (self.chain.epoch().unwrap() - 1).start_slot(E::slots_per_epoch()) - 1,
-                    )
+                    .root_at_slot((epoch - 1).start_slot(E::slots_per_epoch()) - 1)
                     .unwrap()
-                    .unwrap();
+                    .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
                 assert_eq!(results.dependent_root, dependent_root);
 
@@ -1558,9 +1556,9 @@ impl ApiTester {
 
         let dependent_root = self
             .chain
-            .root_at_slot(self.chain.epoch().unwrap().start_slot(E::slots_per_epoch()) - 1)
+            .root_at_slot(current_epoch.start_slot(E::slots_per_epoch()) - 1)
             .unwrap()
-            .unwrap();
+            .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
         let result = self
             .client
@@ -2090,7 +2088,6 @@ impl ApiTester {
             .unwrap();
 
         let block_events = poll_events(&mut events_future, 2, Duration::from_millis(10000)).await;
-        dbg!(&block_events);
         assert_eq!(block_events.as_slice(), &[expected_block, expected_head]);
 
         self

@@ -1560,10 +1560,16 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     if epoch == current_epoch {
-                        let target_epoch_start_slot = (current_epoch - 1)
-                            .start_slot(T::EthSpec::slots_per_epoch());
-                        let dependent_root = chain.root_at_slot(target_epoch_start_slot - 1)
-                            .map_err(warp_utils::reject::beacon_chain_error)?.unwrap_or(chain.genesis_block_root);
+                        let dependent_root_slot = current_epoch
+                            .start_slot(T::EthSpec::slots_per_epoch()) - 1;
+                        let dependent_root = if dependent_root_slot >  chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)? {
+                            chain.head_beacon_block_root().map_err(warp_utils::reject::beacon_chain_error)?
+                        } else {
+                            chain
+                                .root_at_slot(dependent_root_slot)
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .unwrap_or(chain.genesis_block_root)
+                        };
 
                         beacon_proposer_cache
                             .lock()
@@ -1574,10 +1580,16 @@ pub fn serve<T: BeaconChainTypes>(
                             StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
                                 .state(&chain)?;
 
-                        let target_epoch_start_slot = state.current_epoch()
-                            .start_slot(T::EthSpec::slots_per_epoch());
-                        let dependent_root = chain.root_at_slot(target_epoch_start_slot - 1)
-                            .map_err(warp_utils::reject::beacon_chain_error)?.unwrap_or(chain.genesis_block_root);
+                        let dependent_root_slot = state.current_epoch()
+                            .start_slot(T::EthSpec::slots_per_epoch()) - 1;
+                        let dependent_root = if dependent_root_slot >  chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)? {
+                            chain.head_beacon_block_root().map_err(warp_utils::reject::beacon_chain_error)?
+                        } else {
+                            chain
+                                .root_at_slot(dependent_root_slot)
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .unwrap_or(chain.genesis_block_root)
+                        };
 
                         epoch
                             .slot_iter(T::EthSpec::slots_per_epoch())
@@ -1795,12 +1807,22 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                             .collect::<Result<Vec<_>, warp::Rejection>>()?;
 
-                        let previous_epoch_start_slot =
-                            (current_epoch - 1).start_slot(T::EthSpec::slots_per_epoch());
-                        let dependent_root = chain
-                            .root_at_slot(previous_epoch_start_slot - 1)
-                            .map_err(warp_utils::reject::beacon_chain_error)?
-                            .unwrap_or(chain.genesis_block_root);
+                        let dependent_root_slot =
+                            (epoch - 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
+                        let dependent_root = if dependent_root_slot
+                            > chain
+                                .best_slot()
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                        {
+                            chain
+                                .head_beacon_block_root()
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                        } else {
+                            chain
+                                .root_at_slot(dependent_root_slot)
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .unwrap_or(chain.genesis_block_root)
+                        };
 
                         (duties, dependent_root)
                     } else {
@@ -1862,13 +1884,22 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                             .collect::<Result<Vec<_>, warp::Rejection>>()?;
 
-                        let previous_epoch_start_slot = state
-                            .previous_epoch()
-                            .start_slot(T::EthSpec::slots_per_epoch());
-                        let dependent_root = chain
-                            .root_at_slot(previous_epoch_start_slot - 1)
-                            .map_err(warp_utils::reject::beacon_chain_error)?
-                            .unwrap_or(chain.genesis_block_root);
+                        let dependent_root_slot =
+                            (epoch - 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
+                        let dependent_root = if dependent_root_slot
+                            > chain
+                                .best_slot()
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                        {
+                            chain
+                                .head_beacon_block_root()
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                        } else {
+                            chain
+                                .root_at_slot(dependent_root_slot)
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .unwrap_or(chain.genesis_block_root)
+                        };
 
                         (duties, dependent_root)
                     };
