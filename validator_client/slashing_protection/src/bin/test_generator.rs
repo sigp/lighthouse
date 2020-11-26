@@ -5,6 +5,7 @@ use slashing_protection::interchange_test::{MultiTestCase, TestCase};
 use slashing_protection::test_utils::{pubkey, DEFAULT_GENESIS_VALIDATORS_ROOT};
 use slashing_protection::SUPPORTED_INTERCHANGE_FORMAT_VERSION;
 use std::fs::{self, File};
+use std::io::Write;
 use std::path::Path;
 use types::{Epoch, Hash256, Slot};
 
@@ -346,6 +347,7 @@ fn main() {
     for test in tests {
         test.run();
         let f = File::create(output_dir.join(format!("{}.json", test.name))).unwrap();
-        serde_json::to_writer(f, &test).unwrap();
+        serde_json::to_writer_pretty(&f, &test).unwrap();
+        writeln!(&f).unwrap();
     }
 }

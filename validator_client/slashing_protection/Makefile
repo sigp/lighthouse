@@ -1,4 +1,4 @@
-TESTS_TAG := b8413ca42dc92308019d0d4db52c87e9e125c4e9
+TESTS_TAG := f495032df9c26c678536cd2b7854e836ea94c217
 GENERATE_DIR := generated-tests
 OUTPUT_DIR := interchange-tests
 TARBALL := $(OUTPUT_DIR)-$(TESTS_TAG).tar.gz
