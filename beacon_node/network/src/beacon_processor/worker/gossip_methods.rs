@@ -234,7 +234,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => e.to_string());
                 // Prevent recurring behaviour by penalizing the peer slightly.
-                self.penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }

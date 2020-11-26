@@ -1,4 +1,4 @@
-use crate::http_api;
+use crate::{http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use directory::{
@@ -9,6 +9,7 @@ use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
 use slog::{warn, Logger};
 use std::fs;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
 
@@ -38,6 +39,8 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
+    /// Configuration for the HTTP REST API.
+    pub http_metrics: http_metrics::Config,
 }
 
 impl Default for Config {
@@ -61,6 +64,7 @@ impl Default for Config {
             init_slashing_protection: false,
             graffiti: None,
             http_api: <_>::default(),
+            http_metrics: <_>::default(),
         }
     }
 }
@@ -164,6 +168,35 @@ impl Config {
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_api.allow_origin = Some(allow_origin.to_string());
+        }
+
+        /*
+         * Prometheus metrics HTTP server
+         */
+
+        if cli_args.is_present("metrics") {
+            config.http_metrics.enabled = true;
+        }
+
+        if let Some(address) = cli_args.value_of("metrics-address") {
+            config.http_metrics.listen_addr = address
+                .parse::<Ipv4Addr>()
+                .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+        }
+
+        if let Some(port) = cli_args.value_of("metrics-port") {
+            config.http_metrics.listen_port = port
+                .parse::<u16>()
+                .map_err(|_| "metrics-port is not a valid u16.")?;
+        }
+
+        if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+            // Pre-validate the config value to give feedback to the user on node startup, instead of
+            // as late as when the first API response is produced.
+            hyper::header::HeaderValue::from_str(allow_origin)
+                .map_err(|_| "Invalid allow-origin value")?;
+
+            config.http_metrics.allow_origin = Some(allow_origin.to_string());
         }
 
         Ok(config)

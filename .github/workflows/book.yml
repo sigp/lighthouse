@@ -3,7 +3,7 @@ name: mdbook
 on:
   push:
     branches:
-      - master
+      - unstable
 
 jobs:
   build-and-upload-to-s3:

@@ -274,6 +274,9 @@ fn spawn_service<T: BeaconChainTypes>(
                         &service.libp2p.swarm.gs(),
                         &service.network_globals,
                     );
+                    // update sync metrics
+                    metrics::update_sync_metrics(&service.network_globals);
+
                 }
                 _ = service.gossipsub_parameter_update.next() => {
                     if let Ok(slot) = service.beacon_chain.slot() {

@@ -598,15 +598,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => peer_id.to_string());
         }
     }
-
-    /// Sets the syncing status of a peer.
-    pub fn set_sync_status(&mut self, peer_id: &PeerId, sync_status: PeerSyncStatus) {
-        if let Some(peer_info) = self.peers.get_mut(peer_id) {
-            peer_info.sync_status = sync_status;
-        } else {
-            crit!(self.log, "Tried to the sync status for an unknown peer"; "peer_id" => peer_id.to_string());
-        }
-    }
 }
 
 #[cfg(test)]

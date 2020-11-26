@@ -3,6 +3,7 @@ use eth2_libp2p::PubsubMessage;
 use eth2_libp2p::{
     types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals, TopicHash,
 };
+use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use std::{collections::HashMap, sync::Arc};
 use types::{subnet_id::subnet_id_to_string, EthSpec};
@@ -433,6 +434,23 @@ pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
     );
 }
 
+lazy_static! {
+    /*
+     * Sync related metrics
+     */
+    pub static ref PEERS_PER_SYNC_TYPE: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "sync_peers_per_status",
+        "Number of connected peers per sync status type",
+        &["sync_status"]
+    );
+    pub static ref SYNCING_CHAINS_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "sync_range_chains",
+        "Number of Syncing chains in range, per range type",
+        &["range_type"]
+    );
+
+}
+
 pub fn register_attestation_error(error: &AttnError) {
     match error {
         AttnError::FutureEpoch { .. } => inc_counter(&GOSSIP_ATTESTATION_ERROR_FUTURE_EPOCH),
@@ -824,5 +842,31 @@ pub fn update_gossip_metrics<T: EthSpec>(
             set_gauge_entry(&MEAN_SCORES_PER_CLIENT, c, sum / count);
             set_gauge_entry(&MAX_SCORES_PER_CLIENT, c, max);
         }
+    }
+}
+
+pub fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>) {
+    // reset the counts
+    if PEERS_PER_SYNC_TYPE
+        .as_ref()
+        .map(|metric| metric.reset())
+        .is_err()
+    {
+        return;
+    };
+
+    // count per sync status, the number of connected peers
+    let mut peers_per_sync_type = FnvHashMap::default();
+    for sync_type in network_globals
+        .peers
+        .read()
+        .connected_peers()
+        .map(|(_peer_id, info)| info.sync_status.as_str())
+    {
+        *peers_per_sync_type.entry(sync_type).or_default() += 1;
+    }
+
+    for (sync_type, peer_count) in peers_per_sync_type {
+        set_gauge_entry(&PEERS_PER_SYNC_TYPE, &[sync_type], peer_count);
     }
 }
