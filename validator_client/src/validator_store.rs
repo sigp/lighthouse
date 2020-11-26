@@ -1,4 +1,6 @@
-use crate::{fork_service::ForkService, initialized_validators::InitializedValidators};
+use crate::{
+    fork_service::ForkService, http_metrics::metrics, initialized_validators::InitializedValidators,
+};
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::RwLock;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
@@ -186,6 +188,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let validators = self.validators.read();
                 let voting_keypair = validators.voting_keypair(validator_pubkey)?;
 
+                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
+
                 Some(block.sign(
                     &voting_keypair.sk,
                     &fork,
@@ -198,6 +202,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     self.log,
                     "Skipping signing of previously signed block";
                 );
+                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SAME_DATA]);
                 None
             }
             Err(NotSafe::UnregisteredValidator(pk)) => {
@@ -207,6 +212,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
+                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::UNREGISTERED]);
                 None
             }
             Err(e) => {
@@ -215,6 +221,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "Not signing slashable block";
                     "error" => format!("{:?}", e)
                 );
+                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SLASHABLE]);
                 None
             }
         }
@@ -270,12 +277,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     })
                     .ok()?;
 
+                metrics::inc_counter_vec(&metrics::SIGNED_ATTESTATIONS_TOTAL, &[metrics::SUCCESS]);
+
                 Some(())
             }
             Ok(Safe::SameData) => {
                 warn!(
                     self.log,
                     "Skipping signing of previously signed attestation"
+                );
+                metrics::inc_counter_vec(
+                    &metrics::SIGNED_ATTESTATIONS_TOTAL,
+                    &[metrics::SAME_DATA],
                 );
                 None
             }
@@ -286,6 +299,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
+                metrics::inc_counter_vec(
+                    &metrics::SIGNED_ATTESTATIONS_TOTAL,
+                    &[metrics::UNREGISTERED],
+                );
                 None
             }
             Err(e) => {
@@ -294,6 +311,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "Not signing slashable attestation";
                     "attestation" => format!("{:?}", attestation.data),
                     "error" => format!("{:?}", e)
+                );
+                metrics::inc_counter_vec(
+                    &metrics::SIGNED_ATTESTATIONS_TOTAL,
+                    &[metrics::SLASHABLE],
                 );
                 None
             }
@@ -313,6 +334,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
         let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
+
+        metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
         Some(SignedAggregateAndProof::from_aggregate(
             validator_index,
@@ -334,6 +357,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ) -> Option<SelectionProof> {
         let validators = self.validators.read();
         let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
+
+        metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
 
         Some(SelectionProof::new::<E>(
             slot,

@@ -1,16 +1,18 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
-mod metrics;
+pub mod metrics;
 
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use crate::{DutiesService, ValidatorStore};
 use lighthouse_version::version_with_platform;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
+use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
 use std::sync::Arc;
+use types::EthSpec;
 use warp::{http::Response, Filter};
 
 #[derive(Debug)]
@@ -31,14 +33,19 @@ impl From<String> for Error {
     }
 }
 
+/// Contains objects which have shared access from inside/outside of the metrics server.
+pub struct Shared<T: EthSpec> {
+    pub validator_store: Option<ValidatorStore<SystemTimeSlotClock, T>>,
+    pub duties_service: Option<DutiesService<SystemTimeSlotClock, T>>,
+    pub genesis_time: Option<u64>,
+}
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: BeaconChainTypes> {
+pub struct Context<T: EthSpec> {
     pub config: Config,
-    pub chain: Option<Arc<BeaconChain<T>>>,
-    pub db_path: Option<PathBuf>,
-    pub freezer_db_path: Option<PathBuf>,
+    pub shared: RwLock<Shared<T>>,
     pub log: Logger,
 }
 
@@ -56,7 +63,7 @@ impl Default for Config {
         Self {
             enabled: false,
             listen_addr: Ipv4Addr::new(127, 0, 0, 1),
-            listen_port: 5054,
+            listen_port: 5064,
             allow_origin: None,
         }
     }
@@ -77,7 +84,7 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: BeaconChainTypes>(
+pub fn serve<T: EthSpec>(
     ctx: Arc<Context<T>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {

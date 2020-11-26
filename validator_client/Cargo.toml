@@ -59,3 +59,5 @@ libsecp256k1 = "0.3.5"
 ring = "0.16.12"
 rand = "0.7.3"
 scrypt = { version = "0.3.1", default-features = false }
+lighthouse_metrics = { path = "../common/lighthouse_metrics" }
+lazy_static = "1.4.0"
