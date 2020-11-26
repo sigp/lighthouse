@@ -715,8 +715,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 return;
             }
         };
-        // predicate for finding nodes with a matching fork
-        let eth2_fork_predicate = move |enr: &Enr| enr.eth2() == Ok(enr_fork_id.clone());
+        // predicate for finding nodes with a matching fork and valid tcp port
+        let eth2_fork_predicate = move |enr: &Enr| {
+            enr.eth2() == Ok(enr_fork_id.clone()) && (enr.tcp().is_some() || enr.tcp6().is_some())
+        };
 
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
