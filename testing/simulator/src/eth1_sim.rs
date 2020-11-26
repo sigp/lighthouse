@@ -197,5 +197,9 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     env.runtime()
         .block_on(tokio_compat_02::FutureExt::compat(main_future))
         .unwrap();
+
+    env.fire_signal();
+    env.shutdown_on_idle();
+
     Ok(())
 }
