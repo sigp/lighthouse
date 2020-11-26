@@ -413,7 +413,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
 
         // Ensure there has been no other observed aggregate for the given `aggregator_index`.
         //
-        // Note: do not observe yet, only observe once the attestation has been verfied.
+        // Note: do not observe yet, only observe once the attestation has been verified.
         match chain
             .observed_aggregators
             .read()
