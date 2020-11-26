@@ -6,14 +6,11 @@ use deposit_contract::decode_eth1_tx_data;
 use derivative::Derivative;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use lockfile::{Lockfile, LockfileError};
-use std::fs::{read, remove_file, write, OpenOptions};
+use std::fs::{read, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
 use types::{DepositData, Hash256, Keypair};
-
-/// The file used for indicating if a directory is in-use by another process.
-const LOCK_FILE: &str = ".lock";
 
 /// The file used to save the Eth1 transaction hash from a deposit.
 pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
@@ -83,7 +80,10 @@ impl ValidatorDir {
             return Err(Error::DirectoryDoesNotExist(dir));
         }
 
-        let lockfile = Lockfile::new(dir.join(LOCK_FILE)).map_err(Error::LockfileError)?;
+        // Lock the keystore file that *might* be in this directory.
+        // This is not ideal, see: https://github.com/sigp/lighthouse/issues/1978
+        let lockfile_path = dir.join(VOTING_KEYSTORE_FILE).join(".lock");
+        let lockfile = Lockfile::new(lockfile_path).map_err(Error::LockfileError)?;
 
         Ok(Self { dir, lockfile })
     }
@@ -199,18 +199,6 @@ impl ValidatorDir {
             deposit_data,
             root,
         }))
-    }
-}
-
-impl Drop for ValidatorDir {
-    fn drop(&mut self) {
-        let lockfile = self.dir.clone().join(LOCK_FILE);
-        if let Err(e) = remove_file(&lockfile) {
-            eprintln!(
-                "Unable to remove validator lockfile {:?}: {:?}",
-                lockfile, e
-            );
-        }
     }
 }
 

@@ -88,6 +88,18 @@ pub struct InitializedValidator {
     signing_method: SigningMethod,
 }
 
+impl InitializedValidator {
+    /// Return a reference to this validator's lockfile if it has one.
+    pub fn keystore_lockfile(&self) -> Option<&Lockfile> {
+        match self.signing_method {
+            SigningMethod::LocalKeystore {
+                ref voting_keystore_lockfile,
+                ..
+            } => Some(voting_keystore_lockfile),
+        }
+    }
+}
+
 fn open_keystore(path: &PathBuf) -> Result<Keystore, Error> {
     let keystore_file = File::open(path).map_err(Error::UnableToOpenVotingKeystore)?;
     Keystore::from_json_reader(keystore_file).map_err(Error::UnableToParseVotingKeystore)
@@ -510,6 +522,12 @@ impl InitializedValidators {
                         .await
                         {
                             Ok(init) => {
+                                let existing_lockfile_path = init
+                                    .keystore_lockfile()
+                                    .as_ref()
+                                    .filter(|l| l.file_existed())
+                                    .map(|l| l.path().to_owned());
+
                                 self.validators
                                     .insert(init.voting_public_key().clone(), init);
                                 info!(
@@ -517,6 +535,17 @@ impl InitializedValidators {
                                     "Enabled validator";
                                     "voting_pubkey" => format!("{:?}", def.voting_public_key)
                                 );
+
+                                if let Some(lockfile_path) = existing_lockfile_path {
+                                    warn!(
+                                        self.log,
+                                        "Ignored stale lockfile";
+                                        "path" => lockfile_path.display(),
+                                        "cause" => "Ungraceful shutdown (harmless) OR \
+                                                    non-Lighthouse client using this keystore \
+                                                    (risky)"
+                                    );
+                                }
                             }
                             Err(e) => {
                                 error!(

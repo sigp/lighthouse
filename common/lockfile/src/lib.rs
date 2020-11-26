@@ -1,7 +1,7 @@
 use fs2::FileExt;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Cross-platform file lock that auto-deletes on drop.
 ///
@@ -13,6 +13,7 @@ use std::path::PathBuf;
 pub struct Lockfile {
     file: File,
     path: PathBuf,
+    file_existed: bool,
 }
 
 #[derive(Debug)]
@@ -25,13 +26,40 @@ pub enum LockfileError {
 impl Lockfile {
     /// Obtain an exclusive lock on the file at `path`, creating it if it doesn't exist.
     pub fn new(path: PathBuf) -> Result<Self, LockfileError> {
-        let file =
-            File::create(&path).map_err(|e| LockfileError::UnableToOpenFile(path.clone(), e))?;
+        let file_existed = path.exists();
+        let file = if file_existed {
+            File::open(&path)
+        } else {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)
+        }
+        .map_err(|e| LockfileError::UnableToOpenFile(path.clone(), e))?;
+
         file.try_lock_exclusive().map_err(|e| match e.kind() {
             ErrorKind::WouldBlock => LockfileError::FileLocked(path.clone(), e),
             _ => LockfileError::IoError(path.clone(), e),
         })?;
-        Ok(Self { file, path })
+        Ok(Self {
+            file,
+            path,
+            file_existed,
+        })
+    }
+
+    /// Return `true` if the lockfile existed when the lock was created.
+    ///
+    /// This could indicate another process that isn't aware of the OS lock using the file,
+    /// or an ungraceful shutdown that caused the file not to be deleted.
+    pub fn file_existed(&self) -> bool {
+        self.file_existed
+    }
+
+    /// The path of the lockfile.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 
@@ -69,6 +97,7 @@ mod test {
         let lock1 = Lockfile::new(path.clone()).unwrap();
         drop(lock1);
         let lock2 = Lockfile::new(path.clone()).unwrap();
+        assert!(!lock2.file_existed());
         drop(lock2);
 
         assert!(!path.exists());
@@ -81,7 +110,8 @@ mod test {
 
         let _lockfile = File::create(&path).unwrap();
 
-        let _lock = Lockfile::new(path.clone()).unwrap();
+        let lock = Lockfile::new(path.clone()).unwrap();
+        assert!(lock.file_existed());
     }
 
     #[test]
