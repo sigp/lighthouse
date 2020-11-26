@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::iter::FromIterator;
 use std::path::Path;
 use std::str;
 use unicode_normalization::UnicodeNormalization;
@@ -59,6 +60,45 @@ pub const IV_SIZE: usize = 16;
 pub const HASH_SIZE: usize = 32;
 /// The default iteraction count, `c`, for PBKDF2.
 pub const DEFAULT_PBKDF2_C: u32 = 262_144;
+
+/// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
+///
+/// Useful for ensuring that password memory is zeroed-out on drop.
+#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+#[serde(transparent)]
+struct ZeroizeString(String);
+
+impl From<String> for ZeroizeString {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl AsRef<[u8]> for ZeroizeString {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl std::ops::Deref for ZeroizeString {
+    type Target = String;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for ZeroizeString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl FromIterator<char> for ZeroizeString {
+    fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
+        ZeroizeString(String::from_iter(iter))
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -336,10 +376,7 @@ pub fn encrypt(
 
     password.retain(|c| !is_control_character(c));
 
-    let derived_key = derive_key(&password.as_bytes(), &kdf)?;
-
-    // TODO: remove if using `ZeroizeString`
-    password.zeroize();
+    let derived_key = derive_key(&password.as_ref(), &kdf)?;
 
     // Encrypt secret.
     let mut cipher_text = plain_text.to_vec();
@@ -377,10 +414,7 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     let cipher_message = &crypto.cipher.message;
 
     // Generate derived key
-    let derived_key = derive_key(password.as_bytes(), &crypto.kdf.params)?;
-
-    // TODO: remove if using `ZeroizeString`
-    password.zeroize();
+    let derived_key = derive_key(password.as_ref(), &crypto.kdf.params)?;
 
     // Mismatching checksum indicates an invalid password.
     if &generate_checksum(&derived_key, cipher_message.as_bytes())[..]
@@ -406,7 +440,7 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
 }
 
 /// Returns true if the given char is a UTF-8 control character and false otherwise.
-pub fn is_control_character(c: char) -> bool {
+fn is_control_character(c: char) -> bool {
     // 0x00 - 0x1F + 0x80 - 0x9F + 0x7F
     c.is_control()
 }
@@ -414,11 +448,11 @@ pub fn is_control_character(c: char) -> bool {
 /// Takes a slice of bytes and returns a NKFD normalized string representation.
 ///
 /// Returns an error if the bytes are not valid utf8.
-pub fn normalize(bytes: &[u8]) -> Result<String, Error> {
+fn normalize(bytes: &[u8]) -> Result<ZeroizeString, Error> {
     Ok(str::from_utf8(bytes)
         .map_err(|_| Error::InvalidPasswordBytes)?
         .nfkd()
-        .collect::<String>()) // TODO(pawan): Use ZeroizeString instead
+        .collect::<ZeroizeString>())
 }
 
 /// Generates a checksum to indicate that the `derived_key` is associated with the
