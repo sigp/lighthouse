@@ -65,17 +65,20 @@ impl PeerSyncStatus {
             true
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PeerSyncStatus::Advanced { .. } => "Advanced",
+            PeerSyncStatus::Behind { .. } => "Behind",
+            PeerSyncStatus::Synced { .. } => "Synced",
+            PeerSyncStatus::Unknown => "Unknown",
+            PeerSyncStatus::IrrelevantPeer => "Irrelevant",
+        }
+    }
 }
 
 impl std::fmt::Display for PeerSyncStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let rpr = match self {
-            PeerSyncStatus::Behind { .. } => "Behind",
-            PeerSyncStatus::Advanced { .. } => "Advanced",
-            PeerSyncStatus::Synced { .. } => "Synced",
-            PeerSyncStatus::Unknown => "Unknown",
-            PeerSyncStatus::IrrelevantPeer => "IrrelevantPeer",
-        };
-        f.write_str(rpr)
+        f.write_str(self.as_str())
     }
 }

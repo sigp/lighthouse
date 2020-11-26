@@ -14,6 +14,7 @@ use eth2_libp2p::{
     types::GossipKind, BehaviourEvent, GossipTopic, MessageId, NetworkGlobals, PeerId, TopicHash,
 };
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
+use fnv::FnvHashMap;
 use futures::prelude::*;
 use slog::{debug, error, info, o, trace, warn};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
@@ -277,6 +278,9 @@ fn spawn_service<T: BeaconChainTypes>(
                         &service.libp2p.swarm.gs(),
                         &service.network_globals,
                     );
+                    // update sync metrics
+                    update_sync_metrics(&service.network_globals);
+
                 }
                 _ = service.gossipsub_parameter_update.next() => {
                     if let Ok(slot) = service.beacon_chain.slot() {
@@ -930,5 +934,31 @@ fn update_gossip_metrics<T: EthSpec>(
             metrics::set_gauge_entry(&metrics::MEAN_SCORES_PER_CLIENT, c, sum / count);
             metrics::set_gauge_entry(&metrics::MAX_SCORES_PER_CLIENT, c, max);
         }
+    }
+}
+
+fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>) {
+    // reset the counts
+    if metrics::PEERS_PER_SYNC_TYPE
+        .as_ref()
+        .map(|metric| metric.reset())
+        .is_err()
+    {
+        return;
+    };
+
+    // count per sync status, the number of connected peers
+    let mut peers_per_sync_type = FnvHashMap::default();
+    for sync_type in network_globals
+        .peers
+        .read()
+        .connected_peers()
+        .map(|(_peer_id, info)| info.sync_status.as_str())
+    {
+        *peers_per_sync_type.entry(sync_type).or_default() += 1;
+    }
+
+    for (sync_type, peer_count) in peers_per_sync_type {
+        metrics::set_gauge_entry(&metrics::PEERS_PER_SYNC_TYPE, &[sync_type], peer_count);
     }
 }
