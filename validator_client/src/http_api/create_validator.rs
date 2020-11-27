@@ -125,9 +125,13 @@ pub fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
             )));
         }
 
+        // Drop validator dir so that `add_validator_keystore` can re-lock the keystore.
+        let voting_keystore_path = validator_dir.voting_keystore_path();
+        drop(validator_dir);
+
         tokio::runtime::Handle::current()
             .block_on(validator_store.add_validator_keystore(
-                validator_dir.voting_keystore_path(),
+                voting_keystore_path,
                 voting_password_string,
                 request.enable,
             ))

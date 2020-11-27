@@ -1,5 +1,6 @@
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
+    http_metrics::metrics,
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
@@ -240,6 +241,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         aggregate_production_instant: Instant,
     ) -> Result<(), ()> {
         let log = self.context.log();
+        let attestations_timer = metrics::start_timer_vec(
+            &metrics::ATTESTATION_SERVICE_TIMES,
+            &[metrics::ATTESTATIONS],
+        );
 
         // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
         // any validators for the given `slot` and `committee_index`.
@@ -263,6 +268,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 )
             })?;
 
+        drop(attestations_timer);
+
         // Step 2.
         //
         // If an attestation was produced, make an aggregate.
@@ -272,6 +279,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // `delay_triggers_when_in_the_past` test, this code will still run
             // even if the instant has already elapsed.
             delay_until(aggregate_production_instant).await;
+
+            // Start the metrics timer *after* we've done the delay.
+            let _aggregates_timer = metrics::start_timer_vec(
+                &metrics::ATTESTATION_SERVICE_TIMES,
+                &[metrics::AGGREGATES],
+            );
 
             // Then download, sign and publish a `SignedAggregateAndProof` for each
             // validator that is elected to aggregate for this `slot` and

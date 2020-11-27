@@ -19,6 +19,8 @@ rayon = "1.4.1"
 tree_hash = "0.1.1"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 hex = "0.4.2"
+derivative = "2.1.1"
+lockfile = { path = "../lockfile" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

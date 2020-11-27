@@ -25,8 +25,6 @@ pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
 pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
-pub const MAINNET_WARNING: &str = "These are *not* mainnet validators! Submitting a mainnet \
-                                    deposit for this validator will result in lost ETH.";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -239,8 +237,6 @@ pub fn cli_run<T: EthSpec>(
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
         println!("{}/{}\t{}", i + 1, n, voting_pubkey.to_hex_string());
-
-        println!("{}", MAINNET_WARNING);
     }
 
     Ok(())

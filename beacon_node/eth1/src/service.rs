@@ -36,7 +36,7 @@ const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
 const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
-const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID ETH1 CONNECTION";
+const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 CONNECTION";
 
 /// A factor used to reduce the eth1 follow distance to account for discrepancies in the block time.
 const ETH1_BLOCK_TIME_TOLERANCE_FACTOR: u64 = 4;
@@ -161,6 +161,16 @@ async fn endpoint_state(
     let chain_id = get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
         .map_err(error_connecting)?;
+    // Eth1 nodes return chain_id = 0 if the node is not synced
+    // Handle the special case
+    if chain_id == Eth1Id::Custom(0) {
+        warn!(
+            log,
+            "Remote eth1 node is not synced";
+            "endpoint" => endpoint,
+        );
+        return Err(EndpointError::FarBehind);
+    }
     if &chain_id != config_chain_id {
         warn!(
             log,

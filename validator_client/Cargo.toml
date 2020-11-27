@@ -33,7 +33,8 @@ slog-term = "2.6.0"
 tokio = { version = "0.2.22", features = ["time"] }
 futures = { version = "0.3.5", features = ["compat"] }
 dirs = "3.0.1"
-directory = {path = "../common/directory"}
+directory = { path = "../common/directory" }
+lockfile = { path = "../common/lockfile" }
 logging = { path = "../common/logging" }
 environment = { path = "../lighthouse/environment" }
 parking_lot = "0.11.0"
@@ -59,3 +60,5 @@ libsecp256k1 = "0.3.5"
 ring = "0.16.12"
 rand = "0.7.3"
 scrypt = { version = "0.3.1", default-features = false }
+lighthouse_metrics = { path = "../common/lighthouse_metrics" }
+lazy_static = "1.4.0"

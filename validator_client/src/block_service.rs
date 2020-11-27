@@ -1,4 +1,4 @@
-use crate::validator_store::ValidatorStore;
+use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::{types::Graffiti, BeaconNodeHttpClient};
 use futures::channel::mpsc::Receiver;
@@ -137,6 +137,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
         let log = self.context.log();
+        let _timer =
+            metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
 
         let slot = self.slot_clock.now().ok_or_else(move || {
             crit!(log, "Duties manager failed to read slot clock");
@@ -208,6 +210,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Produce a block at the given slot for validator_pubkey
     async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
         let log = self.context.log();
+        let _timer =
+            metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);
 
         let current_slot = self
             .slot_clock

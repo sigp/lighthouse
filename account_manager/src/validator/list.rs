@@ -1,24 +1,28 @@
-use crate::VALIDATOR_DIR_FLAG;
+use account_utils::validator_definitions::ValidatorDefinitions;
 use clap::App;
 use std::path::PathBuf;
-use validator_dir::Manager as ValidatorManager;
 
 pub const CMD: &str = "list";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD).about("Lists the names of all validators.")
+    App::new(CMD).about("Lists the public keys of all validators.")
 }
 
 pub fn cli_run(validator_dir: PathBuf) -> Result<(), String> {
     eprintln!("validator-dir path: {:?}", validator_dir);
-    let mgr = ValidatorManager::open(&validator_dir)
-        .map_err(|e| format!("Unable to read --{}: {:?}", VALIDATOR_DIR_FLAG, e))?;
+    let validator_definitions = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
+        format!(
+            "No validator definitions found in {:?}: {:?}",
+            validator_dir, e
+        )
+    })?;
 
-    for (name, _path) in mgr
-        .directory_names()
-        .map_err(|e| format!("Unable to list validators: {:?}", e))?
-    {
-        println!("{}", name)
+    for def in validator_definitions.as_slice() {
+        println!(
+            "{} ({})",
+            def.voting_public_key,
+            if def.enabled { "enabled" } else { "disabled" }
+        );
     }
 
     Ok(())

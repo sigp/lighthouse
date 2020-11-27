@@ -3,7 +3,7 @@ use crate::{
     Error,
 };
 use eth2_wallet::{Uuid, ValidatorKeystores, Wallet};
-use std::fs::{remove_file, OpenOptions};
+use lockfile::Lockfile;
 use std::path::{Path, PathBuf};
 
 pub const LOCK_FILE: &str = ".lock";
@@ -26,6 +26,7 @@ pub const LOCK_FILE: &str = ".lock";
 pub struct LockedWallet {
     wallet_dir: PathBuf,
     wallet: Wallet,
+    _lockfile: Lockfile,
 }
 
 impl LockedWallet {
@@ -49,20 +50,12 @@ impl LockedWallet {
             return Err(Error::MissingWalletDir(wallet_dir));
         }
 
-        let lockfile = wallet_dir.join(LOCK_FILE);
-        if lockfile.exists() {
-            return Err(Error::WalletIsLocked(wallet_dir));
-        } else {
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(lockfile)
-                .map_err(Error::UnableToCreateLockfile)?;
-        }
+        let _lockfile = Lockfile::new(wallet_dir.join(LOCK_FILE))?;
 
         Ok(Self {
             wallet: read(&wallet_dir, uuid)?,
             wallet_dir,
+            _lockfile,
         })
     }
 
@@ -97,15 +90,5 @@ impl LockedWallet {
         update(&self.wallet_dir, &self.wallet)?;
 
         Ok(keystores)
-    }
-}
-
-impl Drop for LockedWallet {
-    /// Clean-up the lockfile.
-    fn drop(&mut self) {
-        let lockfile = self.wallet_dir.clone().join(LOCK_FILE);
-        if let Err(e) = remove_file(&lockfile) {
-            eprintln!("Unable to remove {:?}: {:?}", lockfile, e);
-        }
     }
 }

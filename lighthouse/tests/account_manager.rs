@@ -284,13 +284,9 @@ impl TestValidator {
         let pubkeys = stdout[..stdout.len() - 1]
             .split("\n")
             .filter_map(|line| {
-                if line.starts_with(MAINNET_WARNING) {
-                    None
-                } else {
-                    let tab = line.find("\t").expect("line must have tab");
-                    let (_, pubkey) = line.split_at(tab + 1);
-                    Some(pubkey.to_string())
-                }
+                let tab = line.find("\t").expect("line must have tab");
+                let (_, pubkey) = line.split_at(tab + 1);
+                Some(pubkey.to_string())
             })
             .collect::<Vec<_>>();
 

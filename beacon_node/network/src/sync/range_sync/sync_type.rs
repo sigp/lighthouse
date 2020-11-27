@@ -6,7 +6,7 @@ use eth2_libp2p::SyncInfo;
 use std::sync::Arc;
 
 /// The type of Range sync that should be done relative to our current state.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum RangeSyncType {
     /// A finalized chain sync should be started with this peer.
     Finalized,
@@ -37,6 +37,14 @@ impl RangeSyncType {
             RangeSyncType::Finalized
         } else {
             RangeSyncType::Head
+        }
+    }
+
+    /// Get a `str` representation of the `RangeSyncType`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RangeSyncType::Finalized => "Finalized",
+            RangeSyncType::Head => "Head",
         }
     }
 }

@@ -1,6 +1,14 @@
 # Frequently Asked Questions
 
-## Why does it take so long for a validator to be activated?
+- [Why does it take so long for a validator to be activated?](#why-does-it-take-so-long-for-a-validator-to-be-activated)
+- [Do I need to set up any port mappings](#do-i-need-to-set-up-any-port-mappings)
+- [I have a low peer count and it is not increasing](#i-have-a-low-peer-count-and-it-is-not-increasing)
+- [What should I do if I lose my slashing protection database?](#what-should-i-do-if-i-lose-my-slashing-protection-database)
+- [How do I update lighthouse?](#how-do-i-update-lighthouse)
+- [I can't compile lighthouse](#i-cant-compile-lighthouse)
+
+
+### Why does it take so long for a validator to be activated?
 
 After validators create their Eth1 deposit transaction there are two waiting
 periods before they can start producing blocks and attestations:
@@ -12,7 +20,7 @@ periods before they can start producing blocks and attestations:
 
 Detailed answers below:
 
-### 1. Waiting for the beacon chain to detect the Eth1 deposit
+#### 1. Waiting for the beacon chain to detect the Eth1 deposit
 
 Since the beacon chain uses Eth1 for validator on-boarding, beacon chain
 validators must listen to event logs from the deposit contract. Since the
@@ -48,7 +56,7 @@ to vote in new Eth1 blocks, stopping all new validator deposits!
 > Note: you can see the list of validators included in the beacon chain using
 > our REST API: [/beacon/validators/all](./http/beacon.md#beaconvalidatorsall)
 
-### 2. Waiting for a validator to be activated
+#### 2. Waiting for a validator to be activated
 
 If a validator has provided an invalid public key or signature, they will
 _never_ be activated or even show up in
@@ -80,7 +88,7 @@ repeats until the queue is cleared.
 Once a validator has been activated, there's no more waiting! It's time to
 produce blocks and attestations!
 
-### 3. Do I need to set up any port mappings
+### Do I need to set up any port mappings
 
 It is not strictly required to open any ports for Lighthouse to connect and
 participate in the network. Lighthouse should work out-of-the-box. However, if
@@ -111,7 +119,7 @@ port mappings in your router to your local Lighthouse instance. By default,
 Lighthouse uses port 9000 for both TCP and UDP. Opening both these ports will
 make your Lighthouse node maximally contactable.
 
-#### 4. I have a low peer count and it is not increasing
+### I have a low peer count and it is not increasing
 
 If you cannot find *ANY* peers at all. It is likely that you have incorrect
 testnet configuration settings. Ensure that the network you wish to connect to
@@ -124,3 +132,26 @@ boot-up).
 
 If you find yourself with a low peer count and is not reaching the target you
 expect. Try setting up the correct port forwards as described in `3.` above.
+
+### What should I do if I lose my slashing protection database?
+
+See [here.](./slashing-protection.md#misplaced-slashing-database)
+
+### How do I update lighthouse?
+
+If you are updating to new release binaries, it will be the same process as described [here.](./installation-binaries.md)
+
+If you are updating by rebuilding from source, see [here.](./installation-source.md#updating-lighthouse)
+
+If you are running the docker image provided by Sigma Prime on Dockerhub, you can update to specific versions, for example:
+
+```bash
+$ docker pull sigp/lighthouse:v1.0.0
+```
+
+If you are building a docker image, the process will be similar to the one described [here.](./docker.md#building-the-docker-image)
+You will just also need to make sure the code you have checked out is up to date.
+
+### I can't compile lighthouse
+
+See [here.](./installation-source.md#troubleshooting)

@@ -57,12 +57,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("delete-lockfiles")
             .long("delete-lockfiles")
             .help(
-                "If present, ignore and delete any keystore lockfiles encountered during start up. \
-                This is useful if the validator client did not exit gracefully on the last run. \
-                WARNING: lockfiles help prevent users from accidentally running the same validator \
-                using two different validator clients, an action that likely leads to slashing. \
-                Ensure you are certain that there are no other validator client instances running \
-                that might also be using the same keystores."
+                "DEPRECATED. This flag does nothing and will be removed in a future release."
             )
         )
         .arg(
@@ -136,6 +131,39 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5062).")
+                .takes_value(true),
+        )
+        /* Prometheus metrics HTTP server related arguments */
+        .arg(
+            Arg::with_name("metrics")
+                .long("metrics")
+                .help("Enable the Prometheus metrics HTTP server. Disabled by default.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("metrics-address")
+                .long("metrics-address")
+                .value_name("ADDRESS")
+                .help("Set the listen address for the Prometheus metrics HTTP server.")
+                .default_value("127.0.0.1")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("metrics-port")
+                .long("metrics-port")
+                .value_name("PORT")
+                .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
+                .default_value("5064")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("metrics-allow-origin")
+                .long("metrics-allow-origin")
+                .value_name("ORIGIN")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5064).")
                 .takes_value(true),
         )
 }

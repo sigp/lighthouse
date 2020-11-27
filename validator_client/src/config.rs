@@ -1,4 +1,4 @@
-use crate::http_api;
+use crate::{http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use directory::{
@@ -9,6 +9,7 @@ use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
 use slog::{warn, Logger};
 use std::fs;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
 
@@ -28,8 +29,6 @@ pub struct Config {
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
-    /// If true, delete any validator keystore lockfiles that would prevent starting.
-    pub delete_lockfiles: bool,
     /// If true, don't scan the validators dir for new keystores.
     pub disable_auto_discover: bool,
     /// If true, re-register existing validators in definitions.yml for slashing protection.
@@ -38,6 +37,8 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
+    /// Configuration for the HTTP REST API.
+    pub http_metrics: http_metrics::Config,
 }
 
 impl Default for Config {
@@ -56,11 +57,11 @@ impl Default for Config {
             secrets_dir,
             beacon_node: DEFAULT_BEACON_NODE.to_string(),
             allow_unsynced_beacon_node: false,
-            delete_lockfiles: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
             graffiti: None,
             http_api: <_>::default(),
+            http_metrics: <_>::default(),
         }
     }
 }
@@ -119,8 +120,15 @@ impl Config {
             config.beacon_node = server;
         }
 
+        if cli_args.is_present("delete-lockfiles") {
+            warn!(
+                log,
+                "The --delete-lockfiles flag is deprecated";
+                "msg" => "it is no longer necessary, and no longer has any effect",
+            );
+        }
+
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
-        config.delete_lockfiles = cli_args.is_present("delete-lockfiles");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
 
@@ -164,6 +172,35 @@ impl Config {
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_api.allow_origin = Some(allow_origin.to_string());
+        }
+
+        /*
+         * Prometheus metrics HTTP server
+         */
+
+        if cli_args.is_present("metrics") {
+            config.http_metrics.enabled = true;
+        }
+
+        if let Some(address) = cli_args.value_of("metrics-address") {
+            config.http_metrics.listen_addr = address
+                .parse::<Ipv4Addr>()
+                .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+        }
+
+        if let Some(port) = cli_args.value_of("metrics-port") {
+            config.http_metrics.listen_port = port
+                .parse::<u16>()
+                .map_err(|_| "metrics-port is not a valid u16.")?;
+        }
+
+        if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+            // Pre-validate the config value to give feedback to the user on node startup, instead of
+            // as late as when the first API response is produced.
+            hyper::header::HeaderValue::from_str(allow_origin)
+                .map_err(|_| "Invalid allow-origin value")?;
+
+            config.http_metrics.allow_origin = Some(allow_origin.to_string());
         }
 
         Ok(config)

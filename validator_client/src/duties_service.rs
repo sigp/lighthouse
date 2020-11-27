@@ -1,6 +1,6 @@
 use crate::{
-    block_service::BlockServiceNotification, is_synced::is_synced, validator_duty::ValidatorDuty,
-    validator_store::ValidatorStore,
+    block_service::BlockServiceNotification, http_metrics::metrics, is_synced::is_synced,
+    validator_duty::ValidatorDuty, validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
@@ -511,6 +511,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         spec: &ChainSpec,
     ) {
         let log = self.context.log();
+        let _timer =
+            metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
 
         if !is_synced(&self.beacon_node, &self.slot_clock, None).await
             && !self.allow_unsynced_beacon_node
