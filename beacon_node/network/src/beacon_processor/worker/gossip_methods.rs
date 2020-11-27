@@ -516,7 +516,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Peers that are slow or not to spec can spam us with these messages draining our
                 // bandwidth. We therefore penalize these peers when they do this.
-                self.penalize_peer(peer_id.clone(), PeerAction::MidToleranceError);
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
 
                 // Do not propagate these messages.
                 self.propagate_validation_result(
