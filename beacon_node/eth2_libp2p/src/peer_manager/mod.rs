@@ -20,7 +20,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId, subnet_id::subnet_id_to_string};
+use types::{subnet_id::subnet_id_to_string, EthSpec, SubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 

@@ -3,6 +3,7 @@ use super::score::{PeerAction, Score, ScoreState};
 use super::PeerSyncStatus;
 use crate::rpc::MetaData;
 use crate::Multiaddr;
+use as_static_str::as_static_str;
 use discv5::Enr;
 use serde::{
     ser::{SerializeStruct, Serializer},
@@ -13,7 +14,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
-use as_static_str::as_static_str;
 
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
