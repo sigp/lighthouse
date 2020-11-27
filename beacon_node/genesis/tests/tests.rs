@@ -6,7 +6,6 @@
 use environment::{Environment, EnvironmentBuilder};
 use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
-use futures::compat::Future01CompatExt;
 use genesis::{Eth1Config, Eth1GenesisService};
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
@@ -40,7 +39,6 @@ fn basic() {
             let now = web3
                 .eth()
                 .block_number()
-                .compat()
                 .await
                 .map(|v| v.as_u64())
                 .expect("should get block number");

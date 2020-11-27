@@ -1,15 +1,10 @@
-use futures::compat::Future01CompatExt;
 use serde_json::json;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use web3::{
-    transports::{EventLoopHandle, Http},
-    Transport, Web3,
-};
+use web3::{transports::Http, Transport, Web3};
 
 /// How long we will wait for ganache to indicate that it is ready.
 const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
@@ -20,7 +15,6 @@ const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
 pub struct GanacheInstance {
     pub port: u16,
     child: Child,
-    _event_loop: Arc<EventLoopHandle>,
     pub web3: Web3<Http>,
     network_id: u64,
     chain_id: u64,
@@ -56,7 +50,7 @@ impl GanacheInstance {
             }
         }?;
 
-        let (event_loop, transport) = Http::new(&endpoint(port)).map_err(|e| {
+        let transport = Http::new(&endpoint(port)).map_err(|e| {
             format!(
                 "Failed to start HTTP transport connected to ganache: {:?}",
                 e
@@ -69,7 +63,6 @@ impl GanacheInstance {
         Ok(Self {
             child,
             port,
-            _event_loop: Arc::new(event_loop),
             web3,
             network_id,
             chain_id,
@@ -152,7 +145,6 @@ impl GanacheInstance {
         self.web3
             .transport()
             .execute("evm_increaseTime", vec![json!(increase_by)])
-            .compat()
             .await
             .map(|_json_value| ())
             .map_err(|e| format!("Failed to increase time on EVM (is this ganache?): {:?}", e))
@@ -163,7 +155,6 @@ impl GanacheInstance {
         self.web3
             .eth()
             .block_number()
-            .compat()
             .await
             .map(|v| v.as_u64())
             .map_err(|e| format!("Failed to get block number: {:?}", e))
@@ -174,7 +165,6 @@ impl GanacheInstance {
         self.web3
             .transport()
             .execute("evm_mine", vec![])
-            .compat()
             .await
             .map(|_| ())
             .map_err(|_| {

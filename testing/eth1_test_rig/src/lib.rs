@@ -10,7 +10,6 @@ mod ganache;
 use deposit_contract::{
     encode_eth1_tx_data, testnet, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS,
 };
-use futures::compat::Future01CompatExt;
 use ganache::GanacheInstance;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -182,7 +181,6 @@ impl DepositContract {
             .web3
             .eth()
             .accounts()
-            .compat()
             .await
             .map_err(|e| format!("Failed to get accounts: {:?}", e))
             .and_then(|accounts| {
@@ -211,7 +209,6 @@ impl DepositContract {
         self.web3
             .eth()
             .send_transaction(tx_request)
-            .compat()
             .await
             .map_err(|e| format!("Failed to call deposit fn: {:?}", e))?;
         Ok(())
@@ -255,7 +252,6 @@ async fn deploy_deposit_contract(
     let from_address = web3
         .eth()
         .accounts()
-        .compat()
         .await
         .map_err(|e| format!("Failed to get accounts: {:?}", e))
         .and_then(|accounts| {
@@ -269,7 +265,6 @@ async fn deploy_deposit_contract(
         let result = web3
             .personal()
             .unlock_account(from_address, &password, None)
-            .compat()
             .await;
         match result {
             Ok(true) => return Ok(from_address),
@@ -291,7 +286,6 @@ async fn deploy_deposit_contract(
         .map_err(|e| format!("Failed to execute deployment: {:?}", e))?;
 
     pending_contract
-        .compat()
         .await
         .map(|contract| contract.address())
         .map_err(|e| format!("Unable to resolve pending contract: {:?}", e))
