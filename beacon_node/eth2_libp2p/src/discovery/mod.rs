@@ -178,7 +178,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let local_enr = network_globals.local_enr.read().clone();
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> format!("{:?}", local_enr.udp()), "tcp" => format!("{:?}", local_enr.tcp()));
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip" => ?local_enr.ip(), "udp"=> ?local_enr.udp(), "tcp" => ?local_enr.tcp());
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
 
@@ -186,18 +186,18 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&local_key)?;
 
         let mut discv5 = Discv5::new(local_enr, enr_key, config.discv5_config.clone())
-            .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
+            .map_err(|e| format!("Discv5 service failed. Error: {}", e))?;
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes_enr.clone() {
             debug!(
                 log,
                 "Adding node to routing table";
-                "node_id" => bootnode_enr.node_id().to_string(),
-                "peer_id" => bootnode_enr.peer_id().to_string(),
-                "ip" => format!("{:?}", bootnode_enr.ip()),
-                "udp" => format!("{:?}", bootnode_enr.udp()),
-                "tcp" => format!("{:?}", bootnode_enr.tcp())
+                "node_id" => %bootnode_enr.node_id(),
+                "peer_id" => %bootnode_enr.peer_id(),
+                "ip" => ?bootnode_enr.ip(),
+                "udp" => ?bootnode_enr.udp(),
+                "tcp" => ?bootnode_enr.tcp()
             );
             let repr = bootnode_enr.to_string();
             let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
@@ -205,7 +205,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     log,
                     "Could not add peer to the local routing table";
                     "addr" => repr,
-                    "error" => e.to_string(),
+                    "error" => e,
                 )
             });
         }
@@ -247,23 +247,23 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     debug!(
                         log,
                         "Adding node to routing table";
-                        "node_id" => enr.node_id().to_string(),
-                        "peer_id" => enr.peer_id().to_string(),
-                        "ip" => format!("{:?}", enr.ip()),
-                        "udp" => format!("{:?}", enr.udp()),
-                        "tcp" => format!("{:?}", enr.tcp())
+                        "node_id" => %enr.node_id(),
+                        "peer_id" => %enr.peer_id(),
+                        "ip" => ?enr.ip(),
+                        "udp" => ?enr.udp(),
+                        "tcp" => ?enr.tcp()
                     );
                     let _ = discv5.add_enr(enr).map_err(|e| {
                         error!(
                             log,
                             "Could not add peer to the local routing table";
-                            "addr" => original_addr.to_string(),
-                            "error" => e.to_string(),
+                            "addr" => %original_addr,
+                            "error" => %e,
                         )
                     });
                 }
                 Err(e) => {
-                    error!(log, "Error getting mapping to ENR"; "multiaddr" => original_addr.to_string(), "error" => e.to_string())
+                    error!(log, "Error getting mapping to ENR"; "multiaddr" => %original_addr, "error" => %e)
                 }
             }
         }
@@ -318,7 +318,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         debug!(
             self.log,
             "Making discovery query for subnets";
-            "subnets" => format!("{:?}", subnets_to_discover.iter().map(|s| s.subnet_id).collect::<Vec<_>>())
+            "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet_id).collect::<Vec<_>>()
         );
         for subnet in subnets_to_discover {
             self.add_subnet_query(subnet.subnet_id, subnet.min_ttl, 0);
@@ -334,7 +334,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             debug!(
                 self.log,
                 "Could not add peer to the local routing table";
-                "error" => e.to_string()
+                "error" => e
             )
         }
     }
@@ -457,12 +457,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == u64::max_value() {
             String::from("No other fork")
         } else {
-            format!("{:?}", enr_fork_id.next_fork_epoch)
+            enr_fork_id.next_fork_epoch.to_string()
         };
 
         info!(self.log, "Updating the ENR fork version";
-            "fork_digest" => format!("{:?}", enr_fork_id.fork_digest),
-            "next_fork_version" => format!("{:?}", enr_fork_id.next_fork_version),
+            "fork_digest" => ?enr_fork_id.fork_digest,
+            "next_fork_version" => ?enr_fork_id.next_fork_version,
             "next_fork_epoch" => next_fork_epoch_log,
         );
 
@@ -473,7 +473,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 warn!(
                     self.log,
                     "Could not update eth2 ENR field";
-                    "error" => format!("{:?}", e)
+                    "error" => ?e
                 )
             });
 
@@ -607,7 +607,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         debug!(
                             self.log,
                             "Starting grouped subnet query";
-                            "subnets" => format!("{:?}", grouped_queries.iter().map(|q| q.subnet_id).collect::<Vec<_>>()),
+                            "subnets" => ?grouped_queries.iter().map(|q| q.subnet_id).collect::<Vec<_>>(),
                         );
                         self.start_subnet_query(grouped_queries);
                         processed = true;
@@ -659,7 +659,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     "peers_to_find" => target_peers,
                     "attempt" => subnet_query.retries,
-                    "min_ttl" => format!("{:?}", subnet_query.min_ttl),
+                    "min_ttl" => ?subnet_query.min_ttl,
                 );
 
                 filtered_subnet_ids.push(subnet_query.subnet_id);
@@ -711,7 +711,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let enr_fork_id = match self.local_enr().eth2() {
             Ok(v) => v,
             Err(e) => {
-                crit!(self.log, "Local ENR has no fork id"; "error" => e);
+                crit!(self.log, "Local ENR has no fork id"; "error" => %e);
                 return;
             }
         };
@@ -755,7 +755,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         return Some(results);
                     }
                     Err(e) => {
-                        warn!(self.log, "Discovery query failed"; "error" => e.to_string());
+                        warn!(self.log, "Discovery query failed"; "error" => %e);
                     }
                 }
             }
@@ -764,10 +764,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     queries.iter().map(|query| query.subnet_id).collect();
                 match query_result.1 {
                     Ok(r) if r.is_empty() => {
-                        debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => format!("{:?}",subnets_searched_for));
+                        debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => ?subnets_searched_for);
                     }
                     Ok(r) => {
-                        debug!(self.log, "Peer grouped subnet discovery request completed"; "peers_found" => r.len(), "subnets_searched_for" => format!("{:?}",subnets_searched_for));
+                        debug!(self.log, "Peer grouped subnet discovery request completed"; "peers_found" => r.len(), "subnets_searched_for" => ?subnets_searched_for);
 
                         let mut mapped_results = HashMap::new();
 
@@ -834,7 +834,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         }
                     }
                     Err(e) => {
-                        warn!(self.log,"Grouped subnet discovery query failed"; "subnets_searched_for" => format!("{:?}",subnets_searched_for), "error" => e.to_string());
+                        warn!(self.log,"Grouped subnet discovery query failed"; "subnets_searched_for" => ?subnets_searched_for, "error" => %e);
                     }
                 }
             }
@@ -879,7 +879,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             self.event_stream = EventStream::Present(stream);
                         }
                         Err(e) => {
-                            slog::crit!(self.log, "Discv5 event stream failed"; "error" => e.to_string());
+                            slog::crit!(self.log, "Discv5 event stream failed"; "error" => %e);
                             self.event_stream = EventStream::InActive;
                         }
                     }
@@ -897,15 +897,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             // log these to see if we are unnecessarily dropping discovered peers
                             /*
                             if enr.eth2() == self.local_enr().eth2() {
-                                trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                                trace!(self.log, "Peer found in process of query"; "peer_id" => %enr.peer_id(), "tcp_socket" => enr.tcp_socket());
                             } else {
                             // this is temporary warning for debugging the DHT
-                            warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                            warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => %enr.peer_id(), "tcp_socket" => enr.tcp_socket());
                             }
                             */
                         }
                         Discv5Event::SocketUpdated(socket) => {
-                            info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
+                            info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.

@@ -20,7 +20,7 @@ where
             ) {
                 Ok(v) => v,
                 Err(e) => {
-                    warn!(log_clone, "Could not decode ENR bitfield for peer"; "peer_id" => format!("{}", enr.peer_id()), "error" => format!("{:?}", e));
+                    warn!(log_clone, "Could not decode ENR bitfield for peer"; "peer_id" => %enr.peer_id(), "error" => ?e);
                     return false;
                 }
             };
@@ -34,15 +34,15 @@ where
                 trace!(
                     log_clone,
                     "Peer found but not on any of the desired subnets";
-                    "peer_id" => format!("{}", enr.peer_id())
+                    "peer_id" => %enr.peer_id()
                 );
                 return false;
             } else {
                 trace!(
                    log_clone,
                    "Peer found on desired subnet(s)";
-                   "peer_id" => format!("{}", enr.peer_id()),
-                   "subnets" => format!("{:?}", matches.as_slice())
+                   "peer_id" => %enr.peer_id(),
+                   "subnets" => ?matches.as_slice()
                 );
                 return true;
             }
