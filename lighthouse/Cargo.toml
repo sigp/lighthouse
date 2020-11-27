@@ -13,6 +13,10 @@ portable = ["bls/supranational-portable"]
 modern = ["bls/supranational-force-adx"]
 # Uses the slower Milagro BLS library, which is written in native Rust.
 milagro = ["bls/milagro"]
+# Support minimal spec (used for testing only).
+spec-minimal = []
+# Support spec v0.12 (used by Medalla testnet).
+spec-v12 = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
