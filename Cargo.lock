@@ -1835,6 +1835,7 @@ dependencies = [
  "eth2_hashing",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "fallback",
  "futures 0.3.8",
  "hex",
  "lazy_static",
@@ -2151,6 +2152,13 @@ name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
+
+[[package]]
+name = "fallback"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.9.0",
+]
 
 [[package]]
 name = "fallible-iterator"

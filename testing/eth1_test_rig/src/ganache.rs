@@ -14,9 +14,6 @@ use web3::{
 /// How long we will wait for ganache to indicate that it is ready.
 const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
 
-const NETWORK_ID: u64 = 42;
-const CHAIN_ID: u64 = 42;
-
 /// Provides a dedicated `ganachi-cli` instance with a connected `Web3` instance.
 ///
 /// Requires that `ganachi-cli` is installed and available on `PATH`.
@@ -25,39 +22,17 @@ pub struct GanacheInstance {
     child: Child,
     _event_loop: Arc<EventLoopHandle>,
     pub web3: Web3<Http>,
+    network_id: u64,
+    chain_id: u64,
 }
 
 impl GanacheInstance {
-    /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
-    /// RPC connections.
-    pub fn new() -> Result<Self, String> {
-        let port = unused_port()?;
-
-        let mut child = Command::new("ganache-cli")
-            .stdout(Stdio::piped())
-            .arg("--defaultBalanceEther")
-            .arg("1000000000")
-            .arg("--gasLimit")
-            .arg("1000000000")
-            .arg("--accounts")
-            .arg("10")
-            .arg("--port")
-            .arg(format!("{}", port))
-            .arg("--mnemonic")
-            .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
-            .arg("--networkId")
-            .arg(format!("{}", NETWORK_ID))
-            .arg("--chainId")
-            .arg(format!("{}", CHAIN_ID))
-            .spawn()
-            .map_err(|e| {
-                format!(
-                    "Failed to start ganache-cli. \
-                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
-                    e
-                )
-            })?;
-
+    fn new_from_child(
+        mut child: Child,
+        port: u16,
+        network_id: u64,
+        chain_id: u64,
+    ) -> Result<Self, String> {
         let stdout = child
             .stdout
             .ok_or_else(|| "Unable to get stdout for ganache child process")?;
@@ -96,7 +71,65 @@ impl GanacheInstance {
             port,
             _event_loop: Arc::new(event_loop),
             web3,
+            network_id,
+            chain_id,
         })
+    }
+
+    /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
+    /// RPC connections.
+    pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
+        let port = unused_port()?;
+
+        let child = Command::new("ganache-cli")
+            .stdout(Stdio::piped())
+            .arg("--defaultBalanceEther")
+            .arg("1000000000")
+            .arg("--gasLimit")
+            .arg("1000000000")
+            .arg("--accounts")
+            .arg("10")
+            .arg("--port")
+            .arg(format!("{}", port))
+            .arg("--mnemonic")
+            .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
+            .arg("--networkId")
+            .arg(format!("{}", network_id))
+            .arg("--chainId")
+            .arg(format!("{}", chain_id))
+            .spawn()
+            .map_err(|e| {
+                format!(
+                    "Failed to start ganache-cli. \
+                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
+                    e
+                )
+            })?;
+
+        Self::new_from_child(child, port, network_id, chain_id)
+    }
+
+    pub fn fork(&self) -> Result<Self, String> {
+        let port = unused_port()?;
+
+        let child = Command::new("ganache-cli")
+            .stdout(Stdio::piped())
+            .arg("--fork")
+            .arg(self.endpoint())
+            .arg("--port")
+            .arg(format!("{}", port))
+            .arg("--chainId")
+            .arg(format!("{}", self.chain_id))
+            .spawn()
+            .map_err(|e| {
+                format!(
+                    "Failed to start ganache-cli. \
+                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
+                    e
+                )
+            })?;
+
+        Self::new_from_child(child, port, self.network_id, self.chain_id)
     }
 
     /// Returns the endpoint that this instance is listening on.
@@ -106,12 +139,12 @@ impl GanacheInstance {
 
     /// Returns the network id of the ganache instance
     pub fn network_id(&self) -> u64 {
-        NETWORK_ID
+        self.network_id
     }
 
     /// Returns the chain id of the ganache instance
     pub fn chain_id(&self) -> u64 {
-        CHAIN_ID
+        self.chain_id
     }
 
     /// Increase the timestamp on future blocks by `increase_by` seconds.

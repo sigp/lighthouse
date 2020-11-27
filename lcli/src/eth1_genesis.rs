@@ -3,6 +3,7 @@ use environment::Environment;
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::{Eth1Config, Eth1GenesisService};
 use ssz::Encode;
+use std::cmp::max;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::EthSpec;
@@ -11,9 +12,14 @@ use types::EthSpec;
 pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
-    let endpoint = matches
+    let endpoints = matches
         .value_of("eth1-endpoint")
-        .ok_or_else(|| "eth1-endpoint not specified")?;
+        .map(|e| vec![String::from(e)])
+        .or_else(|| {
+            matches
+                .value_of("eth1-endpoints")
+                .map(|s| s.split(',').map(String::from).collect())
+        });
 
     let testnet_dir = matches
         .value_of("testnet-dir")
@@ -40,11 +46,14 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
         })?;
 
     let mut config = Eth1Config::default();
-    config.endpoint = endpoint.to_string();
+    if let Some(v) = endpoints.clone() {
+        config.endpoints = v;
+    }
     config.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     config.deposit_contract_deploy_block = eth2_testnet_config.deposit_contract_deploy_block;
     config.lowest_cached_block_number = eth2_testnet_config.deposit_contract_deploy_block;
     config.follow_distance = spec.eth1_follow_distance / 2;
+    config.node_far_behind_seconds = max(5, config.follow_distance) * spec.seconds_per_eth1_block;
 
     let genesis_service =
         Eth1GenesisService::new(config, env.core_context().log().clone(), spec.clone());
@@ -60,7 +69,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
             .map_err(|e| format!("Failed to find genesis: {}", e))?;
 
         info!("Starting service to produce genesis BeaconState from eth1");
-        info!("Connecting to eth1 http endpoint: {}", endpoint);
+        info!("Connecting to eth1 http endpoints: {:?}", endpoints);
 
         Ok(())
     })
