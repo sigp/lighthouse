@@ -861,7 +861,7 @@ pub fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>)
         .peers
         .read()
         .connected_peers()
-        .map(|(_peer_id, info)| info.sync_status.as_str())
+        .map(|(_peer_id, info)| info.sync_status.as_static_str())
     {
         *peers_per_sync_type.entry(sync_type).or_default() += 1;
     }

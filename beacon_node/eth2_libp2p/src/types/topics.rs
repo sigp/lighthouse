@@ -40,7 +40,7 @@ pub struct GossipTopic {
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
-    /// Topic for publishing aggregate attestations and proofs.    
+    /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.
     Attestation(SubnetId),
