@@ -6,6 +6,7 @@
 //!
 //! The scoring algorithms are currently experimental.
 use crate::behaviour::GOSSIPSUB_GREYLIST_THRESHOLD;
+use as_static_str::as_static_str;
 use serde::Serialize;
 use std::time::Instant;
 use tokio::time::Duration;
@@ -78,6 +79,7 @@ impl std::fmt::Display for PeerAction {
 }
 
 /// The expected state of the peer given the peer's score.
+#[as_static_str(Slog)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum ScoreState {
     /// We are content with the peers performance. We permit connections and messages.
@@ -87,16 +89,6 @@ pub(crate) enum ScoreState {
     /// The peer is banned. We disallow new connections until it's score has decayed into a
     /// tolerable threshold.
     Banned,
-}
-
-impl std::fmt::Display for ScoreState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ScoreState::Healthy => write!(f, "Healthy"),
-            ScoreState::Banned => write!(f, "Banned"),
-            ScoreState::Disconnected => write!(f, "Disconnected"),
-        }
-    }
 }
 
 /// A peer's score (perceived potential usefulness).

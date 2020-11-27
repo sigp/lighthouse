@@ -13,6 +13,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
+use as_static_str::as_static_str;
 
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
@@ -315,6 +316,7 @@ impl Default for PeerStatus {
 }
 
 /// Connection Direction of connection.
+#[as_static_str(Slog)]
 #[derive(Debug, Clone, Serialize)]
 pub enum ConnectionDirection {
     Incoming,

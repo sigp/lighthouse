@@ -1,8 +1,10 @@
 //! Handles individual sync status for peers.
 
+use as_static_str::as_static_str;
 use serde::Serialize;
 use types::{Epoch, Hash256, Slot};
 
+#[as_static_str(VariantList, Slog)]
 #[derive(Clone, Debug, Serialize)]
 /// The current sync status of the peer.
 pub enum PeerSyncStatus {
@@ -64,21 +66,5 @@ impl PeerSyncStatus {
             *self = new_state;
             true
         }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            PeerSyncStatus::Advanced { .. } => "Advanced",
-            PeerSyncStatus::Behind { .. } => "Behind",
-            PeerSyncStatus::Synced { .. } => "Synced",
-            PeerSyncStatus::Unknown => "Unknown",
-            PeerSyncStatus::IrrelevantPeer => "Irrelevant",
-        }
-    }
-}
-
-impl std::fmt::Display for PeerSyncStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
     }
 }
