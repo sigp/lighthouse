@@ -125,12 +125,12 @@ pub fn as_static_str(args: TokenStream, enum_code: TokenStream) -> TokenStream {
             impls.push(quoted);
         }
 
-        return quote! {
+        (quote! {
             #(
                 #impls
             )*
-        }
-        .into();
+        })
+        .into()
     } else {
         panic!("Just for enums!")
     }
