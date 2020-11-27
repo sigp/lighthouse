@@ -29,8 +29,6 @@ pub struct Config {
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
-    /// If true, delete any validator keystore lockfiles that would prevent starting.
-    pub delete_lockfiles: bool,
     /// If true, don't scan the validators dir for new keystores.
     pub disable_auto_discover: bool,
     /// If true, re-register existing validators in definitions.yml for slashing protection.
@@ -59,7 +57,6 @@ impl Default for Config {
             secrets_dir,
             beacon_node: DEFAULT_BEACON_NODE.to_string(),
             allow_unsynced_beacon_node: false,
-            delete_lockfiles: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
             graffiti: None,
@@ -123,8 +120,15 @@ impl Config {
             config.beacon_node = server;
         }
 
+        if cli_args.is_present("delete-lockfiles") {
+            warn!(
+                log,
+                "The --delete-lockfiles flag is deprecated";
+                "msg" => "it is no longer necessary, and no longer has any effect",
+            );
+        }
+
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
-        config.delete_lockfiles = cli_args.is_present("delete-lockfiles");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
 

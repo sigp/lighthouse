@@ -379,13 +379,16 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             ))
                         })?;
 
+                    // Drop validator dir so that `add_validator_keystore` can re-lock the keystore.
+                    let voting_keystore_path = validator_dir.voting_keystore_path();
+                    drop(validator_dir);
                     let voting_password = body.password.clone();
 
                     let validator_def = {
                         if let Some(runtime) = runtime.upgrade() {
                             runtime
                                 .block_on(validator_store.add_validator_keystore(
-                                    validator_dir.voting_keystore_path(),
+                                    voting_keystore_path,
                                     voting_password,
                                     body.enable,
                                 ))

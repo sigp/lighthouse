@@ -34,7 +34,8 @@ slog-term = "2.6.0"
 tokio = { version = "0.3.2", features = ["time"] }
 futures = { version = "0.3.7", features = ["compat"] }
 dirs = "3.0.1"
-directory = {path = "../common/directory"}
+directory = { path = "../common/directory" }
+lockfile = { path = "../common/lockfile" }
 logging = { path = "../common/logging" }
 environment = { path = "../lighthouse/environment" }
 parking_lot = "0.11.0"

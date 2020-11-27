@@ -3,6 +3,7 @@ use crate::{
     LockedWallet,
 };
 use eth2_wallet::{bip39::Mnemonic, Error as WalletError, Uuid, Wallet, WalletBuilder};
+use lockfile::LockfileError;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{create_dir_all, read_dir, OpenOptions};
@@ -21,10 +22,9 @@ pub enum Error {
     WalletNameUnknown(String),
     WalletDirExists(PathBuf),
     IoError(io::Error),
-    WalletIsLocked(PathBuf),
     MissingWalletDir(PathBuf),
-    UnableToCreateLockfile(io::Error),
     UuidMismatch((Uuid, Uuid)),
+    LockfileError(LockfileError),
 }
 
 impl From<io::Error> for Error {
@@ -42,6 +42,12 @@ impl From<WalletError> for Error {
 impl From<FilesystemError> for Error {
     fn from(e: FilesystemError) -> Error {
         Error::FilesystemError(e)
+    }
+}
+
+impl From<LockfileError> for Error {
+    fn from(e: LockfileError) -> Error {
+        Error::LockfileError(e)
     }
 }
 
@@ -358,7 +364,7 @@ mod tests {
         );
 
         match LockedWallet::open(&base_dir, &uuid_a) {
-            Err(Error::WalletIsLocked(_)) => {}
+            Err(Error::LockfileError(_)) => {}
             _ => panic!("did not get locked error"),
         };
 
@@ -368,7 +374,7 @@ mod tests {
             .expect("should open wallet a after previous instance is dropped");
 
         match LockedWallet::open(&base_dir, &uuid_b) {
-            Err(Error::WalletIsLocked(_)) => {}
+            Err(Error::LockfileError(_)) => {}
             _ => panic!("did not get locked error"),
         };
 

@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 eth2_wallet = { path = "../../crypto/eth2_wallet" }
+lockfile = { path = "../lockfile" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

@@ -30,6 +30,7 @@ members = [
     "common/hashset_delay",
     "common/lighthouse_metrics",
     "common/lighthouse_version",
+    "common/lockfile",
     "common/logging",
     "common/lru_cache",
     "common/remote_signer_consumer",

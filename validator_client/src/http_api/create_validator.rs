@@ -125,12 +125,12 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
             )));
         }
 
+        // Drop validator dir so that `add_validator_keystore` can re-lock the keystore.
+        let voting_keystore_path = validator_dir.voting_keystore_path();
+        drop(validator_dir);
+
         validator_store
-            .add_validator_keystore(
-                validator_dir.voting_keystore_path(),
-                voting_password_string,
-                request.enable,
-            )
+            .add_validator_keystore(voting_keystore_path, voting_password_string, request.enable)
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(

@@ -1,0 +1,11 @@
+[package]
+name = "lockfile"
+version = "0.1.0"
+authors = ["Michael Sproul <michael@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+fs2 = "0.4.3"
+
+[dev-dependencies]
+tempdir = "0.3.7"
