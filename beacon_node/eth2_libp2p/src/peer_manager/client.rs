@@ -2,6 +2,7 @@
 //!
 //! Currently using identify to fingerprint.
 
+use as_static_str::as_static_str;
 use libp2p::identify::IdentifyInfo;
 use serde::Serialize;
 
@@ -20,6 +21,7 @@ pub struct Client {
     pub agent_string: Option<String>,
 }
 
+#[as_static_str(VariantList, Slog)]
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum ClientKind {
     /// A lighthouse node (the best kind).
@@ -95,32 +97,6 @@ impl std::fmt::Display for Client {
                 }
             }
         }
-    }
-}
-
-impl ClientKind {
-    pub fn as_static_ref(&self) -> &'static str {
-        use ClientKind::*;
-        match self {
-            Lighthouse => "Lighthouse",
-            Nimbus => "Nimbus",
-            Teku => "Teku",
-            Prysm => "Prysm",
-            Lodestar => "Lodestar",
-            Unknown => "Unknown",
-        }
-    }
-}
-
-impl AsRef<str> for ClientKind {
-    fn as_ref(&self) -> &str {
-        self.as_static_ref()
-    }
-}
-
-impl std::fmt::Display for ClientKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_ref())
     }
 }
 

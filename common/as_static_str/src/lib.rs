@@ -9,7 +9,7 @@ use syn::{parse_macro_input, AttributeArgs, Meta, NestedMeta};
 /// Optionally implement `Debug`, `Display` and `Slog::Value` using the output of this function.
 /// Optionally implement too `variants_as_static_str` to get an array slice with the
 /// representations of each variant of the enum, as defined by `as_static_str`.
-pub fn variants_as_static_str(args: TokenStream, enum_code: TokenStream) -> TokenStream {
+pub fn as_static_str(args: TokenStream, enum_code: TokenStream) -> TokenStream {
     // decide what we want to implement from Debug, Display, and Slog::Value
     let mut impl_debug = false;
     let mut impl_display = false;
@@ -118,7 +118,7 @@ pub fn variants_as_static_str(args: TokenStream, enum_code: TokenStream) -> Toke
                         key: slog::Key,
                         serializer: &mut dyn slog::Serializer,
                     ) -> slog::Result {
-                        serializer.emit_str(&self.as_static_str(), record, key, serializer)
+                        serializer.emit_str(key, &self.as_static_str())
                     }
                 }
             };

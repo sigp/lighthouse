@@ -1097,7 +1097,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                 .map(|info| info.client.kind.clone())
             {
                 if let Some(v) =
-                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[kind.as_static_str()])
                 {
                     v.dec()
                 };

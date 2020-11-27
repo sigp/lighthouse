@@ -1,5 +1,5 @@
 [package]
-name = "as_static_str_derive"
+name = "as_static_str"
 version = "0.1.0"
 authors = ["Diva <divma@protonmail.com>"]
 edition = "2018"

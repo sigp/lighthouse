@@ -732,7 +732,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
         for (peer_id, _) in gossipsub.all_peers() {
             let client = peers
                 .peer_info(peer_id)
-                .map(|peer_info| peer_info.client.kind.as_static_ref())
+                .map(|peer_info| peer_info.client.kind.as_static_str())
                 .unwrap_or_else(|| "Unknown");
 
             peer_to_client.insert(peer_id, client);

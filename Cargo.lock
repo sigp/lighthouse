@@ -283,7 +283,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
 
 [[package]]
-name = "as_static_str_derive"
+name = "as_static_str"
 version = "0.1.0"
 dependencies = [
  "quote",
@@ -621,6 +621,7 @@ dependencies = [
 name = "beacon_node"
 version = "1.0.0"
 dependencies = [
+ "as_static_str",
  "beacon_chain",
  "clap",
  "clap_utils",
@@ -2100,6 +2101,7 @@ dependencies = [
 name = "eth2_libp2p"
 version = "0.2.0"
 dependencies = [
+ "as_static_str",
  "base64 0.13.0",
  "directory",
  "dirs 3.0.1",
