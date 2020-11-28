@@ -611,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1960,6 +1960,7 @@ dependencies = [
  "eth2_hashing",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "fallback",
  "futures 0.3.8",
  "hex",
  "lazy_static",
@@ -2277,6 +2278,13 @@ name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
+
+[[package]]
+name = "fallback"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.9.0",
+]
 
 [[package]]
 name = "fallible-iterator"
@@ -3553,7 +3561,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bls",
  "clap",
@@ -3946,7 +3954,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "account_manager",
  "account_utils",

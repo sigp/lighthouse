@@ -284,7 +284,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
-                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag. Defaults to http://127.0.0.1:8545.")
+                .help("Deprecated. Use --eth1-endpoints.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("eth1-endpoints")
+                .long("eth1-endpoints")
+                .value_name("HTTP-ENDPOINTS")
+                .conflicts_with("eth1-endpoint")
+                .help("One or more comma-delimited server endpoints for web3 connection. \
+                       If multiple endpoints are given the endpoints are used as fallback in the \
+                       given order. Also enables the --eth1 flag. \
+                       Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
         )
         .arg(

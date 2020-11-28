@@ -206,7 +206,7 @@ where
                 info!(
                     context.log(),
                     "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoint" => &config.eth1.endpoint,
+                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoints),
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
