@@ -212,7 +212,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Start the discv5 service and obtain an event stream
         let event_stream = if !config.disable_discovery {
-            discv5.start(listen_socket).map_err(|e| e.to_string())?;
+            discv5
+                .start(listen_socket)
+                .map_err(|e| e.to_string())
+                .await?;
             debug!(log, "Discovery service started");
             EventStream::Awaiting(Box::pin(discv5.event_stream()))
         } else {
@@ -712,8 +715,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 return;
             }
         };
-        // predicate for finding nodes with a matching fork
-        let eth2_fork_predicate = move |enr: &Enr| enr.eth2() == Ok(enr_fork_id.clone());
+        // predicate for finding nodes with a matching fork and valid tcp port
+        let eth2_fork_predicate = move |enr: &Enr| {
+            enr.eth2() == Ok(enr_fork_id.clone()) && (enr.tcp().is_some() || enr.tcp6().is_some())
+        };
 
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
@@ -743,7 +748,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     }
                     Ok(r) => {
                         debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
-                        let mut results: HashMap<PeerId, Option<Instant>> = HashMap::new();
+                        let mut results: HashMap<_, Option<Instant>> = HashMap::new();
                         r.iter().for_each(|enr| {
                             // cache the found ENR's
                             self.cached_enrs.put(enr.peer_id(), enr.clone());
@@ -766,7 +771,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     Ok(r) => {
                         debug!(self.log, "Peer grouped subnet discovery request completed"; "peers_found" => r.len(), "subnets_searched_for" => format!("{:?}",subnets_searched_for));
 
-                        let mut mapped_results: HashMap<PeerId, Option<Instant>> = HashMap::new();
+                        let mut mapped_results = HashMap::new();
 
                         // cache the found ENR's
                         for enr in r.iter().cloned() {

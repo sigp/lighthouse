@@ -59,8 +59,7 @@ pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String
 
 fn main<T: EthSpec>(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
     // Builds a custom executor for the bootnode
-    let mut runtime = tokio::runtime::Builder::new()
-        .threaded_scheduler()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("Failed to build runtime: {}", e))?;

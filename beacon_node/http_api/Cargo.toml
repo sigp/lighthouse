@@ -5,9 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-warp = { git = "https://github.com/paulhauner/warp", branch = "cors-wildcard" }
+warp = { git = "https://github.com/sigp/warp ", branch = "lighthouse" }
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "0.2.22", features = ["macros"] }
+tokio = { version = "0.3.2", features = ["macros"] }
 parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 hex = "0.4.2"
@@ -31,4 +31,5 @@ bs58 = "0.3.1"
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { git = "https://github.com/sigp/discv5", rev = "fba7ceb5cfebd219ebbad6ffdb5d8c31dc8e4bc0", features = ["libp2p"] }
+discv5 = { git = "https://github.com/sigp/discv5", rev = "f117b3ca56fa3dca2317270434634ff7106d391a", features = ["libp2p"] }
+tokio-compat-02 = "0.1"

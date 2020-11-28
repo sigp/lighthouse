@@ -481,15 +481,14 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let duties_service = self.clone();
         let mut block_service_tx_clone = block_service_tx.clone();
         let inner_spec = spec.clone();
-        self.inner
-            .context
-            .executor
-            .runtime_handle()
-            .spawn(async move {
+        self.inner.context.executor.spawn(
+            async move {
                 duties_service
                     .do_update(&mut block_service_tx_clone, &inner_spec)
                     .await
-            });
+            },
+            "duties update",
+        );
 
         let executor = self.inner.context.executor.clone();
 

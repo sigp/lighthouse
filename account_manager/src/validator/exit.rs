@@ -12,6 +12,7 @@ use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio_compat_02::FutureExt;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
 
 pub const CMD: &str = "exit";
@@ -58,7 +59,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<E: EthSpec>(matches: &ArgMatches, mut env: Environment<E>) -> Result<(), String> {
+pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
     let keystore_path: PathBuf = clap_utils::parse_required(matches, KEYSTORE_FLAG)?;
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
@@ -76,14 +77,17 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, mut env: Environment<E>) -> Res
         .clone()
         .expect("network should have a valid config");
 
-    env.runtime().block_on(publish_voluntary_exit::<E>(
-        &keystore_path,
-        password_file_path.as_ref(),
-        &client,
-        &spec,
-        stdin_inputs,
-        &testnet_config,
-    ))?;
+    env.runtime().block_on(
+        publish_voluntary_exit::<E>(
+            &keystore_path,
+            password_file_path.as_ref(),
+            &client,
+            &spec,
+            stdin_inputs,
+            &testnet_config,
+        )
+        .compat(),
+    )?;
 
     Ok(())
 }
@@ -155,7 +159,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
             .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
-        tokio::time::delay_for(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
         eprintln!(
             "Successfully validated and published voluntary exit for validator {}",
             keypair.pk

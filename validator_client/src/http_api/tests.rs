@@ -23,7 +23,9 @@ use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
+use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+use tokio_compat_02::FutureExt;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 
@@ -37,8 +39,18 @@ struct ApiTester {
     _validator_dir: TempDir,
 }
 
+// Builds a runtime to be used in the testing configuration.
+fn build_runtime() -> Arc<Runtime> {
+    Arc::new(
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Should be able to build a testing runtime"),
+    )
+}
+
 impl ApiTester {
-    pub async fn new() -> Self {
+    pub async fn new(runtime: std::sync::Weak<Runtime>) -> Self {
         let log = null_logger().unwrap();
 
         let validator_dir = tempdir().unwrap();
@@ -80,6 +92,7 @@ impl ApiTester {
         let initialized_validators = validator_store.initialized_validators();
 
         let context: Arc<Context<TestingSlotClock, E>> = Arc::new(Context {
+            runtime,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
             validator_store: Some(validator_store),
@@ -420,110 +433,145 @@ struct KeystoreValidatorScenario {
     correct_password: bool,
 }
 
-#[tokio::test(core_threads = 2)]
-async fn invalid_pubkey() {
-    ApiTester::new()
-        .await
-        .invalidate_api_token()
-        .test_get_lighthouse_version_invalid()
-        .await;
+#[test]
+fn invalid_pubkey() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(
+        async {
+            ApiTester::new(weak_runtime)
+                .await
+                .invalidate_api_token()
+                .test_get_lighthouse_version_invalid()
+                .await;
+        }
+        .compat(),
+    );
 }
 
-#[tokio::test(core_threads = 2)]
-async fn simple_getters() {
-    ApiTester::new()
-        .await
-        .test_get_lighthouse_version()
-        .await
-        .test_get_lighthouse_health()
-        .await
-        .test_get_lighthouse_spec()
-        .await;
+#[test]
+fn simple_getters() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(
+        async {
+            ApiTester::new(weak_runtime)
+                .await
+                .test_get_lighthouse_version()
+                .await
+                .test_get_lighthouse_health()
+                .await
+                .test_get_lighthouse_spec()
+                .await;
+        }
+        .compat(),
+    );
 }
 
-#[tokio::test(core_threads = 2)]
-async fn hd_validator_creation() {
-    ApiTester::new()
-        .await
-        .assert_enabled_validators_count(0)
-        .assert_validators_count(0)
-        .create_hd_validators(HdValidatorScenario {
-            count: 2,
-            specify_mnemonic: true,
-            key_derivation_path_offset: 0,
-            disabled: vec![],
-        })
-        .await
-        .assert_enabled_validators_count(2)
-        .assert_validators_count(2)
-        .create_hd_validators(HdValidatorScenario {
-            count: 1,
-            specify_mnemonic: false,
-            key_derivation_path_offset: 0,
-            disabled: vec![0],
-        })
-        .await
-        .assert_enabled_validators_count(2)
-        .assert_validators_count(3)
-        .create_hd_validators(HdValidatorScenario {
-            count: 0,
-            specify_mnemonic: true,
-            key_derivation_path_offset: 4,
-            disabled: vec![],
-        })
-        .await
-        .assert_enabled_validators_count(2)
-        .assert_validators_count(3);
+#[test]
+fn hd_validator_creation() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(
+        async {
+            ApiTester::new(weak_runtime)
+                .await
+                .assert_enabled_validators_count(0)
+                .assert_validators_count(0)
+                .create_hd_validators(HdValidatorScenario {
+                    count: 2,
+                    specify_mnemonic: true,
+                    key_derivation_path_offset: 0,
+                    disabled: vec![],
+                })
+                .await
+                .assert_enabled_validators_count(2)
+                .assert_validators_count(2)
+                .create_hd_validators(HdValidatorScenario {
+                    count: 1,
+                    specify_mnemonic: false,
+                    key_derivation_path_offset: 0,
+                    disabled: vec![0],
+                })
+                .await
+                .assert_enabled_validators_count(2)
+                .assert_validators_count(3)
+                .create_hd_validators(HdValidatorScenario {
+                    count: 0,
+                    specify_mnemonic: true,
+                    key_derivation_path_offset: 4,
+                    disabled: vec![],
+                })
+                .await
+                .assert_enabled_validators_count(2)
+                .assert_validators_count(3);
+        }
+        .compat(),
+    );
 }
 
-#[tokio::test(core_threads = 2)]
-async fn validator_enabling() {
-    ApiTester::new()
-        .await
-        .create_hd_validators(HdValidatorScenario {
-            count: 2,
-            specify_mnemonic: false,
-            key_derivation_path_offset: 0,
-            disabled: vec![],
-        })
-        .await
-        .assert_enabled_validators_count(2)
-        .assert_validators_count(2)
-        .set_validator_enabled(0, false)
-        .await
-        .assert_enabled_validators_count(1)
-        .assert_validators_count(2)
-        .set_validator_enabled(0, true)
-        .await
-        .assert_enabled_validators_count(2)
-        .assert_validators_count(2);
+#[test]
+fn validator_enabling() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(
+        async {
+            ApiTester::new(weak_runtime)
+                .await
+                .create_hd_validators(HdValidatorScenario {
+                    count: 2,
+                    specify_mnemonic: false,
+                    key_derivation_path_offset: 0,
+                    disabled: vec![],
+                })
+                .await
+                .assert_enabled_validators_count(2)
+                .assert_validators_count(2)
+                .set_validator_enabled(0, false)
+                .await
+                .assert_enabled_validators_count(1)
+                .assert_validators_count(2)
+                .set_validator_enabled(0, true)
+                .await
+                .assert_enabled_validators_count(2)
+                .assert_validators_count(2);
+        }
+        .compat(),
+    );
 }
 
-#[tokio::test(core_threads = 2)]
-async fn keystore_validator_creation() {
-    ApiTester::new()
-        .await
-        .assert_enabled_validators_count(0)
-        .assert_validators_count(0)
-        .create_keystore_validators(KeystoreValidatorScenario {
-            correct_password: true,
-            enabled: true,
-        })
-        .await
-        .assert_enabled_validators_count(1)
-        .assert_validators_count(1)
-        .create_keystore_validators(KeystoreValidatorScenario {
-            correct_password: false,
-            enabled: true,
-        })
-        .await
-        .assert_enabled_validators_count(1)
-        .assert_validators_count(1)
-        .create_keystore_validators(KeystoreValidatorScenario {
-            correct_password: true,
-            enabled: false,
-        })
-        .await
-        .assert_enabled_validators_count(1)
-        .assert_validators_count(2);
+#[test]
+fn keystore_validator_creation() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(
+        async {
+            ApiTester::new(weak_runtime)
+                .await
+                .assert_enabled_validators_count(0)
+                .assert_validators_count(0)
+                .create_keystore_validators(KeystoreValidatorScenario {
+                    correct_password: true,
+                    enabled: true,
+                })
+                .await
+                .assert_enabled_validators_count(1)
+                .assert_validators_count(1)
+                .create_keystore_validators(KeystoreValidatorScenario {
+                    correct_password: false,
+                    enabled: true,
+                })
+                .await
+                .assert_enabled_validators_count(1)
+                .assert_validators_count(1)
+                .create_keystore_validators(KeystoreValidatorScenario {
+                    correct_password: true,
+                    enabled: false,
+                })
+                .await
+                .assert_enabled_validators_count(1)
+                .assert_validators_count(2);
+        }
+        .compat(),
+    );
 }

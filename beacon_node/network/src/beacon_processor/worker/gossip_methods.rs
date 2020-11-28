@@ -233,6 +233,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => e.to_string());
+                // Prevent recurring behaviour by penalizing the peer slightly.
+                self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
@@ -511,6 +513,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => %beacon_block_root,
                     "type" => ?attestation_type,
                 );
+
+                // Peers that are slow or not to spec can spam us with these messages draining our
+                // bandwidth. We therefore penalize these peers when they do this.
+                self.penalize_peer(peer_id.clone(), PeerAction::LowToleranceError);
+
+                // Do not propagate these messages.
                 self.propagate_validation_result(
                     message_id,
                     peer_id.clone(),
@@ -618,7 +626,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => %beacon_block_root,
                     "type" => ?attestation_type,
                 );
+                // We still penalize the peer slightly. We don't want this to be a recurring
+                // behaviour.
+                self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+
                 return;
             }
             AttnError::PriorAttestationKnown { .. } => {
@@ -634,7 +647,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => %beacon_block_root,
                     "type" => ?attestation_type,
                 );
+                // We still penalize the peer slightly. We don't want this to be a recurring
+                // behaviour.
+                self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+
                 return;
             }
             AttnError::ValidatorIndexTooHigh(_) => {
@@ -677,6 +695,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "msg" => "UnknownBlockHash"
                         )
                     });
+                // We still penalize the peer slightly. We don't want this to be a recurring
+                // behaviour.
+                self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }

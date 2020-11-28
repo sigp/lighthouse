@@ -156,7 +156,7 @@ mod tests {
 
         tokio::select! {
             _ = collect_stream_fut => {return events}
-            _ = tokio::time::delay_for(
+            _ = tokio::time::sleep(
             Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
         ) => { return events; }
             }

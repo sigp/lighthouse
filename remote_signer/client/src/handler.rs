@@ -58,16 +58,14 @@ impl<E: EthSpec, S: 'static + Send + Sync> Handler<E, S> {
         let (req_parts, _) = self.req.into_parts();
         let req = Request::from_parts(req_parts, body);
 
+        // NOTE: The task executor now holds a weak reference to the global runtime. On shutdown
+        // there may be no runtime available.
+        // All these edge cases must be handled here.
         let value = executor
-            .runtime_handle()
-            .spawn_blocking(move || func(req, ctx))
+            .spawn_blocking_handle(move || func(req, ctx), "remote_signer_request")
+            .ok_or_else(|| ApiError::ServerError("Runtime does not exist".to_string()))?
             .await
-            .map_err(|e| {
-                ApiError::ServerError(format!(
-                    "Failed to get blocking join handle: {}",
-                    e.to_string()
-                ))
-            })??;
+            .map_err(|_| ApiError::ServerError("Panic during execution".to_string()))??;
 
         Ok(HandledRequest { value })
     }

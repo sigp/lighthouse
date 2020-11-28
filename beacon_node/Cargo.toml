@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }
+tokio-compat-02 = "0.1"
 
 [features]
 write_ssz_files = ["beacon_chain/write_ssz_files"]  # Writes debugging .ssz files to /tmp during block processing.
@@ -26,12 +27,12 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 ctrlc = { version = "3.1.6", features = ["termination"] }
-tokio = { version = "0.2.22", features = ["time"] }
+tokio = { version = "0.3.2", features = ["time"] }
 exit-future = "0.2.0"
 dirs = "3.0.1"
 logging = { path = "../common/logging" }
 directory = {path = "../common/directory"}
-futures = "0.3.5"
+futures = "0.3.7"
 environment = { path = "../lighthouse/environment" }
 task_executor = { path = "../common/task_executor" }
 genesis = { path = "genesis" }

@@ -1,11 +1,14 @@
 #![cfg(test)]
 
+//TODO: Drop compat library once reqwest and other libraries update to tokio 0.3
+
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     eth2::types::StateId,
     testing_client_config, LocalBeaconNode,
 };
+use tokio_compat_02::FutureExt;
 use types::{EthSpec, MinimalEthSpec, Slot};
 
 fn env_builder() -> EnvironmentBuilder<MinimalEthSpec> {
@@ -26,18 +29,26 @@ fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
 fn http_server_genesis_state() {
     let mut env = env_builder()
         .null_logger()
+        //.async_logger("debug", None)
         .expect("should build env logger")
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
         .build()
         .expect("environment should build");
 
+    // build a runtime guard
+
     let node = build_node(&mut env);
+
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let api_state = env
         .runtime()
-        .block_on(remote_node.get_debug_beacon_states(StateId::Slot(Slot::new(0))))
+        .block_on(
+            remote_node
+                .get_debug_beacon_states(StateId::Slot(Slot::new(0)))
+                .compat(),
+        )
         .expect("should fetch state from http api")
         .unwrap()
         .data;
@@ -54,5 +65,6 @@ fn http_server_genesis_state() {
         api_state, db_state,
         "genesis state from api should match that from the DB"
     );
+
     env.fire_signal();
 }

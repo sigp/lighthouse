@@ -9,9 +9,10 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "0.2.22", features = ["time", "rt-threaded", "macros"] }
+tokio = { version = "0.3.2", features = ["time", "rt-multi-thread", "macros"] }
 tempfile = "3.1.0"
 deposit_contract = { path = "../common/deposit_contract" }
+tokio-compat-02 = "0.1"
 
 [dependencies]
 eth2_ssz = "0.1.2"
@@ -30,8 +31,8 @@ serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
 slog-term = "2.6.0"
-tokio = { version = "0.2.22", features = ["time"] }
-futures = { version = "0.3.5", features = ["compat"] }
+tokio = { version = "0.3.2", features = ["time"] }
+futures = { version = "0.3.7", features = ["compat"] }
 dirs = "3.0.1"
 directory = { path = "../common/directory" }
 lockfile = { path = "../common/lockfile" }
@@ -53,7 +54,7 @@ eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
-warp = { git = "https://github.com/paulhauner/warp", branch = "cors-wildcard" }
+warp = { git = "https://github.com/sigp/warp ", branch = "lighthouse" }
 hyper = "0.13.8"
 serde_utils = { path = "../consensus/serde_utils" }
 libsecp256k1 = "0.3.5"

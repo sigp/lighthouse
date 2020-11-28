@@ -7,7 +7,7 @@ use types::{V012LegacyEthSpec, YamlConfig};
 
 fn builder() -> EnvironmentBuilder<V012LegacyEthSpec> {
     EnvironmentBuilder::v012_legacy()
-        .single_thread_tokio_runtime()
+        .multi_threaded_tokio_runtime()
         .expect("should set runtime")
         .null_logger()
         .expect("should set logger")

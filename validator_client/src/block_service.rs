@@ -188,21 +188,22 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        proposers.into_iter().for_each(|validator_pubkey| {
+        for validator_pubkey in proposers {
             let service = self.clone();
             let log = log.clone();
-            self.inner.context.executor.runtime_handle().spawn(
+            self.inner.context.executor.spawn(
                 service
                     .publish_block(slot, validator_pubkey)
-                    .map_err(move |e| {
+                    .unwrap_or_else(move |e| {
                         crit!(
                             log,
                             "Error whilst producing block";
                             "message" => e
-                        )
+                        );
                     }),
+                "block service",
             );
-        });
+        }
 
         Ok(())
     }

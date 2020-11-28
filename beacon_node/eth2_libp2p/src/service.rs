@@ -12,6 +12,7 @@ use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
 use libp2p::{
+    bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
@@ -48,10 +49,10 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
 pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
     pub swarm: Swarm<Behaviour<TSpec>>,
-
+    /// The bandwidth logger for the underlying libp2p transport.
+    pub bandwidth: Arc<BandwidthSinks>,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
-
     /// The libp2p logger handle.
     pub log: Logger,
 }
@@ -100,10 +101,11 @@ impl<TSpec: EthSpec> Service<TSpec> {
         };
         debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
-        let mut swarm = {
+        let (mut swarm, bandwidth) = {
             // Set up the transport - tcp/ws with noise and mplex
-            let transport = build_transport(local_keypair.clone())
+            let (transport, bandwidth) = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(
                 &local_keypair,
@@ -121,14 +123,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     self.0.spawn(f, "libp2p");
                 }
             }
-            SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
-                .notify_handler_buffer_size(std::num::NonZeroUsize::new(32).expect("Not zero"))
-                .connection_event_buffer_size(64)
-                .incoming_connection_limit(10)
-                .outgoing_connection_limit(config.target_peers * 2)
-                .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
-                .executor(Box::new(Executor(executor)))
-                .build()
+            (
+                SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
+                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(32).expect("Not zero"))
+                    .connection_event_buffer_size(64)
+                    .incoming_connection_limit(10)
+                    .outgoing_connection_limit(config.target_peers * 2)
+                    .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
+                    .executor(Box::new(Executor(executor)))
+                    .build(),
+                bandwidth,
+            )
         };
 
         // listen on the specified address
@@ -221,6 +226,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
         let service = Service {
             local_peer_id,
+            bandwidth,
             swarm,
             log,
         };
@@ -273,7 +279,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     endpoint: _,
                     num_established,
                 } => {
-                    debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => format!("{:?}", cause), "connections" => num_established);
+                    trace!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => format!("{:?}", cause), "connections" => num_established);
                 }
                 SwarmEvent::NewListenAddr(multiaddr) => {
                     return Libp2pEvent::NewListenAddr(multiaddr)
@@ -282,7 +288,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     local_addr,
                     send_back_addr,
                 } => {
-                    debug!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
+                    trace!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
                 }
                 SwarmEvent::IncomingConnectionError {
                     local_addr,
@@ -329,9 +335,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 }
 
+type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
+
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
 /// mplex as the multiplexing layer.
-fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
+fn build_transport(
+    local_private_key: Keypair,
+) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
     let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
@@ -340,21 +350,26 @@ fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId,
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
 
+    let (transport, bandwidth) = BandwidthLogging::new(transport);
+
     // mplex config
     let mut mplex_config = libp2p::mplex::MplexConfig::new();
-    mplex_config.max_buffer_len(256);
-    mplex_config.max_buffer_len_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
+    mplex_config.set_max_buffer_size(256);
+    mplex_config.set_max_buffer_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
 
     // Authentication
-    Ok(transport
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            libp2p::yamux::Config::default(),
-            mplex_config,
-        ))
-        .timeout(Duration::from_secs(10))
-        .boxed())
+    Ok((
+        transport
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(generate_noise_config(&local_private_key))
+            .multiplex(core::upgrade::SelectUpgrade::new(
+                libp2p::yamux::YamuxConfig::default(),
+                mplex_config,
+            ))
+            .timeout(Duration::from_secs(10))
+            .boxed(),
+        bandwidth,
+    ))
 }
 
 // Useful helper functions for debugging. Currently not used in the client.

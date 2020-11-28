@@ -16,7 +16,7 @@ milagro = ["bls/milagro"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
-tokio = "0.2.22"
+tokio = "0.3.2"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.1"
 types = { "path" = "../consensus/types" }
@@ -28,7 +28,7 @@ slog-term = "2.6.0"
 slog-async = "2.5.0"
 environment = { path = "./environment" }
 boot_node = { path = "../boot_node" }
-futures = "0.3.5"
+futures = "0.3.7"
 validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }
 clap_utils = { path = "../common/clap_utils" }
@@ -37,6 +37,7 @@ directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
 remote_signer = { "path" = "../remote_signer" }
+tokio-compat-02 = "0.1"
 
 [dev-dependencies]
 tempfile = "3.1.0"

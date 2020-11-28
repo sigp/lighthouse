@@ -38,7 +38,7 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::time::{delay_for, Duration};
+use tokio::time::{sleep, Duration};
 use types::{EthSpec, Hash256};
 use validator_store::ValidatorStore;
 
@@ -337,6 +337,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx: Arc<http_api::Context<SystemTimeSlotClock, T>> = Arc::new(http_api::Context {
+                runtime: self.context.executor.runtime(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
@@ -415,7 +416,7 @@ async fn init_from_beacon_node<E: EthSpec>(
             }
         }
 
-        delay_for(RETRY_DELAY).await;
+        sleep(RETRY_DELAY).await;
     };
 
     Ok((genesis.genesis_time, genesis.genesis_validators_root))
@@ -447,7 +448,7 @@ async fn wait_for_genesis<E: EthSpec>(
         // timer runs out.
         tokio::select! {
             result = poll_whilst_waiting_for_genesis(beacon_node, genesis_time, context.log()) => result?,
-            () = delay_for(genesis_time - now) => ()
+            () = sleep(genesis_time - now) => ()
         };
 
         info!(
@@ -497,7 +498,7 @@ async fn wait_for_connectivity(
                     "Unable to connect to beacon node";
                     "error" => format!("{:?}", e),
                 );
-                delay_for(RETRY_DELAY).await;
+                sleep(RETRY_DELAY).await;
             }
         }
     }
@@ -546,6 +547,6 @@ async fn poll_whilst_waiting_for_genesis(
             }
         }
 
-        delay_for(WAITING_FOR_GENESIS_POLL_TIME).await;
+        sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }

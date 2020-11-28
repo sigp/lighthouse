@@ -7,6 +7,7 @@ use beacon_chain::{
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::Error;
+use eth2::StatusCode;
 use eth2::{types::*, BeaconNodeHttpClient, Url};
 use eth2_libp2p::{
     rpc::methods::MetaData,
@@ -21,12 +22,12 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio_compat_02::FutureExt;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
     EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
-use warp::http::StatusCode;
 
 type E = MainnetEthSpec;
 
@@ -1825,277 +1826,337 @@ impl ApiTester {
     }
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get() {
+    async {
+        ApiTester::new()
+            .test_beacon_genesis()
+            .await
+            .test_beacon_states_root()
+            .await
+            .test_beacon_states_fork()
+            .await
+            .test_beacon_states_finality_checkpoints()
+            .await
+            .test_beacon_states_validators()
+            .await
+            .test_beacon_states_validator_balances()
+            .await
+            .test_beacon_states_committees()
+            .await
+            .test_beacon_states_validator_id()
+            .await
+            .test_beacon_headers_all_slots()
+            .await
+            .test_beacon_headers_all_parents()
+            .await
+            .test_beacon_headers_block_id()
+            .await
+            .test_beacon_blocks()
+            .await
+            .test_beacon_blocks_attestations()
+            .await
+            .test_beacon_blocks_root()
+            .await
+            .test_get_beacon_pool_attestations()
+            .await
+            .test_get_beacon_pool_attester_slashings()
+            .await
+            .test_get_beacon_pool_proposer_slashings()
+            .await
+            .test_get_beacon_pool_voluntary_exits()
+            .await;
+    }
+    .compat()
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_blocks_valid() {
     ApiTester::new()
-        .test_beacon_genesis()
-        .await
-        .test_beacon_states_root()
-        .await
-        .test_beacon_states_fork()
-        .await
-        .test_beacon_states_finality_checkpoints()
-        .await
-        .test_beacon_states_validators()
-        .await
-        .test_beacon_states_validator_balances()
-        .await
-        .test_beacon_states_committees()
-        .await
-        .test_beacon_states_validator_id()
-        .await
-        .test_beacon_headers_all_slots()
-        .await
-        .test_beacon_headers_all_parents()
-        .await
-        .test_beacon_headers_block_id()
-        .await
-        .test_beacon_blocks()
-        .await
-        .test_beacon_blocks_attestations()
-        .await
-        .test_beacon_blocks_root()
-        .await
-        .test_get_beacon_pool_attestations()
-        .await
-        .test_get_beacon_pool_attester_slashings()
-        .await
-        .test_get_beacon_pool_proposer_slashings()
-        .await
-        .test_get_beacon_pool_voluntary_exits()
+        .test_post_beacon_blocks_valid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
-async fn post_beacon_blocks_valid() {
-    ApiTester::new().test_post_beacon_blocks_valid().await;
-}
-
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_invalid() {
-    ApiTester::new().test_post_beacon_blocks_invalid().await;
+    ApiTester::new()
+        .test_post_beacon_blocks_invalid()
+        .compat()
+        .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attestations_valid() {
     ApiTester::new()
         .test_post_beacon_pool_attestations_valid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attestations_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_attestations_invalid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_valid() {
     ApiTester::new()
         .test_post_beacon_pool_attester_slashings_valid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_attester_slashings_invalid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_proposer_slashings_valid() {
     ApiTester::new()
         .test_post_beacon_pool_proposer_slashings_valid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_proposer_slashings_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_proposer_slashings_invalid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_voluntary_exits_valid() {
     ApiTester::new()
         .test_post_beacon_pool_voluntary_exits_valid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_voluntary_exits_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_voluntary_exits_invalid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn config_get() {
     ApiTester::new()
         .test_get_config_fork_schedule()
+        .compat()
         .await
         .test_get_config_spec()
+        .compat()
         .await
         .test_get_config_deposit_contract()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn debug_get() {
     ApiTester::new()
         .test_get_debug_beacon_states()
+        .compat()
         .await
         .test_get_debug_beacon_heads()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_get() {
     ApiTester::new()
         .test_get_node_version()
+        .compat()
         .await
         .test_get_node_syncing()
+        .compat()
         .await
         .test_get_node_identity()
+        .compat()
         .await
         .test_get_node_health()
+        .compat()
         .await
         .test_get_node_peers_by_id()
+        .compat()
         .await
         .test_get_node_peers()
+        .compat()
         .await
         .test_get_node_peer_count()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_attester() {
-    ApiTester::new().test_get_validator_duties_attester().await;
+    ApiTester::new()
+        .test_get_validator_duties_attester()
+        .compat()
+        .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_attester_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_attester()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer() {
-    ApiTester::new().test_get_validator_duties_proposer().await;
+    ApiTester::new()
+        .test_get_validator_duties_proposer()
+        .compat()
+        .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_proposer()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production() {
-    ApiTester::new().test_block_production().await;
+    ApiTester::new().test_block_production().compat().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data() {
-    ApiTester::new().test_get_validator_attestation_data().await;
+    ApiTester::new()
+        .test_get_validator_attestation_data()
+        .compat()
+        .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_attestation_data()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_attestation() {
     ApiTester::new()
         .test_get_validator_aggregate_attestation()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_attestation_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_attestation()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_valid() {
     ApiTester::new()
         .test_get_validator_aggregate_and_proofs_valid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_and_proofs_valid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_invalid() {
     ApiTester::new()
         .test_get_validator_aggregate_and_proofs_invalid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_and_proofs_invalid()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_beacon_committee_subscriptions() {
     ApiTester::new()
         .test_get_validator_beacon_committee_subscriptions()
+        .compat()
         .await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lighthouse_endpoints() {
     ApiTester::new()
         .test_get_lighthouse_health()
+        .compat()
         .await
         .test_get_lighthouse_syncing()
+        .compat()
         .await
         .test_get_lighthouse_proto_array()
+        .compat()
         .await
         .test_get_lighthouse_validator_inclusion()
+        .compat()
         .await
         .test_get_lighthouse_validator_inclusion_global()
+        .compat()
         .await
         .test_get_lighthouse_eth1_syncing()
+        .compat()
         .await
         .test_get_lighthouse_eth1_block_cache()
+        .compat()
         .await
         .test_get_lighthouse_eth1_deposit_cache()
+        .compat()
         .await
         .test_get_lighthouse_beacon_states_ssz()
+        .compat()
         .await
         .test_get_lighthouse_staking()
+        .compat()
         .await;
 }

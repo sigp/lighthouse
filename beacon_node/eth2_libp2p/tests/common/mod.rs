@@ -6,7 +6,9 @@ use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{GossipsubConfigBuilder, Libp2pEvent, NetworkConfig};
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
+use std::sync::Weak;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
@@ -91,19 +93,18 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config
 }
 
-pub async fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> Libp2pInstance {
+pub async fn build_libp2p_instance(
+    rt: Weak<Runtime>,
+    boot_nodes: Vec<Enr>,
+    log: slog::Logger,
+) -> Libp2pInstance {
     let port = unused_port("tcp").unwrap();
     let config = build_config(port, boot_nodes);
     // launch libp2p service
 
     let (signal, exit) = exit_future::signal();
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor = task_executor::TaskExecutor::new(
-        tokio::runtime::Handle::current(),
-        exit,
-        log.clone(),
-        shutdown_tx,
-    );
+    let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
     Libp2pInstance(
         LibP2PService::new(
             executor,
@@ -127,10 +128,14 @@ pub fn get_enr(node: &LibP2PService<E>) -> Enr {
 
 // Returns `n` libp2p peers in fully connected topology.
 #[allow(dead_code)]
-pub async fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
+pub async fn build_full_mesh(
+    rt: Weak<Runtime>,
+    log: slog::Logger,
+    n: usize,
+) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(build_libp2p_instance(vec![], log.clone()).await);
+        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone()).await);
     }
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
@@ -153,12 +158,15 @@ pub async fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<Libp2pInstance>
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
-pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInstance) {
+pub async fn build_node_pair(
+    rt: Weak<Runtime>,
+    log: &slog::Logger,
+) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
-    let mut sender = build_libp2p_instance(vec![], sender_log).await;
-    let mut receiver = build_libp2p_instance(vec![], receiver_log).await;
+    let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log).await;
+    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log).await;
 
     let receiver_multiaddr = receiver.swarm.local_enr().multiaddr()[1].clone();
 
@@ -182,7 +190,7 @@ pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInsta
 
     // wait for either both nodes to listen or a timeout
     tokio::select! {
-        _  = tokio::time::delay_for(Duration::from_millis(500)) => {}
+        _  = tokio::time::sleep(Duration::from_millis(500)) => {}
         _ = joined => {}
     }
 
@@ -197,10 +205,10 @@ pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInsta
 
 // Returns `n` peers in a linear topology
 #[allow(dead_code)]
-pub async fn build_linear(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
+pub async fn build_linear(rt: Weak<Runtime>, log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(build_libp2p_instance(vec![], log.clone()).await);
+        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone()).await);
     }
 
     let multiaddrs: Vec<Multiaddr> = nodes

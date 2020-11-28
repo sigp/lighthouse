@@ -5,6 +5,7 @@ mod tests {
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
     use eth2_libp2p::Enr;
+    //use slog::{o, Drain, Level, Logger};
     use slog::Logger;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
@@ -14,6 +15,18 @@ mod tests {
     use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
 
     fn get_logger() -> Logger {
+        /* For emitting logs during the tests
+        let drain = {
+            let decorator = slog_term::TermDecorator::new().build();
+            let decorator =
+                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+            let drain = slog_term::FullFormat::new(decorator).build().fuse();
+            let drain = slog_async::Async::new(drain).chan_size(2048).build();
+            drain.filter_level(Level::Debug)
+        };
+
+        Logger::root(drain.fuse(), o!())
+        */
         let builder = NullLoggerBuilder;
         builder.build().expect("should build logger")
     }
@@ -37,12 +50,12 @@ mod tests {
         let enr2 = Enr::from_str("enr:-IS4QJ2d11eu6dC7E7LoXeLMgMP3kom1u3SE8esFSWvaHoo0dP1jg8O3-nx9ht-EO3CmG7L6OkHcMmoIh00IYWB92QABgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQIB_c-jQMOXsbjWkbN-Oj99H57gfId5pfb4wa1qxwV4CIN1ZHCCIyk").unwrap();
         let enrs = vec![enr1, enr2];
 
-        let runtime = Runtime::new().unwrap();
+        let runtime = Arc::new(Runtime::new().unwrap());
 
         let (signal, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = task_executor::TaskExecutor::new(
-            runtime.handle().clone(),
+            Arc::downgrade(&runtime),
             exit,
             log.clone(),
             shutdown_tx,
@@ -50,9 +63,10 @@ mod tests {
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;
+        config.upnp_enabled = false;
         config.discovery_port = 21212;
         config.boot_nodes_enr = enrs.clone();
-        runtime.spawn(async move {
+        runtime.block_on(async move {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
@@ -61,7 +75,9 @@ mod tests {
                 .unwrap();
             drop(signal);
         });
-        runtime.shutdown_timeout(tokio::time::Duration::from_millis(300));
+
+        let raw_runtime = Arc::try_unwrap(runtime).unwrap();
+        raw_runtime.shutdown_timeout(tokio::time::Duration::from_secs(10));
 
         // Load the persisted dht from the store
         let persisted_enrs = load_dht(store);

@@ -17,10 +17,7 @@ use beacon_chain::{
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
-use eth2::{
-    types::{self as api_types, ValidatorId},
-    StatusCode,
-};
+use eth2::types::{self as api_types, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
@@ -42,6 +39,7 @@ use types::{
     Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
+use warp::http::StatusCode;
 use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
 
@@ -2251,12 +2249,14 @@ pub fn serve<T: BeaconChainTypes>(
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         .with(cors_builder.build());
 
-    let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddrV4::new(config.listen_addr, config.listen_port),
-        async {
-            shutdown.await;
-        },
-    )?;
+    let (listening_socket, server) = {
+        warp::serve(routes).try_bind_with_graceful_shutdown(
+            SocketAddrV4::new(config.listen_addr, config.listen_port),
+            async {
+                shutdown.await;
+            },
+        )?
+    };
 
     info!(
         log,

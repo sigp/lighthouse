@@ -7,7 +7,7 @@ use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
@@ -56,7 +56,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "peers" => peer_count_pretty(network.connected_peers()),
                         "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                     );
-                    delay_for(slot_duration).await;
+                    sleep(slot_duration).await;
                 }
                 _ => break,
             }
