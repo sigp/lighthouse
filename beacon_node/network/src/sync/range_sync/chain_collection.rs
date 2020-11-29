@@ -215,7 +215,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
-    pub fn state(&self) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
+    pub fn state(
+        &self,
+    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
         match self.state {
             RangeSyncState::Finalized(ref syncing_id) => {
                 let chain = self
@@ -242,8 +244,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         .map(|(min_start, max_slot)| (min_start.min(start), max_slot.max(target)))
                         .or(Some((start, target)));
                 }
-                let (start_slot, target_slot) =
-                    range.ok_or("Syncing head with empty head ids")?;
+                let (start_slot, target_slot) = range.ok_or("Syncing head with empty head ids")?;
                 Ok(Some((RangeSyncType::Head, start_slot, target_slot)))
             }
             RangeSyncState::Idle => Ok(None),

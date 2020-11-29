@@ -356,9 +356,9 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
 
     /// Sends a message to the network task.
     fn inform_network(&mut self, msg: NetworkMessage<T>) {
-        self.network_send
-            .send(msg)
-            .unwrap_or_else(|e| warn!(self.log, "Could not send message to the network service"; "error" => %e))
+        self.network_send.send(msg).unwrap_or_else(
+            |e| warn!(self.log, "Could not send message to the network service"; "error" => %e),
+        )
     }
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
