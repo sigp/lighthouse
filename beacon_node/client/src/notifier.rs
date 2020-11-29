@@ -239,7 +239,7 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
                                 / beacon_chain.spec.seconds_per_eth1_block
                         })
                         .map(|distance| distance.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                        .unwrap_or_else(|| "initializing deposits".to_string());
 
                     warn!(
                         log,
