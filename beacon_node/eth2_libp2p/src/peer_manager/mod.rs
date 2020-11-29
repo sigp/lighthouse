@@ -238,7 +238,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .good_peers_on_subnet(s.subnet_id)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
-                    debug!(
+                    trace!(
                         self.log,
                         "Discovery query ignored";
                         "subnet_id" => format!("{:?}",s.subnet_id),
