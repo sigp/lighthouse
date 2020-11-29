@@ -488,7 +488,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 }
             }
             Entry::Vacant(entry) => {
-                let peer_rpr = format_args!("{}", peer);
+                let peer_rpr = peer.to_string();
                 let new_chain = SyncingChain::new(
                     start_epoch,
                     target_head_slot,
