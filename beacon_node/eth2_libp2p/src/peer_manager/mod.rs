@@ -11,7 +11,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::multiaddr::Protocol as MProtocol;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error, warn};
+use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::{
     net::SocketAddr,
