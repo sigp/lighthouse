@@ -11,7 +11,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::multiaddr::Protocol as MProtocol;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error, warn};
+use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::{
     net::SocketAddr,
@@ -238,7 +238,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .good_peers_on_subnet(s.subnet_id)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
-                    debug!(
+                    trace!(
                         self.log,
                         "Discovery query ignored";
                         "subnet_id" => format!("{:?}",s.subnet_id),
