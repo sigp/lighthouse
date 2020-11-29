@@ -3,7 +3,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::NetworkGlobals;
 use futures::prelude::*;
 use parking_lot::Mutex;
-use slog::{debug, error, info, warn};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -56,6 +56,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "peers" => peer_count_pretty(network.connected_peers()),
                         "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                     );
+                    eth1_logging(&beacon_chain, &log);
                     sleep(slot_duration).await;
                 }
                 _ => break,
@@ -172,37 +173,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
             }
 
-            // Perform some logging about the eth1 chain
-            if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
-                if let Some(status) =
-                    eth1_chain.sync_status(head_info.genesis_time, current_slot, &beacon_chain.spec)
-                {
-                    debug!(
-                        log,
-                        "Eth1 cache sync status";
-                        "eth1_head_block" => status.head_block_number,
-                        "latest_cached_block_number" => status.latest_cached_block_number,
-                        "latest_cached_timestamp" => status.latest_cached_block_timestamp,
-                        "voting_target_timestamp" => status.voting_target_timestamp,
-                        "ready" => status.lighthouse_is_cached_and_ready
-                    );
-
-                    if !status.lighthouse_is_cached_and_ready {
-                        warn!(
-                            log,
-                            "Syncing eth1 block cache";
-                            "target_timestamp" => status.voting_target_timestamp,
-                            "latest_timestamp" => status.latest_cached_block_timestamp,
-                            "msg" => "block production temporarily impaired"
-                        );
-                    }
-                } else {
-                    error!(
-                        log,
-                        "Unable to determine eth1 sync status";
-                    );
-                }
-            }
+            eth1_logging(&beacon_chain, &log);
         }
         Ok::<(), ()>(())
     };
@@ -211,6 +182,85 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor.spawn(interval_future.unwrap_or_else(|_| ()), "notifier");
 
     Ok(())
+}
+
+fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
+    let current_slot = beacon_chain
+        .slot()
+        .unwrap_or(beacon_chain.spec.genesis_slot);
+
+    if let Ok(head_info) = beacon_chain.head_info() {
+        // Perform some logging about the eth1 chain
+        if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
+            if let Some(status) =
+                eth1_chain.sync_status(head_info.genesis_time, current_slot, &beacon_chain.spec)
+            {
+                debug!(
+                    log,
+                    "Eth1 cache sync status";
+                    "eth1_head_block" => status.head_block_number,
+                    "latest_cached_block_number" => status.latest_cached_block_number,
+                    "latest_cached_timestamp" => status.latest_cached_block_timestamp,
+                    "voting_target_timestamp" => status.voting_target_timestamp,
+                    "ready" => status.lighthouse_is_cached_and_ready
+                );
+
+                if !status.lighthouse_is_cached_and_ready {
+                    let voting_target_timestamp = if beacon_chain
+                        .slot_clock
+                        .is_prior_to_genesis()
+                        .unwrap_or(false)
+                    {
+                        let voting_period_duration = T::EthSpec::slots_per_eth1_voting_period()
+                            as u64
+                            * (beacon_chain.spec.milliseconds_per_slot / 1_000);
+                        let seconds_till_genesis = beacon_chain
+                            .slot_clock
+                            .duration_to_next_slot()
+                            .map(|duration| duration.as_secs())
+                            .unwrap_or(0);
+
+                        head_info.genesis_time.saturating_sub({
+                            // Voting periods passed, rounded up.
+                            let voting_periods_past =
+                                (seconds_till_genesis + voting_period_duration - 1)
+                                    / voting_period_duration;
+
+                            voting_periods_past * voting_period_duration
+                        })
+                    } else {
+                        status.voting_target_timestamp
+                    };
+
+                    let distance = status
+                        .latest_cached_block_timestamp
+                        .map(|latest| {
+                            voting_target_timestamp.saturating_sub(latest)
+                                / beacon_chain.spec.seconds_per_eth1_block
+                        })
+                        .map(|distance| distance.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    warn!(
+                        log,
+                        "Syncing eth1 block cache";
+                        "msg" => "sync can take longer when using remote eth1 nodes",
+                        "est_blocks_remaining" => distance,
+                    );
+                }
+            } else {
+                error!(
+                    log,
+                    "Unable to determine eth1 sync status";
+                );
+            }
+        }
+    } else {
+        error!(
+            log,
+            "Unable to get head info";
+        );
+    }
 }
 
 /// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a

@@ -385,7 +385,7 @@ impl Default for Config {
             auto_update_interval_millis: 7_000,
             blocks_per_log_query: 1_000,
             max_log_requests_per_update: None,
-            max_blocks_per_update: None,
+            max_blocks_per_update: Some(8_192),
         }
     }
 }
@@ -990,34 +990,33 @@ impl Service {
             .filter(|x| *x <= latest_in_cache)
             .take(max_blocks_per_update)
             .collect::<Vec<_>>();
+
+        debug!(
+            self.log,
+            "Downloading eth1 blocks";
+            "first" => ?required_block_numbers.first(),
+            "last" => ?required_block_numbers.last(),
+        );
+
         // Produce a stream from the list of required block numbers and return a future that
         // consumes the it.
 
-        let eth1_blocks: Vec<Eth1Block> = stream::try_unfold(
-            required_block_numbers.into_iter(),
-            |mut block_numbers| async {
-                match block_numbers.next() {
-                    Some(block_number) => {
-                        match endpoints
-                            .first_success(|e| async move {
-                                download_eth1_block(e, self.inner.clone(), Some(block_number)).await
-                            })
-                            .await
-                        {
-                            Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
-                            Err(e) => Err(e),
-                        }
-                    }
-                    None => Ok(None),
-                }
-            },
-        )
-        .try_collect()
-        .await
-        .map_err(Error::FallbackError)?;
-
         let mut blocks_imported = 0;
-        for eth1_block in eth1_blocks {
+        let start_instant = Instant::now();
+        let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
+        for block_number in required_block_numbers {
+            // Avoid updates that lasts longer than the update interval.
+            if Instant::now().duration_since(start_instant) > update_interval {
+                break;
+            }
+
+            let eth1_block = endpoints
+                .first_success(|e| async move {
+                    download_eth1_block(e, self.inner.clone(), Some(block_number)).await
+                })
+                .await
+                .map_err(Error::FallbackError)?;
+
             self.inner
                 .block_cache
                 .write()
