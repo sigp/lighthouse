@@ -233,8 +233,17 @@ fn main() {
                         .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
-                        .default_value("http://localhost:8545")
-                        .help("The URL to the eth1 JSON-RPC http API."),
+                        .help("Deprecated. Use --eth1-endpoints."),
+                )
+                .arg(
+                    Arg::with_name("eth1-endpoints")
+                        .long("eth1-endpoints")
+                        .value_name("HTTP_SERVER_LIST")
+                        .takes_value(true)
+                        .conflicts_with("eth1-endpoint")
+                        .help("One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
+                                If multiple endpoints are given the endpoints are used as \
+                                fallback in the given order."),
                 )
         )
         .subcommand(

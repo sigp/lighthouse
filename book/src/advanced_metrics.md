@@ -30,5 +30,21 @@ curl localhost:5054/metrics
 
 ## Validator Client Metrics
 
-The validator client does not *yet* expose metrics, however this functionality
-is expected to be implemented in late-September 2020.
+
+By default, these metrics are disabled but can be enabled with the `--metrics`
+flag. Use the `--metrics-address`, `--metrics-port` and
+`--metrics-allow-origin` flags to customize the metrics server.
+
+### Example
+
+Start a validator client with the metrics server enabled:
+
+```bash
+lighthouse vc --metrics
+```
+
+Check to ensure that the metrics are available on the default port:
+
+```bash
+curl localhost:5064/metrics
+```

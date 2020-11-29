@@ -199,7 +199,7 @@ where
                 info!(
                     context.log(),
                     "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoint" => &config.eth1.endpoint,
+                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoints),
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
@@ -240,10 +240,16 @@ where
                     let (listen_addr, server) = http_api::serve(ctx, exit_future)
                         .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
+                    let log_clone = context.log().clone();
+                    let http_api_task = async move {
+                        server.await;
+                        debug!(log_clone, "HTTP API server task ended");
+                    };
+
                     context
                         .clone()
                         .executor
-                        .spawn_without_exit(async move { server.await }, "http-api");
+                        .spawn_without_exit(http_api_task, "http-api");
 
                     Some(listen_addr)
                 } else {
@@ -269,7 +275,7 @@ where
                             "Waiting for HTTP server port to open";
                             "port" => http_listen
                         );
-                        tokio::time::delay_for(Duration::from_secs(1)).await;
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
 
@@ -426,10 +432,16 @@ where
             let (listen_addr, server) = http_api::serve(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
+            let http_log = runtime_context.log().clone();
+            let http_api_task = async move {
+                server.await;
+                debug!(http_log, "HTTP API server task ended");
+            };
+
             runtime_context
                 .clone()
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-api");
+                .spawn_without_exit(http_api_task, "http-api");
 
             Some(listen_addr)
         } else {

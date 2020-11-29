@@ -14,5 +14,6 @@ pub use deposit_cache::DepositCache;
 pub use deposit_log::DepositLog;
 pub use inner::SszEth1Cache;
 pub use service::{
-    BlockCacheUpdateOutcome, Config, DepositCacheUpdateOutcome, Error, Service, DEFAULT_NETWORK_ID,
+    BlockCacheUpdateOutcome, Config, DepositCacheUpdateOutcome, Error, Service, DEFAULT_CHAIN_ID,
+    DEFAULT_NETWORK_ID,
 };

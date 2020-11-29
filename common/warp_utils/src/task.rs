@@ -1,19 +1,21 @@
 use serde::Serialize;
 
-/// Execute some task in a tokio "blocking thread". These threads are ideal for long-running
-/// (blocking) tasks since they don't jam up the core executor.
-pub async fn blocking_task<F, T>(func: F) -> T
+/// A convenience wrapper around `blocking_task`.
+pub async fn blocking_task<F, T>(func: F) -> Result<T, warp::Rejection>
 where
-    F: Fn() -> T,
+    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
+    T: Send + 'static,
 {
-    tokio::task::block_in_place(func)
+    tokio::task::spawn_blocking(func)
+        .await
+        .unwrap_or_else(|_| Err(warp::reject::reject())) // This should really be a 500
 }
 
 /// A convenience wrapper around `blocking_task` for use with `warp` JSON responses.
 pub async fn blocking_json_task<F, T>(func: F) -> Result<warp::reply::Json, warp::Rejection>
 where
-    F: Fn() -> Result<T, warp::Rejection>,
-    T: Serialize,
+    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
+    T: Serialize + Send + 'static,
 {
     blocking_task(func)
         .await

@@ -20,20 +20,21 @@ eth2_ssz_derive = "0.1.0"
 hex = "0.4.2"
 rayon = "1.4.1"
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
-futures = { version = "0.3.5", features = ["compat"] }
+futures = { version = "0.3.7", features = ["compat"] }
 clap_utils = { path = "../common/clap_utils" }
 directory = { path = "../common/directory" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.3"
 validator_dir = { path = "../common/validator_dir" }
-tokio = { version = "0.2.22", features = ["full"] }
+tokio = { version = "0.3.2", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
 eth2 = {path = "../common/eth2"}
 safe_arith = {path = "../consensus/safe_arith"}
 slot_clock = { path = "../common/slot_clock" }
+tokio-compat-02 = "0.1"
 
 [dev-dependencies]
 tempfile = "3.1.0"

@@ -62,10 +62,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
         let log = context.log().clone();
-
         let db_path = client_config.create_db_path()?;
         let freezer_db_path_res = client_config.create_freezer_db_path();
-
         let executor = context.executor.clone();
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
@@ -91,7 +89,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             info!(
                 log,
                 "Block production enabled";
-                "endpoint" => &client_config.eth1.endpoint,
+                "endpoints" => format!("{:?}", &client_config.eth1.endpoints),
                 "method" => "json rpc via http"
             );
             builder

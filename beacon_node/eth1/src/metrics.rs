@@ -16,4 +16,14 @@ lazy_static! {
         try_create_int_gauge("eth1_deposit_cache_len", "Number of deposits in the eth1 cache");
     pub static ref HIGHEST_PROCESSED_DEPOSIT_BLOCK: Result<IntGauge> =
         try_create_int_gauge("eth1_highest_processed_deposit_block", "Number of the last block checked for deposits");
+
+    /*
+     * Eth1 endpoint errors
+     */
+    pub static ref ENDPOINT_ERRORS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "eth1_endpoint_errors", "The number of eth1 request errors for each endpoint", &["endpoint"]
+    );
+    pub static ref ENDPOINT_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "eth1_endpoint_requests", "The number of eth1 requests for each endpoint", &["endpoint"]
+    );
 }

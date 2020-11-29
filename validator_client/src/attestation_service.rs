@@ -1,16 +1,18 @@
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
+    http_metrics::metrics,
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
+use futures::future::FutureExt;
 use futures::StreamExt;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::time::{delay_until, interval_at, Duration, Instant};
+use tokio::time::{interval_at, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
@@ -210,13 +212,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.executor.runtime_handle().spawn(
-                    self.clone().publish_attestations_and_aggregates(
-                        slot,
-                        committee_index,
-                        validator_duties,
-                        aggregate_production_instant,
-                    ),
+                self.inner.context.executor.spawn(
+                    self.clone()
+                        .publish_attestations_and_aggregates(
+                            slot,
+                            committee_index,
+                            validator_duties,
+                            aggregate_production_instant,
+                        )
+                        .map(|_| ()),
+                    "attestation publish",
                 );
             });
 
@@ -240,6 +245,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         aggregate_production_instant: Instant,
     ) -> Result<(), ()> {
         let log = self.context.log();
+        let attestations_timer = metrics::start_timer_vec(
+            &metrics::ATTESTATION_SERVICE_TIMES,
+            &[metrics::ATTESTATIONS],
+        );
 
         // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
         // any validators for the given `slot` and `committee_index`.
@@ -263,6 +272,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 )
             })?;
 
+        drop(attestations_timer);
+
         // Step 2.
         //
         // If an attestation was produced, make an aggregate.
@@ -271,7 +282,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // of the way though the slot). As verified in the
             // `delay_triggers_when_in_the_past` test, this code will still run
             // even if the instant has already elapsed.
-            delay_until(aggregate_production_instant).await;
+            sleep_until(aggregate_production_instant).await;
+
+            // Start the metrics timer *after* we've done the delay.
+            let _aggregates_timer = metrics::start_timer_vec(
+                &metrics::ATTESTATION_SERVICE_TIMES,
+                &[metrics::AGGREGATES],
+            );
 
             // Then download, sign and publish a `SignedAggregateAndProof` for each
             // validator that is elected to aggregate for this `slot` and
@@ -539,7 +556,7 @@ mod tests {
     use futures::future::FutureExt;
     use parking_lot::RwLock;
 
-    /// This test is to ensure that a `tokio_timer::Delay` with an instant in the past will still
+    /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
     /// trigger.
     #[tokio::test]
     async fn delay_triggers_when_in_the_past() {
@@ -547,7 +564,7 @@ mod tests {
         let state_1 = Arc::new(RwLock::new(in_the_past));
         let state_2 = state_1.clone();
 
-        delay_until(in_the_past)
+        sleep_until(in_the_past)
             .map(move |()| *state_1.write() = Instant::now())
             .await;
 

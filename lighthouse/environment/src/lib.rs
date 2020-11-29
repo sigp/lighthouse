@@ -15,12 +15,13 @@ use futures::channel::{
 };
 use futures::{future, StreamExt};
 
-use slog::{error, info, o, Drain, Level, Logger};
+use slog::{error, info, o, warn, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
@@ -29,11 +30,11 @@ use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
-const MAXIMUM_SHUTDOWN_TIME: u64 = 3;
+const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
-    runtime: Option<Runtime>,
+    runtime: Option<Arc<Runtime>>,
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
@@ -84,28 +85,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     ///
     /// The `Runtime` used is just the standard tokio runtime.
     pub fn multi_threaded_tokio_runtime(mut self) -> Result<Self, String> {
-        self.runtime = Some(
-            RuntimeBuilder::new()
-                .threaded_scheduler()
+        self.runtime = Some(Arc::new(
+            RuntimeBuilder::new_multi_thread()
                 .enable_all()
                 .build()
                 .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
-        );
-        Ok(self)
-    }
-
-    /// Specifies that a single-threaded tokio runtime should be used. Ideal for testing purposes
-    /// where tests are already multi-threaded.
-    ///
-    /// This can solve problems if "too many open files" errors are thrown during tests.
-    pub fn single_thread_tokio_runtime(mut self) -> Result<Self, String> {
-        self.runtime = Some(
-            RuntimeBuilder::new()
-                .basic_scheduler()
-                .enable_all()
-                .build()
-                .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
-        );
+        ));
         Ok(self)
     }
 
@@ -329,7 +314,7 @@ impl<E: EthSpec> RuntimeContext<E> {
 /// An environment where Lighthouse services can run. Used to start a production beacon node or
 /// validator client, or to run tests that involve logging and async task execution.
 pub struct Environment<E: EthSpec> {
-    runtime: Runtime,
+    runtime: Arc<Runtime>,
     /// Receiver side of an internal shutdown signal.
     signal_rx: Option<Receiver<&'static str>>,
     /// Sender to request shutting down.
@@ -347,15 +332,15 @@ impl<E: EthSpec> Environment<E> {
     ///
     /// Useful in the rare scenarios where it's necessary to block the current thread until a task
     /// is finished (e.g., during testing).
-    pub fn runtime(&mut self) -> &mut Runtime {
-        &mut self.runtime
+    pub fn runtime(&self) -> &Arc<Runtime> {
+        &self.runtime
     }
 
     /// Returns a `Context` where no "service" has been added to the logger output.
     pub fn core_context(&mut self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
-                self.runtime().handle().clone(),
+                Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.log.clone(),
                 self.signal_tx.clone(),
@@ -369,7 +354,7 @@ impl<E: EthSpec> Environment<E> {
     pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
-                self.runtime().handle().clone(),
+                Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.log.new(o!("service" => service_name)),
                 self.signal_tx.clone(),
@@ -425,8 +410,16 @@ impl<E: EthSpec> Environment<E> {
 
     /// Shutdown the `tokio` runtime when all tasks are idle.
     pub fn shutdown_on_idle(self) {
-        self.runtime
-            .shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))
+        match Arc::try_unwrap(self.runtime) {
+            Ok(runtime) => {
+                runtime.shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))
+            }
+            Err(e) => warn!(
+                self.log,
+                "Failed to obtain runtime access to shutdown gracefully";
+                "error" => ?e
+            ),
+        }
     }
 
     /// Fire exit signal which shuts down all spawned services

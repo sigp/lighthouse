@@ -983,7 +983,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         };
 
         if let Some(goodbye_reason) = goodbye_reason {
-            debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.to_string());
+            match goodbye_reason {
+                GoodbyeReason::Banned => {
+                    debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.to_string())
+                }
+                _ => {
+                    trace!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.to_string())
+                }
+            }
             self.peers_to_dc
                 .push_back((peer_id.clone(), Some(goodbye_reason)));
             // NOTE: We don't inform the peer manager that this peer is disconnecting. It is simply
@@ -1078,6 +1085,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
             // Inform the behaviour.
             delegate_to_behaviours!(self, inject_disconnected, peer_id);
+
+            debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
 
             // Decrement the PEERS_PER_CLIENT metric
             if let Some(kind) = self

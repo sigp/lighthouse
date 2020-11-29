@@ -22,7 +22,8 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::time::{delay_queue, delay_until, Delay, DelayQueue, Instant as TInstant};
+use tokio::time::{sleep_until, Instant as TInstant, Sleep};
+use tokio_util::time::{delay_queue, DelayQueue};
 use types::EthSpec;
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
@@ -132,7 +133,7 @@ enum HandlerState {
     ///
     /// While in this state the handler rejects new requests but tries to finish existing ones.
     /// Once the timer expires, all messages are killed.
-    ShuttingDown(Delay),
+    ShuttingDown(Sleep),
     /// The handler is deactivated. A goodbye has been sent and no more messages are sent or
     /// received.
     Deactivated,
@@ -255,7 +256,7 @@ where
                 self.dial_queue.push((id, req));
             }
 
-            self.state = HandlerState::ShuttingDown(delay_until(
+            self.state = HandlerState::ShuttingDown(sleep_until(
                 TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
             ));
         }
@@ -540,7 +541,7 @@ where
 
         // purge expired inbound substreams and send an error
         loop {
-            match self.inbound_substreams_delay.poll_next_unpin(cx) {
+            match self.inbound_substreams_delay.poll_expired(cx) {
                 Poll::Ready(Some(Ok(inbound_id))) => {
                     // handle a stream timeout for various states
                     if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
@@ -574,7 +575,7 @@ where
 
         // purge expired outbound substreams
         loop {
-            match self.outbound_substreams_delay.poll_next_unpin(cx) {
+            match self.outbound_substreams_delay.poll_expired(cx) {
                 Poll::Ready(Some(Ok(outbound_id))) => {
                     if let Some(OutboundInfo { proto, req_id, .. }) =
                         self.outbound_substreams.remove(outbound_id.get_ref())
@@ -672,6 +673,7 @@ where
                                     if let Some(ref delay_key) = info.delay_key {
                                         self.inbound_substreams_delay.remove(delay_key);
                                     }
+                                    break;
                                 } else {
                                     // If we are not removing this substream, we reset the timer.
                                     // Each chunk is allowed RESPONSE_TIMEOUT to be sent.

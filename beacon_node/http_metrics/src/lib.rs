@@ -1,10 +1,6 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
-
-#[macro_use]
-extern crate lazy_static;
-
 mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
