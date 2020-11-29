@@ -4,12 +4,12 @@ use crate::{
     deposit_cache::Error as DepositCacheError,
     http::{
         get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
-        BlockQuery, Eth1Id, Log,
+        BlockQuery, Eth1Id,
     },
     inner::{DepositUpdater, Inner},
 };
 use fallback::{Fallback, FallbackError};
-use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
+use futures::{future::TryFutureExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -384,7 +384,7 @@ impl Default for Config {
             block_cache_truncation: Some(4_096),
             auto_update_interval_millis: 7_000,
             blocks_per_log_query: 1_000,
-            max_log_requests_per_update: None,
+            max_log_requests_per_update: Some(100),
             max_blocks_per_update: Some(8_192),
         }
     }
@@ -817,38 +817,40 @@ impl Service {
             Vec::new()
         };
 
+        let mut logs_imported: usize = 0;
         let deposit_contract_address_ref: &str = &deposit_contract_address;
-        let logs: Vec<(Range<u64>, Vec<Log>)> =
-            stream::try_unfold(block_number_chunks.into_iter(), |mut chunks| async {
-                match chunks.next() {
-                    Some(chunk) => {
-                        let chunk_ref = &chunk;
-                        endpoints
-                            .first_success(|e| async move {
-                                get_deposit_logs_in_range(
-                                    e,
-                                    deposit_contract_address_ref,
-                                    chunk_ref.clone(),
-                                    Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
-                                )
-                                .await
-                                .map_err(SingleEndpointError::GetDepositLogsFailed)
-                            })
-                            .await
-                            .map(|logs| Some(((chunk, logs), chunks)))
-                    }
-                    None => Ok(None),
-                }
-            })
-            .try_collect()
-            .await
-            .map_err(Error::FallbackError)?;
+        for block_range in block_number_chunks.into_iter() {
+            if block_range.is_empty() {
+                debug!(
+                    self.log,
+                    "No new blocks to scan for logs";
+                );
+                continue;
+            }
 
-        let mut logs_imported = 0;
-        for (block_range, log_chunk) in logs.iter() {
+            /*
+             * Step 1. Download logs.
+             */
+            let block_range_ref = &block_range;
+            let logs = endpoints
+                .first_success(|e| async move {
+                    get_deposit_logs_in_range(
+                        e,
+                        &deposit_contract_address_ref,
+                        block_range_ref.clone(),
+                        Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
+                    )
+                    .await
+                    .map_err(SingleEndpointError::GetDepositLogsFailed)
+                })
+                .await
+                .map_err(Error::FallbackError)?;
+
+            /*
+             * Step 2. Import logs to cache.
+             */
             let mut cache = self.deposits().write();
-            log_chunk
-                .iter()
+            logs.iter()
                 .map(|raw_log| {
                     raw_log.to_deposit_log(self.inner.spec()).map_err(|error| {
                         Error::FailedToParseDepositLog {
@@ -880,6 +882,12 @@ impl Service {
                 // a block, but not _all_ logs for that block). This scenario can cause the
                 // node to choose an invalid genesis state or propose an invalid block.
                 .collect::<Result<_, _>>()?;
+
+            debug!(
+                self.log,
+                "Imported deposit logs chunk";
+                "logs" => logs.len(),
+            );
 
             cache.last_processed_block = Some(block_range.end.saturating_sub(1));
 
