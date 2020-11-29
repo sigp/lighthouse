@@ -93,13 +93,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
             &log,
         ));
 
-        info!(log, "Libp2p Service"; "peer_id" => enr.peer_id().to_string());
+        info!(log, "Libp2p Service"; "peer_id" => %enr.peer_id());
         let discovery_string = if config.disable_discovery {
             "None".into()
         } else {
             config.discovery_port.to_string()
         };
-        debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
+        debug!(log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
         let (mut swarm, bandwidth) = {
             // Set up the transport - tcp/ws with noise and mplex
@@ -147,14 +147,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
                 log_address.push(Protocol::P2p(local_peer_id.clone().into()));
-                info!(log, "Listening established"; "address" => format!("{}", log_address));
+                info!(log, "Listening established"; "address" => %log_address);
             }
             Err(err) => {
                 crit!(
                     log,
                     "Unable to listen on libp2p address";
-                    "error" => format!("{:?}", err),
-                    "listen_multiaddr" => format!("{}", listen_multiaddr),
+                    "error" => ?err,
+                    "listen_multiaddr" => %listen_multiaddr,
                 );
                 return Err("Libp2p was unable to listen on the given listen address.".into());
             }
@@ -165,10 +165,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             // strip the p2p protocol if it exists
             strip_peer_id(&mut multiaddr);
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
-                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => %multiaddr),
                 Err(err) => debug!(
                     log,
-                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "error" => format!("{:?}", err)
+                    "Could not connect to peer"; "address" => %multiaddr, "error" => ?err
                 ),
             };
         };
@@ -216,12 +216,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
             if swarm.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());
             } else {
-                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
             }
         }
 
         if !subscribed_topics.is_empty() {
-            info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
+            info!(log, "Subscribed to topics"; "topics" => ?subscribed_topics);
         }
 
         let service = Service {
@@ -279,7 +279,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     endpoint: _,
                     num_established,
                 } => {
-                    trace!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => format!("{:?}", cause), "connections" => num_established);
+                    trace!(self.log, "Connection closed"; "peer_id" => %peer_id, "cause" => ?cause, "connections" => num_established);
                 }
                 SwarmEvent::NewListenAddr(multiaddr) => {
                     return Libp2pEvent::NewListenAddr(multiaddr)
@@ -288,14 +288,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     local_addr,
                     send_back_addr,
                 } => {
-                    trace!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
+                    trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr)
                 }
                 SwarmEvent::IncomingConnectionError {
                     local_addr,
                     send_back_addr,
                     error,
                 } => {
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
+                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error)
                 }
                 SwarmEvent::BannedPeer { .. } => {
                     // We do not ban peers at the swarm layer, so this should never occur.
@@ -306,29 +306,29 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     error,
                     attempts_remaining,
                 } => {
-                    debug!(self.log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining);
+                    debug!(self.log, "Failed to dial address"; "peer_id" => %peer_id, "address" => %address, "error" => %error, "attempts_remaining" => attempts_remaining);
                 }
                 SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
-                    debug!(self.log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string());
+                    debug!(self.log, "Peer not known at dialed address"; "address" => %address, "error" => %error);
                 }
                 SwarmEvent::ExpiredListenAddr(multiaddr) => {
-                    debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
+                    debug!(self.log, "Listen address expired"; "multiaddr" => %multiaddr)
                 }
                 SwarmEvent::ListenerClosed { addresses, reason } => {
-                    crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason));
+                    crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
                     if Swarm::listeners(&self.swarm).count() == 0 {
                         return Libp2pEvent::ZeroListeners;
                     }
                 }
                 SwarmEvent::ListenerError { error } => {
                     // this is non fatal, but we still check
-                    warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()));
+                    warn!(self.log, "Listener error"; "error" => ?error);
                     if Swarm::listeners(&self.swarm).count() == 0 {
                         return Libp2pEvent::ZeroListeners;
                     }
                 }
                 SwarmEvent::Dialing(peer_id) => {
-                    debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
+                    debug!(self.log, "Dialing peer"; "peer_id" => %peer_id);
                 }
             }
         }
@@ -492,7 +492,7 @@ fn load_or_build_metadata<E: EthSpec>(
                     debug!(
                         log,
                         "Metadata from file could not be decoded";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                     );
                 }
             }
