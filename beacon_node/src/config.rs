@@ -305,6 +305,8 @@ pub fn get_config<E: EthSpec>(
         }
 
         graffiti.as_bytes()
+    } else if cli_args.is_present("private") {
+        b""
     } else {
         lighthouse_version::VERSION.as_bytes()
     };
@@ -575,6 +577,10 @@ pub fn set_network_config(
 
     if cli_args.is_present("disable-upnp") {
         config.upnp_enabled = false;
+    }
+
+    if cli_args.is_present("private") {
+        config.private = true;
     }
 
     Ok(())

@@ -151,11 +151,19 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
 
-        let identify = Identify::new(
-            "lighthouse/libp2p".into(),
-            lighthouse_version::version_with_platform(),
-            local_key.public(),
-        );
+        let identify = if net_conf.private {
+            Identify::new(
+                "".into(),
+                "".into(),
+                local_key.public(), // Still send legitimate public key
+            )
+        } else {
+            Identify::new(
+                "lighthouse/libp2p".into(),
+                lighthouse_version::version_with_platform(),
+                local_key.public(),
+            )
+        };
 
         let enr_fork_id = network_globals
             .local_enr()
