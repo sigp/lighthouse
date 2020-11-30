@@ -9,22 +9,31 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )
+        // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
             Arg::with_name("beacon-node")
                 .long("beacon-node")
                 .value_name("NETWORK_ADDRESS")
-                .help("Address to a beacon node HTTP API")
+                .help("Deprecated. Use --beacon-nodes.")
+                .takes_value(true)
+                .conflicts_with("beacon-nodes"),
+        )
+        .arg(
+            Arg::with_name("beacon-nodes")
+                .long("beacon-nodes")
+                .value_name("NETWORK_ADDRESSES")
+                .help("Comma-separated addresses to one or more beacon node HTTP APIs")
                 .default_value(&DEFAULT_BEACON_NODE)
                 .takes_value(true),
         )
-        // This argument is deprecated, use `--beacon-node` instead.
+        // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
             Arg::with_name("server")
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-node.")
+                .help("Deprecated. Use --beacon-nodes.")
                 .takes_value(true)
-                .conflicts_with("beacon-node"),
+                .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
         )
         .arg(
             Arg::with_name("validators-dir")

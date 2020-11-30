@@ -24,7 +24,7 @@ pub async fn is_synced<T: SlotClock>(
         Ok(resp) => resp,
         Err(e) => {
             if let Some(log) = log_opt {
-                error!(
+                warn!(
                     log,
                     "Unable connect to beacon node";
                     "error" => e.to_string()

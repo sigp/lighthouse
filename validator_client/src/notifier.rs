@@ -1,4 +1,5 @@
-use crate::{is_synced::is_synced, ProductionValidatorClient};
+use crate::beacon_node_fallback::BeaconNodeError;
+use crate::ProductionValidatorClient;
 use futures::StreamExt;
 use slog::{error, info};
 use slot_clock::SlotClock;
@@ -26,13 +27,16 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
         let log = context.log();
 
         while interval.next().await.is_some() {
-            if !is_synced(
-                &duties_service.beacon_node,
-                &duties_service.slot_clock,
-                Some(&log),
-            )
-            .await
-                && !allow_unsynced_beacon_node
+            duties_service.beacon_nodes.reset_sync_states().await;
+            if !allow_unsynced_beacon_node
+                && duties_service
+                    .beacon_nodes
+                    .first_success(|_| async move {
+                        //do nothing since is_synced gets already checked in state checker
+                        Result::<(), BeaconNodeError<()>>::Ok(())
+                    })
+                    .await
+                    .is_err()
             {
                 continue;
             }

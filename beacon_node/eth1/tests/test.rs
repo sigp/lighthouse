@@ -149,7 +149,7 @@ mod eth1_cache {
                         eth1.ganache.evm_mine().await.expect("should mine block");
                     }
 
-                    let endpoints = service.init_endpoints();
+                    let endpoints = service.init_fallback();
 
                     service
                         .update_deposit_cache(None, &endpoints)
@@ -218,7 +218,7 @@ mod eth1_cache {
                 eth1.ganache.evm_mine().await.expect("should mine block")
             }
 
-            let endpoints = service.init_endpoints();
+            let endpoints = service.init_fallback();
 
             service
                 .update_deposit_cache(None, &endpoints)
@@ -271,7 +271,7 @@ mod eth1_cache {
                 for _ in 0..cache_len / 2 {
                     eth1.ganache.evm_mine().await.expect("should mine block")
                 }
-                let endpoints = service.init_endpoints();
+                let endpoints = service.init_fallback();
                 service
                     .update_deposit_cache(None, &endpoints)
                     .await
@@ -321,7 +321,7 @@ mod eth1_cache {
                 eth1.ganache.evm_mine().await.expect("should mine block")
             }
 
-            let endpoints = service.init_endpoints();
+            let endpoints = service.init_fallback();
             futures::try_join!(
                 service.update_deposit_cache(None, &endpoints),
                 service.update_deposit_cache(None, &endpoints)
@@ -380,7 +380,7 @@ mod deposit_tree {
                         .expect("should perform a deposit");
                 }
 
-                let endpoints = service.init_endpoints();
+                let endpoints = service.init_fallback();
 
                 service
                     .update_deposit_cache(None, &endpoints)
@@ -461,7 +461,7 @@ mod deposit_tree {
                     .expect("should perform a deposit");
             }
 
-            let endpoints = service.init_endpoints();
+            let endpoints = service.init_fallback();
             futures::try_join!(
                 service.update_deposit_cache(None, &endpoints),
                 service.update_deposit_cache(None, &endpoints)
@@ -721,7 +721,7 @@ mod fast {
                 eth1.ganache.evm_mine().await.expect("should mine block");
             }
 
-            let endpoints = service.init_endpoints();
+            let endpoints = service.init_fallback();
             service
                 .update_deposit_cache(None, &endpoints)
                 .await
@@ -794,7 +794,7 @@ mod persist {
                     .expect("should perform a deposit");
             }
 
-            let endpoints = service.init_endpoints();
+            let endpoints = service.init_fallback();
             service
                 .update_deposit_cache(None, &endpoints)
                 .await
