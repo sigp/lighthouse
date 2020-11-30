@@ -18,7 +18,6 @@ network = { path = "../network" }
 eth2_libp2p = { path = "../eth2_libp2p" }
 eth1 = { path = "../eth1" }
 fork_choice = { path = "../../consensus/fork_choice" }
-futures = "0.3.7"
 state_processing = { path = "../../consensus/state_processing" }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }

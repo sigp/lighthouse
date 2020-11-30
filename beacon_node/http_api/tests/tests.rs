@@ -24,8 +24,8 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tokio_compat_02::FutureExt;
 use tokio::time::Duration;
+use tokio_compat_02::FutureExt;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,

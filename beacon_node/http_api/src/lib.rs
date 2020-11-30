@@ -42,7 +42,6 @@ use types::{
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
 use warp::http::StatusCode;
-use warp::{http::Response, Filter};
 use warp::sse::ServerSentEvent;
 use warp::{http::Response, Filter, Stream};
 use warp_utils::reject::ServerSentEventError;
