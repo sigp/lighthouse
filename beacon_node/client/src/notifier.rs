@@ -185,15 +185,13 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 }
 
 fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
-    let current_slot = beacon_chain
-        .slot()
-        .unwrap_or(beacon_chain.spec.genesis_slot);
+    let current_slot_opt = beacon_chain.slot().ok();
 
     if let Ok(head_info) = beacon_chain.head_info() {
         // Perform some logging about the eth1 chain
         if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
             if let Some(status) =
-                eth1_chain.sync_status(head_info.genesis_time, current_slot, &beacon_chain.spec)
+                eth1_chain.sync_status(head_info.genesis_time, current_slot_opt, &beacon_chain.spec)
             {
                 debug!(
                     log,
@@ -206,48 +204,7 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
                 );
 
                 if !status.lighthouse_is_cached_and_ready {
-                    // The voting target timestamp needs to be special-cased when we're before
-                    // genesis.
-                    //
-                    // The `eth1_chain.sync_status` only returns *actual* eth1 voting period start
-                    // times (i.e., ones that are equal to or later than genesis).
-                    //
-                    // For the sake of this log, when prior to genesis we want to invent some voting
-                    // periods that are *before* genesis, so that we can indicate to users that
-                    // we're actually adequately cached for where they are in time.
-                    let voting_target_timestamp = if beacon_chain
-                        .slot_clock
-                        .is_prior_to_genesis()
-                        .unwrap_or(false)
-                    {
-                        // The number of seconds in an eth1 voting period.
-                        let voting_period_duration = T::EthSpec::slots_per_eth1_voting_period()
-                            as u64
-                            * (beacon_chain.spec.milliseconds_per_slot / 1_000);
-
-                        // The number of seconds between now and genesis.
-                        let seconds_till_genesis = beacon_chain
-                            .slot_clock
-                            .duration_to_next_slot()
-                            .map(|duration| duration.as_secs())
-                            .unwrap_or(0);
-
-                        // Determine how many voting periods are contained in distance between
-                        // now and genesis, rounding up.
-                        let voting_periods_past = (seconds_till_genesis + voting_period_duration
-                            - 1)
-                            / voting_period_duration;
-
-                        // Return the start time of the current voting period*.
-                        //
-                        // *: This voting period doesn't *actually* exist, we're just using it to
-                        // give useful logs prior to genesis.
-                        head_info
-                            .genesis_time
-                            .saturating_sub(voting_periods_past * voting_period_duration)
-                    } else {
-                        status.voting_target_timestamp
-                    };
+                    let voting_target_timestamp = status.voting_target_timestamp;
 
                     let distance = status
                         .latest_cached_block_timestamp

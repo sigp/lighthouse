@@ -2075,9 +2075,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let head_info = chain
                     .head_info()
                     .map_err(warp_utils::reject::beacon_chain_error)?;
-                let current_slot = chain
-                    .slot()
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_slot_opt = chain.slot().ok();
 
                 chain
                     .eth1_chain
@@ -2088,7 +2086,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )
                     })
                     .and_then(|eth1| {
-                        eth1.sync_status(head_info.genesis_time, current_slot, &chain.spec)
+                        eth1.sync_status(head_info.genesis_time, current_slot_opt, &chain.spec)
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_server_error(
                                     "Unable to determine Eth1 sync status".to_string(),
