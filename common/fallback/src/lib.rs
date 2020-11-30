@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tokio::time::sleep;
 
+/// An abstract struct realizing fallbacks for any kind of server.
 #[derive(Clone)]
 pub struct Fallback<T> {
     servers: Vec<T>,
@@ -16,6 +17,7 @@ pub struct Fallback<T> {
 
 #[derive(Debug, PartialEq)]
 pub enum FallbackError<E> {
+    /// All fallbacks returned an error for some request.
     AllErrored(Vec<E>),
 }
 
@@ -40,6 +42,9 @@ impl<T> Fallback<T> {
         Err(FallbackError::AllErrored(errors))
     }
 
+    /// Run the given function for all servers concurrently and stop as soon as one of them
+    /// successfully returns. If no server returns successfully wait for all servers and return all
+    /// errors.
     pub async fn first_success_concurrent<'a, F, O, E, R>(
         &'a self,
         func: F,
@@ -67,6 +72,9 @@ impl<T> Fallback<T> {
         Err(FallbackError::AllErrored(errors))
     }
 
+    /// Run the given function for all servers concurrently. Whenever the function returns for
+    /// a server use `should_retry` to determine if the function should get rerun for that server.
+    /// Stops as soon as the function returns successfully for any server.
     pub async fn first_success_concurrent_retry<'a, F, G, O, R, E>(
         &'a self,
         func: F,
@@ -93,6 +101,8 @@ impl<T> Fallback<T> {
         .await
     }
 
+    /// Given a fallback error format it to a string assuming the errors are in the order of the
+    /// internal server list.
     pub fn map_format_error<'a, E, F, S>(&'a self, f: F, error: &FallbackError<E>) -> String
     where
         F: FnMut(&'a T) -> &'a S,
@@ -111,14 +121,20 @@ impl<T> Fallback<T> {
         }
     }
 
+    /// Iterate through all servers
     pub fn iter_servers(&self) -> Iter<'_, T> {
         self.servers.iter()
     }
 }
 
 type InnerState<E> = Option<Result<(), E>>;
+
+/// A thread safe smart pointer representing a state of a server
 pub type ServerState<E> = Arc<RwLock<InnerState<E>>>;
 
+/// Checks if the server has already a known state in which case it returns it. Otherwise, it calls
+/// the callback `f` with a mutable reference to the state. The callback `f` should determine the
+/// new state, write it to the mutable reference if it should get persisted, and return it.
 pub async fn check_preconditions<'a, E, F, R>(s: &'a ServerState<E>, f: F) -> Result<(), E>
 where
     E: Clone,

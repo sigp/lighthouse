@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use tokio::time::Duration;
 
+/// Error state for an eth1 endpoint
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum EndpointError {
     NotReachable,
@@ -16,6 +17,10 @@ pub enum EndpointError {
     FarBehind,
 }
 
+/// Stores a set of eth1 endpoints fallbacks and context data needed to determine endpoint states.
+/// Before a beacon node is used the first time it gets checked if it is online, has the correct
+/// network id and the correct chain id. Furthermore, it remembers for each fallback if a
+/// `FarBehind` error occurred.
 pub struct Eth1Fallback {
     pub fallback: Fallback<(String, ServerState<EndpointError>)>,
     config_network_id: Eth1Id,
@@ -38,10 +43,13 @@ impl Eth1Fallback {
         }
     }
 
+    /// Format the given fallback error according to the endpoints list.
     pub fn format_err<E: Debug>(&self, error: &FallbackError<E>) -> String {
         self.fallback.map_format_error(|(s, _)| s, &error)
     }
 
+    /// Wrapper function for `Fallback::first_success` that checks and remembers endpoint states +
+    /// increase metric counts for each used endpoint.
     pub async fn first_success<'a, F, O, R>(
         &'a self,
         func: F,
@@ -70,6 +78,8 @@ impl Eth1Fallback {
             .await
     }
 
+    /// Check and return the current server state. Checks if the endpoint is online + has the
+    /// correct network id + has the correct chain id.
     async fn check(&self, server: &str) -> Result<(), EndpointError> {
         let endpoint: &str = &server;
         let error_connecting = |_| {
@@ -122,6 +132,7 @@ impl Eth1Fallback {
         }
     }
 
+    /// Increase metrics counts for an endpoint request.
     fn report_result<T, E>(endpoint: &str, result: Result<T, E>) -> Result<T, E> {
         crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[endpoint]);
         if result.is_err() {

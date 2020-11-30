@@ -12,9 +12,12 @@ use tokio::sync::RwLockWriteGuard;
 use tokio::time::Duration;
 use types::{ChainSpec, EthSpec};
 
+/// Error object returned on fallback calls.
 #[derive(Debug)]
 pub enum BeaconNodeError<E> {
+    /// A precondition is not satisfied for this node
     ConnectionError(BeaconNodeConnectionError),
+    /// An error occurred during executing the function on the endpoint
     ApiError(E),
 }
 
@@ -48,6 +51,7 @@ impl Into<String> for BeaconNodeConnectionError {
     }
 }
 
+/// Data used to check if a beacon node uses the same specs as the validator client.
 #[derive(Clone)]
 pub struct BeaconNodeContext<E: EthSpec> {
     chain_spec: ChainSpec,
@@ -64,6 +68,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
         }
     }
 
+    /// Checks if a beacon node is online and uses the same specs as the validator client
     async fn check(
         &self,
         beacon_node: &BeaconNodeHttpClient,
@@ -133,6 +138,8 @@ impl<E: EthSpec> BeaconNodeContext<E> {
         Ok(())
     }
 
+    /// Log a warning if the given result is an error. Convenience function to use during result
+    /// processing.
     fn log_error<O, Err: Debug>(
         &self,
         node: &BeaconNodeHttpClient,
@@ -150,6 +157,8 @@ impl<E: EthSpec> BeaconNodeContext<E> {
     }
 }
 
+/// Holds possibly multiple beacon nodes structured as fallbacks. Before a beacon node is used the
+/// first time it gets checked if it uses the same spec as the validator client.
 #[derive(Clone)]
 pub struct BeaconNodeFallback<E: EthSpec> {
     pub fallback: Fallback<(BeaconNodeHttpClient, ServerState<BeaconNodeConnectionError>)>,
@@ -164,6 +173,9 @@ impl<E: EthSpec> BeaconNodeFallback<E> {
         Self { fallback, context }
     }
 
+    /// Wrapper function for `Fallback::first_success` that checks if a beacon node is online (but
+    /// does not remember the online state) + checks if the the node uses the correct spec (gets
+    /// remembered) + increase metric counts for each used beacon node.
     pub async fn first_success<'a, F, O, R, Err>(
         &'a self,
         func: F,
@@ -188,6 +200,9 @@ impl<E: EthSpec> BeaconNodeFallback<E> {
             .await
     }
 
+    /// Wrapper function for `Fallback::first_success_concurrent_retry` that checks if a beacon node
+    /// is online (but does not remember the online state) + checks if the the node uses the correct
+    /// spec (gets remembered) + increase metric counts for each used beacon node.
     pub async fn first_success_concurrent_retry<'a, F, G, O, R, Err: Debug>(
         &'a self,
         func: F,
@@ -235,6 +250,9 @@ fn save_result(
     }
 }
 
+/// Holds possibly multiple beacon nodes structured as fallbacks. Before a beacon node is used the
+/// first time it gets checked if it uses the same spec as the validator client and if it is fully
+/// synced.
 #[derive(Clone)]
 pub struct BeaconNodeFallbackWithSyncChecks<T, E: EthSpec> {
     pub fallback: Fallback<(
@@ -271,16 +289,23 @@ where
         }
     }
 
+    /// Forgets all the sync states so that they get rechecked the next time a beacon node is used.
     pub async fn reset_sync_states(&self) {
         for (_, _, s) in self.fallback.iter_servers() {
             *s.write().await = None;
         }
     }
 
+    /// Format the given fallback error according to the beacon node list.
     pub fn format_err<Err: Debug>(&self, error: &FallbackError<Err>) -> String {
         self.fallback.map_format_error(|(n, _, _)| n, &error)
     }
 
+    /// Wrapper function for `Fallback::first_success` that checks if a beacon node is online (but
+    /// does not remember the online state) + checks if the the node uses the correct spec (gets
+    /// remembered) + checks if the node is fully synced (gets remembered) + increase metric counts
+    /// for each used beacon node. If `self.allow_unsynced` is true and all beacon nodes are
+    /// offline, have wrong specs, or are unsynced it retries ignoring the sync state.
     pub async fn first_success<'a, F, O, R, Err>(
         &'a self,
         func: F,
@@ -340,6 +365,7 @@ where
         result
     }
 
+    /// Checks if the beacon node is synced.
     async fn check_sync(&self, beacon_node: &BeaconNodeHttpClient) -> Result<(), ()> {
         if is_synced(beacon_node, &self.slot_clock, Some(&self.context.log)).await {
             Ok(())
