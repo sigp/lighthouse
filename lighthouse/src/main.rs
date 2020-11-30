@@ -2,7 +2,7 @@ use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
+use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -118,7 +118,7 @@ fn main() {
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
-                .default_value(DEFAULT_HARDCODED_TESTNET)
+                .default_value(DEFAULT_HARDCODED_NETWORK)
                 .takes_value(true)
                 .global(true)
 
@@ -251,7 +251,7 @@ fn run<E: EthSpec>(
     let testnet_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
-        (None, None) => DEFAULT_HARDCODED_TESTNET.to_string(),
+        (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 

@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-pub use eth2_testnet_config::DEFAULT_HARDCODED_TESTNET;
+pub use eth2_testnet_config::DEFAULT_HARDCODED_NETWORK;
 use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ pub fn get_testnet_name(matches: &ArgMatches) -> String {
     } else if matches.value_of("testnet-dir").is_some() {
         CUSTOM_TESTNET_DIR.to_string()
     } else {
-        eth2_testnet_config::DEFAULT_HARDCODED_TESTNET.to_string()
+        eth2_testnet_config::DEFAULT_HARDCODED_NETWORK.to_string()
     }
 }
 
