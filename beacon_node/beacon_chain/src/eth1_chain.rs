@@ -74,6 +74,10 @@ fn get_sync_status<T: EthSpec>(
     current_slot: Option<Slot>,
     spec: &ChainSpec,
 ) -> Option<Eth1SyncStatusData> {
+    let eth1_follow_distance_seconds = spec
+        .seconds_per_eth1_block
+        .saturating_mul(spec.eth1_follow_distance);
+
     // The voting target timestamp needs to be special-cased when we're before
     // genesis (as defined by `current_slot == None`).
     //
@@ -81,6 +85,7 @@ fn get_sync_status<T: EthSpec>(
     // that are *before* genesis, so that we can indicate to users that we're actually adequately
     // cached for where they are in time.
     let voting_target_timestamp = if let Some(current_slot) = current_slot {
+        let period = T::SlotsPerEth1VotingPeriod::to_u64();
         let voting_period_start_slot = (current_slot / period) * period;
 
         let period_start = slot_start_seconds::<T>(
@@ -88,9 +93,6 @@ fn get_sync_status<T: EthSpec>(
             spec.milliseconds_per_slot,
             voting_period_start_slot,
         );
-        let eth1_follow_distance_seconds = spec
-            .seconds_per_eth1_block
-            .saturating_mul(spec.eth1_follow_distance);
 
         period_start.saturating_sub(eth1_follow_distance_seconds)
     } else {
@@ -114,7 +116,7 @@ fn get_sync_status<T: EthSpec>(
         // give useful logs prior to genesis.
         genesis_time
             .saturating_sub(voting_periods_past * voting_period_duration)
-            .saturating_sub(spec.eth1_follow_distance * spec.seconds_per_eth1_block)
+            .saturating_sub(eth1_follow_distance_seconds)
     };
 
     let latest_cached_block_number = latest_cached_block.map(|b| b.number);
