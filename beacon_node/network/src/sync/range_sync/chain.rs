@@ -513,7 +513,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // This should be unlikely, so we tolerate these errors, but not often.
                     let action = PeerAction::LowToleranceError;
                     warn!(self.log, "Batch failed to download. Dropping chain scoring peers";
-                        "score_adjustment" => action.to_string(),
+                        "score_adjustment" => %action,
                         "batch_epoch"=> batch_id);
                     for (peer, _) in self.peers.drain() {
                         network.report_peer(peer, action);
@@ -1028,7 +1028,7 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
             "to",
             serializer,
         )?;
-        serializer.emit_str("end_root", &self.target_head_root.to_string())?;
+        serializer.emit_arguments("end_root", &format_args!("{}", self.target_head_root))?;
         Value::serialize(
             &self.processing_target,
             record,

@@ -399,11 +399,11 @@ impl slog::KV for StatusMessage {
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         use slog::Value;
-        serializer.emit_str("fork_digest", &format!("{:?}", self.fork_digest))?;
+        serializer.emit_arguments("fork_digest", &format_args!("{:?}", self.fork_digest))?;
         Value::serialize(&self.finalized_epoch, record, "finalized_epoch", serializer)?;
-        serializer.emit_str("finalized_root", &self.finalized_root.to_string())?;
+        serializer.emit_arguments("finalized_root", &format_args!("{}", self.finalized_root))?;
         Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
-        serializer.emit_str("head_root", &self.head_root.to_string())?;
+        serializer.emit_arguments("head_root", &format_args!("{}", self.head_root))?;
         slog::Result::Ok(())
     }
 }

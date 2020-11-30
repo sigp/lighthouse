@@ -215,13 +215,15 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
-    pub fn state(&self) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, String> {
+    pub fn state(
+        &self,
+    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
         match self.state {
             RangeSyncState::Finalized(ref syncing_id) => {
                 let chain = self
                     .finalized_chains
                     .get(syncing_id)
-                    .ok_or(format!("Finalized syncing chain not found: {}", syncing_id))?;
+                    .ok_or("Finalized syncing chain not found")?;
                 Ok(Some((
                     RangeSyncType::Finalized,
                     chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
@@ -234,7 +236,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     let chain = self
                         .head_chains
                         .get(id)
-                        .ok_or(format!("Head syncing chain not found: {}", id))?;
+                        .ok_or("Head syncing chain not found")?;
                     let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());
                     let target = chain.target_head_slot;
 
@@ -242,8 +244,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         .map(|(min_start, max_slot)| (min_start.min(start), max_slot.max(target)))
                         .or(Some((start, target)));
                 }
-                let (start_slot, target_slot) =
-                    range.ok_or_else(|| "Syncing head with empty head ids".to_string())?;
+                let (start_slot, target_slot) = range.ok_or("Syncing head with empty head ids")?;
                 Ok(Some((RangeSyncType::Head, start_slot, target_slot)))
             }
             RangeSyncState::Idle => Ok(None),

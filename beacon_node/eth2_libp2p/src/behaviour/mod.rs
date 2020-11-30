@@ -198,7 +198,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             current_slot,
         )?;
 
-        trace!(behaviour_log, "Using peer score params"; "params" => format!("{:?}", params));
+        trace!(behaviour_log, "Using peer score params"; "params" => ?params);
 
         let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
@@ -241,9 +241,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         debug!(self.log, "Updating gossipsub score parameters";
             "active_validators" => active_validators);
         trace!(self.log, "Updated gossipsub score parameters";
-            "beacon_block_params" => format!("{:?}", beacon_block_params),
-            "beacon_aggregate_proof_params" => format!("{:?}", beacon_aggregate_proof_params),
-            "beacon_attestation_subnet_params" => format!("{:?}", beacon_attestation_subnet_params),
+            "beacon_block_params" => ?beacon_block_params,
+            "beacon_aggregate_proof_params" => ?beacon_aggregate_proof_params,
+            "beacon_attestation_subnet_params" => ?beacon_attestation_subnet_params,
         );
 
         self.gossipsub
@@ -341,11 +341,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         match self.gossipsub.subscribe(&topic) {
             Err(_) => {
-                warn!(self.log, "Failed to subscribe to topic"; "topic" => topic.to_string());
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic);
                 false
             }
             Ok(v) => {
-                debug!(self.log, "Subscribed to topic"; "topic" => topic.to_string());
+                debug!(self.log, "Subscribed to topic"; "topic" => %topic);
                 v
             }
         }
@@ -364,11 +364,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         match self.gossipsub.unsubscribe(&topic) {
             Err(_) => {
-                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => topic.to_string());
+                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %topic);
                 false
             }
             Ok(v) => {
-                debug!(self.log, "Unsubscribed to topic"; "topic" => topic.to_string());
+                debug!(self.log, "Unsubscribed to topic"; "topic" => %topic);
                 v
             }
         }
@@ -382,7 +382,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     Ok(message_data) => {
                         if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
                             slog::warn!(self.log, "Could not publish message";
-                                        "error" => format!("{:?}", e));
+                                        "error" => ?e);
 
                             // add to metrics
                             match topic.kind() {
@@ -424,7 +424,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             propagation_source,
             validation_result,
         ) {
-            warn!(self.log, "Failed to report message validation"; "message_id" => message_id.to_string(), "peer_id" => propagation_source.to_string(), "error" => format!("{:?}", e));
+            warn!(self.log, "Failed to report message validation"; "message_id" => %message_id, "peer_id" => %propagation_source, "error" => ?e);
         }
     }
 
@@ -565,7 +565,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let ping = crate::rpc::Ping {
             data: self.network_globals.local_metadata.read().seq_number,
         };
-        trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
+        trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => %peer_id);
 
         self.eth2_rpc
             .send_request(peer_id, id, RPCRequest::Ping(ping));
@@ -576,7 +576,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let ping = crate::rpc::Ping {
             data: self.network_globals.local_metadata.read().seq_number,
         };
-        trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => peer_id.to_string());
+        trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => %peer_id);
         let event = RPCCodedResponse::Success(RPCResponse::Pong(ping));
         self.eth2_rpc.send_response(peer_id, id, event);
     }
@@ -620,7 +620,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             &propagation_source,
                             MessageAcceptance::Reject,
                         ) {
-                            warn!(self.log, "Failed to report message validation"; "message_id" => id.to_string(), "peer_id" => propagation_source.to_string(), "error" => format!("{:?}", e));
+                            warn!(self.log, "Failed to report message validation"; "message_id" => %id, "peer_id" => %propagation_source, "error" => ?e);
                         }
                     }
                     Ok(msg) => {
@@ -669,7 +669,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             debug!(
                 self.log,
                 "Ignoring rpc message of disconnected peer";
-                "peer" => peer_id.to_string()
+                "peer" => %peer_id
             );
             return;
         }
@@ -730,9 +730,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // queue for disconnection without a goodbye message
                         debug!(
                             self.log, "Peer sent Goodbye";
-                            "peer_id" => peer_id.to_string(),
-                            "reason" => reason.to_string(),
-                            "client" => self.network_globals.client(&peer_id).to_string(),
+                            "peer_id" => %peer_id,
+                            "reason" => %reason,
+                            "client" => %self.network_globals.client(&peer_id),
                         );
                         self.peers_to_dc.push_back((peer_id, None));
                         // NOTE: We currently do not inform the application that we are
@@ -835,7 +835,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                     PeerManagerEvent::DisconnectPeer(peer_id, reason) => {
                         debug!(self.log, "PeerManager disconnecting peer";
-                            "peer_id" => peer_id.to_string(), "reason" => reason.to_string());
+                            "peer_id" => %peer_id, "reason" => %reason);
                         // send one goodbye
                         return Poll::Ready(NBAction::NotifyHandler {
                             peer_id,
@@ -881,12 +881,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // send peer info to the peer manager.
                 self.peer_manager.identify(&peer_id, &info);
 
-                debug!(self.log, "Identified Peer"; "peer" => format!("{}", peer_id),
-                "protocol_version" => info.protocol_version,
-                "agent_version" => info.agent_version,
-                "listening_ addresses" => format!("{:?}", info.listen_addrs),
-                "observed_address" => format!("{:?}", observed_addr),
-                "protocols" => format!("{:?}", info.protocols)
+                debug!(self.log, "Identified Peer"; "peer" => %peer_id,
+                    "protocol_version" => info.protocol_version,
+                    "agent_version" => info.agent_version,
+                    "listening_ addresses" => ?info.listen_addrs,
+                    "observed_address" => ?observed_addr,
+                    "protocols" => ?info.protocols
                 );
             }
             IdentifyEvent::Sent { .. } => {}
@@ -985,10 +985,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         if let Some(goodbye_reason) = goodbye_reason {
             match goodbye_reason {
                 GoodbyeReason::Banned => {
-                    debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.to_string())
+                    debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => %peer_id, "reason" => %goodbye_reason)
                 }
                 _ => {
-                    trace!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.to_string())
+                    trace!(self.log, "Disconnecting newly connected peer"; "peer_id" => %peer_id, "reason" => %goodbye_reason)
                 }
             }
             self.peers_to_dc
@@ -1005,13 +1005,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                 self.peer_manager
                     .connect_ingoing(&peer_id, send_back_addr.clone());
                 self.add_event(BehaviourEvent::PeerConnected(peer_id.clone()));
-                debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Incoming");
+                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming");
             }
             ConnectedPoint::Dialer { address } => {
                 self.peer_manager
                     .connect_outgoing(&peer_id, address.clone());
                 self.add_event(BehaviourEvent::PeerDialed(peer_id.clone()));
-                debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Dialed");
+                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Dialed");
             }
         }
         // report the event to the behaviour
@@ -1310,8 +1310,8 @@ pub fn save_metadata_to_disk<E: EthSpec>(dir: &PathBuf, metadata: MetaData<E>, l
             warn!(
                 log,
                 "Could not write metadata to disk";
-                "file" => format!("{:?}{:?}",dir, METADATA_FILENAME),
-                "error" => format!("{}", e)
+                "file" => format!("{:?}{:?}", dir, METADATA_FILENAME),
+                "error" => %e
             );
         }
     }
