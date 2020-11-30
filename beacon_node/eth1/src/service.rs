@@ -27,7 +27,7 @@ pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
 /// Indicates the default eth1 chain id we use for the deposit contract.
 pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
 
-const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
+const STANDARD_TIMEOUT_MILLIS: u64 = 60_000;
 
 /// Timeout when doing a eth_blockNumber call.
 const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
