@@ -84,6 +84,12 @@ impl fmt::Display for BeaconNodeHttpClient {
     }
 }
 
+impl AsRef<str> for BeaconNodeHttpClient {
+    fn as_ref(&self) -> &str {
+        self.server.as_str()
+    }
+}
+
 impl BeaconNodeHttpClient {
     pub fn new(server: Url) -> Self {
         Self {

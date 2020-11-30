@@ -219,9 +219,9 @@ impl<E: EthSpec> BeaconNodeFallback<E> {
 }
 
 fn report_result<T, E>(endpoint: &BeaconNodeHttpClient, result: Result<T, E>) -> Result<T, E> {
-    inc_counter_vec(&ENDPOINT_REQUESTS, &[&format!("{}", endpoint)]);
+    inc_counter_vec(&ENDPOINT_REQUESTS, &[endpoint.as_ref()]);
     if result.is_err() {
-        inc_counter_vec(&ENDPOINT_ERRORS, &[&format!("{}", endpoint)]);
+        inc_counter_vec(&ENDPOINT_ERRORS, &[endpoint.as_ref()]);
     }
     result
 }
