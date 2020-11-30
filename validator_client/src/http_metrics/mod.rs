@@ -123,6 +123,7 @@ pub fn serve<T: EthSpec>(
                     .unwrap_or_else(|e| {
                         Response::builder()
                             .status(500)
+                            .header("Content-Type", "text/plain")
                             .body(format!("Unable to gather metrics: {:?}", e))
                             .unwrap()
                     }),
