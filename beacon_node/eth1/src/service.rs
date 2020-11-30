@@ -984,8 +984,9 @@ impl Service {
         } else {
             Vec::new()
         };
-        // Download the range of blocks and sequentially import them into the cache.
-        // Last processed block in deposit cache
+
+        // This value is used to prevent the block cache from importing a block that is not yet in
+        // the deposit cache.
         let latest_in_cache = self
             .inner
             .deposit_cache
@@ -1011,10 +1012,18 @@ impl Service {
 
         let mut blocks_imported = 0;
         let start_instant = Instant::now();
-        let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
+        // Setting the maximum runtime longer than the auto update interval allows us to download
+        // more blocks without interruption.
+        //
+        // This value is a trade-off between making blocks download quickly and starving the deposit
+        // cache of updates.
+        let max_runtime = Duration::from_millis(self.config().auto_update_interval_millis * 2);
         for block_number in required_block_numbers {
             // Avoid updates that lasts longer than the update interval.
-            if Instant::now().duration_since(start_instant) > update_interval {
+            //
+            // This prevents the block downloading routine for running for a very long time and
+            // starving the deposit cache updater.
+            if Instant::now().duration_since(start_instant) > max_runtime {
                 break;
             }
 
