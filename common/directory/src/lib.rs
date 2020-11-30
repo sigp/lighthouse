@@ -19,9 +19,9 @@ pub const CUSTOM_TESTNET_DIR: &str = "custom";
 /// Tries to get the name first from the "network" flag,
 /// if not present, then checks the "testnet-dir" flag and returns a custom name
 /// If neither flags are present, returns the default hardcoded network name.
-pub fn get_testnet_name(matches: &ArgMatches) -> String {
-    if let Some(testnet_name) = matches.value_of("network") {
-        testnet_name.to_string()
+pub fn get_network_dir(matches: &ArgMatches) -> String {
+    if let Some(network_name) = matches.value_of("network") {
+        network_name.to_string()
     } else if matches.value_of("testnet-dir").is_some() {
         CUSTOM_TESTNET_DIR.to_string()
     } else {
@@ -54,7 +54,7 @@ pub fn parse_path_or_default_with_flag(
         arg,
         PathBuf::new()
             .join(DEFAULT_ROOT_DIR)
-            .join(get_testnet_name(matches))
+            .join(get_network_dir(matches))
             .join(flag),
     )
 }

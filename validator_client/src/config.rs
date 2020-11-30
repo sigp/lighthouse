@@ -2,7 +2,7 @@ use crate::{http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use directory::{
-    get_testnet_name, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
+    get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
 };
 use eth2::types::Graffiti;
@@ -91,13 +91,13 @@ impl Config {
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_testnet_name(cli_args))
+                .join(get_network_dir(cli_args))
                 .join(DEFAULT_VALIDATOR_DIR)
         });
 
         config.secrets_dir = secrets_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_testnet_name(cli_args))
+                .join(get_network_dir(cli_args))
                 .join(DEFAULT_SECRET_DIR)
         });
 
