@@ -6,6 +6,7 @@
 - [What should I do if I lose my slashing protection database?](#what-should-i-do-if-i-lose-my-slashing-protection-database)
 - [How do I update lighthouse?](#how-do-i-update-lighthouse)
 - [I can't compile lighthouse](#i-cant-compile-lighthouse)
+- [What is "Syncing eth1 block cache"](#what-is-syncing-eth1-block-cache)
 
 
 ### Why does it take so long for a validator to be activated?
@@ -155,3 +156,21 @@ You will just also need to make sure the code you have checked out is up to date
 ### I can't compile lighthouse
 
 See [here.](./installation-source.md#troubleshooting)
+
+### What is "Syncing eth1 block cache"
+
+```
+Nov 30 21:04:28.268 WARN Syncing eth1 block cache   est_blocks_remaining: initializing deposits, msg: sync can take longer when using remote eth1 nodes, service: slot_notifier
+```
+
+This log indicates that your beacon node is downloading blocks and deposits
+from your eth1 node. When the `est_blocks_remaining` is
+`initializing_deposits`, your node is downloading deposit logs. It may stay in
+this stage for several minutes. Once the deposits logs are finished
+downloading, the `est_blocks_remaining` value will start decreasing.
+
+It is perfectly normal to see this log when starting a node for the first time
+or after being off for more than several minutes.
+
+If this log continues appearing sporadically during operation, there may be an
+issue with your eth1 endpoint.
