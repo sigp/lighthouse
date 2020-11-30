@@ -306,7 +306,7 @@ pub fn get_config<E: EthSpec>(
 
         graffiti.as_bytes()
     } else if cli_args.is_present("private") {
-        "".as_bytes()
+        b""
     } else {
         lighthouse_version::VERSION.as_bytes()
     };
