@@ -98,14 +98,14 @@ in this document can be substituted with:
 
 ```bash
 docker run -it \
-	-v $HOME/.lighthouse:/root/.lighthouse \
-	-v $(pwd)/validator_keys:/root/validator_keys \
+	-v $HOME/.lighthouse:/home/lighthouse/.lighthouse \
+	-v $(pwd)/validator_keys:/home/lighthouse/validator_keys \
 	sigp/lighthouse \
-	lighthouse --network MY_NETWORK account validator import --directory /root/validator_keys
+	lighthouse --network MY_NETWORK account validator import --directory /home/lighthouse/validator_keys
 ```
 
 Here we use two `-v` volumes to attach:
 
-- `~/.lighthouse` on the host to `/root/.lighthouse` in the Docker container.
+- `~/.lighthouse` on the host to `/home/lighthouse/.lighthouse` in the Docker container.
 - The `validator_keys` directory in the present working directory of the host
-	to the `/root/validator_keys` directory of the Docker container.
+	to the `/home/lighthouse/validator_keys` directory of the Docker container.

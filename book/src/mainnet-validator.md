@@ -155,14 +155,14 @@ Those using Docker images can start the processes with:
 ```bash
 $ docker run \
 	--network host \
-	-v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
+	-v $HOME/.lighthouse:/home/lighthouse/.lighthouse sigp/lighthouse \
 	lighthouse --network mainnet bn --staking --http-address 0.0.0.0
 ```
 
 ```bash
 $ docker run \
 	--network host \
-	-v $HOME/.lighthouse:/root/.lighthouse \
+	-v $HOME/.lighthouse:/home/lighthouse/.lighthouse \
 	sigp/lighthouse \
 	lighthouse --network mainnet vc
 ```
