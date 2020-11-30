@@ -1011,22 +1011,7 @@ impl Service {
         // consumes the it.
 
         let mut blocks_imported = 0;
-        let start_instant = Instant::now();
-        // Setting the maximum runtime longer than the auto update interval allows us to download
-        // more blocks without interruption.
-        //
-        // This value is a trade-off between making blocks download quickly and starving the deposit
-        // cache of updates.
-        let max_runtime = Duration::from_millis(self.config().auto_update_interval_millis * 2);
         for block_number in required_block_numbers {
-            // Avoid updates that lasts longer than the update interval.
-            //
-            // This prevents the block downloading routine for running for a very long time and
-            // starving the deposit cache updater.
-            if Instant::now().duration_since(start_instant) > max_runtime {
-                break;
-            }
-
             let eth1_block = endpoints
                 .first_success(|e| async move {
                     download_eth1_block(e, self.inner.clone(), Some(block_number)).await
