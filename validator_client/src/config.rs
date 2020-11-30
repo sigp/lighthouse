@@ -44,8 +44,8 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        // WARNING: these directory defaults should be always overrided with parameters
-        // from cli for specific networks.
+        // WARNING: these directory defaults should be always overwritten with parameters from cli
+        // for specific networks.
         let base_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
