@@ -1,3 +1,4 @@
+use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 use crate::is_synced::is_synced;
 use crate::BeaconNodeConnectionError;
 use eth2::{BeaconNodeHttpClient, Error};
@@ -10,7 +11,6 @@ use std::marker::PhantomData;
 use tokio::sync::RwLockWriteGuard;
 use tokio::time::Duration;
 use types::{ChainSpec, EthSpec};
-use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_REQUESTS, ENDPOINT_ERRORS};
 
 #[derive(Debug)]
 pub enum BeaconNodeError<E> {
