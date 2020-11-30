@@ -3024,6 +3024,7 @@ dependencies = [
  "eth2_libp2p",
  "eth2_ssz",
  "fork_choice",
+ "futures 0.3.8",
  "hex",
  "lazy_static",
  "lighthouse_metrics",

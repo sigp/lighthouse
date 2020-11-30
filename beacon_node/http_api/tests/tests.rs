@@ -2115,19 +2115,20 @@ async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin
 
     tokio::select! {
             _ = collect_stream_fut => {return events}
-            _ = tokio::time::delay_for(timeout) => { return events; }
+            _ = tokio::time::sleep(timeout) => { return events; }
     }
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events() {
-    ApiTester::new().test_get_events().await;
+    ApiTester::new().test_get_events().compat().await;
 }
 
-#[tokio::test(core_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events_from_genesis() {
     ApiTester::new_from_genesis()
         .test_get_events_from_genesis()
+        .compat()
         .await;
 }
 

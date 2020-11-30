@@ -34,7 +34,7 @@ use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::stream::{StreamExt, StreamMap};
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
@@ -2255,7 +2255,10 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     fn merge_streams<T: EthSpec>(
-        stream_map: StreamMap<String, Receiver<EventKind<T>>>,
+        stream_map: StreamMap<
+            String,
+            impl Stream<Item = Result<EventKind<T>, RecvError>> + Unpin + Send + 'static,
+        >,
     ) -> impl Stream<Item = Result<impl ServerSentEvent + Send + 'static, ServerSentEventError>>
            + Send
            + 'static {
@@ -2295,7 +2298,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     event_handler.subscribe_finalized()
                                 }
                             };
-                            stream_map.insert(topic.to_string(), receiver);
+                            stream_map.insert(topic.to_string(), Box::pin(receiver.into_stream()));
                         }
                     } else {
                         return Err(warp_utils::reject::custom_server_error(
