@@ -1,4 +1,4 @@
-use beacon_node::ProductionBeaconNode;
+use beacon_node::{ProductionBeaconNode, get_eth2_network_config};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
@@ -134,7 +134,7 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = load_testnet_config(&matches).and_then(|testnet_config| {
+    let result = get_eth2_network_config(&matches).and_then(|testnet_config| {
         let eth_spec_id = testnet_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
@@ -170,18 +170,6 @@ fn main() {
             drop(e);
             exit(1)
         }
-    }
-}
-
-fn load_testnet_config(matches: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    if matches.is_present("testnet-dir") {
-        clap_utils::parse_testnet_dir(matches, "testnet-dir")?
-            .ok_or_else(|| "Unable to load testnet dir".to_string())
-    } else if matches.is_present("network") {
-        clap_utils::parse_hardcoded_network(matches, "network")?
-            .ok_or_else(|| "Unable to load hard coded network config".to_string())
-    } else {
-        Err("No --network or --testnet-dir flags provided, cannot start.".to_string())
     }
 }
 
