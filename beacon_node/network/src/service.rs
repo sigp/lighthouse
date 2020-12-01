@@ -241,13 +241,13 @@ fn spawn_service<T: BeaconChainTypes>(
                     debug!(
                         service.log,
                         "Persisting DHT to store";
-                        "Number of peers" => format!("{}", enrs.len()),
+                        "Number of peers" => enrs.len(),
                     );
                     match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(service.store.clone(), enrs) {
                         Err(e) => error!(
                             service.log,
                             "Failed to persist DHT on drop";
-                            "error" => format!("{:?}", e)
+                            "error" => ?e
                         ),
                         Ok(_) => info!(
                             service.log,
@@ -354,9 +354,9 @@ fn spawn_service<T: BeaconChainTypes>(
                             validation_result,
                         } => {
                                 trace!(service.log, "Propagating gossipsub message";
-                                    "propagation_peer" => format!("{:?}", propagation_source),
-                                    "message_id" => message_id.to_string(),
-                                    "validation_result" => format!("{:?}", validation_result)
+                                    "propagation_peer" => ?propagation_source,
+                                    "message_id" => %message_id,
+                                    "validation_result" => ?validation_result
                                 );
                                 service
                                     .libp2p
@@ -376,7 +376,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                     service.log,
                                     "Sending pubsub messages";
                                     "count" => messages.len(),
-                                    "topics" => format!("{:?}", topic_kinds)
+                                    "topics" => ?topic_kinds
                                 );
                                 metrics::expose_publish_metrics(&messages);
                                 service.libp2p.swarm.publish(messages);
@@ -398,7 +398,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
                                     subscribed_topics.push(topic_kind.clone());
                                 } else {
-                                    warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                                    warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
                                 }
                             }
 
@@ -412,13 +412,13 @@ fn spawn_service<T: BeaconChainTypes>(
                                     service.libp2p.swarm.update_enr_subnet(subnet_id, true);
                                     subscribed_topics.push(topic_kind.clone());
                                 } else {
-                                    warn!(service.log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                                    warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
                                 }
                                 }
                             }
 
                             if !subscribed_topics.is_empty() {
-                                info!(service.log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
+                                info!(service.log, "Subscribed to topics"; "topics" => ?subscribed_topics);
                             }
                         }
                     }
@@ -545,7 +545,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         Libp2pEvent::ZeroListeners => {
                             let _ = shutdown_sender.send("All listeners are closed. Unable to listen").await.map_err(|e| {
-                                warn!(service.log, "failed to send a shutdown signal"; "error" => e.to_string()
+                                warn!(service.log, "failed to send a shutdown signal"; "error" => %e
                                 )
                             });
                         }

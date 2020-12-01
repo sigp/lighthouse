@@ -98,6 +98,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("private")
+                .long("private")
+                .help("Prevents sending various client identification information.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("enr-udp-port")
                 .long("enr-udp-port")
                 .value_name("PORT")

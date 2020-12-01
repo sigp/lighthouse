@@ -391,7 +391,7 @@ impl<T: EthSpec> slog::KV for BatchInfo<T> {
         )?;
         serializer.emit_usize("downloaded", self.failed_download_attempts.len())?;
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
-        serializer.emit_str("state", &format!("{:?}", self.state))?;
+        serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }
 }

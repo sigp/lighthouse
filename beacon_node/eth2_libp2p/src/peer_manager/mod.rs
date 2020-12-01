@@ -193,7 +193,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     &self.log,
                 );
                 if previous_state == info.score_state() {
-                    debug!(self.log, "Peer score adjusted"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
+                    debug!(self.log, "Peer score adjusted"; "peer_id" => %peer_id, "score" => %info.score());
                 }
             }
         } // end write lock
@@ -241,7 +241,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     trace!(
                         self.log,
                         "Discovery query ignored";
-                        "subnet_id" => format!("{:?}",s.subnet_id),
+                        "subnet_id" => ?s.subnet_id,
                         "reason" => "Already connected to desired peers",
                         "connected_peers_on_subnet" => peers_on_subnet,
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
@@ -441,7 +441,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
             // reset the to-ping timer for this peer
-            debug!(self.log, "Received a ping request"; "peer_id" => peer_id.to_string(), "seq_no" => seq);
+            debug!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
             match peer_info.connection_direction {
                 Some(ConnectionDirection::Incoming) => {
                     self.inbound_ping_peers.insert(peer_id.clone());
@@ -458,20 +458,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(meta_data) = &peer_info.meta_data {
                 if meta_data.seq_number < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
                     self.events
                         .push(PeerManagerEvent::MetaData(peer_id.clone()));
                 }
             } else {
                 // if we don't know the meta-data, request it
                 debug!(self.log, "Requesting first metadata from peer";
-                    "peer_id" => peer_id.to_string());
+                    "peer_id" => %peer_id);
                 self.events
                     .push(PeerManagerEvent::MetaData(peer_id.clone()));
             }
         } else {
             crit!(self.log, "Received a PING from an unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
         }
     }
 
@@ -484,19 +484,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(meta_data) = &peer_info.meta_data {
                 if meta_data.seq_number < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
                     self.events
                         .push(PeerManagerEvent::MetaData(peer_id.clone()));
                 }
             } else {
                 // if we don't know the meta-data, request it
                 debug!(self.log, "Requesting first metadata from peer";
-                    "peer_id" => peer_id.to_string());
+                    "peer_id" => %peer_id);
                 self.events
                     .push(PeerManagerEvent::MetaData(peer_id.clone()));
             }
         } else {
-            crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => peer_id.to_string());
+            crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => %peer_id);
         }
     }
 
@@ -506,21 +506,21 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(known_meta_data) = &peer_info.meta_data {
                 if known_meta_data.seq_number < meta_data.seq_number {
                     debug!(self.log, "Updating peer's metadata";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
                     peer_info.meta_data = Some(meta_data);
                 } else {
                     debug!(self.log, "Received old metadata";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
                 }
             } else {
                 // we have no meta-data for this peer, update
                 debug!(self.log, "Obtained peer's metadata";
-                    "peer_id" => peer_id.to_string(), "new_seq_no" => meta_data.seq_number);
+                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number);
                 peer_info.meta_data = Some(meta_data);
             }
         } else {
             crit!(self.log, "Received METADATA from an unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
         }
     }
 
@@ -672,7 +672,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
         for peer_id in to_dial_peers {
-            debug!(self.log, "Dialing discovered peer"; "peer_id"=> peer_id.to_string());
+            debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
             self.dial_peer(&peer_id);
         }
     }
@@ -688,7 +688,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.is_banned(&peer_id) {
                 // don't connect if the peer is banned
-                slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => peer_id.to_string());
+                slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
             }
 
             let enr = self.discovery.enr_of_peer(peer_id);
@@ -751,11 +751,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if previous_state != info.score_state() {
             match info.score_state() {
                 ScoreState::Banned => {
-                    debug!(log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
+                    debug!(log, "Peer has been banned"; "peer_id" => %peer_id, "score" => %info.score());
                     to_ban_peers.push(peer_id.clone());
                 }
                 ScoreState::Disconnected => {
-                    debug!(log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
+                    debug!(log, "Peer transitioned to disconnect state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
                     // disconnect the peer if it's currently connected or dialing
                     if info.is_connected_or_dialing() {
                         // Change the state to inform that we are disconnecting the peer.
@@ -769,7 +769,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     }
                 }
                 ScoreState::Healthy => {
-                    debug!(log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
+                    debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
                     // unban the peer if it was previously banned.
                     if info.is_banned() {
                         to_unban_peers.push(peer_id.clone());

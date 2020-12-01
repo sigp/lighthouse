@@ -71,23 +71,52 @@ fn get_sync_status<T: EthSpec>(
     latest_cached_block: Option<&Eth1Block>,
     head_block: Option<&Eth1Block>,
     genesis_time: u64,
-    current_slot: Slot,
+    current_slot: Option<Slot>,
     spec: &ChainSpec,
 ) -> Option<Eth1SyncStatusData> {
-    let period = T::SlotsPerEth1VotingPeriod::to_u64();
-    // Since `period` is a "constant", we assume it is set sensibly.
-    let voting_period_start_slot = (current_slot / period) * period;
-    let voting_target_timestamp = {
+    let eth1_follow_distance_seconds = spec
+        .seconds_per_eth1_block
+        .saturating_mul(spec.eth1_follow_distance);
+
+    // The voting target timestamp needs to be special-cased when we're before
+    // genesis (as defined by `current_slot == None`).
+    //
+    // For the sake of this status, when prior to genesis we want to invent some voting periods
+    // that are *before* genesis, so that we can indicate to users that we're actually adequately
+    // cached for where they are in time.
+    let voting_target_timestamp = if let Some(current_slot) = current_slot {
+        let period = T::SlotsPerEth1VotingPeriod::to_u64();
+        let voting_period_start_slot = (current_slot / period) * period;
+
         let period_start = slot_start_seconds::<T>(
             genesis_time,
             spec.milliseconds_per_slot,
             voting_period_start_slot,
         );
-        let eth1_follow_distance_seconds = spec
-            .seconds_per_eth1_block
-            .saturating_mul(spec.eth1_follow_distance);
 
         period_start.saturating_sub(eth1_follow_distance_seconds)
+    } else {
+        // The number of seconds in an eth1 voting period.
+        let voting_period_duration =
+            T::slots_per_eth1_voting_period() as u64 * (spec.milliseconds_per_slot / 1_000);
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+
+        // The number of seconds between now and genesis.
+        let seconds_till_genesis = genesis_time.saturating_sub(now);
+
+        // Determine how many voting periods are contained in distance between
+        // now and genesis, rounding up.
+        let voting_periods_past =
+            (seconds_till_genesis + voting_period_duration - 1) / voting_period_duration;
+
+        // Return the start time of the current voting period*.
+        //
+        // *: This voting period doesn't *actually* exist, we're just using it to
+        // give useful logs prior to genesis.
+        genesis_time
+            .saturating_sub(voting_periods_past * voting_period_duration)
+            .saturating_sub(eth1_follow_distance_seconds)
     };
 
     let latest_cached_block_number = latest_cached_block.map(|b| b.number);
@@ -232,7 +261,7 @@ where
     pub fn sync_status(
         &self,
         genesis_time: u64,
-        current_slot: Slot,
+        current_slot: Option<Slot>,
         spec: &ChainSpec,
     ) -> Option<Eth1SyncStatusData> {
         get_sync_status::<E>(
