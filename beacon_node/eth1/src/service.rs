@@ -343,6 +343,8 @@ pub struct Config {
     pub max_log_requests_per_update: Option<usize>,
     /// The maximum number of log requests per update.
     pub max_blocks_per_update: Option<usize>,
+    /// If set to true, the eth1 caches are wiped clean when the eth1 service starts.
+    pub purge_cache: bool,
 }
 
 impl Config {
@@ -386,6 +388,7 @@ impl Default for Config {
             blocks_per_log_query: 1_000,
             max_log_requests_per_update: Some(100),
             max_blocks_per_update: Some(8_192),
+            purge_cache: false,
         }
     }
 }
