@@ -9,7 +9,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(validator_dir: PathBuf) -> Result<(), String> {
-    eprintln!("validator-dir path: {:?}", validator_dir);
     let validator_definitions = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
         format!(
             "No validator definitions found in {:?}: {:?}",

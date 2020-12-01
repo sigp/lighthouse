@@ -140,7 +140,6 @@ pub fn cli_run<T: EthSpec>(
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;
 
-    eprintln!("validator-dir path: {:?}", validator_dir);
     eprintln!("secrets-dir path {:?}", secrets_dir);
     eprintln!("wallets-dir path {:?}", wallet_base_dir);
 
