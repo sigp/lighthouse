@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/cargo/bin/lighthouse /usr/local/bin/lighthouse
 COPY --from=builder /usr/local/cargo/bin/lcli /usr/local/bin/lcli
-RUN adduser --disabled-password --gecos "" --home /home/lighthouse lighthouse && \
-    chown lighthouse:lighthouse /home/lighthouse
+RUN adduser --disabled-password --gecos "" --home /home/lighthouse lighthouse \
+  && chown lighthouse:lighthouse /home/lighthouse
 USER lighthouse
 WORKDIR /home/lighthouse
