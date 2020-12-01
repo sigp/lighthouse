@@ -45,7 +45,6 @@ pub fn cli_run<T: EthSpec>(
     env: Environment<T>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
-    eprintln!("validator-dir path: {:?}", validator_base_dir);
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
 
     let testnet_config = env

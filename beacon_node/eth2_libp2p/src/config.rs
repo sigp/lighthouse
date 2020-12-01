@@ -88,6 +88,10 @@ pub struct Config {
     /// runtime.
     pub import_all_attestations: bool,
 
+    /// Indicates if the user has set the network to be in private mode. Currently this
+    /// prevents sending client identifying information over identify.
+    pub private: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -188,6 +192,7 @@ impl Default for Config {
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             upnp_enabled: true,
+            private: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             topics: Vec::new(),
