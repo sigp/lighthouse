@@ -5555,7 +5555,7 @@ dependencies = [
  "clap",
  "environment",
  "futures 0.3.8",
- "hyper 0.13.9",
+ "hyper 0.14.0-dev",
  "lazy_static",
  "regex",
  "remote_signer_backend",
@@ -5574,7 +5574,7 @@ dependencies = [
  "remote_signer_test",
  "reqwest",
  "serde",
- "tokio 0.3.5",
+ "tokio 0.2.23",
  "types",
 ]
 
