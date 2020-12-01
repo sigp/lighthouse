@@ -118,7 +118,6 @@ fn main() {
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
-                .default_value(DEFAULT_HARDCODED_NETWORK)
                 .takes_value(true)
                 .global(true)
 

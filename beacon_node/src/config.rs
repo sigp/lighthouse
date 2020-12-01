@@ -4,7 +4,7 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
@@ -258,9 +258,9 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Load the eth2 testnet dir to obtain some additional config values.
+     * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
+    let eth2_testnet_config = get_eth2_network_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
@@ -600,19 +600,18 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.
+/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    let optional_testnet_config = if cli_args.is_present("network") {
+pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
+    let optional_network_config = if cli_args.is_present("network") {
         clap_utils::parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        return Err(
-            "No --network or --testnet-dir flags provided, cannot load config.".to_string(),
-        );
+        // if neither is present, assume the default network
+        Eth2TestnetConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
-    optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
+    optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }
 
 /// A bit of hack to find an unused port.

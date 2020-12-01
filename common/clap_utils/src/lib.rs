@@ -23,8 +23,8 @@ pub fn parse_testnet_dir(
         .map(Some)
 }
 
-/// Attempts to load a hardcoded network config if `name` is in `matches`, returning an error if
-/// the name is not a valid network name.
+/// Attempts to load a hardcoded network config if set, returning an error if the provided name is
+/// not a valid network name.
 pub fn parse_hardcoded_network(
     matches: &ArgMatches,
     name: &str,
