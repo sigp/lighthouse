@@ -31,7 +31,7 @@ dependencies = [
  "slog-term",
  "slot_clock",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "validator_dir",
@@ -110,18 +110,6 @@ dependencies = [
 
 [[package]]
 name = "aes-ctr"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64c3b03608ea1c077228520a167cca2514dc7cd8100a81b30a2b38be985234e5"
-dependencies = [
- "aes-soft 0.5.0",
- "aesni 0.9.0",
- "ctr 0.5.0",
- "stream-cipher",
-]
-
-[[package]]
-name = "aes-ctr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7729c3cde54d67063be556aeac75a81330d802f0259500ca40cb52967f975763"
@@ -129,7 +117,7 @@ dependencies = [
  "aes-soft 0.6.4",
  "aesni 0.10.0",
  "cipher",
- "ctr 0.6.0",
+ "ctr",
 ]
 
 [[package]]
@@ -154,7 +142,7 @@ dependencies = [
  "aead",
  "aes 0.6.0",
  "cipher",
- "ctr 0.6.0",
+ "ctr",
  "ghash",
  "subtle 2.3.0",
 ]
@@ -188,17 +176,6 @@ checksum = "0a6fe808308bb07d393e2ea47780043ec47683fcf19cf5efc8ca51c50cc8c68a"
 dependencies = [
  "block-cipher",
  "opaque-debug 0.3.0",
-]
-
-[[package]]
-name = "aesni"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6a4d655ae633a96d0acaf0fd7e76aafb8ca5732739bba37aac6f882c8fce656"
-dependencies = [
- "block-cipher",
- "opaque-debug 0.3.0",
- "stream-cipher",
 ]
 
 [[package]]
@@ -603,7 +580,7 @@ dependencies = [
  "store",
  "task_executor",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tree_hash",
  "types",
  "websocket_server",
@@ -641,7 +618,7 @@ dependencies = [
  "slog-term",
  "store",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
 ]
@@ -859,7 +836,7 @@ dependencies = [
  "slog-stdlog",
  "slog-term",
  "sloggers",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
 ]
 
@@ -1133,7 +1110,7 @@ dependencies = [
  "task_executor",
  "time 0.2.23",
  "timer",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "toml",
  "tree_hash",
  "types",
@@ -1472,15 +1449,6 @@ dependencies = [
 
 [[package]]
 name = "ctr"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc03dee3a2843ac6eb4b5fb39cfcf4cb034d078555d1f4a0afbed418b822f3c2"
-dependencies = [
- "stream-cipher",
-]
-
-[[package]]
-name = "ctr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb4a30d54f7443bf3d6191dcd486aca19e67cb3c49fa7a06a319966346707e7f"
@@ -1714,7 +1682,7 @@ version = "0.1.0-beta.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddad09a9bd70478c581a9f7e608a17962c5561a3ca7b1eb5b75cf1c6c3f124b8"
 dependencies = [
- "aes-ctr 0.6.0",
+ "aes-ctr",
  "aes-gcm 0.8.0",
  "arrayvec",
  "digest 0.9.0",
@@ -1733,7 +1701,7 @@ dependencies = [
  "rlp",
  "sha2 0.9.2",
  "smallvec 1.5.0",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-util 0.5.0",
  "tracing",
  "tracing-subscriber",
@@ -1746,7 +1714,7 @@ name = "discv5"
 version = "0.1.0-beta.2"
 source = "git+https://github.com/sigp/discv5?rev=f117b3ca56fa3dca2317270434634ff7106d391a#f117b3ca56fa3dca2317270434634ff7106d391a"
 dependencies = [
- "aes-ctr 0.6.0",
+ "aes-ctr",
  "aes-gcm 0.8.0",
  "arrayvec",
  "digest 0.9.0",
@@ -1765,7 +1733,7 @@ dependencies = [
  "rlp",
  "sha2 0.9.2",
  "smallvec 1.5.0",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-util 0.4.0",
  "tracing",
  "tracing-subscriber",
@@ -1914,6 +1882,16 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44533bbbb3bb3c1fa17d9f2e4e38bbbaf8396ba82193c4cb1b6445d711445d36"
 dependencies = [
+ "log 0.4.11",
+ "regex",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f26ecb66b4bdca6c1409b40fb255eefc2bd4f6d135dab3c3124f80ffa2a9661e"
+dependencies = [
  "atty",
  "humantime",
  "log 0.4.11",
@@ -1938,7 +1916,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
 ]
 
@@ -1977,7 +1955,7 @@ dependencies = [
  "sloggers",
  "state_processing",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "toml",
  "tree_hash",
@@ -1992,7 +1970,7 @@ dependencies = [
  "deposit_contract",
  "futures 0.3.8",
  "serde_json",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
  "web3",
 ]
@@ -2073,15 +2051,15 @@ dependencies = [
 name = "eth2_keystore"
 version = "0.1.0"
 dependencies = [
- "aes-ctr 0.5.0",
+ "aes-ctr",
  "bls",
  "eth2_key_derivation",
  "eth2_ssz",
  "hex",
- "hmac 0.9.0",
- "pbkdf2 0.5.0",
+ "hmac 0.10.1",
+ "pbkdf2 0.6.0",
  "rand 0.7.3",
- "scrypt 0.4.1",
+ "scrypt",
  "serde",
  "serde_json",
  "serde_repr",
@@ -2127,7 +2105,7 @@ dependencies = [
  "task_executor",
  "tempdir",
  "tiny-keccak 2.0.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-io-timeout",
  "tokio-util 0.4.0",
  "types",
@@ -2645,7 +2623,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "state_processing",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -2780,7 +2758,7 @@ dependencies = [
  "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
  "indexmap",
  "slab 0.4.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-util 0.5.0",
  "tracing",
  "tracing-futures",
@@ -2815,8 +2793,8 @@ name = "hashset_delay"
 version = "0.2.0"
 dependencies = [
  "futures 0.3.8",
- "tokio 0.3.4",
- "tokio-util 0.4.0",
+ "tokio 0.3.5",
+ "tokio-util 0.5.0",
 ]
 
 [[package]]
@@ -3036,7 +3014,7 @@ name = "http_api"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "bs58 0.3.1",
+ "bs58 0.4.0",
  "discv5 0.1.0-beta.2 (git+https://github.com/sigp/discv5?rev=f117b3ca56fa3dca2317270434634ff7106d391a)",
  "environment",
  "eth1",
@@ -3055,7 +3033,7 @@ dependencies = [
  "slot_clock",
  "state_processing",
  "store",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -3080,7 +3058,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "store",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "warp",
@@ -3128,12 +3106,9 @@ dependencies = [
 
 [[package]]
 name = "humantime"
-version = "1.3.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df004cfca50ef23c36850aaaa59ad52cc70d0e90243c3c7737a4dd32dc7a3c4f"
-dependencies = [
- "quick-error",
-]
+checksum = "3c1ad908cc71012b7bea4d0c53ba96a8cba9962f048fa68d143376143d863b7a"
 
 [[package]]
 name = "hyper"
@@ -3225,7 +3200,7 @@ dependencies = [
  "itoa",
  "pin-project 1.0.2",
  "socket2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tower-service",
  "tracing",
  "want 0.3.0",
@@ -3372,7 +3347,7 @@ dependencies = [
 name = "int_to_bytes"
 version = "0.2.0"
 dependencies = [
- "bytes 0.5.6",
+ "bytes 0.6.0",
  "hex",
  "yaml-rust",
 ]
@@ -3587,7 +3562,7 @@ dependencies = [
  "serde_yaml",
  "simple_logger",
  "state_processing",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -3881,7 +3856,7 @@ dependencies = [
  "libp2p-core 0.25.0",
  "log 0.4.11",
  "socket2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -3966,7 +3941,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "directory",
- "env_logger",
+ "env_logger 0.8.2",
  "environment",
  "eth2_testnet_config",
  "futures 0.3.8",
@@ -3979,7 +3954,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "validator_client",
@@ -4292,18 +4267,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mio-named-pipes"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0840c1c50fd55e521b247f949c241c9997709f23bd7f023b9762cd561e935656"
-dependencies = [
- "log 0.4.11",
- "mio 0.6.22",
- "miow 0.3.6",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "mio-uds"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4504,7 +4467,7 @@ dependencies = [
  "store",
  "task_executor",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tree_hash",
  "types",
 ]
@@ -4882,11 +4845,11 @@ dependencies = [
 
 [[package]]
 name = "pbkdf2"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7170d73bf11f39b4ce1809aabc95bf5c33564cdc16fc3200ddda17a5f6e5e48b"
+checksum = "b3b8c0d71734018084da0c0354193a5edfb81b20d2d57a92c5b154aefc554a4a"
 dependencies = [
- "crypto-mac 0.9.1",
+ "crypto-mac 0.10.0",
 ]
 
 [[package]]
@@ -5258,7 +5221,7 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a44883e74aa97ad63db83c4bf8ca490f02b2fc02f92575e720c8551e843c945f"
 dependencies = [
- "env_logger",
+ "env_logger 0.7.1",
  "log 0.4.11",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -5653,7 +5616,7 @@ dependencies = [
  "remote_signer_test",
  "reqwest",
  "serde",
- "tokio 0.2.23",
+ "tokio 0.3.5",
  "types",
 ]
 
@@ -5856,6 +5819,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
 
 [[package]]
+name = "salsa20"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "399f290ffc409596022fce5ea5d4138184be4784f2b28c62c59f0d8389059a15"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5903,23 +5875,13 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 name = "scrypt"
-version = "0.3.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10e7e75e27e8cd47e4be027d4b9fdc0b696116f981c22de21ca7bad63a9cb33a"
+checksum = "8da492dab03f925d977776a0b7233d7b934d6dc2b94faead48928e2e9bacedb9"
 dependencies = [
- "hmac 0.8.1",
- "pbkdf2 0.4.0",
- "sha2 0.9.2",
-]
-
-[[package]]
-name = "scrypt"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3437654bbbe34054a268b3859fe41f871215069b39f0aef78808d85c37100696"
-dependencies = [
- "hmac 0.9.0",
- "pbkdf2 0.5.0",
+ "hmac 0.10.1",
+ "pbkdf2 0.6.0",
+ "salsa20",
  "sha2 0.9.2",
 ]
 
@@ -6200,14 +6162,14 @@ name = "simulator"
 version = "0.2.0"
 dependencies = [
  "clap",
- "env_logger",
+ "env_logger 0.8.2",
  "eth1",
  "eth1_test_rig",
  "futures 0.3.8",
  "node_test_rig",
  "parking_lot 0.11.1",
  "rayon",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "validator_client",
@@ -6257,7 +6219,7 @@ dependencies = [
  "slot_clock",
  "task_executor",
  "tempdir",
- "tokio 0.2.23",
+ "tokio 0.3.5",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -6494,7 +6456,7 @@ dependencies = [
  "arbitrary",
  "bls",
  "criterion",
- "env_logger",
+ "env_logger 0.8.2",
  "eth2_hashing",
  "eth2_ssz",
  "eth2_ssz_types",
@@ -6719,7 +6681,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "slog",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
 ]
 
@@ -6891,7 +6853,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
 ]
 
@@ -6991,24 +6953,19 @@ dependencies = [
  "futures-core",
  "iovec",
  "lazy_static",
- "libc",
  "memchr",
  "mio 0.6.22",
- "mio-named-pipes",
- "mio-uds",
  "num_cpus",
  "pin-project-lite 0.1.11",
- "signal-hook-registry",
  "slab 0.4.2",
  "tokio-macros 0.2.6",
- "winapi 0.3.9",
 ]
 
 [[package]]
 name = "tokio"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dfe2523e6fa84ddf5e688151d4e5fddc51678de9752c6512a24714c23818d61"
+checksum = "a12a3eb39ee2c231be64487f1fcbe726c8f2514876a55480a5ab8559fc374252"
 dependencies = [
  "autocfg 1.0.1",
  "bytes 0.6.0",
@@ -7058,7 +7015,7 @@ dependencies = [
  "once_cell",
  "pin-project-lite 0.1.11",
  "tokio 0.2.23",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7128,7 +7085,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6654a6da4326b0b4228000891d44fbcbdaa1904c6ddfa06617230649073be8fb"
 dependencies = [
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7265,7 +7222,7 @@ dependencies = [
  "futures-util",
  "log 0.4.11",
  "pin-project 1.0.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tungstenite",
 ]
 
@@ -7346,7 +7303,7 @@ dependencies = [
  "log 0.4.11",
  "pin-project-lite 0.1.11",
  "slab 0.4.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7361,7 +7318,7 @@ dependencies = [
  "log 0.4.11",
  "pin-project-lite 0.1.11",
  "slab 0.4.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7780,7 +7737,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "ring",
- "scrypt 0.3.1",
+ "scrypt",
  "serde",
  "serde_derive",
  "serde_json",
@@ -7793,7 +7750,7 @@ dependencies = [
  "slot_clock",
  "tempdir",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -7914,7 +7871,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-tungstenite",
  "tower-service",
  "tracing",
@@ -7933,7 +7890,7 @@ dependencies = [
  "safe_arith",
  "serde",
  "state_processing",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
  "warp",
 ]
@@ -8150,7 +8107,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
  "ws",
 ]

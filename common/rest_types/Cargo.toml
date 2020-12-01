@@ -15,7 +15,7 @@ bls = { path = "../../crypto/bls" }
 serde = { version = "1.0.110", features = ["derive"] }
 rayon = "1.3.0"
 hyper = "0.13.5"
-tokio = { version = "0.2.22", features = ["sync"] }
+tokio = { version = "0.3.5", features = ["sync"] }
 environment = { path = "../../lighthouse/environment" }
 store = { path = "../../beacon_node/store" }
 beacon_chain = { path = "../../beacon_node/beacon_chain" }

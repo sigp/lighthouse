@@ -7,8 +7,8 @@ use crate::json_keystore::{
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::Uuid;
-use aes_ctr::stream_cipher::generic_array::GenericArray;
-use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher};
+use aes_ctr::cipher::generic_array::GenericArray;
+use aes_ctr::cipher::{NewStreamCipher, SyncStreamCipher};
 use aes_ctr::Aes128Ctr as AesCtr;
 use bls::{Keypair, PublicKey, SecretKey, ZeroizeHash};
 use eth2_key_derivation::PlainText;
