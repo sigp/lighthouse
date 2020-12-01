@@ -23,7 +23,7 @@ regex = "1.3.9"
 futures = { version = "0.3.7", features = ["compat"] }
 environment = { path = "../lighthouse/environment" }
 web3 = "0.11.0"
-eth2_testnet_config = { path = "../common/eth2_testnet_config" }
+eth2_network_config = { path = "../common/eth2_network_config" }
 dirs = "3.0.1"
 genesis = { path = "../beacon_node/genesis" }
 deposit_contract = { path = "../common/deposit_contract" }

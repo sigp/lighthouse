@@ -4,7 +4,7 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
-use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
@@ -260,11 +260,11 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_testnet_config = get_eth2_network_config(&cli_args)?;
+    let eth2_network_config = get_eth2_network_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
-        eth2_testnet_config.deposit_contract_deploy_block;
+        eth2_network_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
@@ -281,11 +281,11 @@ pub fn get_config<E: EthSpec>(
         "address" => &client_config.eth1.deposit_contract_address
     );
 
-    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+    if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state_bytes) = eth2_testnet_config.genesis_state_bytes {
+    if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.

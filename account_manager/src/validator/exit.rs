@@ -7,7 +7,7 @@ use eth2::{
     BeaconNodeHttpClient, Url,
 };
 use eth2_keystore::Keystore;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2TestnetConfig;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;

@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use clap_utils::{
     parse_optional, parse_path_with_default_in_home_dir, parse_required, parse_ssz_optional,
 };
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2TestnetConfig;
 use std::path::PathBuf;
 use types::{Address, EthSpec, YamlConfig};
 

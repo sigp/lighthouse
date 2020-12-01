@@ -8,7 +8,7 @@
 //! logging.
 
 use eth2_config::Eth2Config;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2TestnetConfig;
 use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
@@ -221,12 +221,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 
     /// Adds a testnet configuration to the environment.
-    pub fn eth2_testnet_config(
+    pub fn eth2_network_config(
         mut self,
-        eth2_testnet_config: Eth2TestnetConfig,
+        eth2_network_config: Eth2TestnetConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
-        self.eth2_config.spec = eth2_testnet_config
+        self.eth2_config.spec = eth2_network_config
             .yaml_config
             .as_ref()
             .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
@@ -238,18 +238,18 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 )
             })?;
 
-        self.testnet = Some(eth2_testnet_config);
+        self.testnet = Some(eth2_network_config);
 
         Ok(self)
     }
 
     /// Optionally adds a testnet configuration to the environment.
-    pub fn optional_eth2_testnet_config(
+    pub fn optional_eth2_network_config(
         self,
         optional_config: Option<Eth2TestnetConfig>,
     ) -> Result<Self, String> {
         if let Some(config) = optional_config {
-            self.eth2_testnet_config(config)
+            self.eth2_network_config(config)
         } else {
             Ok(self)
         }

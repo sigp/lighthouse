@@ -1,8 +1,8 @@
-use beacon_node::{ProductionBeaconNode, get_eth2_network_config};
+use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -202,7 +202,7 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_testnet_config(Some(testnet_config))?
+        .optional_eth2_network_config(Some(testnet_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
