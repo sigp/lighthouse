@@ -31,5 +31,5 @@ bs58 = "0.4.0"
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { git = "https://github.com/sigp/discv5", rev = "f117b3ca56fa3dca2317270434634ff7106d391a", features = ["libp2p"] }
+discv5 = { version = "0.1.0-beta.2", features = ["libp2p"] }
 tokio-compat-02 = "0.1"

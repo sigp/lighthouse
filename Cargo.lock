@@ -1690,7 +1690,7 @@ dependencies = [
  "fnv",
  "futures 0.3.8",
  "hex",
- "hkdf 0.10.0",
+ "hkdf",
  "k256",
  "lazy_static",
  "libp2p-core 0.23.1",
@@ -1703,38 +1703,6 @@ dependencies = [
  "smallvec 1.5.0",
  "tokio 0.3.5",
  "tokio-util 0.5.0",
- "tracing",
- "tracing-subscriber",
- "uint",
- "zeroize",
-]
-
-[[package]]
-name = "discv5"
-version = "0.1.0-beta.2"
-source = "git+https://github.com/sigp/discv5?rev=f117b3ca56fa3dca2317270434634ff7106d391a#f117b3ca56fa3dca2317270434634ff7106d391a"
-dependencies = [
- "aes-ctr",
- "aes-gcm 0.8.0",
- "arrayvec",
- "digest 0.9.0",
- "enr",
- "fnv",
- "futures 0.3.8",
- "hex",
- "hkdf 0.9.0",
- "k256",
- "lazy_static",
- "libp2p-core 0.23.1",
- "lru_time_cache",
- "multihash 0.11.4",
- "parking_lot 0.11.1",
- "rand 0.7.3",
- "rlp",
- "sha2 0.9.2",
- "smallvec 1.5.0",
- "tokio 0.3.5",
- "tokio-util 0.4.0",
  "tracing",
  "tracing-subscriber",
  "uint",
@@ -2076,7 +2044,7 @@ dependencies = [
  "base64 0.13.0",
  "directory",
  "dirs 3.0.1",
- "discv5 0.1.0-beta.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "discv5",
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -2877,16 +2845,6 @@ checksum = "b07f60793ff0a4d9cef0f18e63b5357e06209987153a64648c972c1e5aff336f"
 
 [[package]]
 name = "hkdf"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe1149865383e4526a43aee8495f9a325f0b806c63ce6427d06336a590abbbc9"
-dependencies = [
- "digest 0.9.0",
- "hmac 0.8.1",
-]
-
-[[package]]
-name = "hkdf"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51ab2f639c231793c5f6114bdb9bbe50a7dbbfcd7c7c6bd8475dec2d991e964f"
@@ -3015,7 +2973,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "bs58 0.4.0",
- "discv5 0.1.0-beta.2 (git+https://github.com/sigp/discv5?rev=f117b3ca56fa3dca2317270434634ff7106d391a)",
+ "discv5",
  "environment",
  "eth1",
  "eth2",
@@ -5597,7 +5555,7 @@ dependencies = [
  "clap",
  "environment",
  "futures 0.3.8",
- "hyper 0.14.0-dev",
+ "hyper 0.13.9",
  "lazy_static",
  "regex",
  "remote_signer_backend",
