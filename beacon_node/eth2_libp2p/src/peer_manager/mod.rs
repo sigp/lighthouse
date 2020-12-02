@@ -352,7 +352,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    /// An error has occured in the RPC.
+    /// An error has occurred in the RPC.
     ///
     /// This adjusts a peer's score based on the error.
     pub fn handle_rpc_error(
@@ -366,6 +366,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let score = self.network_globals.peers.read().score(peer_id);
         debug!(self.log, "RPC Error"; "protocol" => %protocol, "err" => %err, "client" => %client,
             "peer_id" => %peer_id, "score" => %score, "direction" => ?direction);
+        metrics::inc_counter_vec(
+            &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,
+            &[
+                client.kind.as_static_ref(),
+                err.as_static_str(),
+                direction.as_static_str(),
+            ],
+        );
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -389,7 +397,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
-                RPCResponseErrorCode::RateLimited => PeerAction::LowToleranceError,
+                RPCResponseErrorCode::RateLimited => match protocol {
+                    Protocol::Ping => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRange | Protocol::BlocksByRoot => match direction {
+                        // The peer got rate limited. As long as they don't spam us we allow them
+                        // to sync from us
+                        ConnectionDirection::Incoming => PeerAction::MidToleranceError,
+                        // we got rate limited, and we need peers that answer us so there is no
+                        // point in keeping them
+                        ConnectionDirection::Outgoing => PeerAction::LowToleranceError,
+                    },
+                    Protocol::Goodbye => PeerAction::LowToleranceError,
+                    Protocol::MetaData => PeerAction::LowToleranceError,
+                    Protocol::Status => PeerAction::LowToleranceError,
+                },
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -422,14 +443,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 },
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
-            RPCError::RateLimited => match protocol {
-                Protocol::Ping => PeerAction::MidToleranceError,
-                Protocol::BlocksByRange => PeerAction::HighToleranceError,
-                Protocol::BlocksByRoot => PeerAction::HighToleranceError,
-                Protocol::Goodbye => PeerAction::LowToleranceError,
-                Protocol::MetaData => PeerAction::LowToleranceError,
-                Protocol::Status => PeerAction::LowToleranceError,
-            },
         };
 
         self.report_peer(peer_id, peer_action);

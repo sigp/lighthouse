@@ -50,6 +50,11 @@ lazy_static! {
         "Failed gossip publishes",
         &["topic_hash"]
     );
+    pub static ref TOTAL_RPC_ERRORS_PER_CLIENT: Result<IntCounterVec> = try_create_int_counter_vec(
+        "libp2p_rpc_errors_per_client",
+        "RPC errors per client",
+        &["client", "rpc_error", "direction"]
+    );
 }
 
 pub fn scrape_discovery_metrics() {
