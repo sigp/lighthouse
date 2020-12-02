@@ -86,9 +86,7 @@ impl ValidatorDefinition {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
             Keystore::from_json_file(&voting_keystore_path).map_err(Error::UnableToOpenKeystore)?;
-        let voting_public_key = keystore
-            .public_key()
-            .ok_or(Error::InvalidKeystorePubkey)?;
+        let voting_public_key = keystore.public_key().ok_or(Error::InvalidKeystorePubkey)?;
 
         Ok(ValidatorDefinition {
             enabled: true,

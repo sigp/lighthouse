@@ -187,9 +187,7 @@ impl ProtoArray {
             .get(justified_index)
             .ok_or(Error::InvalidJustifiedIndex(justified_index))?;
 
-        let best_descendant_index = justified_node
-            .best_descendant
-            .unwrap_or(justified_index);
+        let best_descendant_index = justified_node.best_descendant.unwrap_or(justified_index);
 
         let best_node = self
             .nodes

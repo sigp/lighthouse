@@ -267,9 +267,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
-            log: self
-                .log
-                .ok_or("Cannot build environment without log")?,
+            log: self.log.ok_or("Cannot build environment without log")?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
             testnet: self.testnet,

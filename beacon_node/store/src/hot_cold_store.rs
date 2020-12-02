@@ -394,7 +394,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // boundary state in the hot DB.
             let state = self
                 .load_hot_state(&epoch_boundary_state_root, BlockReplay::Accurate)?
-                .ok_or(HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root))?;
+                .ok_or(HotColdDBError::MissingEpochBoundaryState(
+                    epoch_boundary_state_root,
+                ))?;
             Ok(Some(state))
         } else {
             // Try the cold DB
@@ -551,8 +553,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             epoch_boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let boundary_state = get_full_state(&self.hot_db, &epoch_boundary_state_root)?
-                .ok_or(HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root))?;
+            let boundary_state = get_full_state(&self.hot_db, &epoch_boundary_state_root)?.ok_or(
+                HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
+            )?;
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
@@ -678,8 +681,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let high_restore_point = if high_restore_point_idx * self.config.slots_per_restore_point
             >= split.slot.as_u64()
         {
-            self.get_state(&split.state_root, Some(split.slot))?
-                .ok_or(HotColdDBError::MissingSplitState(split.state_root, split.slot))?
+            self.get_state(&split.state_root, Some(split.slot))?.ok_or(
+                HotColdDBError::MissingSplitState(split.state_root, split.slot),
+            )?
         } else {
             self.load_restore_point_by_index(high_restore_point_idx)?
         };

@@ -4,9 +4,7 @@ use ssz::Decode;
 use types::{BeaconBlock, BeaconState, EthSpec};
 
 pub fn run_parse_hex<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let type_str = matches
-        .value_of("type")
-        .ok_or("No type supplied")?;
+    let type_str = matches.value_of("type").ok_or("No type supplied")?;
     let mut hex: String = matches
         .value_of("hex_ssz")
         .ok_or("No hex ssz supplied")?

@@ -55,9 +55,7 @@ impl<T: Encode + Decode> CacheArena<T> {
                 .iter_mut()
                 .skip(alloc_id + 1)
                 .try_for_each(|offset| {
-                    *offset = offset
-                        .checked_add(grow_by)
-                        .ok_or(Error::OffsetOverflow)?;
+                    *offset = offset.checked_add(grow_by).ok_or(Error::OffsetOverflow)?;
 
                     Ok(())
                 })
@@ -104,10 +102,7 @@ impl<T: Encode + Decode> CacheArena<T> {
             .start
             .checked_add(offset)
             .ok_or(Error::RangeOverFlow)?;
-        let end = range
-            .end
-            .checked_add(offset)
-            .ok_or(Error::RangeOverFlow)?;
+        let end = range.end.checked_add(offset).ok_or(Error::RangeOverFlow)?;
 
         let prev_len = self.backing.len();
 

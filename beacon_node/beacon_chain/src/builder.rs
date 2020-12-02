@@ -235,10 +235,7 @@ where
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
     pub fn resume_from_db(mut self) -> Result<Self, String> {
-        let log = self
-            .log
-            .as_ref()
-            .ok_or("resume_from_db requires a log")?;
+        let log = self.log.as_ref().ok_or("resume_from_db requires a log")?;
 
         let pubkey_cache_path = self
             .pubkey_cache_path
@@ -318,10 +315,7 @@ where
         mut self,
         mut beacon_state: BeaconState<TEthSpec>,
     ) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or("genesis_state requires a store")?;
+        let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
@@ -436,16 +430,11 @@ where
         >,
         String,
     > {
-        let log = self
-            .log
-            .ok_or("Cannot build without a logger")?;
+        let log = self.log.ok_or("Cannot build without a logger")?;
         let slot_clock = self
             .slot_clock
             .ok_or("Cannot build without a slot_clock.")?;
-        let store = self
-            .store
-            .clone()
-            .ok_or("Cannot build without a store.")?;
+        let store = self.store.clone().ok_or("Cannot build without a store.")?;
         let mut fork_choice = self
             .fork_choice
             .ok_or("Cannot build without fork choice.")?;
@@ -462,9 +451,7 @@ where
         {
             self.spec.genesis_slot
         } else {
-            slot_clock
-                .now()
-                .ok_or("Unable to read slot")?
+            slot_clock.now().ok_or("Unable to read slot")?
         };
 
         let head_block_root = fork_choice
@@ -541,9 +528,7 @@ where
             store,
             store_migrator,
             slot_clock,
-            op_pool: self
-                .op_pool
-                .ok_or("Cannot build without op pool")?,
+            op_pool: self.op_pool.ok_or("Cannot build without op pool")?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.

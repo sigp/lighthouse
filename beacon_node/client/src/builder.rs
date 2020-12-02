@@ -137,13 +137,11 @@ where
         let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
 
-        let store =
-            store.ok_or("beacon_chain_start_method requires a store")?;
+        let store = store.ok_or("beacon_chain_start_method requires a store")?;
         let context = runtime_context
             .ok_or("beacon_chain_start_method requires a runtime context")?
             .service_context("beacon".into());
-        let spec = chain_spec
-            .ok_or("beacon_chain_start_method requires a chain spec")?;
+        let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
 
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
@@ -160,9 +158,7 @@ where
             builder
         };
 
-        let chain_exists = builder
-            .store_contains_beacon_chain()
-            .unwrap_or(false);
+        let chain_exists = builder.store_contains_beacon_chain().unwrap_or(false);
 
         // If the client is expect to resume but there's no beacon chain in the database,
         // use the `DepositContract` method. This scenario is quite common when the client
