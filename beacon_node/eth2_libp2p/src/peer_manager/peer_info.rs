@@ -86,7 +86,7 @@ impl<T: EthSpec> PeerInfo<T> {
             return meta_data
                 .attnets
                 .get(*subnet_id as usize)
-                .unwrap_or_else(|_| false);
+                .unwrap_or(false);
         }
         false
     }

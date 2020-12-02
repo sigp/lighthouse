@@ -236,7 +236,7 @@ where
             let num_items = bytes
                 .len()
                 .checked_div(T::ssz_fixed_len())
-                .ok_or_else(|| ssz::DecodeError::ZeroLengthItem)?;
+                .ok_or(ssz::DecodeError::ZeroLengthItem)?;
 
             if num_items > max_len {
                 return Err(ssz::DecodeError::BytesInvalid(format!(

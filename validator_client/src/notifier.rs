@@ -16,7 +16,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let duration_to_next_slot = duties_service
         .slot_clock
         .duration_to_next_slot()
-        .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
+        .ok_or("slot_notifier unable to determine time to next slot")?;
 
     // Run the notifier half way through each slot.
     let start_instant = Instant::now() + duration_to_next_slot + (slot_duration / 2);

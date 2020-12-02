@@ -133,7 +133,7 @@ pub fn cli_run<T: EthSpec>(
     };
 
     let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
-        .unwrap_or_else(|| spec.max_effective_balance);
+        .unwrap_or(spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;
     let at_most: Option<usize> = clap_utils::parse_optional(matches, AT_MOST_FLAG)?;
 

@@ -375,8 +375,8 @@ fn build_transport(
 // Useful helper functions for debugging. Currently not used in the client.
 #[allow(dead_code)]
 fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
-    let hex_bytes = if hex_bytes.starts_with("0x") {
-        hex_bytes[2..].to_string()
+    let hex_bytes = if let Some(stripped) = hex_bytes.strip_prefix("0x") {
+        stripped.to_string()
     } else {
         hex_bytes.to_string()
     };

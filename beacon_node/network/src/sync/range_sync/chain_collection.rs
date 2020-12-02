@@ -243,7 +243,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         .or(Some((start, target)));
                 }
                 let (start_slot, target_slot) =
-                    range.ok_or_else(|| "Syncing head with empty head ids".to_string())?;
+                    range.ok_or("Syncing head with empty head ids")?;
                 Ok(Some((RangeSyncType::Head, start_slot, target_slot)))
             }
             RangeSyncState::Idle => Ok(None),

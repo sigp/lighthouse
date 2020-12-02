@@ -115,7 +115,7 @@ impl TreeHashCache {
 
                 let left = self.layers[depth]
                     .get(arena, left_idx)?
-                    .ok_or_else(|| Error::MissingLeftIdx(left_idx))?;
+                    .ok_or(Error::MissingLeftIdx(left_idx))?;
                 let right = self.layers[depth]
                     .get(arena, right_idx)?
                     .copied()

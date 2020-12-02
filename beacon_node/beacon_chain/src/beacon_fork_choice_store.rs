@@ -320,14 +320,14 @@ where
                 .store
                 .get_item::<SignedBeaconBlock<E>>(&self.justified_checkpoint.root)
                 .map_err(Error::FailedToReadBlock)?
-                .ok_or_else(|| Error::MissingBlock(self.justified_checkpoint.root))?
+                .ok_or(Error::MissingBlock(self.justified_checkpoint.root))?
                 .message;
 
             self.justified_balances = self
                 .store
                 .get_state(&justified_block.state_root, Some(justified_block.slot))
                 .map_err(Error::FailedToReadState)?
-                .ok_or_else(|| Error::MissingState(justified_block.state_root))?
+                .ok_or(Error::MissingState(justified_block.state_root))?
                 .balances
                 .into();
         }

@@ -144,7 +144,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
 
         self.sets
             .get_mut(index)
-            .ok_or_else(|| Error::InvalidSetIndex(index))
+            .ok_or(Error::InvalidSetIndex(index))
             .and_then(|set| set.observe_attestation(a, root))
     }
 
@@ -156,7 +156,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
 
         self.sets
             .get(index)
-            .ok_or_else(|| Error::InvalidSetIndex(index))
+            .ok_or(Error::InvalidSetIndex(index))
             .and_then(|set| set.is_known(a, root))
     }
 

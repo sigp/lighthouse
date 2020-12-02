@@ -394,9 +394,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // boundary state in the hot DB.
             let state = self
                 .load_hot_state(&epoch_boundary_state_root, BlockReplay::Accurate)?
-                .ok_or_else(|| {
-                    HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
-                })?;
+                .ok_or(HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root))?;
             Ok(Some(state))
         } else {
             // Try the cold DB
@@ -554,9 +552,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }) = self.load_hot_state_summary(state_root)?
         {
             let boundary_state = get_full_state(&self.hot_db, &epoch_boundary_state_root)?
-                .ok_or_else(|| {
-                    HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
-                })?;
+                .ok_or(HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root))?;
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
@@ -683,7 +679,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             >= split.slot.as_u64()
         {
             self.get_state(&split.state_root, Some(split.slot))?
-                .ok_or_else(|| HotColdDBError::MissingSplitState(split.state_root, split.slot))?
+                .ok_or(HotColdDBError::MissingSplitState(split.state_root, split.slot))?
         } else {
             self.load_restore_point_by_index(high_restore_point_idx)?
         };
@@ -1019,7 +1015,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         if slot % store.config.slots_per_restore_point == 0 {
             let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
-                .ok_or_else(|| HotColdDBError::MissingStateToFreeze(state_root))?;
+                .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
         }

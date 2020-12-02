@@ -207,7 +207,7 @@ where
         .into_iter()
         .map(|&validator_idx| {
             Ok(get_pubkey(validator_idx as usize)
-                .ok_or_else(|| Error::ValidatorUnknown(validator_idx))?)
+                .ok_or(Error::ValidatorUnknown(validator_idx))?)
         })
         .collect::<Result<_>>()?;
 
@@ -242,7 +242,7 @@ where
         .into_iter()
         .map(|&validator_idx| {
             Ok(get_pubkey(validator_idx as usize)
-                .ok_or_else(|| Error::ValidatorUnknown(validator_idx))?)
+                .ok_or(Error::ValidatorUnknown(validator_idx))?)
         })
         .collect::<Result<_>>()?;
 
@@ -356,7 +356,7 @@ where
     Ok(SignatureSet::single_pubkey(
         signature,
         get_pubkey(validator_index as usize)
-            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
+            .ok_or(Error::ValidatorUnknown(validator_index))?,
         message,
     ))
 }
@@ -392,7 +392,7 @@ where
     Ok(SignatureSet::single_pubkey(
         signature,
         get_pubkey(validator_index as usize)
-            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
+            .ok_or(Error::ValidatorUnknown(validator_index))?,
         message,
     ))
 }
