@@ -571,8 +571,8 @@ impl RPCError {
     /// Used for metrics.
     pub fn as_static_str(&self) -> &'static str {
         match self {
-            RPCError::SSZDecodeError{..} => "decode_error",
-            RPCError::IoError{..} => "io_error",
+            RPCError::SSZDecodeError { .. } => "decode_error",
+            RPCError::IoError { .. } => "io_error",
             RPCError::ErrorResponse(ref code, ..) => match code {
                 RPCResponseErrorCode::RateLimited => "rate_limited",
                 RPCResponseErrorCode::InvalidRequest => "invalid_request",
@@ -583,7 +583,7 @@ impl RPCError {
             RPCError::UnsupportedProtocol => "unsupported_protocol",
             RPCError::IncompleteStream => "incomplete_stream",
             RPCError::InvalidData => "invalid_data",
-            RPCError::InternalError{..} => "internal_error",
+            RPCError::InternalError { .. } => "internal_error",
             RPCError::NegotiationTimeout => "negotiation_timeout",
             RPCError::HandlerRejected => "handler_rejected",
         }
