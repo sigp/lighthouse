@@ -31,7 +31,7 @@ dependencies = [
  "slog-term",
  "slot_clock",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "validator_dir",
@@ -603,7 +603,7 @@ dependencies = [
  "store",
  "task_executor",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tree_hash",
  "types",
  "websocket_server",
@@ -641,7 +641,7 @@ dependencies = [
  "slog-term",
  "store",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
 ]
@@ -830,9 +830,9 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bbf4f6a3ffa04c41ed616749b40dd83431b69db520a18cb60f09db2b7a77c57"
+checksum = "b1f4904512207f2ac5208e5f679106c9e3aa45e4aca9774beda779eab5f522cb"
 dependencies = [
  "cc",
  "glob",
@@ -859,7 +859,7 @@ dependencies = [
  "slog-stdlog",
  "slog-term",
  "sloggers",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
 ]
 
@@ -1133,7 +1133,7 @@ dependencies = [
  "task_executor",
  "time 0.2.23",
  "timer",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "toml",
  "tree_hash",
  "types",
@@ -1733,7 +1733,7 @@ dependencies = [
  "rlp",
  "sha2 0.9.2",
  "smallvec 1.5.0",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-util 0.5.0",
  "tracing",
  "tracing-subscriber",
@@ -1765,7 +1765,7 @@ dependencies = [
  "rlp",
  "sha2 0.9.2",
  "smallvec 1.5.0",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-util 0.4.0",
  "tracing",
  "tracing-subscriber",
@@ -1938,7 +1938,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
 ]
 
@@ -1977,7 +1977,7 @@ dependencies = [
  "sloggers",
  "state_processing",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "toml",
  "tree_hash",
@@ -1992,7 +1992,7 @@ dependencies = [
  "deposit_contract",
  "futures 0.3.8",
  "serde_json",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
  "web3",
 ]
@@ -2127,7 +2127,7 @@ dependencies = [
  "task_executor",
  "tempdir",
  "tiny-keccak 2.0.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-io-timeout",
  "tokio-util 0.4.0",
  "types",
@@ -2645,7 +2645,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "state_processing",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -2780,7 +2780,7 @@ dependencies = [
  "http 0.2.1 (git+https://github.com/agemanning/http?branch=lighthouse)",
  "indexmap",
  "slab 0.4.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-util 0.5.0",
  "tracing",
  "tracing-futures",
@@ -2815,7 +2815,7 @@ name = "hashset_delay"
 version = "0.2.0"
 dependencies = [
  "futures 0.3.8",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-util 0.4.0",
 ]
 
@@ -3055,7 +3055,7 @@ dependencies = [
  "slot_clock",
  "state_processing",
  "store",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -3080,7 +3080,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "store",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "warp",
@@ -3225,7 +3225,7 @@ dependencies = [
  "itoa",
  "pin-project 1.0.2",
  "socket2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tower-service",
  "tracing",
  "want 0.3.0",
@@ -3587,7 +3587,7 @@ dependencies = [
  "serde_yaml",
  "simple_logger",
  "state_processing",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -3740,7 +3740,7 @@ dependencies = [
  "lazy_static",
  "libsecp256k1",
  "log 0.4.11",
- "multihash 0.13.1",
+ "multihash 0.13.2",
  "multistream-select 0.8.5 (git+https://github.com/sigp/rust-libp2p?rev=e3caf9e0e5e78c9d51c6dccf0d6277cef553bb25)",
  "parity-multiaddr 0.9.6 (git+https://github.com/sigp/rust-libp2p?rev=e3caf9e0e5e78c9d51c6dccf0d6277cef553bb25)",
  "parking_lot 0.11.1",
@@ -3881,7 +3881,7 @@ dependencies = [
  "libp2p-core 0.25.0",
  "log 0.4.11",
  "socket2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -3979,7 +3979,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "validator_client",
@@ -4249,9 +4249,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "0.6.22"
+version = "0.6.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fce347092656428bc8eaf6201042cb551b8d67855af7374542a92a0fbfcac430"
+checksum = "4afd66f5b91bf2a3bc13fad0e21caedac168ca4c707504e75585648ae80e4cc4"
 dependencies = [
  "cfg-if 0.1.10",
  "fuchsia-zircon",
@@ -4287,7 +4287,7 @@ checksum = "52403fe290012ce777c4626790c8951324a2b9e3316b3143779c72b029742f19"
 dependencies = [
  "lazycell",
  "log 0.4.11",
- "mio 0.6.22",
+ "mio 0.6.23",
  "slab 0.4.2",
 ]
 
@@ -4298,7 +4298,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0840c1c50fd55e521b247f949c241c9997709f23bd7f023b9762cd561e935656"
 dependencies = [
  "log 0.4.11",
- "mio 0.6.22",
+ "mio 0.6.23",
  "miow 0.3.6",
  "winapi 0.3.9",
 ]
@@ -4311,7 +4311,7 @@ checksum = "afcb699eb26d4332647cc848492bbc15eafb26f08d0304550d5aa1f612e066f0"
 dependencies = [
  "iovec",
  "libc",
- "mio 0.6.22",
+ "mio 0.6.23",
 ]
 
 [[package]]
@@ -4353,9 +4353,9 @@ dependencies = [
 
 [[package]]
 name = "multihash"
-version = "0.13.1"
+version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb63389ee5fcd4df3f8727600f4a0c3df53c541f0ed4e8b50a9ae51a80fc1efe"
+checksum = "4dac63698b887d2d929306ea48b63760431ff8a24fac40ddb22f9c7f49fb7cab"
 dependencies = [
  "digest 0.9.0",
  "generic-array 0.14.4",
@@ -4366,9 +4366,9 @@ dependencies = [
 
 [[package]]
 name = "multihash-derive"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f5653449cd45d502a53480ee08d7a599e8f4893d2bacb33c63d65bc20af6c1a"
+checksum = "85ee3c48cb9d9b275ad967a0e96715badc13c6029adb92f34fa17b9ff28fd81f"
 dependencies = [
  "proc-macro-crate",
  "proc-macro-error",
@@ -4504,7 +4504,7 @@ dependencies = [
  "store",
  "task_executor",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tree_hash",
  "types",
 ]
@@ -4769,7 +4769,7 @@ dependencies = [
  "bs58 0.4.0",
  "byteorder",
  "data-encoding",
- "multihash 0.13.1",
+ "multihash 0.13.2",
  "percent-encoding 2.1.0",
  "serde",
  "static_assertions",
@@ -6207,7 +6207,7 @@ dependencies = [
  "node_test_rig",
  "parking_lot 0.11.1",
  "rayon",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "types",
  "validator_client",
@@ -6719,7 +6719,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "slog",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
 ]
 
@@ -6891,7 +6891,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
 ]
 
@@ -6964,7 +6964,7 @@ checksum = "5a09c0b5bb588872ab2f09afa13ee6e9dac11e10a0ec9e8e3ba39a5a5d530af6"
 dependencies = [
  "bytes 0.4.12",
  "futures 0.1.30",
- "mio 0.6.22",
+ "mio 0.6.23",
  "num_cpus",
  "tokio-codec",
  "tokio-current-thread",
@@ -6993,7 +6993,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "memchr",
- "mio 0.6.22",
+ "mio 0.6.23",
  "mio-named-pipes",
  "mio-uds",
  "num_cpus",
@@ -7006,9 +7006,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dfe2523e6fa84ddf5e688151d4e5fddc51678de9752c6512a24714c23818d61"
+checksum = "a12a3eb39ee2c231be64487f1fcbe726c8f2514876a55480a5ab8559fc374252"
 dependencies = [
  "autocfg 1.0.1",
  "bytes 0.6.0",
@@ -7058,7 +7058,7 @@ dependencies = [
  "once_cell",
  "pin-project-lite 0.1.11",
  "tokio 0.2.23",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7071,7 +7071,7 @@ dependencies = [
  "futures 0.1.30",
  "iovec",
  "log 0.4.11",
- "mio 0.6.22",
+ "mio 0.6.23",
  "scoped-tls 0.1.2",
  "tokio 0.1.22",
  "tokio-executor",
@@ -7128,7 +7128,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6654a6da4326b0b4228000891d44fbcbdaa1904c6ddfa06617230649073be8fb"
 dependencies = [
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7163,7 +7163,7 @@ dependencies = [
  "futures 0.1.30",
  "lazy_static",
  "log 0.4.11",
- "mio 0.6.22",
+ "mio 0.6.23",
  "num_cpus",
  "parking_lot 0.9.0",
  "slab 0.4.2",
@@ -7191,7 +7191,7 @@ dependencies = [
  "bytes 0.4.12",
  "futures 0.1.30",
  "iovec",
- "mio 0.6.22",
+ "mio 0.6.23",
  "tokio-io",
  "tokio-reactor",
 ]
@@ -7265,7 +7265,7 @@ dependencies = [
  "futures-util",
  "log 0.4.11",
  "pin-project 1.0.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tungstenite",
 ]
 
@@ -7278,7 +7278,7 @@ dependencies = [
  "bytes 0.4.12",
  "futures 0.1.30",
  "log 0.4.11",
- "mio 0.6.22",
+ "mio 0.6.23",
  "tokio-codec",
  "tokio-io",
  "tokio-reactor",
@@ -7295,7 +7295,7 @@ dependencies = [
  "iovec",
  "libc",
  "log 0.3.9",
- "mio 0.6.22",
+ "mio 0.6.23",
  "mio-uds",
  "tokio-core",
  "tokio-io",
@@ -7312,7 +7312,7 @@ dependencies = [
  "iovec",
  "libc",
  "log 0.4.11",
- "mio 0.6.22",
+ "mio 0.6.23",
  "mio-uds",
  "tokio-codec",
  "tokio-io",
@@ -7346,7 +7346,7 @@ dependencies = [
  "log 0.4.11",
  "pin-project-lite 0.1.11",
  "slab 0.4.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7361,7 +7361,7 @@ dependencies = [
  "log 0.4.11",
  "pin-project-lite 0.1.11",
  "slab 0.4.2",
- "tokio 0.3.4",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -7793,7 +7793,7 @@ dependencies = [
  "slot_clock",
  "tempdir",
  "tempfile",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-compat-02",
  "tree_hash",
  "types",
@@ -7914,7 +7914,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "tokio-tungstenite",
  "tower-service",
  "tracing",
@@ -7933,7 +7933,7 @@ dependencies = [
  "safe_arith",
  "serde",
  "state_processing",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
  "warp",
 ]
@@ -8150,7 +8150,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "task_executor",
- "tokio 0.3.4",
+ "tokio 0.3.5",
  "types",
  "ws",
 ]
@@ -8235,7 +8235,7 @@ dependencies = [
  "bytes 0.4.12",
  "httparse",
  "log 0.4.11",
- "mio 0.6.22",
+ "mio 0.6.23",
  "mio-extras",
  "rand 0.7.3",
  "sha-1 0.8.2",
