@@ -102,6 +102,12 @@ impl Default for DepositCache {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum DepositCacheInsertOutcome {
+    Inserted,
+    Duplicate,
+}
+
 impl DepositCache {
     /// Create new `DepositCache` given block number at which deposit
     /// contract was deployed.
@@ -146,7 +152,7 @@ impl DepositCache {
     ///
     /// - If a log with index `log.index - 1` is not already present in `self` (ignored when empty).
     /// - If a log with `log.index` is already known, but the given `log` is distinct to it.
-    pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
+    pub fn insert_log(&mut self, log: DepositLog) -> Result<DepositCacheInsertOutcome, Error> {
         match log.index.cmp(&(self.logs.len() as u64)) {
             Ordering::Equal => {
                 let deposit = log.deposit_data.tree_hash_root();
@@ -156,11 +162,11 @@ impl DepositCache {
                     .push_leaf(deposit)
                     .map_err(Error::DepositTreeError)?;
                 self.deposit_roots.push(self.deposit_tree.root());
-                Ok(())
+                Ok(DepositCacheInsertOutcome::Inserted)
             }
             Ordering::Less => {
                 if self.logs[log.index as usize] == log {
-                    Ok(())
+                    Ok(DepositCacheInsertOutcome::Duplicate)
                 } else {
                     Err(Error::DuplicateDistinctLog(log.index))
                 }
@@ -314,7 +320,7 @@ pub mod tests {
         for i in 0..16 {
             let mut log = example_log();
             log.index = i;
-            tree.insert_log(log).expect("should add consecutive logs")
+            tree.insert_log(log).expect("should add consecutive logs");
         }
     }
 
@@ -325,13 +331,16 @@ pub mod tests {
         for i in 0..4 {
             let mut log = example_log();
             log.index = i;
-            tree.insert_log(log).expect("should add consecutive logs")
+            tree.insert_log(log).expect("should add consecutive logs");
         }
 
         // Add duplicate, when given is the same as the one known.
         let mut log = example_log();
         log.index = 3;
-        assert!(tree.insert_log(log).is_ok());
+        assert_eq!(
+            tree.insert_log(log).unwrap(),
+            DepositCacheInsertOutcome::Duplicate
+        );
 
         // Add duplicate, when given is different to the one known.
         let mut log = example_log();
@@ -355,7 +364,7 @@ pub mod tests {
             log.index = i;
             log.block_number = i;
             log.deposit_data.withdrawal_credentials = Hash256::from_low_u64_be(i);
-            tree.insert_log(log).expect("should add consecutive logs")
+            tree.insert_log(log).expect("should add consecutive logs");
         }
 
         // Get 0 deposits, with max deposit count.
@@ -432,7 +441,7 @@ pub mod tests {
             log.index = i;
             log.block_number = i;
             log.deposit_data.withdrawal_credentials = Hash256::from_low_u64_be(i);
-            tree.insert_log(log).expect("should add consecutive logs")
+            tree.insert_log(log).expect("should add consecutive logs");
         }
 
         // Range too high.

@@ -1,7 +1,7 @@
 use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
-    deposit_cache::Error as DepositCacheError,
+    deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
     http::{
         get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
         BlockQuery, Eth1Id,
@@ -866,12 +866,13 @@ impl Service {
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .map(|deposit_log| {
-                    cache
+                    if let DepositCacheInsertOutcome::Inserted = cache
                         .cache
                         .insert_log(deposit_log)
-                        .map_err(Error::FailedToInsertDeposit)?;
-
-                    logs_imported += 1;
+                        .map_err(Error::FailedToInsertDeposit)?
+                    {
+                        logs_imported += 1;
+                    }
 
                     Ok(())
                 })
