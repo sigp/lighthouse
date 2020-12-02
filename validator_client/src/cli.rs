@@ -37,7 +37,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true)
                 .conflicts_with("datadir")
-                .requires("secrets-dir")
         )
         .arg(
             Arg::with_name("secrets-dir")
@@ -51,7 +50,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true)
                 .conflicts_with("datadir")
-                .requires("validators-dir"),
         )
         .arg(
             Arg::with_name("delete-lockfiles")
