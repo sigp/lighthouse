@@ -685,29 +685,27 @@ where
             eth1_service_from_genesis.drop_block_cache();
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
+        } else if config.purge_cache {
+            CachingEth1Backend::new(config, context.log().clone(), spec)
         } else {
-            if config.purge_cache {
-                CachingEth1Backend::new(config, context.log().clone(), spec.clone())
-            } else {
-                beacon_chain_builder
-                    .get_persisted_eth1_backend()?
-                    .map(|persisted| {
-                        Eth1Chain::from_ssz_container(
-                            &persisted,
-                            config.clone(),
-                            &context.log().clone(),
-                            spec.clone(),
-                        )
-                        .map(|chain| chain.into_backend())
-                    })
-                    .unwrap_or_else(|| {
-                        Ok(CachingEth1Backend::new(
-                            config,
-                            context.log().clone(),
-                            spec.clone(),
-                        ))
-                    })?
-            }
+            beacon_chain_builder
+                .get_persisted_eth1_backend()?
+                .map(|persisted| {
+                    Eth1Chain::from_ssz_container(
+                        &persisted,
+                        config.clone(),
+                        &context.log().clone(),
+                        spec.clone(),
+                    )
+                    .map(|chain| chain.into_backend())
+                })
+                .unwrap_or_else(|| {
+                    Ok(CachingEth1Backend::new(
+                        config,
+                        context.log().clone(),
+                        spec.clone(),
+                    ))
+                })?
         };
 
         self.eth1_service = Some(backend.core.clone());
