@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 use environment::Environment;
-use eth2_network_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use genesis::{Eth1Config, Eth1GenesisService};
 use ssz::Encode;
 use std::cmp::max;
@@ -32,7 +32,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
                 .expect("should locate home directory")
         });
 
-    let mut eth2_network_config = Eth2TestnetConfig::load(testnet_dir.clone())?;
+    let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
     let spec = eth2_network_config
         .yaml_config

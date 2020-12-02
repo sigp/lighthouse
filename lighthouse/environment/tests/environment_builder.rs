@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use environment::EnvironmentBuilder;
-use eth2_network_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use std::path::PathBuf;
 use types::{V012LegacyEthSpec, YamlConfig};
 
@@ -13,8 +13,8 @@ fn builder() -> EnvironmentBuilder<V012LegacyEthSpec> {
         .expect("should set logger")
 }
 
-fn eth2_network_config() -> Option<Eth2TestnetConfig> {
-    Eth2TestnetConfig::constant(DEFAULT_HARDCODED_NETWORK).expect("should decode mainnet params")
+fn eth2_network_config() -> Option<Eth2NetworkConfig> {
+    Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK).expect("should decode mainnet params")
 }
 
 mod setup_eth2_config {

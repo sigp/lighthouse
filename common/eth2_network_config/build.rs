@@ -1,4 +1,4 @@
-//! Downloads a testnet configuration from Github.
+//! Downloads a network configuration from Github.
 
 use eth2_config::{
     altona, mainnet, medalla, pyrmont, spadina, toledo, Eth2NetArchiveAndDirectory,
@@ -18,21 +18,21 @@ const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[
 ];
 
 fn main() {
-    for testnet in ETH2_NET_DIRS {
-        match uncompress_state(testnet) {
+    for network in ETH2_NET_DIRS {
+        match uncompress_state(network) {
             Ok(()) => (),
             Err(e) => panic!(
                 "Failed to uncompress {} genesis state zip file: {}",
-                testnet.name, e
+                network.name, e
             ),
         }
     }
 }
 
-/// Uncompress the testnet configs archive into a testnet configs folder.
-fn uncompress_state(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
-    if testnet.genesis_is_known {
-        let archive_path = testnet.genesis_state_archive();
+/// Uncompress the network configs archive into a network configs folder.
+fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
+    if network.genesis_is_known {
+        let archive_path = network.genesis_state_archive();
         let archive_file = File::open(&archive_path)
             .map_err(|e| format!("Failed to open archive file {:?}: {:?}", archive_path, e))?;
 
@@ -45,14 +45,14 @@ fn uncompress_state(testnet: &Eth2NetArchiveAndDirectory<'static>) -> Result<(),
                 GENESIS_FILE_NAME, e
             )
         })?;
-        let path = testnet.dir().join(GENESIS_FILE_NAME);
+        let path = network.dir().join(GENESIS_FILE_NAME);
         let mut outfile = File::create(&path)
             .map_err(|e| format!("Error while creating file {:?}: {}", path, e))?;
         io::copy(&mut file, &mut outfile)
             .map_err(|e| format!("Error writing file {:?}: {}", path, e))?;
     } else {
         // Create empty genesis.ssz if genesis is unknown
-        let genesis_file = testnet.dir().join(GENESIS_FILE_NAME);
+        let genesis_file = network.dir().join(GENESIS_FILE_NAME);
         if !genesis_file.exists() {
             File::create(genesis_file)
                 .map_err(|e| format!("Failed to create {}: {}", GENESIS_FILE_NAME, e))?;

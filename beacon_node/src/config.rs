@@ -4,7 +4,7 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
-use eth2_network_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
@@ -608,14 +608,14 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 
 /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
+pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
     let optional_network_config = if cli_args.is_present("network") {
         clap_utils::parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
         // if neither is present, assume the default network
-        Eth2TestnetConfig::constant(DEFAULT_HARDCODED_NETWORK)?
+        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
     optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }

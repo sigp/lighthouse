@@ -2,7 +2,7 @@ use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_network_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -176,7 +176,7 @@ fn main() {
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
-    testnet_config: Eth2TestnetConfig,
+    testnet_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -235,7 +235,7 @@ fn run<E: EthSpec>(
     let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
     let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
 
-    let testnet_name = match (optional_testnet, optional_testnet_dir) {
+    let network_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
         (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
