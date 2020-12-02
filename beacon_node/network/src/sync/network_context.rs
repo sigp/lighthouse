@@ -125,7 +125,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
             "count" => request.block_roots.len(),
-            "peer" => format!("{:?}", peer_id)
+            "peer" => %peer_id
         );
         self.send_rpc_request(peer_id, Request::BlocksByRoot(request))
     }
@@ -139,11 +139,11 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
-        debug!(self.log, "Sync reporting peer"; "peer_id" => peer_id.to_string(), "action" => action.to_string());
+        debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
         self.network_send
             .send(NetworkMessage::ReportPeer { peer_id, action })
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not report peer, channel failed"; "error"=> e.to_string());
+                warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
             });
     }
 
@@ -166,7 +166,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SubscribeCoreTopics)
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not subscribe to core topics."; "error" => e.to_string());
+                warn!(self.log, "Could not subscribe to core topics."; "error" => %e);
             });
     }
 

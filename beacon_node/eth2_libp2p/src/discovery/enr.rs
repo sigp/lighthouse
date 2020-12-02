@@ -70,7 +70,7 @@ pub fn use_or_load_enr(
                         // if the same node id, then we may need to update our sequence number
                         if local_enr.node_id() == disk_enr.node_id() {
                             if compare_enr(&local_enr, &disk_enr) {
-                                debug!(log, "ENR loaded from disk"; "file" => format!("{:?}", enr_f));
+                                debug!(log, "ENR loaded from disk"; "file" => ?enr_f);
                                 // the stored ENR has the same configuration, use it
                                 *local_enr = disk_enr;
                                 return Ok(());
@@ -87,7 +87,7 @@ pub fn use_or_load_enr(
                         }
                     }
                     Err(e) => {
-                        warn!(log, "ENR from file could not be decoded"; "error" => format!("{:?}", e));
+                        warn!(log, "ENR from file could not be decoded"; "error" => ?e);
                     }
                 }
             }
@@ -188,7 +188,7 @@ pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
         Err(e) => {
             warn!(
                 log,
-                "Could not write ENR to file"; "file" => format!("{:?}{:?}",dir, ENR_FILENAME),  "error" => format!("{}", e)
+                "Could not write ENR to file"; "file" => format!("{:?}{:?}",dir, ENR_FILENAME),  "error" => %e
             );
         }
     }

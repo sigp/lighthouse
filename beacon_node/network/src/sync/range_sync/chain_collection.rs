@@ -215,13 +215,15 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
-    pub fn state(&self) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, String> {
+    pub fn state(
+        &self,
+    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
         match self.state {
             RangeSyncState::Finalized(ref syncing_id) => {
                 let chain = self
                     .finalized_chains
                     .get(syncing_id)
-                    .ok_or(format!("Finalized syncing chain not found: {}", syncing_id))?;
+                    .ok_or("Finalized syncing chain not found")?;
                 Ok(Some((
                     RangeSyncType::Finalized,
                     chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
@@ -234,7 +236,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     let chain = self
                         .head_chains
                         .get(id)
-                        .ok_or(format!("Head syncing chain not found: {}", id))?;
+                        .ok_or("Head syncing chain not found")?;
                     let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());
                     let target = chain.target_head_slot;
 

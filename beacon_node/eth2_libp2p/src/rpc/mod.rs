@@ -187,7 +187,7 @@ where
     // Use connection established/closed instead of these currently
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
-        debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
+        debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
         let rpc_event = RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id: peer_id.clone(),
@@ -253,7 +253,7 @@ where
                 }
                 Err(RateLimitedErr::TooSoon(wait_time)) => {
                     debug!(self.log, "Request exceeds the rate limit";
-                        "request" => req.to_string(), "peer_id" => peer_id.to_string(), "wait_time_ms" => wait_time.as_millis());
+                        "request" => %req, "peer_id" => %peer_id, "wait_time_ms" => wait_time.as_millis());
                     // send an error code to the peer.
                     // the handler upon receiving the error code will send it back to the behaviour
                     self.send_response(

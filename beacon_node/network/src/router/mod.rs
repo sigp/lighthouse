@@ -225,14 +225,14 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor.on_block_gossip(id, peer_id, block);
             }
             PubsubMessage::VoluntaryExit(exit) => {
-                debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id));
+                debug!(self.log, "Received a voluntary exit"; "peer_id" => %peer_id);
                 self.processor.on_voluntary_exit_gossip(id, peer_id, exit);
             }
             PubsubMessage::ProposerSlashing(proposer_slashing) => {
                 debug!(
                     self.log,
                     "Received a proposer slashing";
-                    "peer_id" => format!("{}", peer_id)
+                    "peer_id" => %peer_id
                 );
                 self.processor
                     .on_proposer_slashing_gossip(id, peer_id, proposer_slashing);
@@ -241,7 +241,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 debug!(
                     self.log,
                     "Received a attester slashing";
-                    "peer_id" => format!("{}", peer_id)
+                    "peer_id" => %peer_id
                 );
                 self.processor
                     .on_attester_slashing_gossip(id, peer_id, attester_slashing);

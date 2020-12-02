@@ -206,7 +206,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // This will subscribe to long-lived random subnets if required.
             trace!(self.log,
                 "Validator subscription";
-                "subscription" => format!("{:?}", subscription),
+                "subscription" => ?subscription,
             );
             self.add_known_validator(subscription.validator_index);
 
@@ -220,7 +220,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 Err(e) => {
                     warn!(self.log,
                         "Failed to compute subnet id for validator subscription";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                         "validator_index" => subscription.validator_index
                     );
                     continue;
@@ -257,7 +257,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 } else {
                     trace!(self.log,
                         "Subscribed to subnet for aggregator duties";
-                        "exact_subnet" => format!("{:?}", exact_subnet),
+                        "exact_subnet" => ?exact_subnet,
                         "validator_index" => subscription.validator_index
                     );
                 }
@@ -339,7 +339,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     // peer before they can be removed.
                     warn!(self.log,
                         "Not enough time for a discovery search";
-                        "subnet_id" => format!("{:?}", exact_subnet)
+                        "subnet_id" => ?exact_subnet
                     );
                     None
                 }

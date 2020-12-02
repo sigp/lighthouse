@@ -307,7 +307,7 @@ where
         if matches!(self.state, HandlerState::Deactivated) {
             // we no longer send responses after the handler is deactivated
             debug!(self.log, "Response not sent. Deactivated handler";
-                "response" => response.to_string(), "id" => inbound_id);
+                "response" => %response, "id" => inbound_id);
             return;
         }
         inbound_info.pending_items.push(response);
@@ -419,7 +419,7 @@ where
                 )
                 .is_some()
             {
-                crit!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", self.current_outbound_substream_id));
+                crit!(self.log, "Duplicate outbound substream id"; "id" => self.current_outbound_substream_id);
             }
             self.current_outbound_substream_id.0 += 1;
         }
@@ -563,7 +563,7 @@ where
                     }
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    warn!(self.log, "Inbound substream poll failed"; "error" => format!("{:?}", e));
+                    warn!(self.log, "Inbound substream poll failed"; "error" => ?e);
                     // drops the peer if we cannot read the delay queue
                     return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::InternalError(
                         "Could not poll inbound stream timer",
@@ -592,7 +592,7 @@ where
                     }
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    warn!(self.log, "Outbound substream poll failed"; "error" => format!("{:?}", e));
+                    warn!(self.log, "Outbound substream poll failed"; "error" => ?e);
                     return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::InternalError(
                         "Could not poll outbound stream timer",
                     )));

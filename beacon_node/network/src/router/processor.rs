@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         trace!(
             self.log,
             "Received BlocksByRange Response";
-            "peer" => peer_id.to_string(),
+            "peer" => %peer_id,
         );
 
         if let RequestId::Sync(id) = request_id {
@@ -206,7 +206,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         trace!(
             self.log,
             "Received BlocksByRoot Response";
-            "peer" => peer_id.to_string(),
+            "peer" => %peer_id,
         );
 
         if let RequestId::Sync(id) = request_id {
@@ -356,10 +356,9 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
 
     /// Sends a message to the network task.
     fn inform_network(&mut self, msg: NetworkMessage<T>) {
-        let msg_r = &format!("{:?}", msg);
-        self.network_send
-            .send(msg)
-            .unwrap_or_else(|e| warn!(self.log, "Could not send message to the network service"; "error" => %e, "message" => msg_r))
+        self.network_send.send(msg).unwrap_or_else(
+            |e| warn!(self.log, "Could not send message to the network service"; "error" => %e),
+        )
     }
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
