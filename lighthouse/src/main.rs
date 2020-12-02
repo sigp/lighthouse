@@ -243,7 +243,7 @@ fn run<E: EthSpec>(
     };
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
-        eprintln!("Running account manager for {} network", testnet_name);
+        eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 
@@ -255,7 +255,7 @@ fn run<E: EthSpec>(
     info!(
         log,
         "Configured for network";
-        "name" => &testnet_name
+        "name" => &network_name
     );
 
     match matches.subcommand() {
