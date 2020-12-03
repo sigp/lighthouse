@@ -34,16 +34,14 @@ impl Eth2Enr for Enr {
     fn bitfield<TSpec: EthSpec>(&self) -> Result<EnrBitfield<TSpec>, &'static str> {
         let bitfield_bytes = self
             .get(BITFIELD_ENR_KEY)
-            .ok_or_else(|| "ENR bitfield non-existent")?;
+            .ok_or("ENR bitfield non-existent")?;
 
         BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
             .map_err(|_| "Could not decode the ENR SSZ bitfield")
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
-        let eth2_bytes = self
-            .get(ETH2_ENR_KEY)
-            .ok_or_else(|| "ENR has no eth2 field")?;
+        let eth2_bytes = self.get(ETH2_ENR_KEY).ok_or("ENR has no eth2 field")?;
 
         EnrForkId::from_ssz_bytes(eth2_bytes).map_err(|_| "Could not decode EnrForkId")
     }
@@ -79,7 +77,7 @@ pub fn use_or_load_enr(
                             // same node id, different configuration - update the sequence number
                             // Note: local_enr is generated with default(0) attnets value,
                             // so a non default value in persisted enr will also update sequence number.
-                            let new_seq_no = disk_enr.seq().checked_add(1).ok_or_else(|| "ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
+                            let new_seq_no = disk_enr.seq().checked_add(1).ok_or("ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
                             local_enr.set_seq(new_seq_no, enr_key).map_err(|e| {
                                 format!("Could not update ENR sequence number: {:?}", e)
                             })?;
@@ -133,7 +131,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
     }
     // we always give it our listening tcp port
     if enable_tcp {
-        let tcp_port = config.enr_tcp_port.unwrap_or_else(|| config.libp2p_port);
+        let tcp_port = config.enr_tcp_port.unwrap_or(config.libp2p_port);
         builder.tcp(tcp_port);
     }
     builder

@@ -30,7 +30,7 @@ impl BeaconProposerCache {
             .fork_choice
             .read()
             .get_block(&head_root)
-            .ok_or_else(|| BeaconChainError::MissingBeaconBlock(head_root))?;
+            .ok_or(BeaconChainError::MissingBeaconBlock(head_root))?;
 
         // If the head epoch is more than `EPOCHS_TO_SKIP` in the future, just build the cache at
         // the epoch of the head. This prevents doing a massive amount of skip slots when starting
@@ -63,7 +63,7 @@ impl BeaconProposerCache {
 
         let mut head_state = chain
             .get_state(&head_block.state_root, Some(head_block.slot))?
-            .ok_or_else(|| BeaconChainError::MissingBeaconState(head_block.state_root))?;
+            .ok_or(BeaconChainError::MissingBeaconState(head_block.state_root))?;
 
         let decision_block_root = Self::decision_block_root(current_epoch, head_root, &head_state)?;
 
@@ -85,7 +85,7 @@ impl BeaconProposerCache {
                     .and_then(|i| {
                         let pubkey = chain
                             .validator_pubkey(i)?
-                            .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheIncomplete(i))?;
+                            .ok_or(BeaconChainError::ValidatorPubkeyCacheIncomplete(i))?;
 
                         Ok(ProposerData {
                             pubkey: PublicKeyBytes::from(pubkey),
@@ -168,7 +168,7 @@ impl BeaconProposerCache {
             .fork_choice
             .read()
             .get_block(&head_block_root)
-            .ok_or_else(|| BeaconChainError::MissingBeaconBlock(head_block_root))
+            .ok_or(BeaconChainError::MissingBeaconBlock(head_block_root))
             .map_err(warp_utils::reject::beacon_chain_error)?;
 
         // Rebuild the cache if this call causes a cache-miss.

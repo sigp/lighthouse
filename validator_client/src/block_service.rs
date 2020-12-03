@@ -59,16 +59,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             inner: Arc::new(Inner {
                 validator_store: self
                     .validator_store
-                    .ok_or_else(|| "Cannot build BlockService without validator_store")?,
+                    .ok_or("Cannot build BlockService without validator_store")?,
                 slot_clock: self
                     .slot_clock
-                    .ok_or_else(|| "Cannot build BlockService without slot_clock")?,
+                    .ok_or("Cannot build BlockService without slot_clock")?,
                 beacon_node: self
                     .beacon_node
-                    .ok_or_else(|| "Cannot build BlockService without beacon_node")?,
+                    .ok_or("Cannot build BlockService without beacon_node")?,
                 context: self
                     .context
-                    .ok_or_else(|| "Cannot build BlockService without runtime_context")?,
+                    .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
             }),
         })
@@ -217,12 +217,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let current_slot = self
             .slot_clock
             .now()
-            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?;
+            .ok_or("Unable to determine current slot from clock")?;
 
         let randao_reveal = self
             .validator_store
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
-            .ok_or_else(|| "Unable to produce randao reveal".to_string())?;
+            .ok_or("Unable to produce randao reveal")?;
 
         let block = self
             .beacon_node
@@ -234,7 +234,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let signed_block = self
             .validator_store
             .sign_block(&validator_pubkey, block, current_slot)
-            .ok_or_else(|| "Unable to sign block".to_string())?;
+            .ok_or("Unable to sign block")?;
 
         self.beacon_node
             .post_beacon_blocks(&signed_block)

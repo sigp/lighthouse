@@ -167,8 +167,8 @@ impl ValidatorDir {
             .map_err(Error::UnableToReadDepositData)
             .and_then(|hex_bytes| {
                 let hex = std::str::from_utf8(&hex_bytes).map_err(|_| Error::DepositDataNotUtf8)?;
-                if hex.starts_with("0x") {
-                    hex::decode(&hex[2..]).map_err(Error::DepositDataInvalidHex)
+                if let Some(stripped) = hex.strip_prefix("0x") {
+                    hex::decode(stripped).map_err(Error::DepositDataInvalidHex)
                 } else {
                     Err(Error::DepositDataMissing0xPrefix)
                 }

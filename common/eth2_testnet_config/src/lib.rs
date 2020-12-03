@@ -122,7 +122,7 @@ impl Eth2TestnetConfig {
         let genesis_state_bytes = self
             .genesis_state_bytes
             .as_ref()
-            .ok_or_else(|| "Genesis state is unknown".to_string())?;
+            .ok_or("Genesis state is unknown")?;
 
         BeaconState::from_ssz_bytes(genesis_state_bytes)
             .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
@@ -156,8 +156,8 @@ impl Eth2TestnetConfig {
                         //
                         // This allows us to play nice with other clients that are expecting
                         // plain-text, not YAML.
-                        let no_doc_header = if yaml.starts_with("---\n") {
-                            &yaml[4..]
+                        let no_doc_header = if let Some(stripped) = yaml.strip_prefix("---\n") {
+                            stripped
                         } else {
                             &yaml
                         };

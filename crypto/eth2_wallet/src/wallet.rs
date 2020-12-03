@@ -202,7 +202,7 @@ impl Wallet {
             .json
             .nextaccount
             .checked_add(1)
-            .ok_or_else(|| Error::PathExhausted)?;
+            .ok_or(Error::PathExhausted)?;
 
         Ok(keystores)
     }

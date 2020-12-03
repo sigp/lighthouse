@@ -54,13 +54,13 @@ impl<T: SlotClock + 'static> ForkServiceBuilder<T> {
                 fork: RwLock::new(self.fork),
                 slot_clock: self
                     .slot_clock
-                    .ok_or_else(|| "Cannot build ForkService without slot_clock")?,
+                    .ok_or("Cannot build ForkService without slot_clock")?,
                 beacon_node: self
                     .beacon_node
-                    .ok_or_else(|| "Cannot build ForkService without beacon_node")?,
+                    .ok_or("Cannot build ForkService without beacon_node")?,
                 log: self
                     .log
-                    .ok_or_else(|| "Cannot build ForkService without logger")?
+                    .ok_or("Cannot build ForkService without logger")?
                     .clone(),
             }),
         })
@@ -131,7 +131,7 @@ impl<T: SlotClock + 'static> ForkService<T> {
         let duration_to_next_epoch = self
             .slot_clock
             .duration_to_next_epoch(E::slots_per_epoch())
-            .ok_or_else(|| "Unable to determine duration to next epoch".to_string())?;
+            .ok_or("Unable to determine duration to next epoch")?;
 
         let mut interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
