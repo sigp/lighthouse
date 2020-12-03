@@ -223,7 +223,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         num_imported_keystores += 1;
 
         let validator_def =
-            ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt)
+            ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt, None)
                 .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         defs.push(validator_def);

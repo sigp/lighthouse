@@ -391,6 +391,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     voting_keystore_path,
                                     voting_password,
                                     body.enable,
+                                    None,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(

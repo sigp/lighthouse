@@ -130,7 +130,12 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
         drop(validator_dir);
 
         validator_store
-            .add_validator_keystore(voting_keystore_path, voting_password_string, request.enable)
+            .add_validator_keystore(
+                voting_keystore_path,
+                voting_password_string,
+                request.enable,
+                None,
+            )
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(

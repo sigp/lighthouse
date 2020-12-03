@@ -14,7 +14,7 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-use types::PublicKey;
+use types::{Graffiti, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -66,6 +66,7 @@ pub enum SigningDefinition {
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
+    pub graffiti: Option<Graffiti>,
     #[serde(default)]
     pub description: String,
     #[serde(flatten)]
@@ -82,6 +83,7 @@ impl ValidatorDefinition {
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
         voting_keystore_password: Option<ZeroizeString>,
+        graffiti: Option<Graffiti>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -92,6 +94,7 @@ impl ValidatorDefinition {
             enabled: true,
             voting_public_key,
             description: keystore.description().unwrap_or("").to_string(),
+            graffiti,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path: None,
@@ -104,7 +107,7 @@ impl ValidatorDefinition {
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
 /// list of validators to be initialized by this validator client.
 #[derive(Default, Serialize, Deserialize)]
-pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
+pub struct ValidatorDefinitions(pub Vec<ValidatorDefinition>);
 
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
@@ -213,6 +216,7 @@ impl ValidatorDefinitions {
                     enabled: true,
                     voting_public_key,
                     description: keystore.description().unwrap_or("").to_string(),
+                    graffiti: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
