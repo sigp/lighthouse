@@ -101,8 +101,8 @@ pub fn parse_ssz_optional<T: Decode>(
     matches
         .value_of(name)
         .map(|val| {
-            if val.starts_with("0x") {
-                let vec = hex::decode(&val[2..])
+            if let Some(stripped) = val.strip_prefix("0x") {
+                let vec = hex::decode(stripped)
                     .map_err(|e| format!("Unable to parse {} as hex: {:?}", name, e))?;
 
                 T::from_ssz_bytes(&vec)

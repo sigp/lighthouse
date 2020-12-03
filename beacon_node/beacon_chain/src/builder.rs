@@ -211,7 +211,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "get_persisted_eth1_backend requires a store.".to_string())?;
+            .ok_or("get_persisted_eth1_backend requires a store.")?;
 
         store
             .get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)
@@ -223,7 +223,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "store_contains_beacon_chain requires a store.".to_string())?;
+            .ok_or("store_contains_beacon_chain requires a store.")?;
 
         Ok(store
             .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
@@ -235,15 +235,12 @@ where
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
     pub fn resume_from_db(mut self) -> Result<Self, String> {
-        let log = self
-            .log
-            .as_ref()
-            .ok_or_else(|| "resume_from_db requires a log".to_string())?;
+        let log = self.log.as_ref().ok_or("resume_from_db requires a log")?;
 
         let pubkey_cache_path = self
             .pubkey_cache_path
             .as_ref()
-            .ok_or_else(|| "resume_from_db requires a data_dir".to_string())?;
+            .ok_or("resume_from_db requires a data_dir")?;
 
         info!(
             log,
@@ -254,7 +251,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "resume_from_db requires a store.".to_string())?;
+            .ok_or("resume_from_db requires a store.")?;
 
         let chain = store
             .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
@@ -267,7 +264,7 @@ where
         let persisted_fork_choice = store
             .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
-            .ok_or_else(|| "No persisted fork choice present in database.".to_string())?;
+            .ok_or("No persisted fork choice present in database.")?;
 
         let fc_store = BeaconForkChoiceStore::from_persisted(
             persisted_fork_choice.fork_choice_store,
@@ -282,11 +279,11 @@ where
         let genesis_block = store
             .get_item::<SignedBeaconBlock<TEthSpec>>(&chain.genesis_block_root)
             .map_err(|e| format!("DB error when reading genesis block: {:?}", e))?
-            .ok_or_else(|| "Genesis block not found in store".to_string())?;
+            .ok_or("Genesis block not found in store")?;
         let genesis_state = store
             .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
             .map_err(|e| format!("DB error when reading genesis state: {:?}", e))?
-            .ok_or_else(|| "Genesis block not found in store".to_string())?;
+            .ok_or("Genesis block not found in store")?;
 
         self.genesis_time = Some(genesis_state.genesis_time);
 
@@ -318,10 +315,7 @@ where
         mut self,
         mut beacon_state: BeaconState<TEthSpec>,
     ) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "genesis_state requires a store")?;
+        let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
@@ -436,35 +430,28 @@ where
         >,
         String,
     > {
-        let log = self
-            .log
-            .ok_or_else(|| "Cannot build without a logger".to_string())?;
+        let log = self.log.ok_or("Cannot build without a logger")?;
         let slot_clock = self
             .slot_clock
-            .ok_or_else(|| "Cannot build without a slot_clock.".to_string())?;
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "Cannot build without a store.".to_string())?;
+            .ok_or("Cannot build without a slot_clock.")?;
+        let store = self.store.clone().ok_or("Cannot build without a store.")?;
         let mut fork_choice = self
             .fork_choice
-            .ok_or_else(|| "Cannot build without fork choice.".to_string())?;
+            .ok_or("Cannot build without fork choice.")?;
         let genesis_block_root = self
             .genesis_block_root
-            .ok_or_else(|| "Cannot build without a genesis block root".to_string())?;
+            .ok_or("Cannot build without a genesis block root")?;
         let genesis_state_root = self
             .genesis_state_root
-            .ok_or_else(|| "Cannot build without a genesis state root".to_string())?;
+            .ok_or("Cannot build without a genesis state root")?;
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
-            .ok_or_else(|| "Unable to read slot clock".to_string())?
+            .ok_or("Unable to read slot clock")?
         {
             self.spec.genesis_slot
         } else {
-            slot_clock
-                .now()
-                .ok_or_else(|| "Unable to read slot".to_string())?
+            slot_clock.now().ok_or("Unable to read slot")?
         };
 
         let head_block_root = fork_choice
@@ -474,12 +461,12 @@ where
         let head_block = store
             .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
             .map_err(|e| format!("DB error when reading head block: {:?}", e))?
-            .ok_or_else(|| "Head block not found in store".to_string())?;
+            .ok_or("Head block not found in store")?;
         let head_state_root = head_block.state_root();
         let head_state = store
             .get_state(&head_state_root, Some(head_block.slot()))
             .map_err(|e| format!("DB error when reading head state: {:?}", e))?
-            .ok_or_else(|| "Head state not found in store".to_string())?;
+            .ok_or("Head state not found in store")?;
 
         let mut canonical_head = BeaconSnapshot {
             beacon_block_root: head_block_root,
@@ -520,7 +507,7 @@ where
 
         let pubkey_cache_path = self
             .pubkey_cache_path
-            .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
+            .ok_or("Cannot build without a pubkey cache path")?;
 
         let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
             ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
@@ -541,9 +528,7 @@ where
             store,
             store_migrator,
             slot_clock,
-            op_pool: self
-                .op_pool
-                .ok_or_else(|| "Cannot build without op pool".to_string())?,
+            op_pool: self.op_pool.ok_or("Cannot build without op pool")?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
@@ -566,7 +551,7 @@ where
             fork_choice: RwLock::new(fork_choice),
             event_handler: self
                 .event_handler
-                .ok_or_else(|| "Cannot build without an event handler".to_string())?,
+                .ok_or("Cannot build without an event handler")?,
             head_tracker: Arc::new(self.head_tracker.unwrap_or_default()),
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
@@ -577,7 +562,7 @@ where
             disabled_forks: self.disabled_forks,
             shutdown_sender: self
                 .shutdown_sender
-                .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
+                .ok_or("Cannot build without a shutdown sender.")?,
             log: log.clone(),
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
@@ -648,7 +633,7 @@ where
         let log = self
             .log
             .as_ref()
-            .ok_or_else(|| "dummy_eth1_backend requires a log".to_string())?;
+            .ok_or("dummy_eth1_backend requires a log")?;
 
         let backend =
             CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
@@ -676,7 +661,7 @@ where
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
             .genesis_time
-            .ok_or_else(|| "testing_slot_clock requires an initialized state")?;
+            .ok_or("testing_slot_clock requires an initialized state")?;
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),

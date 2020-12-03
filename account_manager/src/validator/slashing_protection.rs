@@ -49,7 +49,7 @@ pub fn cli_run<T: EthSpec>(
 
     let testnet_config = env
         .testnet
-        .ok_or_else(|| "Unable to get testnet configuration from the environment".to_string())?;
+        .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = testnet_config
         .beacon_state::<T>()

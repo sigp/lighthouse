@@ -35,7 +35,7 @@ impl GanacheInstance {
     ) -> Result<Self, String> {
         let stdout = child
             .stdout
-            .ok_or_else(|| "Unable to get stdout for ganache child process")?;
+            .ok_or("Unable to get stdout for ganache child process")?;
 
         let start = Instant::now();
         let mut reader = BufReader::new(stdout);

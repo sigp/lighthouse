@@ -1,7 +1,7 @@
 use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
-    deposit_cache::Error as DepositCacheError,
+    deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
     http::{
         get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
         BlockQuery, Eth1Id,
@@ -808,8 +808,8 @@ impl Service {
                 .chunks(blocks_per_log_query)
                 .take(max_log_requests_per_update)
                 .map(|vec| {
-                    let first = vec.first().cloned().unwrap_or_else(|| 0);
-                    let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
+                    let first = vec.first().cloned().unwrap_or(0);
+                    let last = vec.last().map(|n| n + 1).unwrap_or(0);
                     first..last
                 })
                 .collect::<Vec<Range<u64>>>()
@@ -866,12 +866,13 @@ impl Service {
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .map(|deposit_log| {
-                    cache
+                    if let DepositCacheInsertOutcome::Inserted = cache
                         .cache
                         .insert_log(deposit_log)
-                        .map_err(Error::FailedToInsertDeposit)?;
-
-                    logs_imported += 1;
+                        .map_err(Error::FailedToInsertDeposit)?
+                    {
+                        logs_imported += 1;
+                    }
 
                     Ok(())
                 })
@@ -894,7 +895,7 @@ impl Service {
             metrics::set_gauge(&metrics::DEPOSIT_CACHE_LEN, cache.cache.len() as i64);
             metrics::set_gauge(
                 &metrics::HIGHEST_PROCESSED_DEPOSIT_BLOCK,
-                cache.last_processed_block.unwrap_or_else(|| 0) as i64,
+                cache.last_processed_block.unwrap_or(0) as i64,
             );
         }
 
@@ -1035,7 +1036,7 @@ impl Service {
                     .block_cache
                     .read()
                     .latest_block_timestamp()
-                    .unwrap_or_else(|| 0) as i64,
+                    .unwrap_or(0) as i64,
             );
 
             blocks_imported += 1;
