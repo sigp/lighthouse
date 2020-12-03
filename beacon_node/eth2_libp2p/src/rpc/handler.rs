@@ -49,6 +49,9 @@ type InboundProcessingOutput<TSpec> = (
     u64,                     /* Chunks remaining to be sent after this processing finishes */
 );
 
+/// Events the handler emits to the behaviour.
+type HandlerEvent<T> = Result<RPCReceived<T>, HandlerErr>;
+
 /// An error encountered by the handler.
 pub enum HandlerErr {
     /// An error occurred for this peer's request. This can occur during protocol negotiation,
@@ -82,11 +85,8 @@ where
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
 
-    /// Errors occurring on outbound and inbound connections queued for reporting back.
-    pending_errors: Vec<HandlerErr>,
-
     /// Queue of events to produce in `poll()`.
-    events_out: SmallVec<[RPCReceived<TSpec>; 4]>,
+    events_out: SmallVec<[HandlerEvent<TSpec>; 4]>,
 
     /// Queue of outbound substreams to open.
     dial_queue: SmallVec<[(RequestId, RPCRequest<TSpec>); 4]>,
@@ -203,7 +203,6 @@ where
     ) -> Self {
         RPCHandler {
             listen_protocol,
-            pending_errors: Vec::new(),
             events_out: SmallVec::new(),
             dial_queue: SmallVec::new(),
             dial_negotiated: 0,
@@ -228,11 +227,11 @@ where
             }
             // we now drive to completion communications already dialed/established
             while let Some((id, req)) = self.dial_queue.pop() {
-                self.pending_errors.push(HandlerErr::Outbound {
-                    id,
-                    proto: req.protocol(),
+                self.events_out.push(Err(HandlerErr::Outbound {
                     error: RPCError::HandlerRejected,
-                })
+                    proto: req.protocol(),
+                    id,
+                }));
             }
 
             // Queue our final message, if any
@@ -252,14 +251,16 @@ where
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
             }
-            _ => {
-                self.pending_errors.push(HandlerErr::Outbound {
-                    id,
-                    proto: req.protocol(),
-                    error: RPCError::HandlerRejected,
-                });
-            }
+            _ => self.events_out.push(Err(HandlerErr::Outbound {
+                error: RPCError::HandlerRejected,
+                proto: req.protocol(),
+                id,
+            })),
         }
+    }
+
+    fn emit_request(&mut self, req: RPCRequest<TSpec>, id: SubstreamId) {
+        self.events_out.push(Ok(RPCReceived::Request(id, req)))
     }
 
     /// Sends a response to a peer's request.
@@ -280,12 +281,11 @@ where
 
         // If the response we are sending is an error, report back for handling
         if let RPCCodedResponse::Error(ref code, ref reason) = response {
-            let err = HandlerErr::Inbound {
-                id: inbound_id,
-                proto: inbound_info.protocol,
+            self.events_out.push(Err(HandlerErr::Inbound {
                 error: RPCError::ErrorResponse(*code, reason.to_string()),
-            };
-            self.pending_errors.push(err);
+                proto: inbound_info.protocol,
+                id: inbound_id,
+            }));
         }
 
         if matches!(self.state, HandlerState::Deactivated) {
@@ -303,7 +303,7 @@ where
     TSpec: EthSpec,
 {
     type InEvent = RPCSend<TSpec>;
-    type OutEvent = Result<RPCReceived<TSpec>, HandlerErr>;
+    type OutEvent = HandlerEvent<TSpec>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RPCRequest<TSpec>;
@@ -347,8 +347,7 @@ where
             );
         }
 
-        self.events_out
-            .push(RPCReceived::Request(self.current_inbound_substream_id, req));
+        self.emit_request(req, self.current_inbound_substream_id);
         self.current_inbound_substream_id.0 += 1;
     }
 
@@ -363,12 +362,11 @@ where
 
         // accept outbound connections only if the handler is not deactivated
         if matches!(self.state, HandlerState::Deactivated) {
-            self.pending_errors.push(HandlerErr::Outbound {
-                id,
-                proto,
+            self.events_out.push(Err(HandlerErr::Outbound {
                 error: RPCError::HandlerRejected,
-            });
-            return;
+                proto,
+                id,
+            }));
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
@@ -458,11 +456,11 @@ where
                 }
             },
         };
-        self.pending_errors.push(HandlerErr::Outbound {
-            id,
-            proto: req.protocol(),
+        self.events_out.push(Err(HandlerErr::Outbound {
             error,
-        });
+            proto: req.protocol(),
+            id,
+        }));
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
@@ -474,7 +472,6 @@ where
                 self.dial_queue.is_empty()
                     && self.outbound_substreams.is_empty()
                     && self.inbound_substreams.is_empty()
-                    && self.pending_errors.is_empty()
                     && self.events_out.is_empty()
                     && self.dial_negotiated == 0
             }
@@ -502,15 +499,9 @@ where
             Self::Error,
         >,
     > {
-        // report failures
-        if !self.pending_errors.is_empty() {
-            let err_info = self.pending_errors.remove(0);
-            return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(err_info)));
-        }
-
         // return any events that need to be reported
         if !self.events_out.is_empty() {
-            return Poll::Ready(ProtocolsHandlerEvent::Custom(Ok(self.events_out.remove(0))));
+            return Poll::Ready(ProtocolsHandlerEvent::Custom(self.events_out.remove(0)));
         } else {
             self.events_out.shrink_to_fit();
         }
@@ -531,11 +522,11 @@ where
                     if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
                         // the delay has been removed
                         info.delay_key = None;
-                        self.pending_errors.push(HandlerErr::Inbound {
-                            id: *inbound_id.get_ref(),
-                            proto: info.protocol,
+                        self.events_out.push(Err(HandlerErr::Inbound {
                             error: RPCError::StreamTimeout,
-                        });
+                            proto: info.protocol,
+                            id: *inbound_id.get_ref(),
+                        }));
 
                         if info.pending_items.last().map(|l| l.close_after()) == Some(false) {
                             // if the last chunk does not close the stream, append an error
@@ -620,20 +611,20 @@ where
                                     self.inbound_substreams_delay.remove(delay_key);
                                 }
                                 if let Err(error) = res {
-                                    self.pending_errors.push(HandlerErr::Inbound {
-                                        id: *id,
+                                    self.events_out.push(Err(HandlerErr::Inbound {
                                         error,
                                         proto: info.protocol,
-                                    });
+                                        id: *id,
+                                    }));
                                 }
                                 if info.pending_items.last().map(|l| l.close_after()) == Some(false)
                                 {
                                     // if the request was still active, report back to cancel it
-                                    self.pending_errors.push(HandlerErr::Inbound {
-                                        id: *id,
-                                        proto: info.protocol,
+                                    self.events_out.push(Err(HandlerErr::Inbound {
                                         error: RPCError::HandlerRejected,
-                                    });
+                                        proto: info.protocol,
+                                        id: *id,
+                                    }));
                                 }
                             }
                         }
@@ -646,11 +637,11 @@ where
                                 info.remaining_chunks = new_remaining_chunks;
                                 // report any error
                                 for error in errors {
-                                    self.pending_errors.push(HandlerErr::Inbound {
-                                        id: *id,
+                                    self.events_out.push(Err(HandlerErr::Inbound {
                                         error,
                                         proto: info.protocol,
-                                    })
+                                        id: *id,
+                                    }))
                                 }
                                 if remove {
                                     substreams_to_remove.push(*id);
@@ -724,11 +715,11 @@ where
                 } if deactivated => {
                     // the handler is deactivated. Close the stream
                     entry.get_mut().state = OutboundSubstreamState::Closing(substream);
-                    self.pending_errors.push(HandlerErr::Outbound {
-                        id: entry.get().req_id,
-                        proto: entry.get().proto,
+                    self.events_out.push(Err(HandlerErr::Outbound {
                         error: RPCError::HandlerRejected,
-                    })
+                        proto: entry.get().proto,
+                        id: entry.get().req_id,
+                    }))
                 }
                 OutboundSubstreamState::RequestPendingResponse {
                     mut substream,
