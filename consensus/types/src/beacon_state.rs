@@ -884,7 +884,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.eth1_data
             .deposit_count
             .checked_sub(self.eth1_deposit_index)
-            .ok_or_else(|| Error::InvalidDepositState {
+            .ok_or(Error::InvalidDepositState {
                 deposit_count: self.eth1_data.deposit_count,
                 deposit_index: self.eth1_deposit_index,
             })

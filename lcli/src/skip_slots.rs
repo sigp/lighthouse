@@ -10,19 +10,19 @@ use types::{BeaconState, EthSpec};
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let pre_state_path = matches
         .value_of("pre-state")
-        .ok_or_else(|| "No pre-state file supplied".to_string())?
+        .ok_or("No pre-state file supplied")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse pre-state path: {}", e))?;
 
     let slots = matches
         .value_of("slots")
-        .ok_or_else(|| "No slots supplied".to_string())?
+        .ok_or("No slots supplied")?
         .parse::<usize>()
         .map_err(|e| format!("Failed to parse slots: {}", e))?;
 
     let output_path = matches
         .value_of("output")
-        .ok_or_else(|| "No output file supplied".to_string())?
+        .ok_or("No output file supplied")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse output path: {}", e))?;
 

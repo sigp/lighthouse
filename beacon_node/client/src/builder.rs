@@ -124,13 +124,11 @@ where
         let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
 
-        let store =
-            store.ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
+        let store = store.ok_or("beacon_chain_start_method requires a store")?;
         let context = runtime_context
-            .ok_or_else(|| "beacon_chain_start_method requires a runtime context".to_string())?
+            .ok_or("beacon_chain_start_method requires a runtime context")?
             .service_context("beacon".into());
-        let spec = chain_spec
-            .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
+        let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(context.log().clone()))
         } else {
@@ -153,9 +151,7 @@ where
             builder
         };
 
-        let chain_exists = builder
-            .store_contains_beacon_chain()
-            .unwrap_or_else(|_| false);
+        let chain_exists = builder.store_contains_beacon_chain().unwrap_or(false);
 
         // If the client is expect to resume but there's no beacon chain in the database,
         // use the `DepositContract` method. This scenario is quite common when the client
@@ -296,11 +292,11 @@ where
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "network requires a beacon chain")?;
+            .ok_or("network requires a beacon chain")?;
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "network requires a runtime_context")?
+            .ok_or("network requires a runtime_context")?
             .clone();
 
         let (network_globals, network_send) =
@@ -319,16 +315,16 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "node timer requires a runtime_context")?
+            .ok_or("node timer requires a runtime_context")?
             .service_context("node_timer".into());
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "node timer requires a beacon chain")?;
+            .ok_or("node timer requires a beacon chain")?;
         let milliseconds_per_slot = self
             .chain_spec
             .as_ref()
-            .ok_or_else(|| "node timer requires a chain spec".to_string())?
+            .ok_or("node timer requires a chain spec")?
             .milliseconds_per_slot;
 
         spawn_timer(context.executor, beacon_chain, milliseconds_per_slot)
@@ -356,16 +352,16 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "slasher requires a runtime_context")?
+            .ok_or("slasher requires a runtime_context")?
             .service_context("slasher_server_ctxt".into());
         let slasher = self
             .slasher
             .clone()
-            .ok_or_else(|| "slasher server requires a slasher")?;
+            .ok_or("slasher server requires a slasher")?;
         let slot_clock = self
             .slot_clock
             .clone()
-            .ok_or_else(|| "slasher server requires a slot clock")?;
+            .ok_or("slasher server requires a slot clock")?;
         SlasherServer::run(slasher, slot_clock, &context.executor);
         Ok(())
     }
@@ -375,20 +371,20 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "slot_notifier requires a runtime_context")?
+            .ok_or("slot_notifier requires a runtime_context")?
             .service_context("slot_notifier".into());
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "slot_notifier requires a beacon chain")?;
+            .ok_or("slot_notifier requires a beacon chain")?;
         let network_globals = self
             .network_globals
             .clone()
-            .ok_or_else(|| "slot_notifier requires a libp2p network")?;
+            .ok_or("slot_notifier requires a libp2p network")?;
         let milliseconds_per_slot = self
             .chain_spec
             .as_ref()
-            .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
+            .ok_or("slot_notifier requires a chain spec")?
             .milliseconds_per_slot;
 
         spawn_notifier(
@@ -414,7 +410,7 @@ where
         let runtime_context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "build requires a runtime context".to_string())?;
+            .ok_or("build requires a runtime context")?;
         let log = runtime_context.log().clone();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
@@ -500,16 +496,16 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "beacon_chain requires a runtime context")?
+            .ok_or("beacon_chain requires a runtime context")?
             .clone();
 
         let chain = self
             .beacon_chain_builder
-            .ok_or_else(|| "beacon_chain requires a beacon_chain_builder")?
+            .ok_or("beacon_chain requires a beacon_chain_builder")?
             .slot_clock(
                 self.slot_clock
                     .clone()
-                    .ok_or_else(|| "beacon_chain requires a slot clock")?,
+                    .ok_or("beacon_chain requires a slot clock")?,
             )
             .shutdown_sender(context.executor.shutdown_sender())
             .build()
@@ -540,12 +536,12 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "disk_store requires a log".to_string())?
+            .ok_or("disk_store requires a log")?
             .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
-            .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
+            .ok_or("disk_store requires a chain spec")?;
 
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
@@ -574,15 +570,15 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "caching_eth1_backend requires a runtime_context")?
+            .ok_or("caching_eth1_backend requires a runtime_context")?
             .service_context("eth1_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
         let spec = self
             .chain_spec
             .clone()
-            .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
+            .ok_or("caching_eth1_backend requires a chain spec")?;
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;
@@ -633,7 +629,7 @@ where
     pub fn no_eth1_backend(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
 
         self.beacon_chain_builder = Some(beacon_chain_builder.no_eth1_backend());
 
@@ -652,7 +648,7 @@ where
     pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
 
         self.beacon_chain_builder = Some(beacon_chain_builder.dummy_eth1_backend()?);
 
@@ -673,16 +669,16 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .as_ref()
-            .ok_or_else(|| "system_time_slot_clock requires a beacon_chain_builder")?;
+            .ok_or("system_time_slot_clock requires a beacon_chain_builder")?;
 
         let genesis_time = beacon_chain_builder
             .genesis_time
-            .ok_or_else(|| "system_time_slot_clock requires an initialized beacon state")?;
+            .ok_or("system_time_slot_clock requires an initialized beacon state")?;
 
         let spec = self
             .chain_spec
             .clone()
-            .ok_or_else(|| "system_time_slot_clock requires a chain spec".to_string())?;
+            .ok_or("system_time_slot_clock requires a chain spec")?;
 
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,

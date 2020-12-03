@@ -64,7 +64,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         let listen_addr = self
             .client
             .http_api_listen_addr()
-            .ok_or_else(|| "A remote beacon node must have a http server".to_string())?;
+            .ok_or("A remote beacon node must have a http server")?;
 
         let beacon_node_url: Url = format!("http://{}:{}", listen_addr.ip(), listen_addr.port())
             .parse()

@@ -319,7 +319,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The slot might be unavailable due to an error with the system clock, or if the present time
     /// is before genesis (i.e., a negative slot).
     pub fn slot(&self) -> Result<Slot, Error> {
-        self.slot_clock.now().ok_or_else(|| Error::UnableToReadSlot)
+        self.slot_clock.now().ok_or(Error::UnableToReadSlot)
     }
 
     /// Returns the epoch _right now_ according to `self.slot_clock`. Returns `Err` if the epoch is
@@ -387,7 +387,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         let block = self
             .get_block(&block_root)?
-            .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
+            .ok_or(Error::MissingBeaconBlock(block_root))?;
         let state = self
             .get_state(&block.state_root(), Some(block.slot()))?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root()))?;
@@ -532,7 +532,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_lock = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
+            .ok_or(Error::CanonicalHeadLockTimeout)?;
         f(&head_lock)
     }
 
@@ -661,11 +661,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .find(|(_, current_slot)| *current_slot == slot)
                         .map(|(root, _slot)| root)
                 })?
-                .ok_or_else(|| Error::NoStateForSlot(slot))?;
+                .ok_or(Error::NoStateForSlot(slot))?;
 
                 Ok(self
                     .get_state(&state_root, Some(slot))?
-                    .ok_or_else(|| Error::NoStateForSlot(slot))?)
+                    .ok_or(Error::NoStateForSlot(slot))?)
             }
         }
     }
@@ -687,7 +687,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .map(|head| head.beacon_block.slot())
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)
+            .ok_or(Error::CanonicalHeadLockTimeout)
     }
 
     /// Returns the validator index (if any) for the given public key.
@@ -706,7 +706,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let pubkey_cache = self
             .validator_pubkey_cache
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
 
         Ok(pubkey_cache.get_index(pubkey))
     }
@@ -727,7 +727,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let pubkey_cache = self
             .validator_pubkey_cache
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
 
         Ok(pubkey_cache.get(validator_index).cloned())
     }
@@ -849,7 +849,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
+            .ok_or(Error::CanonicalHeadLockTimeout)?;
 
         if slot >= head.beacon_block.slot() {
             self.produce_unaggregated_attestation_for_block(
@@ -880,7 +880,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let mut state = self
                 .get_state(&state_root, Some(slot))?
-                .ok_or_else(|| Error::MissingBeaconState(state_root))?;
+                .ok_or(Error::MissingBeaconState(state_root))?;
 
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
@@ -1083,7 +1083,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let fork = self
                 .canonical_head
                 .try_read_for(HEAD_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
+                .ok_or(Error::CanonicalHeadLockTimeout)?
                 .beacon_state
                 .fork;
 
@@ -1615,7 +1615,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // known to fork choice. This ordering ensure that the pubkey cache is always up-to-date.
         self.validator_pubkey_cache
             .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
             .import_new_pubkeys(&state)?;
 
         // For the current and next epoch of this state, ensure we have the shuffling from this
@@ -1626,7 +1626,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let shuffling_is_cached = self
                 .shuffling_cache
                 .try_read_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+                .ok_or(Error::AttestationCacheLockTimeout)?
                 .contains(&shuffling_id);
 
             if !shuffling_is_cached {
@@ -1634,7 +1634,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let committee_cache = state.committee_cache(*relative_epoch)?;
                 self.shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+                    .ok_or(Error::AttestationCacheLockTimeout)?
                     .insert(shuffling_id, committee_cache);
             }
         }
@@ -1808,7 +1808,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let eth1_chain = self
             .eth1_chain
             .as_ref()
-            .ok_or_else(|| BlockProductionError::NoEth1ChainConnection)?;
+            .ok_or(BlockProductionError::NoEth1ChainConnection)?;
 
         // If required, transition the new state to the present slot.
         //
@@ -1965,12 +1965,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap_or_else(|| {
                 let beacon_block = self
                     .get_block(&beacon_block_root)?
-                    .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
+                    .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
 
                 let beacon_state_root = beacon_block.state_root();
                 let beacon_state: BeaconState<T::EthSpec> = self
                     .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                    .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
+                    .ok_or(Error::MissingBeaconState(beacon_state_root))?;
 
                 Ok(BeaconSnapshot {
                     beacon_block,
@@ -2068,7 +2068,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         *self
             .canonical_head
             .try_write_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)? = new_head;
+            .ok_or(Error::CanonicalHeadLockTimeout)? = new_head;
 
         metrics::stop_timer(update_head_timer);
 
@@ -2095,7 +2095,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let head = self
                 .canonical_head
                 .try_read_for(HEAD_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
+                .ok_or(Error::CanonicalHeadLockTimeout)?;
 
             // State root of the finalized state on the epoch boundary, NOT the state
             // of the finalized block. We need to use an iterator in case the state is beyond
@@ -2117,7 +2117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })
                 },
             )?
-            .ok_or_else(|| Error::MissingFinalizedStateRoot(new_finalized_slot))?;
+            .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?;
 
             self.after_finalization(&head.beacon_state, new_finalized_state_root)?;
         }
@@ -2311,7 +2311,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice
             .read()
             .get_block(&head_block_root)
-            .ok_or_else(|| Error::MissingBeaconBlock(head_block_root))?;
+            .ok_or(Error::MissingBeaconBlock(head_block_root))?;
 
         let shuffling_id = BlockShufflingIds {
             current: head_block.current_epoch_shuffling_id.clone(),
@@ -2331,7 +2331,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut shuffling_cache = self
             .shuffling_cache
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
+            .ok_or(Error::AttestationCacheLockTimeout)?;
 
         metrics::stop_timer(cache_wait_timer);
 
@@ -2358,7 +2358,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &head_block.state_root,
                     Some(head_block.slot),
                 )?
-                .ok_or_else(|| Error::MissingBeaconState(head_block.state_root))?;
+                .ok_or(Error::MissingBeaconState(head_block.state_root))?;
 
             metrics::stop_timer(state_read_timer);
             let state_skip_timer =
@@ -2387,7 +2387,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+                .ok_or(Error::AttestationCacheLockTimeout)?
                 .insert(shuffling_id, committee_cache);
 
             metrics::stop_timer(committee_building_timer);
@@ -2457,7 +2457,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn enr_fork_id(&self) -> EnrForkId {
         // If we are unable to read the slot clock we assume that it is prior to genesis and
         // therefore use the genesis slot.
-        let slot = self.slot().unwrap_or_else(|_| self.spec.genesis_slot);
+        let slot = self.slot().unwrap_or(self.spec.genesis_slot);
 
         self.spec.enr_fork_id(slot, self.genesis_validators_root)
     }
@@ -2473,7 +2473,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let canonical_head_hash = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::CanonicalHeadLockTimeout)
+            .ok_or(Error::CanonicalHeadLockTimeout)
             .unwrap()
             .beacon_block_root;
         let mut visited: HashSet<Hash256> = HashSet::new();

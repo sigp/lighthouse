@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let present_slot_with_tolerance = chain
             .slot_clock
             .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or_else(|| BeaconChainError::UnableToReadSlot)?;
+            .ok_or(BeaconChainError::UnableToReadSlot)?;
         if block.slot() > present_slot_with_tolerance {
             return Err(BlockError::FutureSlot {
                 present_slot: present_slot_with_tolerance,
@@ -513,7 +513,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
                 .get(block.message.proposer_index as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message.proposer_index))?;
+                .ok_or(BlockError::UnknownValidator(block.message.proposer_index))?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,
@@ -1180,7 +1180,7 @@ fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
         .map_err(BlockError::BeaconChainError)
 }
 
@@ -1220,7 +1220,7 @@ fn verify_header_signature<T: BeaconChainTypes>(
     let proposer_pubkey = get_validator_pubkey_cache(chain)?
         .get(header.message.proposer_index as usize)
         .cloned()
-        .ok_or_else(|| BlockError::UnknownValidator(header.message.proposer_index))?;
+        .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
     let (fork, genesis_validators_root) = chain
         .with_head(|head| {
             Ok((

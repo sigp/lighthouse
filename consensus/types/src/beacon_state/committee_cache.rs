@@ -56,7 +56,7 @@ impl CommitteeCache {
             &seed[..],
             false,
         )
-        .ok_or_else(|| Error::UnableToShuffle)?;
+        .ok_or(Error::UnableToShuffle)?;
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
         if state.validators.len() == usize::max_value() {
@@ -148,7 +148,7 @@ impl CommitteeCache {
     pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee>, Error> {
         let initialized_epoch = self
             .initialized_epoch
-            .ok_or_else(|| Error::CommitteeCacheUninitialized(None))?;
+            .ok_or(Error::CommitteeCacheUninitialized(None))?;
 
         initialized_epoch.slot_iter(self.slots_per_epoch).try_fold(
             Vec::with_capacity(self.slots_per_epoch as usize),
