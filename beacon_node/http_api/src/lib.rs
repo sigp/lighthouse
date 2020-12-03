@@ -388,12 +388,10 @@ pub fn serve<T: BeaconChainTypes>(
     let beacon_states_path = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("states"))
-        .and(warp::path::param::<StateId>().or_else(|_| {
-            blocking_task(|| {
-                Err(warp_utils::reject::custom_bad_request(
-                    "Invalid state ID".to_string(),
-                ))
-            })
+        .and(warp::path::param::<StateId>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid state ID".to_string(),
+            ))
         }))
         .and(chain_filter.clone());
 
@@ -551,12 +549,10 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_state_validators_id = beacon_states_path
         .clone()
         .and(warp::path("validators"))
-        .and(warp::path::param::<ValidatorId>().or_else(|_| {
-            blocking_task(|| {
-                Err(warp_utils::reject::custom_bad_request(
-                    "Invalid validator ID".to_string(),
-                ))
-            })
+        .and(warp::path::param::<ValidatorId>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid validator ID".to_string(),
+            ))
         }))
         .and(warp::path::end())
         .and_then(
@@ -766,12 +762,10 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_headers_block_id = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("headers"))
-        .and(warp::path::param::<BlockId>().or_else(|_| {
-            blocking_task(|| {
-                Err(warp_utils::reject::custom_bad_request(
-                    "Invalid block ID".to_string(),
-                ))
-            })
+        .and(warp::path::param::<BlockId>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid block ID".to_string(),
+            ))
         }))
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -857,12 +851,10 @@ pub fn serve<T: BeaconChainTypes>(
     let beacon_blocks_path = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
-        .and(warp::path::param::<BlockId>().or_else(|_| {
-            blocking_task(|| {
-                Err(warp_utils::reject::custom_bad_request(
-                    "Invalid block ID".to_string(),
-                ))
-            })
+        .and(warp::path::param::<BlockId>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid block ID".to_string(),
+            ))
         }))
         .and(chain_filter.clone());
 
@@ -1240,12 +1232,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
         .and(warp::path("states"))
-        .and(warp::path::param::<StateId>().or_else(|_| {
-            blocking_task(|| {
-                Err(warp_utils::reject::custom_bad_request(
-                    "Invalid state ID".to_string(),
-                ))
-            })
+        .and(warp::path::param::<StateId>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid state ID".to_string(),
+            ))
         }))
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -1555,12 +1545,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("proposer"))
-        .and(warp::path::param::<Epoch>().or_else(|_| {
-            blocking_task(|| {
+        .and(warp::path::param::<Epoch>().or_else(|_| async {
                 Err(warp_utils::reject::custom_bad_request(
                     "Invalid epoch".to_string(),
                 ))
-            })
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
@@ -1626,12 +1614,10 @@ pub fn serve<T: BeaconChainTypes>(
     let get_validator_blocks = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("blocks"))
-        .and(warp::path::param::<Slot>().or_else(|_| {
-            blocking_task(|| {
-                Err(warp_utils::reject::custom_bad_request(
-                    "Invalid slot".to_string(),
-                ))
-            })
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
@@ -1719,12 +1705,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("attester"))
-        .and(warp::path::param::<Epoch>().or_else(|_| {
-            blocking_task(|| {
-                Err(warp_utils::reject::custom_bad_request(
-                    "Invalid epoch".to_string(),
-                ))
-            })
+        .and(warp::path::param::<Epoch>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid epoch".to_string(),
+            ))
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
