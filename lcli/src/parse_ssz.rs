@@ -9,7 +9,7 @@ use types::{EthSpec, SignedBeaconBlock};
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let type_str = matches
         .value_of("type")
-        .ok_or_else(|| "No type supplied".to_string())?;
+        .ok_or("No type supplied")?;
     let path = parse_path(matches, "path")?;
 
     info!("Type: {:?}", type_str);

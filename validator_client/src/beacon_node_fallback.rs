@@ -39,6 +39,12 @@ impl From<String> for BeaconNodeError<String> {
     }
 }
 
+impl From<&str> for BeaconNodeError<String> {
+    fn from(s: &str) -> Self {
+        Self::ApiError(s.to_string())
+    }
+}
+
 impl<E> From<BeaconNodeConnectionError> for BeaconNodeError<E> {
     fn from(e: BeaconNodeConnectionError) -> Self {
         Self::ConnectionError(e)

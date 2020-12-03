@@ -77,7 +77,7 @@ impl ProtoArray {
             let node = self
                 .nodes
                 .get_mut(node_index)
-                .ok_or_else(|| Error::InvalidNodeIndex(node_index))?;
+                .ok_or(Error::InvalidNodeIndex(node_index))?;
 
             // There is no need to adjust the balances or manage parent of the zero hash since it
             // is an alias to the genesis block. The weight applied to the genesis block is
@@ -89,7 +89,7 @@ impl ProtoArray {
             let node_delta = deltas
                 .get(node_index)
                 .copied()
-                .ok_or_else(|| Error::InvalidNodeDelta(node_index))?;
+                .ok_or(Error::InvalidNodeDelta(node_index))?;
 
             // Apply the delta to the node.
             if node_delta < 0 {
@@ -105,19 +105,19 @@ impl ProtoArray {
                 node.weight = node
                     .weight
                     .checked_sub(node_delta.abs() as u64)
-                    .ok_or_else(|| Error::DeltaOverflow(node_index))?;
+                    .ok_or(Error::DeltaOverflow(node_index))?;
             } else {
                 node.weight = node
                     .weight
                     .checked_add(node_delta as u64)
-                    .ok_or_else(|| Error::DeltaOverflow(node_index))?;
+                    .ok_or(Error::DeltaOverflow(node_index))?;
             }
 
             // If the node has a parent, try to update its best-child and best-descendant.
             if let Some(parent_index) = node.parent {
                 let parent_delta = deltas
                     .get_mut(parent_index)
-                    .ok_or_else(|| Error::InvalidParentDelta(parent_index))?;
+                    .ok_or(Error::InvalidParentDelta(parent_index))?;
 
                 // Back-propagate the nodes delta to its parent.
                 *parent_delta += node_delta;
@@ -185,16 +185,14 @@ impl ProtoArray {
         let justified_node = self
             .nodes
             .get(justified_index)
-            .ok_or_else(|| Error::InvalidJustifiedIndex(justified_index))?;
+            .ok_or(Error::InvalidJustifiedIndex(justified_index))?;
 
-        let best_descendant_index = justified_node
-            .best_descendant
-            .unwrap_or_else(|| justified_index);
+        let best_descendant_index = justified_node.best_descendant.unwrap_or(justified_index);
 
         let best_node = self
             .nodes
             .get(best_descendant_index)
-            .ok_or_else(|| Error::InvalidBestDescendant(best_descendant_index))?;
+            .ok_or(Error::InvalidBestDescendant(best_descendant_index))?;
 
         // Perform a sanity check that the node is indeed valid to be the head.
         if !self.node_is_viable_for_head(&best_node) {
@@ -228,7 +226,7 @@ impl ProtoArray {
         let finalized_index = *self
             .indices
             .get(&finalized_root)
-            .ok_or_else(|| Error::FinalizedNodeUnknown(finalized_root))?;
+            .ok_or(Error::FinalizedNodeUnknown(finalized_root))?;
 
         if finalized_index < self.prune_threshold {
             // Pruning at small numbers incurs more cost than benefit.
@@ -240,7 +238,7 @@ impl ProtoArray {
             let root = &self
                 .nodes
                 .get(node_index)
-                .ok_or_else(|| Error::InvalidNodeIndex(node_index))?
+                .ok_or(Error::InvalidNodeIndex(node_index))?
                 .root;
             self.indices.remove(root);
         }
@@ -252,7 +250,7 @@ impl ProtoArray {
         for (_root, index) in self.indices.iter_mut() {
             *index = index
                 .checked_sub(finalized_index)
-                .ok_or_else(|| Error::IndexOverflow("indices"))?;
+                .ok_or(Error::IndexOverflow("indices"))?;
         }
 
         // Iterate through all the existing nodes and adjust their indices to match the new layout
@@ -266,14 +264,14 @@ impl ProtoArray {
                 node.best_child = Some(
                     best_child
                         .checked_sub(finalized_index)
-                        .ok_or_else(|| Error::IndexOverflow("best_child"))?,
+                        .ok_or(Error::IndexOverflow("best_child"))?,
                 );
             }
             if let Some(best_descendant) = node.best_descendant {
                 node.best_descendant = Some(
                     best_descendant
                         .checked_sub(finalized_index)
-                        .ok_or_else(|| Error::IndexOverflow("best_descendant"))?,
+                        .ok_or(Error::IndexOverflow("best_descendant"))?,
                 );
             }
         }
@@ -301,12 +299,12 @@ impl ProtoArray {
         let child = self
             .nodes
             .get(child_index)
-            .ok_or_else(|| Error::InvalidNodeIndex(child_index))?;
+            .ok_or(Error::InvalidNodeIndex(child_index))?;
 
         let parent = self
             .nodes
             .get(parent_index)
-            .ok_or_else(|| Error::InvalidNodeIndex(parent_index))?;
+            .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
         let child_leads_to_viable_head = self.node_leads_to_viable_head(&child)?;
 
@@ -335,7 +333,7 @@ impl ProtoArray {
                     let best_child = self
                         .nodes
                         .get(best_child_index)
-                        .ok_or_else(|| Error::InvalidBestDescendant(best_child_index))?;
+                        .ok_or(Error::InvalidBestDescendant(best_child_index))?;
 
                     let best_child_leads_to_viable_head =
                         self.node_leads_to_viable_head(&best_child)?;
@@ -373,7 +371,7 @@ impl ProtoArray {
         let parent = self
             .nodes
             .get_mut(parent_index)
-            .ok_or_else(|| Error::InvalidNodeIndex(parent_index))?;
+            .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
         parent.best_child = new_best_child;
         parent.best_descendant = new_best_descendant;
@@ -389,7 +387,7 @@ impl ProtoArray {
                 let best_descendant = self
                     .nodes
                     .get(best_descendant_index)
-                    .ok_or_else(|| Error::InvalidBestDescendant(best_descendant_index))?;
+                    .ok_or(Error::InvalidBestDescendant(best_descendant_index))?;
 
                 self.node_is_viable_for_head(best_descendant)
             } else {

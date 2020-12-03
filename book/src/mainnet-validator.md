@@ -3,7 +3,7 @@
 [launchpad]: https://launchpad.ethereum.org/
 [lh-book]: https://lighthouse-book.sigmaprime.io/
 [testnet-validator]: ./testnet-validator.md
-[custom-datadir]: ./custom-datadir.md
+[advanced-datadir]: ./advanced-datadir.md
 [license]: https://github.com/sigp/lighthouse/blob/master/LICENSE
 [slashing]: ./slashing-protection.md
 [discord]: https://discord.gg/cyAszAh
@@ -146,7 +146,7 @@ lighthouse --network mainnet vc
 ```
 
 > Note: `~/.lighthouse/mainnet` is the default directory which contains the keys and databases.
-> To specify a custom dir, see [Custom Directories][custom-datadir].
+> To specify a custom dir, see [Custom Directories][advanced-datadir].
 
 #### Docker users
 

@@ -47,7 +47,7 @@ impl Chunk {
         self.data
             .get(cell_index)
             .map(|distance| epoch + u64::from(*distance))
-            .ok_or_else(|| Error::ChunkIndexOutOfBounds(cell_index))
+            .ok_or(Error::ChunkIndexOutOfBounds(cell_index))
     }
 
     pub fn set_target(
@@ -75,7 +75,7 @@ impl Chunk {
         let cell = self
             .data
             .get_mut(cell_index)
-            .ok_or_else(|| Error::ChunkIndexOutOfBounds(cell_index))?;
+            .ok_or(Error::ChunkIndexOutOfBounds(cell_index))?;
         *cell = target_distance;
         Ok(())
     }

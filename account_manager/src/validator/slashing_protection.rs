@@ -45,12 +45,11 @@ pub fn cli_run<T: EthSpec>(
     env: Environment<T>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
-    eprintln!("validator-dir path: {:?}", validator_base_dir);
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
 
     let testnet_config = env
         .testnet
-        .ok_or_else(|| "Unable to get testnet configuration from the environment".to_string())?;
+        .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = testnet_config
         .beacon_state::<T>()

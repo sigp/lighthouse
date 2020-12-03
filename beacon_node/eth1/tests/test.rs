@@ -521,7 +521,7 @@ mod deposit_tree {
                 .map(|raw| raw.to_deposit_log(spec).expect("should parse deposit log"))
                 .inspect(|log| {
                     tree.insert_log(log.clone())
-                        .expect("should add consecutive logs")
+                        .expect("should add consecutive logs");
                 })
                 .collect();
 

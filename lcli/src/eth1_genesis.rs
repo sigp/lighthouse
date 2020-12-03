@@ -24,7 +24,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
 
     let testnet_dir = matches
         .value_of("testnet-dir")
-        .ok_or_else(|| ())
+        .ok_or(())
         .and_then(|dir| dir.parse::<PathBuf>().map_err(|_| ()))
         .unwrap_or_else(|_| {
             dirs::home_dir()
@@ -37,7 +37,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
     let spec = eth2_testnet_config
         .yaml_config
         .as_ref()
-        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+        .ok_or("The testnet directory must contain a spec config")?
         .apply_to_chain_spec::<T>(&env.core_context().eth2_config.spec)
         .ok_or_else(|| {
             format!(

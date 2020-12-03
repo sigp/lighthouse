@@ -347,7 +347,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .checked_duration_since(Instant::now())
                 .map(|duration| duration.as_secs())
                 .unwrap_or_else(|| 0);
-            debug!(self.log, "Updating the time a peer is required for"; "peer_id" => peer_id.to_string(), "future_min_ttl_secs" => min_ttl_secs);
+            debug!(self.log, "Updating the time a peer is required for"; "peer_id" => %peer_id, "future_min_ttl_secs" => min_ttl_secs);
         }
     }
 
@@ -457,7 +457,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
             PeerInfo::default()
         });
 
@@ -514,7 +514,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "UnBanning unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
             PeerInfo::default()
         });
 
@@ -563,7 +563,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 self.banned_peers_count = BannedPeersCount::new();
                 None
             } {
-                debug!(self.log, "Removing old banned peer"; "peer_id" => to_drop.to_string());
+                debug!(self.log, "Removing old banned peer"; "peer_id" => %to_drop);
                 self.peers.remove(&to_drop);
             }
         }
@@ -581,7 +581,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .min_by_key(|(_, since)| *since)
                 .map(|(id, _)| id.clone())
             {
-                debug!(self.log, "Removing old disconnected peer"; "peer_id" => to_drop.to_string());
+                debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop);
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease
@@ -595,7 +595,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if let Some(peer_info) = self.peers.get_mut(peer_id) {
             peer_info.meta_data = Some(meta_data);
         } else {
-            warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => peer_id.to_string());
+            warn!(self.log, "Tried to add meta data for a non-existent peer"; "peer_id" => %peer_id);
         }
     }
 }

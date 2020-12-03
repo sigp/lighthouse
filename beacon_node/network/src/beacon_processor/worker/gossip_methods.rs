@@ -212,7 +212,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "New block received";
                     "slot" => verified_block.block.slot(),
-                    "hash" => verified_block.block_root.to_string()
+                    "hash" => %verified_block.block_root
                 );
                 self.propagate_validation_result(
                     message_id,
@@ -232,7 +232,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::NotFinalizedDescendant { .. })
             | Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
-                            "error" => e.to_string());
+                            "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -252,7 +252,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
-                            "error" => e.to_string());
+                            "error" => %e);
                 self.propagate_validation_result(
                     message_id,
                     peer_id.clone(),
@@ -307,15 +307,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Invalid gossip beacon block";
-                    "outcome" => format!("{:?}", other),
-                    "block root" => format!("{}", block.canonical_root()),
+                    "outcome" => ?other,
+                    "block root" => %block.canonical_root(),
                     "block slot" => block.slot()
                 );
                 self.penalize_peer(peer_id, PeerAction::MidToleranceError);
                 trace!(
                     self.log,
                     "Invalid gossip beacon block ssz";
-                    "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
+                    "ssz" => format_args!("0x{}", hex::encode(block.as_ssz_bytes())),
                 );
             }
         };
@@ -787,8 +787,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Received attestation on incorrect subnet";
-                    "expected" => format!("{:?}", expected),
-                    "received" => format!("{:?}", received),
+                    "expected" => ?expected,
+                    "received" => ?received,
                 );
                 self.propagate_validation_result(
                     message_id,

@@ -86,7 +86,7 @@ pub fn download_deposit_contract(
 
                 let abi = contract
                     .get("abi")
-                    .ok_or_else(|| "Response does not contain key: abi".to_string())?
+                    .ok_or("Response does not contain key: abi")?
                     .to_string();
 
                 verify_checksum(abi.as_bytes(), abi_checksum);
@@ -97,7 +97,7 @@ pub fn download_deposit_contract(
 
                 let bytecode = contract
                     .get("bytecode")
-                    .ok_or_else(|| "Response does not contain key: bytecode".to_string())?
+                    .ok_or("Response does not contain key: bytecode")?
                     .to_string();
 
                 verify_checksum(bytecode.as_bytes(), bytecode_checksum);

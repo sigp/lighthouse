@@ -25,19 +25,19 @@ impl Log {
 
         let pubkey = bytes
             .get(PUBKEY_START..PUBKEY_START + PUBKEY_LEN)
-            .ok_or_else(|| "Insufficient bytes for pubkey".to_string())?;
+            .ok_or("Insufficient bytes for pubkey")?;
         let withdrawal_credentials = bytes
             .get(CREDS_START..CREDS_START + CREDS_LEN)
-            .ok_or_else(|| "Insufficient bytes for withdrawal credential".to_string())?;
+            .ok_or("Insufficient bytes for withdrawal credential")?;
         let amount = bytes
             .get(AMOUNT_START..AMOUNT_START + AMOUNT_LEN)
-            .ok_or_else(|| "Insufficient bytes for amount".to_string())?;
+            .ok_or("Insufficient bytes for amount")?;
         let signature = bytes
             .get(SIG_START..SIG_START + SIG_LEN)
-            .ok_or_else(|| "Insufficient bytes for signature".to_string())?;
+            .ok_or("Insufficient bytes for signature")?;
         let index = bytes
             .get(INDEX_START..INDEX_START + INDEX_LEN)
-            .ok_or_else(|| "Insufficient bytes for index".to_string())?;
+            .ok_or("Insufficient bytes for index")?;
 
         let deposit_data = DepositData {
             pubkey: PublicKeyBytes::from_ssz_bytes(pubkey)

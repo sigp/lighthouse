@@ -106,8 +106,8 @@ impl TryInto<Keypair> for YamlKeypair {
 }
 
 fn string_to_bytes(string: &str) -> Result<Vec<u8>, String> {
-    let string = if string.starts_with("0x") {
-        &string[2..]
+    let string = if let Some(stripped) = string.strip_prefix("0x") {
+        stripped
     } else {
         string
     };
