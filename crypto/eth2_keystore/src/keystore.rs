@@ -360,11 +360,12 @@ pub fn default_kdf(salt: Vec<u8>) -> Kdf {
 
 /// Returns `(cipher_text, checksum)` for the given `plain_text` encrypted with `Cipher` using a
 /// key derived from `password` via the `Kdf` (key derivation function).
+/// Normalizes the password into NFKD form and removes control characters as specified in EIP-2335
+/// before encryption.
 ///
 /// ## Errors
 ///
 /// - If `kdf` is badly formed (e.g., has some values set to zero).
-/// - If `password` uses utf-8 control characters.
 pub fn encrypt(
     plain_text: &[u8],
     password: &[u8],
@@ -399,6 +400,8 @@ pub fn encrypt(
 }
 
 /// Regenerate some `plain_text` from the given `password` and `crypto`.
+/// Normalizes the password into NFKD form and removes control characters as specified in EIP-2335
+/// before decryption.
 ///
 /// ## Errors
 ///
@@ -439,13 +442,14 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     Ok(plain_text)
 }
 
-/// Returns true if the given char is a UTF-8 control character and false otherwise.
+/// Returns true if the given char is a control character as specified by EIP 2335 and false otherwise.
 fn is_control_character(c: char) -> bool {
-    // 0x00 - 0x1F + 0x80 - 0x9F + 0x7F
+    // Note: The control codes specified in EIP 2335 are same as the unicode control characters.
+    // (0x00 to 0x1F) + (0x80 to 0x9F) + 0x7F
     c.is_control()
 }
 
-/// Takes a slice of bytes and returns a NKFD normalized string representation.
+/// Takes a slice of bytes and returns a NFKD normalized string representation.
 ///
 /// Returns an error if the bytes are not valid utf8.
 fn normalize(bytes: &[u8]) -> Result<ZeroizeString, Error> {
