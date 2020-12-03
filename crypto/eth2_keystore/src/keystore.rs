@@ -23,7 +23,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::iter::FromIterator;
 use std::path::Path;
+use std::str;
+use unicode_normalization::UnicodeNormalization;
+use zeroize::Zeroize;
 
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
@@ -57,11 +61,50 @@ pub const HASH_SIZE: usize = 32;
 /// The default iteraction count, `c`, for PBKDF2.
 pub const DEFAULT_PBKDF2_C: u32 = 262_144;
 
+/// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
+///
+/// Useful for ensuring that password memory is zeroed-out on drop.
+#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+#[serde(transparent)]
+struct ZeroizeString(String);
+
+impl From<String> for ZeroizeString {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl AsRef<[u8]> for ZeroizeString {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl std::ops::Deref for ZeroizeString {
+    type Target = String;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for ZeroizeString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl FromIterator<char> for ZeroizeString {
+    fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
+        ZeroizeString(String::from_iter(iter))
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
-    InvalidPasswordCharacter { character: u8, index: usize },
+    InvalidPasswordBytes,
     InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
     EmptyPassword,
@@ -162,8 +205,6 @@ impl Keystore {
         path: String,
         description: String,
     ) -> Result<Self, Error> {
-        validate_password_utf8_characters(password)?;
-
         let secret: ZeroizeHash = keypair.sk.serialize();
 
         let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
@@ -319,11 +360,12 @@ pub fn default_kdf(salt: Vec<u8>) -> Kdf {
 
 /// Returns `(cipher_text, checksum)` for the given `plain_text` encrypted with `Cipher` using a
 /// key derived from `password` via the `Kdf` (key derivation function).
+/// Normalizes the password into NFKD form and removes control characters as specified in EIP-2335
+/// before encryption.
 ///
 /// ## Errors
 ///
 /// - If `kdf` is badly formed (e.g., has some values set to zero).
-/// - If `password` uses utf-8 control characters.
 pub fn encrypt(
     plain_text: &[u8],
     password: &[u8],
@@ -331,8 +373,11 @@ pub fn encrypt(
     cipher: &Cipher,
 ) -> Result<(Vec<u8>, [u8; HASH_SIZE]), Error> {
     validate_parameters(kdf)?;
+    let mut password = normalize(password)?;
 
-    let derived_key = derive_key(&password, &kdf)?;
+    password.retain(|c| !is_control_character(c));
+
+    let derived_key = derive_key(&password.as_ref(), &kdf)?;
 
     // Encrypt secret.
     let mut cipher_text = plain_text.to_vec();
@@ -355,18 +400,24 @@ pub fn encrypt(
 }
 
 /// Regenerate some `plain_text` from the given `password` and `crypto`.
+/// Normalizes the password into NFKD form and removes control characters as specified in EIP-2335
+/// before decryption.
 ///
 /// ## Errors
 ///
 /// - The provided password is incorrect.
 /// - The `crypto.kdf` is badly formed (e.g., has some values set to zero).
 pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
+    let mut password = normalize(password)?;
+
+    password.retain(|c| !is_control_character(c));
+
     validate_parameters(&crypto.kdf.params)?;
 
     let cipher_message = &crypto.cipher.message;
 
     // Generate derived key
-    let derived_key = derive_key(password, &crypto.kdf.params)?;
+    let derived_key = derive_key(password.as_ref(), &crypto.kdf.params)?;
 
     // Mismatching checksum indicates an invalid password.
     if &generate_checksum(&derived_key, cipher_message.as_bytes())[..]
@@ -391,34 +442,21 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     Ok(plain_text)
 }
 
-/// Verifies that a password does not contain UTF-8 control characters.
-pub fn validate_password_utf8_characters(password: &[u8]) -> Result<(), Error> {
-    for (i, char) in password.iter().enumerate() {
-        // C0 - 0x00 to 0x1F
-        if *char <= 0x1F {
-            return Err(Error::InvalidPasswordCharacter {
-                character: *char,
-                index: i,
-            });
-        }
+/// Returns true if the given char is a control character as specified by EIP 2335 and false otherwise.
+fn is_control_character(c: char) -> bool {
+    // Note: The control codes specified in EIP 2335 are same as the unicode control characters.
+    // (0x00 to 0x1F) + (0x80 to 0x9F) + 0x7F
+    c.is_control()
+}
 
-        // C1 - 0x80 to 0x9F
-        if *char >= 0x80 && *char <= 0x9F {
-            return Err(Error::InvalidPasswordCharacter {
-                character: *char,
-                index: i,
-            });
-        }
-
-        // Backspace
-        if *char == 0x7F {
-            return Err(Error::InvalidPasswordCharacter {
-                character: *char,
-                index: i,
-            });
-        }
-    }
-    Ok(())
+/// Takes a slice of bytes and returns a NFKD normalized string representation.
+///
+/// Returns an error if the bytes are not valid utf8.
+fn normalize(bytes: &[u8]) -> Result<ZeroizeString, Error> {
+    Ok(str::from_utf8(bytes)
+        .map_err(|_| Error::InvalidPasswordBytes)?
+        .nfkd()
+        .collect::<ZeroizeString>())
 }
 
 /// Generates a checksum to indicate that the `derived_key` is associated with the

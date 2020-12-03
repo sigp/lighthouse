@@ -2087,6 +2087,7 @@ dependencies = [
  "serde_repr",
  "sha2 0.9.2",
  "tempfile",
+ "unicode-normalization",
  "uuid",
  "zeroize",
 ]

@@ -250,55 +250,63 @@ fn custom_pbkdf2_kdf() {
 fn utf8_control_characters() {
     let keypair = Keypair::random();
 
-    let invalid_character = 0u8;
-    let invalid_password = [invalid_character];
-    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
-        .unwrap()
-        .build();
-    assert_eq!(
-        keystore,
-        Err(Error::InvalidPasswordCharacter {
-            character: invalid_character,
-            index: 0
-        })
-    );
+    let password = vec![42, 42, 42];
+    let password_with_control_chars = vec![0x7Fu8, 42, 42, 42];
 
-    let invalid_character = 0x1Fu8;
-    let invalid_password = [50, invalid_character, 50];
-    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+    let keystore1 = KeystoreBuilder::new(&keypair, &password_with_control_chars, "".into())
         .unwrap()
-        .build();
-    assert_eq!(
-        keystore,
-        Err(Error::InvalidPasswordCharacter {
-            character: invalid_character,
-            index: 1
-        })
-    );
+        .build()
+        .unwrap();
 
-    let invalid_character = 0x80u8;
-    let invalid_password = [50, 50, invalid_character];
-    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+    let keystore2 = KeystoreBuilder::new(&keypair, &password, "".into())
         .unwrap()
-        .build();
-    assert_eq!(
-        keystore,
-        Err(Error::InvalidPasswordCharacter {
-            character: invalid_character,
-            index: 2
-        })
-    );
+        .build()
+        .unwrap();
 
-    let invalid_character = 0x7Fu8;
-    let invalid_password = [50, 50, 50, 50, 50, 50, invalid_character];
-    let keystore = KeystoreBuilder::new(&keypair, &invalid_password, "".into())
+    assert_eq!(keystore1.pubkey(), keystore2.pubkey());
+
+    // Decode same keystore with nfc and nfkd form passwords
+    let decoded1 = keystore1
+        .decrypt_keypair(&password_with_control_chars)
+        .unwrap();
+    let decoded2 = keystore1.decrypt_keypair(&password).unwrap();
+
+    assert_eq!(decoded1.pk, keypair.pk);
+    assert_eq!(decoded2.pk, keypair.pk);
+}
+
+#[test]
+fn normalization() {
+    use unicode_normalization::UnicodeNormalization;
+
+    let keypair = Keypair::random();
+    let password_str = "Zoë";
+
+    let password_nfc: String = password_str.nfc().collect();
+    let password_nfkd: String = password_str.nfkd().collect();
+
+    assert_ne!(password_nfc, password_nfkd);
+
+    let keystore_nfc = KeystoreBuilder::new(&keypair, password_nfc.as_bytes(), "".into())
         .unwrap()
-        .build();
-    assert_eq!(
-        keystore,
-        Err(Error::InvalidPasswordCharacter {
-            character: invalid_character,
-            index: 6
-        })
-    );
+        .build()
+        .unwrap();
+
+    let keystore_nfkd = KeystoreBuilder::new(&keypair, password_nfkd.as_bytes(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    assert_eq!(keystore_nfc.pubkey(), keystore_nfkd.pubkey());
+
+    // Decode same keystore with nfc and nfkd form passwords
+    let decoded_nfc = keystore_nfc
+        .decrypt_keypair(password_nfc.as_bytes())
+        .unwrap();
+    let decoded_nfkd = keystore_nfc
+        .decrypt_keypair(password_nfkd.as_bytes())
+        .unwrap();
+
+    assert_eq!(decoded_nfc.pk, keypair.pk);
+    assert_eq!(decoded_nfkd.pk, keypair.pk);
 }
