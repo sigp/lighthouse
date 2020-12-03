@@ -261,7 +261,7 @@ where
                         (conn_id, *id),
                         RPCCodedResponse::Error(
                             RPCResponseErrorCode::RateLimited,
-                            format!("Rate limited: wait {:?}", wait_time).into(),
+                            format!("Wait {:?}", wait_time).into(),
                         ),
                     );
                 }
