@@ -648,7 +648,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         let validator_index = *indexed_attestation
             .attesting_indices
             .first()
-            .ok_or_else(|| Error::NotExactlyOneAggregationBitSet(0))?;
+            .ok_or(Error::NotExactlyOneAggregationBitSet(0))?;
 
         /*
          * The attestation is the first valid attestation received for the participating validator
@@ -838,7 +838,7 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
     let latest_permissible_slot = chain
         .slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-        .ok_or_else(|| BeaconChainError::UnableToReadSlot)?;
+        .ok_or(BeaconChainError::UnableToReadSlot)?;
     if attestation_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
             attestation_slot,
@@ -850,7 +850,7 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
     let earliest_permissible_slot = chain
         .slot_clock
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-        .ok_or_else(|| BeaconChainError::UnableToReadSlot)?
+        .ok_or(BeaconChainError::UnableToReadSlot)?
         - T::EthSpec::slots_per_epoch();
     if attestation_slot < earliest_permissible_slot {
         return Err(Error::PastSlot {
@@ -873,12 +873,12 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     let pubkey_cache = chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
     let fork = chain
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::CanonicalHeadLockTimeout)
+        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
         .map(|head| head.beacon_state.fork)?;
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
@@ -974,7 +974,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     let pubkey_cache = chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
     let aggregator_index = signed_aggregate.message.aggregator_index;
     if aggregator_index >= pubkey_cache.len() as u64 {
@@ -984,7 +984,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     let fork = chain
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::CanonicalHeadLockTimeout)
+        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
         .map(|head| head.beacon_state.fork)?;
 
     let signature_sets = vec![

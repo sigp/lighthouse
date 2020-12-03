@@ -69,19 +69,19 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
             inner: Arc::new(Inner {
                 duties_service: self
                     .duties_service
-                    .ok_or_else(|| "Cannot build AttestationService without duties_service")?,
+                    .ok_or("Cannot build AttestationService without duties_service")?,
                 validator_store: self
                     .validator_store
-                    .ok_or_else(|| "Cannot build AttestationService without validator_store")?,
+                    .ok_or("Cannot build AttestationService without validator_store")?,
                 slot_clock: self
                     .slot_clock
-                    .ok_or_else(|| "Cannot build AttestationService without slot_clock")?,
+                    .ok_or("Cannot build AttestationService without slot_clock")?,
                 beacon_node: self
                     .beacon_node
-                    .ok_or_else(|| "Cannot build AttestationService without beacon_node")?,
+                    .ok_or("Cannot build AttestationService without beacon_node")?,
                 context: self
                     .context
-                    .ok_or_else(|| "Cannot build AttestationService without runtime_context")?,
+                    .ok_or("Cannot build AttestationService without runtime_context")?,
             }),
         })
     }
@@ -130,7 +130,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
-            .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
+            .ok_or("Unable to determine duration to next slot")?;
 
         info!(
             log,
@@ -174,14 +174,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// For each each required attestation, spawn a new task that downloads, signs and uploads the
     /// attestation to the beacon node.
     fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
-        let slot = self
-            .slot_clock
-            .now()
-            .ok_or_else(|| "Failed to read slot clock".to_string())?;
+        let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
-            .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
+            .ok_or("Unable to determine duration to next slot")?;
 
         // If a validator needs to publish an aggregate attestation, they must do so at 2/3
         // through the slot. This delay triggers at this time
@@ -336,7 +333,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let current_epoch = self
             .slot_clock
             .now()
-            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?
+            .ok_or("Unable to determine current slot from clock")?
             .epoch(E::slots_per_epoch());
 
         let attestation_data = self

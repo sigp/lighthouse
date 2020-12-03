@@ -83,7 +83,7 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
         let committee_index = set_bits
             .first()
             .copied()
-            .ok_or_else(|| Error::NoAggregationBitsSet)?;
+            .ok_or(Error::NoAggregationBitsSet)?;
 
         if set_bits.len() > 1 {
             return Err(Error::MoreThanOneAggregationBitSet(set_bits.len()));

@@ -33,18 +33,14 @@ pub fn get_config<E: EthSpec>(
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
-        fs::remove_dir_all(
-            client_config
-                .get_db_path()
-                .ok_or_else(|| "Failed to get db_path".to_string())?,
-        )
-        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        fs::remove_dir_all(client_config.get_db_path().ok_or("Failed to get db_path")?)
+            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
         // Remove the freezer db.
         fs::remove_dir_all(
             client_config
                 .get_freezer_db_path()
-                .ok_or_else(|| "Failed to get freezer db path".to_string())?,
+                .ok_or("Failed to get freezer db path")?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
@@ -319,10 +315,10 @@ pub fn get_config<E: EthSpec>(
         let mut split = wss_checkpoint.split(':');
         let root_str = split
             .next()
-            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+            .ok_or("Improperly formatted weak subjectivity checkpoint")?;
         let epoch_str = split
             .next()
-            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+            .ok_or("Improperly formatted weak subjectivity checkpoint")?;
 
         if !root_str.starts_with("0x") {
             return Err(
@@ -555,7 +551,7 @@ pub fn set_network_config(
                     resolved_addrs
                         .next()
                         .map(|a| a.ip())
-                        .ok_or_else(|| "Resolved dns addr contains no entries".to_string())?
+                        .ok_or("Resolved dns addr contains no entries")?
                 } else {
                     return Err(format!("Failed to parse enr-address: {}", enr_address));
                 };

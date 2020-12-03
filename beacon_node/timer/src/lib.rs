@@ -21,7 +21,7 @@ pub fn spawn_timer<T: BeaconChainTypes>(
         + beacon_chain
             .slot_clock
             .duration_to_next_slot()
-            .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
+            .ok_or("slot_notifier unable to determine time to next slot")?;
 
     // Warning: `interval_at` panics if `milliseconds_per_slot` = 0.
     let mut interval = interval_at(start_instant, Duration::from_millis(milliseconds_per_slot));

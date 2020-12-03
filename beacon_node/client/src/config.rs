@@ -101,7 +101,7 @@ impl Config {
     pub fn create_db_path(&self) -> Result<PathBuf, String> {
         let db_path = self
             .get_db_path()
-            .ok_or_else(|| "Unable to locate user home directory")?;
+            .ok_or("Unable to locate user home directory")?;
         ensure_dir_exists(db_path)
     }
 
@@ -125,7 +125,7 @@ impl Config {
     pub fn create_freezer_db_path(&self) -> Result<PathBuf, String> {
         let freezer_db_path = self
             .get_freezer_db_path()
-            .ok_or_else(|| "Unable to locate user home directory")?;
+            .ok_or("Unable to locate user home directory")?;
         ensure_dir_exists(freezer_db_path)
     }
 
@@ -142,7 +142,7 @@ impl Config {
     pub fn create_data_dir(&self) -> Result<PathBuf, String> {
         let path = self
             .get_data_dir()
-            .ok_or_else(|| "Unable to locate user home directory".to_string())?;
+            .ok_or("Unable to locate user home directory")?;
         ensure_dir_exists(path)
     }
 }

@@ -4,12 +4,10 @@ use ssz::Decode;
 use types::{BeaconBlock, BeaconState, EthSpec};
 
 pub fn run_parse_hex<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let type_str = matches
-        .value_of("type")
-        .ok_or_else(|| "No type supplied".to_string())?;
+    let type_str = matches.value_of("type").ok_or("No type supplied")?;
     let mut hex: String = matches
         .value_of("hex_ssz")
-        .ok_or_else(|| "No hex ssz supplied".to_string())?
+        .ok_or("No hex ssz supplied")?
         .to_string();
 
     if hex.starts_with("0x") {

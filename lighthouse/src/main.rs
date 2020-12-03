@@ -200,7 +200,7 @@ fn run<E: EthSpec>(
 
     let debug_level = matches
         .value_of("debug-level")
-        .ok_or_else(|| "Expected --debug-level flag".to_string())?;
+        .ok_or("Expected --debug-level flag")?;
 
     let log_format = matches.value_of("log-format");
 

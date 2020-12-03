@@ -161,9 +161,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 .as_secs();
             let file_stem = path
                 .file_stem()
-                .ok_or_else(|| "Invalid file name".to_string())?
+                .ok_or("Invalid file name")?
                 .to_str()
-                .ok_or_else(|| "Failed to create str from filename".to_string())?;
+                .ok_or("Failed to create str from filename")?;
             let file_ext = path.extension().unwrap_or_else(|| OsStr::new(""));
             let backup_name = format!("{}_backup_{}", file_stem, timestamp);
             let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
@@ -229,7 +229,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         self.eth2_config.spec = eth2_testnet_config
             .yaml_config
             .as_ref()
-            .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+            .ok_or("The testnet directory must contain a spec config")?
             .apply_to_chain_spec::<E>(&self.eth2_config.spec)
             .ok_or_else(|| {
                 format!(
@@ -262,14 +262,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(Environment {
             runtime: self
                 .runtime
-                .ok_or_else(|| "Cannot build environment without runtime".to_string())?,
+                .ok_or("Cannot build environment without runtime")?,
             signal_tx,
             signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
-            log: self
-                .log
-                .ok_or_else(|| "Cannot build environment without log".to_string())?,
+            log: self.log.ok_or("Cannot build environment without log")?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
             testnet: self.testnet,

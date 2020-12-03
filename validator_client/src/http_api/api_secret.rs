@@ -98,8 +98,8 @@ impl ApiSecret {
             .and_then(|bytes| {
                 let hex =
                     String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", SK_FILENAME))?;
-                if hex.starts_with(PK_PREFIX) {
-                    serde_utils::hex::decode(&hex[PK_PREFIX.len()..])
+                if let Some(stripped) = hex.strip_prefix(PK_PREFIX) {
+                    serde_utils::hex::decode(stripped)
                         .map_err(|_| format!("{} should be 0x-prefixed hex", SK_FILENAME))
                 } else {
                     Err(format!("unable to parse {}", SK_FILENAME))

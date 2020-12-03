@@ -419,7 +419,7 @@ impl ParallelValidatorTreeHash {
 
                         let validator = validators
                             .get(val_index)
-                            .ok_or_else(|| Error::TreeHashCacheInconsistent)?;
+                            .ok_or(Error::TreeHashCacheInconsistent)?;
 
                         validator
                             .recalculate_tree_hash_root(arena, cache)
