@@ -220,22 +220,6 @@ where
         }
     }
 
-    /// Returns a reference to the listen protocol configuration.
-    ///
-    /// > **Note**: If you modify the protocol, modifications will only applies to future inbound
-    /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_ref(&self) -> &SubstreamProtocol<RPCProtocol<TSpec>, ()> {
-        &self.listen_protocol
-    }
-
-    /// Returns a mutable reference to the listen protocol configuration.
-    ///
-    /// > **Note**: If you modify the protocol, modifications will only apply to future inbound
-    /// >           substreams, not the ones already being negotiated.
-    pub fn listen_protocol_mut(&mut self) -> &mut SubstreamProtocol<RPCProtocol<TSpec>, ()> {
-        &mut self.listen_protocol
-    }
-
     /// Initiates the handler's shutdown process, sending an optional last message to the peer.
     pub fn shutdown(&mut self, final_msg: Option<(RequestId, RPCRequest<TSpec>)>) {
         if matches!(self.state, HandlerState::Active) {
