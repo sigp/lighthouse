@@ -813,7 +813,7 @@ mod test {
                         .write()
                         .cache
                         .insert_log(log.clone())
-                        .expect("should insert log")
+                        .expect("should insert log");
                 })
                 .collect();
 
