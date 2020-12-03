@@ -134,7 +134,7 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
                 voting_keystore_path,
                 voting_password_string,
                 request.enable,
-                None,
+                request.graffiti,
             )
             .await
             .map_err(|e| {

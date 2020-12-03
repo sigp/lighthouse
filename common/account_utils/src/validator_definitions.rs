@@ -107,7 +107,7 @@ impl ValidatorDefinition {
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
 /// list of validators to be initialized by this validator client.
 #[derive(Default, Serialize, Deserialize)]
-pub struct ValidatorDefinitions(pub Vec<ValidatorDefinition>);
+pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.

@@ -17,6 +17,7 @@ pub struct ValidatorData {
 pub struct ValidatorRequest {
     pub enable: bool,
     pub description: String,
+    pub graffiti: Option<Graffiti>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
