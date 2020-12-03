@@ -211,6 +211,7 @@ impl ApiTester {
             .map(|i| ValidatorRequest {
                 enable: !s.disabled.contains(&i),
                 description: format!("boi #{}", i),
+                graffiti: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();

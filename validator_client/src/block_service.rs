@@ -228,7 +228,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let graffiti = self
             .validator_store
             .graffiti(&validator_pubkey)
-            .or_else(|| self.graffiti);
+            .or(self.graffiti);
 
         let block = self
             .beacon_node
