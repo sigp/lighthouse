@@ -10,7 +10,7 @@ $(OUTPUT_DIR): $(TARBALL)
 	tar --strip-components=1 -xzf $^ -C $@
 
 $(TARBALL):
-	curl -L -o $@ $(ARCHIVE_URL)
+	curl --fail -L -o $@ $(ARCHIVE_URL)
 
 clean-test-files:
 	rm -rf $(OUTPUT_DIR)
