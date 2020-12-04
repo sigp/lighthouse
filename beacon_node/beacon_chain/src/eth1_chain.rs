@@ -98,7 +98,7 @@ fn get_sync_status<T: EthSpec>(
     } else {
         // The number of seconds in an eth1 voting period.
         let voting_period_duration =
-            T::slots_per_eth1_voting_period() as u64 * (spec.milliseconds_per_slot / 1_000);
+            T::slots_per_eth1_voting_period() as u64 * spec.milliseconds_per_slot;
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
 
@@ -108,14 +108,14 @@ fn get_sync_status<T: EthSpec>(
         // Determine how many voting periods are contained in distance between
         // now and genesis, rounding up.
         let voting_periods_past =
-            (seconds_till_genesis + voting_period_duration - 1) / voting_period_duration;
+            (seconds_till_genesis * 1000 + voting_period_duration - 1) / voting_period_duration;
 
         // Return the start time of the current voting period*.
         //
         // *: This voting period doesn't *actually* exist, we're just using it to
         // give useful logs prior to genesis.
         genesis_time
-            .saturating_sub(voting_periods_past * voting_period_duration)
+            .saturating_sub((voting_periods_past * voting_period_duration) / 1000)
             .saturating_sub(eth1_follow_distance_seconds)
     };
 
