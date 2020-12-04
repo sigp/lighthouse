@@ -543,7 +543,7 @@ impl InitializedValidators {
                                 info!(
                                     self.log,
                                     "Enabled validator";
-                                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
+                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
                                 );
 
                                 if let Some(lockfile_path) = existing_lockfile_path {

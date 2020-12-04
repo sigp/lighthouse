@@ -7,6 +7,7 @@ use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
+use serde::{de::Error as SerdeError, Deserializer, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
@@ -14,7 +15,7 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-use types::{Graffiti, PublicKey};
+use types::{Graffiti, PublicKey, GRAFFITI_BYTES_LEN};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -66,11 +67,54 @@ pub enum SigningDefinition {
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    // The serialize/deserialize impl in `Graffiti` serializes and deserializes
+    // it as hex bytes for use in http api.
+    // We want to read it as a normal UTF-8 encoded string.
+    #[serde(serialize_with = "graffiti_serialize")]
+    #[serde(deserialize_with = "graffiti_deserialize")]
     pub graffiti: Option<Graffiti>,
     #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
+}
+
+fn graffiti_serialize<S>(g: &Option<Graffiti>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if let Some(graffiti) = g {
+        s.serialize_str(&graffiti.as_utf8_lossy())
+    } else {
+        s.serialize_none()
+    }
+}
+
+fn graffiti_deserialize<'de, D>(deserializer: D) -> Result<Option<Graffiti>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = serde::Deserialize::deserialize(deserializer)?;
+    match s {
+        Some(g) => {
+            let bytes = g.as_bytes();
+
+            if bytes.len() > GRAFFITI_BYTES_LEN {
+                return Err(SerdeError::custom(format!(
+                    "Your graffiti is too long! {} bytes maximum!",
+                    GRAFFITI_BYTES_LEN
+                )));
+            }
+
+            let mut array = [0; GRAFFITI_BYTES_LEN];
+            array[..bytes.len()].copy_from_slice(&bytes);
+
+            Ok(Some(array.into()))
+        }
+        None => Ok(None),
+    }
 }
 
 impl ValidatorDefinition {

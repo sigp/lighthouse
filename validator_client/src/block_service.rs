@@ -271,6 +271,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "Successfully published block";
             "deposits" => signed_block.message.body.deposits.len(),
             "attestations" => signed_block.message.body.attestations.len(),
+            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
             "slot" => signed_block.slot().as_u64(),
         );
 
