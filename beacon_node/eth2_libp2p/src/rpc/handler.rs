@@ -259,10 +259,6 @@ where
         }
     }
 
-    fn emit_request(&mut self, req: RPCRequest<TSpec>, id: SubstreamId) {
-        self.events_out.push(Ok(RPCReceived::Request(id, req)))
-    }
-
     /// Sends a response to a peer's request.
     // NOTE: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
@@ -347,7 +343,10 @@ where
             );
         }
 
-        self.emit_request(req, self.current_inbound_substream_id);
+        self.events_out.push(Ok(RPCReceived::Request(
+            self.current_inbound_substream_id,
+            req,
+        )));
         self.current_inbound_substream_id.0 += 1;
     }
 

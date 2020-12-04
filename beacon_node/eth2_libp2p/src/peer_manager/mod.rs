@@ -416,14 +416,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
                 RPCResponseErrorCode::RateLimited => match protocol {
                     Protocol::Ping => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRange | Protocol::BlocksByRoot => match direction {
-                        // The peer got rate limited. As long as they don't spam us we allow them
-                        // to sync from us
-                        ConnectionDirection::Incoming => PeerAction::MidToleranceError,
-                        // we got rate limited, and we need peers that answer us so there is no
-                        // point in keeping them
-                        ConnectionDirection::Outgoing => PeerAction::LowToleranceError,
-                    },
+                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
