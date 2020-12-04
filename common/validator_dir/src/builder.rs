@@ -1,7 +1,7 @@
 use crate::{Error as DirError, ValidatorDir};
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
-use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
+use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainTextString};
 use rand::{distributions::Alphanumeric, Rng};
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{self, Write};
@@ -53,8 +53,8 @@ impl From<KeystoreError> for Error {
 pub struct Builder<'a> {
     base_validators_dir: PathBuf,
     password_dir: Option<PathBuf>,
-    pub(crate) voting_keystore: Option<(Keystore, PlainText)>,
-    pub(crate) withdrawal_keystore: Option<(Keystore, PlainText)>,
+    pub(crate) voting_keystore: Option<(Keystore, PlainTextString)>,
+    pub(crate) withdrawal_keystore: Option<(Keystore, PlainTextString)>,
     store_withdrawal_keystore: bool,
     deposit_info: Option<(u64, &'a ChainSpec)>,
 }
@@ -81,16 +81,16 @@ impl<'a> Builder<'a> {
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
     ///
     /// The builder will not necessarily check that `password` can unlock `keystore`.
-    pub fn voting_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
-        self.voting_keystore = Some((keystore, password.to_vec().into()));
+    pub fn voting_keystore(mut self, keystore: Keystore, password: PlainTextString) -> Self {
+        self.voting_keystore = Some((keystore, password));
         self
     }
 
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
     ///
     /// The builder will not necessarily check that `password` can unlock `keystore`.
-    pub fn withdrawal_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
-        self.withdrawal_keystore = Some((keystore, password.to_vec().into()));
+    pub fn withdrawal_keystore(mut self, keystore: Keystore, password: PlainTextString) -> Self {
+        self.withdrawal_keystore = Some((keystore, password));
         self
     }
 
@@ -301,13 +301,12 @@ pub fn write_password_to_file<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(
 }
 
 /// Generates a random keystore with a random password.
-fn random_keystore() -> Result<(Keystore, PlainText), Error> {
+fn random_keystore() -> Result<(Keystore, PlainTextString), Error> {
     let keypair = Keypair::random();
-    let password: PlainText = rand::thread_rng()
+    let password: PlainTextString = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
         .collect::<String>()
-        .into_bytes()
         .into();
 
     let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), "".into())?.build()?;

@@ -4,8 +4,10 @@
 mod derived_key;
 mod lamport_secret_key;
 mod plain_text;
+mod plain_text_string;
 mod secret_bytes;
 
 pub use bls::ZeroizeHash;
 pub use derived_key::DerivedKey;
 pub use plain_text::PlainText;
+pub use plain_text_string::PlainTextString;

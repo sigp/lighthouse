@@ -4,9 +4,9 @@ use crate::builder::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use derivative::Derivative;
-use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
+use eth2_keystore::{Error as KeystoreError, Keystore, PlainText, PlainTextString};
 use lockfile::{Lockfile, LockfileError};
-use std::fs::{read, write, OpenOptions};
+use std::fs::{read, read_to_string, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
@@ -219,7 +219,7 @@ pub fn unlock_keypair<P: AsRef<Path>>(
     let password_path = password_dir
         .as_ref()
         .join(format!("0x{}", keystore.pubkey()));
-    let password: PlainText = read(&password_path)
+    let password: PlainTextString = read_to_string(&password_path)
         .map_err(|_| Error::UnableToReadPassword(password_path))?
         .into();
     keystore

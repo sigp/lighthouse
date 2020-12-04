@@ -129,8 +129,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
         ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
-            .voting_keystore(keystores.voting, voting_password.as_bytes())
-            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+            .voting_keystore(keystores.voting, voting_password)
+            .withdrawal_keystore(keystores.withdrawal, withdrawal_password)
             .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;

@@ -92,8 +92,8 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
             })?;
 
         let validator_dir = ValidatorDirBuilder::new(validator_dir.as_ref().into())
-            .voting_keystore(keystores.voting, voting_password.as_bytes())
-            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+            .voting_keystore(keystores.voting, voting_password)
+            .withdrawal_keystore(keystores.withdrawal, withdrawal_password)
             .create_eth1_tx_data(request.deposit_gwei, &spec)
             .store_withdrawal_keystore(false)
             .build()

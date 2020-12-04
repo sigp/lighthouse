@@ -5,8 +5,8 @@ use eth2_keystore::json_keystore::{
     Sha256Checksum,
 };
 use eth2_keystore::{
-    decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, PlainText, Uuid,
-    ZeroizeHash, IV_SIZE, SALT_SIZE,
+    decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, PlainText,
+    PlainTextString, Uuid, ZeroizeHash, IV_SIZE, SALT_SIZE,
 };
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ pub struct KeyCache {
     #[serde(skip)]
     pairs: HashMap<Uuid, Keypair>, //maps public keystore uuids to their corresponding Keypair
     #[serde(skip)]
-    passwords: Vec<PlainText>,
+    passwords: Vec<PlainTextString>,
     #[serde(skip)]
     #[serde(default = "not_decrypted")]
     state: State,
@@ -119,7 +119,7 @@ impl KeyCache {
         );
         let (cipher_text, checksum) = encrypt(
             raw.as_ref(),
-            Self::password(&self.passwords).as_ref(),
+            Self::password(&self.passwords).as_bytes(),
             &self.crypto.kdf.params,
             &self.crypto.cipher.params,
         )
@@ -163,23 +163,23 @@ impl KeyCache {
         &self.uuids
     }
 
-    fn password(passwords: &[PlainText]) -> PlainText {
-        PlainText::from(passwords.iter().fold(Vec::new(), |mut v, p| {
-            v.extend(p.as_ref());
-            v
+    fn password(passwords: &[PlainTextString]) -> PlainTextString {
+        PlainTextString::from(passwords.iter().fold(String::new(), |mut s, p| {
+            s.push_str(p.as_str());
+            s
         }))
     }
 
     pub fn decrypt(
         &mut self,
-        passwords: Vec<PlainText>,
+        passwords: Vec<PlainTextString>,
         public_keys: Vec<PublicKey>,
     ) -> Result<&HashMap<Uuid, Keypair>, Error> {
         match self.state {
             State::NotDecrypted => {
                 let password = Self::password(&passwords);
                 let text =
-                    decrypt(password.as_ref(), &self.crypto).map_err(Error::UnableToDecrypt)?;
+                    decrypt(password.as_bytes(), &self.crypto).map_err(Error::UnableToDecrypt)?;
                 let key_map: SerializedKeyMap =
                     bincode::deserialize(text.as_bytes()).map_err(Error::UnableToParseKeyMap)?;
                 self.passwords = passwords;
@@ -219,7 +219,7 @@ impl KeyCache {
         self.state = State::DecryptedWithUnsavedUpdates;
     }
 
-    pub fn add(&mut self, keypair: Keypair, uuid: &Uuid, password: PlainText) {
+    pub fn add(&mut self, keypair: Keypair, uuid: &Uuid, password: PlainTextString) {
         //do nothing in not decrypted state
         if let State::NotDecrypted = self.state {
             return;
@@ -276,7 +276,7 @@ mod tests {
         let mut key_cache = KeyCache::new();
         let key_pair = Keypair::random();
         let uuid = Uuid::from_u128(1);
-        let password = PlainText::from(vec![1, 2, 3, 4, 5, 6]);
+        let password = PlainTextString::from(std::str::from_utf8(&[1, 2, 3, 4, 5, 6]).unwrap());
         key_cache.add(key_pair, &uuid, password);
 
         key_cache.crypto.cipher.message = HexBytes::from(vec![7, 8, 9]);
@@ -295,8 +295,8 @@ mod tests {
         let keypairs = vec![Keypair::random(), Keypair::random()];
         let uuids = vec![Uuid::from_u128(1), Uuid::from_u128(2)];
         let passwords = vec![
-            PlainText::from(vec![1, 2, 3, 4, 5, 6]),
-            PlainText::from(vec![7, 8, 9, 10, 11, 12]),
+            PlainTextString::from(std::str::from_utf8(&[1, 2, 3, 4, 5, 6]).unwrap()),
+            PlainTextString::from(std::str::from_utf8(&[7, 8, 9, 10, 11, 12]).unwrap()),
         ];
 
         for ((keypair, uuid), password) in keypairs.iter().zip(uuids.iter()).zip(passwords.iter()) {

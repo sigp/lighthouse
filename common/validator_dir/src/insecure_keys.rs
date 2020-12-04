@@ -7,7 +7,7 @@
 use crate::{Builder, BuilderError};
 use eth2_keystore::{
     json_keystore::{Kdf, Scrypt},
-    Keystore, KeystoreBuilder, PlainText, DKLEN,
+    Keystore, KeystoreBuilder, PlainTextString, DKLEN,
 };
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
@@ -35,7 +35,7 @@ impl<'a> Builder<'a> {
 /// **unsafe** secret key.
 ///
 /// **NEVER** use these keys in production!
-pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText), String> {
+pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainTextString), String> {
     let keypair = generate_deterministic_keypair(i);
 
     let keystore = KeystoreBuilder::new(&keypair, INSECURE_PASSWORD, "".into())
@@ -44,7 +44,10 @@ pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText)
         .build()
         .map_err(|e| format!("Unable to build keystore: {:?}", e))?;
 
-    Ok((keystore, INSECURE_PASSWORD.to_vec().into()))
+    let password =
+        std::str::from_utf8(INSECURE_PASSWORD).expect("The static password is valid UTF-8");
+
+    Ok((keystore, password.into()))
 }
 
 /// Returns an INSECURE key derivation function.

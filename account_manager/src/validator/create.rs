@@ -2,7 +2,7 @@ use crate::common::read_wallet_name_from_cli;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{
-    random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
+    random_password, read_password_from_user, validator_definitions, PlainTextString,
 };
 use clap::{App, Arg, ArgMatches};
 use directory::{
@@ -229,8 +229,8 @@ pub fn cli_run<T: EthSpec>(
 
         ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
-            .voting_keystore(keystores.voting, voting_password.as_bytes())
-            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+            .voting_keystore(keystores.voting, voting_password)
+            .withdrawal_keystore(keystores.withdrawal, withdrawal_password)
             .create_eth1_tx_data(deposit_gwei, &spec)
             .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
             .build()
@@ -267,16 +267,15 @@ fn existing_validator_count<P: AsRef<Path>>(validator_dir: P) -> Result<usize, S
 pub fn read_wallet_password_from_cli(
     password_file_path: Option<PathBuf>,
     stdin_inputs: bool,
-) -> Result<PlainText, String> {
+) -> Result<PlainTextString, String> {
     match password_file_path {
-        Some(path) => fs::read(&path)
+        Some(path) => fs::read_to_string(&path)
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-            .map(|bytes| strip_off_newlines(bytes).into()),
+            .map(|password| PlainTextString::from(password).without_newlines()),
         None => {
             eprintln!("");
             eprintln!("{}", WALLET_PASSWORD_PROMPT);
-            let password =
-                PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+            let password = PlainTextString::from(read_password_from_user(stdin_inputs)?.as_str());
             Ok(password)
         }
     }

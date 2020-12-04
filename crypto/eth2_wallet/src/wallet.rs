@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 
 pub use bip39::{Mnemonic, Seed as Bip39Seed};
 pub use eth2_key_derivation::DerivedKey;
-pub use eth2_keystore::{Error as KeystoreError, PlainText};
+pub use eth2_keystore::{Error as KeystoreError, PlainText, PlainTextString};
 pub use uuid::Uuid;
 
 #[derive(Debug, PartialEq)]

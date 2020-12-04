@@ -1,6 +1,6 @@
 #![cfg(not(debug_assertions))]
 
-use eth2_keystore::{Keystore, KeystoreBuilder, PlainText};
+use eth2_keystore::{Keystore, KeystoreBuilder, PlainTextString};
 use std::fs::{self, File};
 use std::path::Path;
 use tempfile::{tempdir, TempDir};
@@ -43,7 +43,7 @@ fn check_keystore<P: AsRef<Path>>(path: P, password_dir: P) -> Keypair {
 }
 
 /// Creates a keystore using `generate_deterministic_keypair`.
-pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText), String> {
+pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainTextString), String> {
     let keypair = generate_deterministic_keypair(i);
 
     let keystore = KeystoreBuilder::new(&keypair, INSECURE_PASSWORD, "".into())
@@ -51,7 +51,10 @@ pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText)
         .build()
         .map_err(|e| format!("Unable to build keystore: {:?}", e))?;
 
-    Ok((keystore, INSECURE_PASSWORD.to_vec().into()))
+    let password =
+        std::str::from_utf8(INSECURE_PASSWORD).expect("The static password is valid UTF-8");
+
+    Ok((keystore, password.into()))
 }
 
 /// A testing harness for generating validator directories.
@@ -88,14 +91,14 @@ impl Harness {
             builder.random_voting_keystore().unwrap()
         } else {
             let (keystore, password) = generate_deterministic_keystore(0).unwrap();
-            builder.voting_keystore(keystore, password.as_bytes())
+            builder.voting_keystore(keystore, password)
         };
 
         let builder = if config.random_withdrawal_keystore {
             builder.random_withdrawal_keystore().unwrap()
         } else {
             let (keystore, password) = generate_deterministic_keystore(1).unwrap();
-            builder.withdrawal_keystore(keystore, password.as_bytes())
+            builder.withdrawal_keystore(keystore, password)
         };
 
         let builder = if let Some(amount) = config.deposit_amount {

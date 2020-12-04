@@ -19,7 +19,7 @@ pub mod validator_definitions;
 
 pub use eth2_keystore;
 pub use eth2_wallet;
-pub use eth2_wallet::PlainText;
+pub use eth2_wallet::PlainTextString;
 
 /// The minimum number of characters required for a wallet password.
 pub const MINIMUM_PASSWORD_LEN: usize = 12;
@@ -39,9 +39,9 @@ pub fn default_wallet_password_path<P: AsRef<Path>>(wallet_name: &str, secrets_d
 pub fn default_wallet_password<P: AsRef<Path>>(
     wallet: &Wallet,
     secrets_dir: P,
-) -> Result<PlainText, io::Error> {
+) -> Result<PlainTextString, io::Error> {
     let path = default_wallet_password_path(wallet.name(), secrets_dir);
-    fs::read(path).map(|bytes| PlainText::from(strip_off_newlines(bytes)))
+    fs::read_to_string(path).map(|password| PlainTextString::from(password).without_newlines())
 }
 
 /// Returns the "default" path where a keystore should store its password file.
@@ -54,9 +54,9 @@ pub fn default_keystore_password_path<P: AsRef<Path>>(
         .join(format!("0x{}", keystore.pubkey()))
 }
 
-/// Reads a password file into a Zeroize-ing `PlainText` struct, with new-lines removed.
-pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
-    fs::read(path).map(strip_off_newlines).map(Into::into)
+/// Reads a password file into a Zeroize-ing `PlainTextString` struct, with new-lines removed.
+pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainTextString, io::Error> {
+    fs::read_to_string(path).map(|password| PlainTextString::from(password).without_newlines())
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.
@@ -77,27 +77,12 @@ pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<()
 }
 
 /// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN`.
-pub fn random_password() -> PlainText {
+pub fn random_password() -> PlainTextString {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
         .collect::<String>()
-        .into_bytes()
         .into()
-}
-
-/// Remove any number of newline or carriage returns from the end of a vector of bytes.
-pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
-    let mut strip_off = 0;
-    for (i, byte) in bytes.iter().rev().enumerate() {
-        if *byte == b'\n' || *byte == b'\r' {
-            strip_off = i + 1;
-        } else {
-            break;
-        }
-    }
-    bytes.truncate(bytes.len() - strip_off);
-    bytes
 }
 
 /// Reads a password from TTY or stdin if `use_stdin == true`.
@@ -199,40 +184,6 @@ impl AsRef<[u8]> for ZeroizeString {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_strip_off() {
-        let expected = "hello world".as_bytes().to_vec();
-
-        assert_eq!(
-            strip_off_newlines("hello world\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\n\n\n\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\r\r\r\r".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world".as_bytes().to_vec()),
-            expected
-        );
-    }
 
     #[test]
     fn test_password_over_min_length() {

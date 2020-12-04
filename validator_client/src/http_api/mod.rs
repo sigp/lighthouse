@@ -369,7 +369,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         })?;
 
                     let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
-                        .voting_keystore(body.keystore.clone(), body.password.as_ref())
+                        .voting_keystore(body.keystore.clone(), body.password.as_str().into())
                         .store_withdrawal_keystore(false)
                         .build()
                         .map_err(|e| {
