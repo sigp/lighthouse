@@ -759,9 +759,11 @@ fn test_goodbye_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a goodbye and disconnect
                         debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .goodbye_peer(&peer_id, GoodbyeReason::IrrelevantNetwork);
+                        sender.swarm.goodbye_peer(
+                            &peer_id,
+                            GoodbyeReason::IrrelevantNetwork,
+                            "test",
+                        );
                     }
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDisconnected(_)) => {
                         return;

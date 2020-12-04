@@ -132,7 +132,11 @@ impl<T: EthSpec> SyncNetworkContext<T> {
 
     pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         self.network_send
-            .send(NetworkMessage::GoodbyePeer { peer_id, reason })
+            .send(NetworkMessage::GoodbyePeer {
+                peer_id,
+                reason,
+                source: "sync",
+            })
             .unwrap_or_else(|_| {
                 warn!(self.log, "Could not report peer, channel failed");
             });
@@ -141,7 +145,11 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
         debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
         self.network_send
-            .send(NetworkMessage::ReportPeer { peer_id, action })
+            .send(NetworkMessage::ReportPeer {
+                peer_id,
+                action,
+                source: "sync",
+            })
             .unwrap_or_else(|e| {
                 warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
             });

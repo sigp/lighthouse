@@ -251,13 +251,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 
     /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        self.swarm.report_peer(peer_id, action);
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: &'static str) {
+        self.swarm.report_peer(peer_id, action, source);
     }
 
     /// Disconnect and ban a peer, providing a reason.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
-        self.swarm.goodbye_peer(peer_id, reason);
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: &'static str) {
+        self.swarm.goodbye_peer(peer_id, reason, source);
     }
 
     /// Sends a response to a peer's request.

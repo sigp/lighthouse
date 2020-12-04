@@ -61,8 +61,6 @@ pub enum PeerAction {
     /// kicked.
     /// NOTE: ~50 occurrences will get the peer banned
     HighToleranceError,
-    /// Received an expected message.
-    _ValidMessage,
 }
 
 impl std::fmt::Display for PeerAction {
@@ -72,7 +70,17 @@ impl std::fmt::Display for PeerAction {
             PeerAction::LowToleranceError => write!(f, "Low Tolerance Error"),
             PeerAction::MidToleranceError => write!(f, "Mid Tolerance Error"),
             PeerAction::HighToleranceError => write!(f, "High Tolerance Error"),
-            PeerAction::_ValidMessage => write!(f, "Valid Message"),
+        }
+    }
+}
+
+impl PeerAction {
+    pub fn as_static_str(&self) -> &'static str {
+        match self {
+            PeerAction::HighToleranceError => "high_tolerance",
+            PeerAction::MidToleranceError => "mid_tolerance",
+            PeerAction::LowToleranceError => "low_tolerance",
+            PeerAction::Fatal => "fatal",
         }
     }
 }
@@ -155,7 +163,6 @@ impl RealScore {
             PeerAction::LowToleranceError => self.add(-10.0),
             PeerAction::MidToleranceError => self.add(-5.0),
             PeerAction::HighToleranceError => self.add(-1.0),
-            PeerAction::_ValidMessage => self.add(0.1),
         }
     }
 

@@ -5,9 +5,7 @@ use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{
-    MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
-};
+use eth2_libp2p::{MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response};
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
@@ -359,16 +357,6 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         self.network_send.send(msg).unwrap_or_else(
             |e| warn!(self.log, "Could not send message to the network service"; "error" => %e),
         )
-    }
-
-    /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
-    pub fn _goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.inform_network(NetworkMessage::GoodbyePeer { peer_id, reason });
-    }
-
-    /// Reports a peer's action, adjusting the peer's score.
-    pub fn _report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
-        self.inform_network(NetworkMessage::ReportPeer { peer_id, action });
     }
 
     /// Sends a request to the network task.

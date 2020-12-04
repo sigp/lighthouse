@@ -18,7 +18,11 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
     pub fn goodbye_peer(&self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.send_network_message(NetworkMessage::GoodbyePeer { peer_id, reason });
+        self.send_network_message(NetworkMessage::GoodbyePeer {
+            peer_id,
+            reason,
+            source: "processor",
+        });
     }
 
     pub fn send_response(

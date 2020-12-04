@@ -469,16 +469,16 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Peer management functions */
 
     /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        self.peer_manager.report_peer(peer_id, action)
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: &'static str) {
+        self.peer_manager.report_peer(peer_id, action, source)
     }
 
     /// Disconnects from a peer providing a reason.
     ///
     /// This will send a goodbye, disconnect and then ban the peer.
     /// This is fatal for a peer, and should be used in unrecoverable circumstances.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
-        self.peer_manager.goodbye_peer(peer_id, reason);
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: &'static str) {
+        self.peer_manager.goodbye_peer(peer_id, reason, source);
     }
 
     /// Returns an iterator over all enr entries in the DHT.

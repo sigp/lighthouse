@@ -55,6 +55,12 @@ lazy_static! {
         "RPC errors per client",
         &["client", "rpc_error", "direction"]
     );
+    pub static ref PEER_ACTION_EVENTS_PER_CLIENT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "libp2p_peer_actions_per_client",
+            "Score reports per client",
+            &["client", "action", "source"]
+        );
 }
 
 pub fn scrape_discovery_metrics() {
