@@ -107,13 +107,13 @@ impl Into<NodeError> for RecoverableNodeError {
 
 /// Data used to check if a beacon node uses the same specs as the validator client.
 #[derive(Clone)]
-pub struct UnrecoverableErrorsChecker<E: EthSpec> {
+pub struct UnrecoverableErrorChecker<E: EthSpec> {
     chain_spec: ChainSpec,
     phantom: PhantomData<E>,
     log: Logger,
 }
 
-impl<E: EthSpec> UnrecoverableErrorsChecker<E> {
+impl<E: EthSpec> UnrecoverableErrorChecker<E> {
     pub fn new(chain_spec: ChainSpec, log: Logger) -> Self {
         Self {
             chain_spec,
@@ -218,13 +218,13 @@ impl<E: EthSpec> UnrecoverableErrorsChecker<E> {
 #[derive(Clone)]
 pub struct BeaconNodeFallback<E: EthSpec> {
     pub fallback: Fallback<(BeaconNodeHttpClient, ServerState<UnrecoverableNodeError>)>,
-    context: UnrecoverableErrorsChecker<E>,
+    context: UnrecoverableErrorChecker<E>,
 }
 
 impl<E: EthSpec> BeaconNodeFallback<E> {
     pub fn new(
         fallback: Fallback<(BeaconNodeHttpClient, ServerState<UnrecoverableNodeError>)>,
-        context: UnrecoverableErrorsChecker<E>,
+        context: UnrecoverableErrorChecker<E>,
     ) -> Self {
         Self { fallback, context }
     }
@@ -273,10 +273,10 @@ impl<E: EthSpec> BeaconNodeFallback<E> {
         let func = &func;
         self.fallback
             .first_success_concurrent_retry(
-                |(node, state)| async move {
-                    check_preconditions(state, |g| async move {
+                |(node, unrecoverable_state)| async move {
+                    check_preconditions(unrecoverable_state, |unrecoverable_lock| async move {
                         let result = self.context.check(node).await;
-                        save_unrecoverable_result(g, &result);
+                        save_unrecoverable_result(unrecoverable_lock, &result);
                         report_result(node, result)
                     })
                     .await?;
@@ -318,7 +318,7 @@ pub struct BeaconNodeFallbackWithRecoverableChecks<T, E: EthSpec> {
         ServerState<UnrecoverableNodeError>, //gets never reset
         ServerState<RecoverableNodeError>,   //gets reset regularly
     )>,
-    context: UnrecoverableErrorsChecker<E>,
+    unrecoverable_error_checker: UnrecoverableErrorChecker<E>,
     slot_clock: T,
     pub allow_unsynced: bool,
 }
@@ -341,7 +341,7 @@ where
                     .map(|(n, s)| (n.clone(), s.clone(), Default::default()))
                     .collect(),
             ),
-            context: beacon_node_fallback.context.clone(),
+            unrecoverable_error_checker: beacon_node_fallback.context.clone(),
             slot_clock,
             allow_unsynced,
         }
@@ -377,25 +377,33 @@ where
         let func = &func;
         let result = self
             .fallback
-            .first_success(|(node, s1, s2)| async move {
-                check_preconditions(s1, |g| async move {
-                    let result = self.context.check(node).await;
-                    save_unrecoverable_result(g, &result);
-                    if let Err(UnrecoverableCheckError::Offline) = &result {
-                        //remember offline status as recoverable node error
-                        *s2.write().await = Some(Err(RecoverableNodeError::Offline));
-                    }
+            .first_success(|(node, unrecoverable_state, recoverable_state)| async move {
+                check_preconditions(unrecoverable_state, |unrecoverable_lock| async move {
+                    let result = if let Some(Err(RecoverableNodeError::Offline)) =
+                        *recoverable_state.read().await {
+                            Err(UnrecoverableCheckError::Offline)
+                        } else {
+                            let result = self.unrecoverable_error_checker.check(node).await;
+                            save_unrecoverable_result(unrecoverable_lock, &result);
+                            if let Err(UnrecoverableCheckError::Offline) = &result {
+                                //remember offline status as recoverable node error
+                                *recoverable_state.write().await =
+                                    Some(Err(RecoverableNodeError::Offline));
+                            }
+                            result
+                        };
                     report_result(node, result)
                 })
                 .await?;
-                check_preconditions(s2, |mut g| async move {
+                check_preconditions(recoverable_state, |mut g| async move {
                     let result = self.check_sync(node).await;
                     *g = Some(result);
                     report_result(node, result)
                 })
                 .await?;
-                trace!(self.context.log, "Send request after sync check"; "endpoint" => %node);
-                report_result(node, self.context.log_error(node, func(node).await))
+                trace!(self.unrecoverable_error_checker.log, "Send request after sync check"; "endpoint" => %node);
+                report_result(node,
+                              self.unrecoverable_error_checker.log_error(node, func(node).await))
             })
             .await;
         if let Err(FallbackError::AllErrored(v)) = &result {
@@ -407,17 +415,32 @@ where
                 // out of sync
                 return self
                     .fallback
-                    .first_success(|(node, s1, _)| async move {
-                        match *s1.read().await {
-                            None => Err(BeaconNodeError::ConnectionError(NodeError::Offline)), // node is offline
-                            Some(Err(e)) => Err(BeaconNodeError::ConnectionError(e.into())),
-                            Some(Ok(())) => {
-                                // this means the peer was offline or out of sync, we can't distinguish
-                                // that => retry without checking sync state
-                                report_result(node, self.context.log_error(node, func(node).await))
+                    .first_success(
+                        |(node, unrecoverable_state, recoverable_state)| async move {
+                            match *unrecoverable_state.read().await {
+                                None => Err(BeaconNodeError::ConnectionError(NodeError::Offline)), // node is offline
+                                Some(Err(e)) => Err(BeaconNodeError::ConnectionError(e.into())),
+                                Some(Ok(())) => {
+                                    // Peer was either offline or out of sync, but note that it might
+                                    // happen that the recoverable memory got already reset in the mean
+                                    // time. In this case we have to assume that the node was out of
+                                    // sync, although it could have been offline too.
+                                    if matches!(
+                                        *recoverable_state.read().await,
+                                        Some(Err(RecoverableNodeError::Offline))
+                                    ) {
+                                        Err(BeaconNodeError::ConnectionError(NodeError::Offline))
+                                    } else {
+                                        report_result(
+                                            node,
+                                            self.unrecoverable_error_checker
+                                                .log_error(node, func(node).await),
+                                        )
+                                    }
+                                }
                             }
-                        }
-                    })
+                        },
+                    )
                     .await;
             }
         }
@@ -429,6 +452,11 @@ where
         &self,
         beacon_node: &BeaconNodeHttpClient,
     ) -> Result<(), RecoverableNodeError> {
-        check_synced(beacon_node, &self.slot_clock, Some(&self.context.log)).await
+        check_synced(
+            beacon_node,
+            &self.slot_clock,
+            Some(&self.unrecoverable_error_checker.log),
+        )
+        .await
     }
 }

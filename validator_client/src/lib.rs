@@ -20,7 +20,7 @@ pub use config::Config;
 
 use crate::beacon_node_fallback::{
     BeaconNodeError, BeaconNodeFallback, BeaconNodeFallbackWithRecoverableChecks, NodeError,
-    UnrecoverableErrorsChecker,
+    UnrecoverableErrorChecker,
 };
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
@@ -235,7 +235,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .map(|n| (n, Default::default()))
                     .collect(),
             ),
-            UnrecoverableErrorsChecker::new(context.eth2_config.spec.clone(), log.clone()),
+            UnrecoverableErrorChecker::new(context.eth2_config.spec.clone(), log.clone()),
         );
 
         // Perform some potentially long-running initialization tasks.

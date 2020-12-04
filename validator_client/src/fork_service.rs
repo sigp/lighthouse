@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{EthSpec, Fork};
 #[cfg(test)]
-use {crate::UnrecoverableErrorsChecker, fallback::Fallback, types::ChainSpec};
+use {crate::StatusCheckingContext, fallback::Fallback, types::ChainSpec};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
@@ -86,7 +86,7 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
                     eth2::BeaconNodeHttpClient::new(eth2::Url::parse("http://127.0.0.1").unwrap()),
                     Default::default(),
                 )]),
-                UnrecoverableErrorsChecker::new(spec, log.clone()),
+                StatusCheckingContext::new(spec, log.clone()),
             )),
             log: Some(log),
         }
