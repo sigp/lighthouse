@@ -118,6 +118,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut validator_config: ValidatorConfig,
         beacon_node: usize,
         validator_files: ValidatorFiles,
+        invalid_first_beacon_node: bool, //to test beacon node fallbacks
     ) -> Result<(), String> {
         let index = self.validator_clients.read().len();
         let context = self.context.service_context(format!("validator_{}", index));
@@ -133,11 +134,15 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .expect("Must have http started")
         };
 
-        validator_config.beacon_nodes = vec![format!(
-            "http://{}:{}",
-            socket_addr.ip(),
-            socket_addr.port()
-        )];
+        let beacon_node = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
+        validator_config.beacon_nodes = if invalid_first_beacon_node {
+            vec![
+                format!("http://{}:{}", socket_addr.ip(), BOOTNODE_PORT - 1),
+                beacon_node,
+            ]
+        } else {
+            vec![beacon_node]
+        };
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,
             validator_config,

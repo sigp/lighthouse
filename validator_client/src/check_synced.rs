@@ -1,3 +1,4 @@
+use crate::beacon_node_fallback::RecoverableNodeError;
 use eth2::BeaconNodeHttpClient;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -5,21 +6,21 @@ use slot_clock::SlotClock;
 /// A distance in slots.
 const SYNC_TOLERANCE: u64 = 4;
 
-/// Returns `true` if the beacon node is synced and ready for action.
+/// Returns
 ///
-/// Returns `false` if:
-///
-///  - The beacon node is unreachable.
-///  - The beacon node indicates that it is syncing **AND** it is more than `SYNC_TOLERANCE` behind
-///  the highest known slot.
+///  `Ok(())`                               if the beacon node is synced and ready for action,
+///  `Err(RecoverableNodeError::Offline)`   if the beacon node is unreachable,
+///  `Err(RecoverableNodeError::OutOfSync)` if the beacon node indicates that it is syncing **AND**
+///                                         it is more than `SYNC_TOLERANCE` behind the highest
+///                                         known slot.
 ///
 ///  The second condition means the even if the beacon node thinks that it's syncing, we'll still
 ///  try to use it if it's close enough to the head.
-pub async fn is_synced<T: SlotClock>(
+pub async fn check_synced<T: SlotClock>(
     beacon_node: &BeaconNodeHttpClient,
     slot_clock: &T,
     log_opt: Option<&Logger>,
-) -> bool {
+) -> Result<(), RecoverableNodeError> {
     let resp = match beacon_node.get_node_syncing().await {
         Ok(resp) => resp,
         Err(e) => {
@@ -31,7 +32,7 @@ pub async fn is_synced<T: SlotClock>(
                 )
             }
 
-            return false;
+            return Err(RecoverableNodeError::Offline);
         }
     };
 
@@ -68,5 +69,9 @@ pub async fn is_synced<T: SlotClock>(
         }
     }
 
-    is_synced
+    if is_synced {
+        Ok(())
+    } else {
+        Err(RecoverableNodeError::OutOfSync)
+    }
 }

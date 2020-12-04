@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeError, BeaconNodeFallbackWithSyncChecks};
+use crate::beacon_node_fallback::{BeaconNodeError, BeaconNodeFallbackWithRecoverableChecks};
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, validator_duty::ValidatorDuty,
     validator_store::ValidatorStore,
@@ -327,7 +327,7 @@ impl DutiesStore {
 pub struct DutiesServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<T>,
-    beacon_nodes: Option<BeaconNodeFallbackWithSyncChecks<T, E>>,
+    beacon_nodes: Option<BeaconNodeFallbackWithRecoverableChecks<T, E>>,
     context: Option<RuntimeContext<E>>,
 }
 
@@ -351,7 +351,10 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: BeaconNodeFallbackWithSyncChecks<T, E>) -> Self {
+    pub fn beacon_nodes(
+        mut self,
+        beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
+    ) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
@@ -387,7 +390,7 @@ pub struct Inner<T, E: EthSpec> {
     store: Arc<DutiesStore>,
     validator_store: ValidatorStore<T, E>,
     pub(crate) slot_clock: T,
-    pub(crate) beacon_nodes: BeaconNodeFallbackWithSyncChecks<T, E>,
+    pub(crate) beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
     context: RuntimeContext<E>,
 }
 

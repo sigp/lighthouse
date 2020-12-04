@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::BeaconNodeFallbackWithSyncChecks;
+use crate::beacon_node_fallback::BeaconNodeFallbackWithRecoverableChecks;
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
@@ -14,7 +14,7 @@ use types::{EthSpec, PublicKey, Slot};
 pub struct BlockServiceBuilder<T, E: EthSpec> {
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
-    beacon_nodes: Option<BeaconNodeFallbackWithSyncChecks<T, E>>,
+    beacon_nodes: Option<BeaconNodeFallbackWithRecoverableChecks<T, E>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
 }
@@ -40,7 +40,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: BeaconNodeFallbackWithSyncChecks<T, E>) -> Self {
+    pub fn beacon_nodes(
+        mut self,
+        beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
+    ) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
@@ -80,7 +83,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 pub struct Inner<T, E: EthSpec> {
     validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
-    beacon_nodes: BeaconNodeFallbackWithSyncChecks<T, E>,
+    beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
 }

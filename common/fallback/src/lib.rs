@@ -130,18 +130,18 @@ pub type ServerState<E> = Arc<RwLock<InnerState<E>>>;
 /// Checks if the server has already a known state in which case it returns it. Otherwise, it calls
 /// the callback `f` with a mutable reference to the state. The callback `f` should determine the
 /// new state, write it to the mutable reference if it should get persisted, and return it.
-pub async fn check_preconditions<'a, E, F, R>(s: &'a ServerState<E>, f: F) -> Result<(), E>
+pub async fn check_preconditions<'a, E1, E2, F, R>(s: &'a ServerState<E1>, f: F) -> Result<(), E2>
 where
-    E: Clone,
-    F: Fn(RwLockWriteGuard<'a, InnerState<E>>) -> R,
-    R: Future<Output = Result<(), E>>,
+    E1: Clone + Into<E2>,
+    F: Fn(RwLockWriteGuard<'a, InnerState<E1>>) -> R,
+    R: Future<Output = Result<(), E2>>,
 {
     if let Some(result) = &*s.read().await {
-        return result.clone();
+        return result.clone().map_err(E1::into);
     }
     let value = s.write().await;
     if let Some(result) = &*value {
-        result.clone()
+        result.clone().map_err(E1::into)
     } else {
         f(value).await
     }

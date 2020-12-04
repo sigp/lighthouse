@@ -1,13 +1,13 @@
 mod attestation_service;
 mod beacon_node_fallback;
 mod block_service;
+mod check_synced;
 mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
 mod http_metrics;
 mod initialized_validators;
-mod is_synced;
 mod key_cache;
 mod notifier;
 mod validator_duty;
@@ -19,7 +19,8 @@ pub use cli::cli_app;
 pub use config::Config;
 
 use crate::beacon_node_fallback::{
-    BeaconNodeContext, BeaconNodeError, BeaconNodeFallback, BeaconNodeFallbackWithSyncChecks,
+    BeaconNodeError, BeaconNodeFallback, BeaconNodeFallbackWithRecoverableChecks, NodeError,
+    UnrecoverableErrorsChecker,
 };
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
@@ -39,7 +40,6 @@ use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
-use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -235,7 +235,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .map(|n| (n, Default::default()))
                     .collect(),
             ),
-            BeaconNodeContext::new(context.eth2_config.spec.clone(), log.clone()),
+            UnrecoverableErrorsChecker::new(context.eth2_config.spec.clone(), log.clone()),
         );
 
         // Perform some potentially long-running initialization tasks.
@@ -276,7 +276,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
-        let beacon_nodes_with_sync_checks = BeaconNodeFallbackWithSyncChecks::from(
+        let beacon_nodes_with_sync_checks = BeaconNodeFallbackWithRecoverableChecks::from(
             &beacon_nodes,
             slot_clock.clone(),
             config.allow_unsynced_beacon_node,
@@ -413,9 +413,7 @@ async fn init_from_beacon_node<E: EthSpec>(
             |result: &Result<(), BeaconNodeError<E>>| {
                 matches!(
                     result,
-                    Err(BeaconNodeError::ConnectionError(
-                        BeaconNodeConnectionError::Offline
-                    ))
+                    Err(BeaconNodeError::ConnectionError(NodeError::Offline))
                 )
             },
             RETRY_DELAY,
@@ -513,13 +511,6 @@ async fn wait_for_genesis<E: EthSpec>(
     }
 
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum BeaconNodeConnectionError {
-    Offline,
-    WrongConfig,
-    OutOfSync,
 }
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node

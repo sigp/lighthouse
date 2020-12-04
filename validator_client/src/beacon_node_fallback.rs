@@ -1,6 +1,5 @@
+use crate::check_synced::check_synced;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
-use crate::is_synced::is_synced;
-use crate::BeaconNodeConnectionError;
 use eth2::{BeaconNodeHttpClient, Error};
 use fallback::{check_preconditions, Fallback, FallbackError, ServerState};
 use slog::{info, trace, warn, Logger};
@@ -16,7 +15,7 @@ use types::{ChainSpec, EthSpec};
 #[derive(Debug)]
 pub enum BeaconNodeError<E> {
     /// A precondition is not satisfied for this node
-    ConnectionError(BeaconNodeConnectionError),
+    ConnectionError(NodeError),
     /// An error occurred during executing the function on the endpoint
     ApiError(E),
 }
@@ -45,27 +44,76 @@ impl From<&str> for BeaconNodeError<String> {
     }
 }
 
-impl<E> From<BeaconNodeConnectionError> for BeaconNodeError<E> {
-    fn from(e: BeaconNodeConnectionError) -> Self {
-        Self::ConnectionError(e)
+impl<E1, E2: Into<NodeError>> From<E2> for BeaconNodeError<E1> {
+    fn from(e: E2) -> Self {
+        Self::ConnectionError(e.into())
     }
 }
 
-impl Into<String> for BeaconNodeConnectionError {
-    fn into(self) -> String {
-        format!("{:?}", self)
+impl From<NodeError> for String {
+    fn from(e: NodeError) -> Self {
+        format!("{:?}", e)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum NodeError {
+    Offline,
+    WrongConfig,
+    OutOfSync,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum UnrecoverableNodeError {
+    WrongConfig,
+}
+
+pub enum UnrecoverableCheckError {
+    Offline,
+    Unrecoverable(UnrecoverableNodeError),
+}
+
+impl From<UnrecoverableNodeError> for UnrecoverableCheckError {
+    fn from(e: UnrecoverableNodeError) -> Self {
+        Self::Unrecoverable(e)
+    }
+}
+
+impl<E: Into<UnrecoverableCheckError>> From<E> for NodeError {
+    fn from(e: E) -> Self {
+        match e.into() {
+            UnrecoverableCheckError::Offline => Self::Offline,
+            UnrecoverableCheckError::Unrecoverable(UnrecoverableNodeError::WrongConfig) => {
+                Self::WrongConfig
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RecoverableNodeError {
+    Offline,
+    OutOfSync,
+}
+
+impl Into<NodeError> for RecoverableNodeError {
+    fn into(self) -> NodeError {
+        match self {
+            RecoverableNodeError::Offline => NodeError::Offline,
+            RecoverableNodeError::OutOfSync => NodeError::OutOfSync,
+        }
     }
 }
 
 /// Data used to check if a beacon node uses the same specs as the validator client.
 #[derive(Clone)]
-pub struct BeaconNodeContext<E: EthSpec> {
+pub struct UnrecoverableErrorsChecker<E: EthSpec> {
     chain_spec: ChainSpec,
     phantom: PhantomData<E>,
     log: Logger,
 }
 
-impl<E: EthSpec> BeaconNodeContext<E> {
+impl<E: EthSpec> UnrecoverableErrorsChecker<E> {
     pub fn new(chain_spec: ChainSpec, log: Logger) -> Self {
         Self {
             chain_spec,
@@ -78,7 +126,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
     async fn check(
         &self,
         beacon_node: &BeaconNodeHttpClient,
-    ) -> Result<(), BeaconNodeConnectionError> {
+    ) -> Result<(), UnrecoverableCheckError> {
         let result = beacon_node
             .get_node_version()
             .await
@@ -101,7 +149,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                     "endpoint" => %beacon_node,
                     "error" => e,
                 );
-                return Err(BeaconNodeConnectionError::Offline);
+                return Err(UnrecoverableCheckError::Offline);
             }
         }
 
@@ -115,7 +163,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                     "endpoint" => %beacon_node,
                     "error" => ?e,
                 );
-                BeaconNodeConnectionError::Offline
+                UnrecoverableCheckError::Offline
             })?
             .data;
 
@@ -128,7 +176,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                     client. See the --network command.";
                     "endpoint" => %beacon_node,
                 );
-                BeaconNodeConnectionError::WrongConfig
+                UnrecoverableCheckError::Unrecoverable(UnrecoverableNodeError::WrongConfig)
             })?;
 
         if self.chain_spec != beacon_node_spec {
@@ -138,7 +186,9 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                 See the --network command.";
                 "endpoint" => %beacon_node,
             );
-            return Err(BeaconNodeConnectionError::WrongConfig);
+            return Err(UnrecoverableCheckError::Unrecoverable(
+                UnrecoverableNodeError::WrongConfig,
+            ));
         }
 
         Ok(())
@@ -167,14 +217,14 @@ impl<E: EthSpec> BeaconNodeContext<E> {
 /// first time it gets checked if it uses the same spec as the validator client.
 #[derive(Clone)]
 pub struct BeaconNodeFallback<E: EthSpec> {
-    pub fallback: Fallback<(BeaconNodeHttpClient, ServerState<BeaconNodeConnectionError>)>,
-    context: BeaconNodeContext<E>,
+    pub fallback: Fallback<(BeaconNodeHttpClient, ServerState<UnrecoverableNodeError>)>,
+    context: UnrecoverableErrorsChecker<E>,
 }
 
 impl<E: EthSpec> BeaconNodeFallback<E> {
     pub fn new(
-        fallback: Fallback<(BeaconNodeHttpClient, ServerState<BeaconNodeConnectionError>)>,
-        context: BeaconNodeContext<E>,
+        fallback: Fallback<(BeaconNodeHttpClient, ServerState<UnrecoverableNodeError>)>,
+        context: UnrecoverableErrorsChecker<E>,
     ) -> Self {
         Self { fallback, context }
     }
@@ -196,7 +246,7 @@ impl<E: EthSpec> BeaconNodeFallback<E> {
             .first_success(|(node, state)| async move {
                 check_preconditions(state, |g| async move {
                     let result = self.context.check(node).await;
-                    save_result(g, &result);
+                    save_unrecoverable_result(g, &result);
                     report_result(node, result)
                 })
                 .await?;
@@ -226,7 +276,7 @@ impl<E: EthSpec> BeaconNodeFallback<E> {
                 |(node, state)| async move {
                     check_preconditions(state, |g| async move {
                         let result = self.context.check(node).await;
-                        save_result(g, &result);
+                        save_unrecoverable_result(g, &result);
                         report_result(node, result)
                     })
                     .await?;
@@ -247,12 +297,14 @@ fn report_result<T, E>(endpoint: &BeaconNodeHttpClient, result: Result<T, E>) ->
     result
 }
 
-fn save_result(
-    mut g: RwLockWriteGuard<Option<Result<(), BeaconNodeConnectionError>>>,
-    result: &Result<(), BeaconNodeConnectionError>,
+fn save_unrecoverable_result(
+    mut g: RwLockWriteGuard<Option<Result<(), UnrecoverableNodeError>>>,
+    result: &Result<(), UnrecoverableCheckError>,
 ) {
-    if !matches!(result, Err(BeaconNodeConnectionError::Offline)) {
-        *g = Some(*result);
+    match result {
+        Ok(()) => *g = Some(Ok(())),
+        Err(UnrecoverableCheckError::Unrecoverable(e)) => *g = Some(Err(*e)),
+        Err(UnrecoverableCheckError::Offline) => (), //gets ignored
     }
 }
 
@@ -260,18 +312,18 @@ fn save_result(
 /// first time it gets checked if it uses the same spec as the validator client and if it is fully
 /// synced.
 #[derive(Clone)]
-pub struct BeaconNodeFallbackWithSyncChecks<T, E: EthSpec> {
+pub struct BeaconNodeFallbackWithRecoverableChecks<T, E: EthSpec> {
     pub fallback: Fallback<(
         BeaconNodeHttpClient,
-        ServerState<BeaconNodeConnectionError>,
-        ServerState<()>,
+        ServerState<UnrecoverableNodeError>, //gets never reset
+        ServerState<RecoverableNodeError>,   //gets reset regularly
     )>,
-    context: BeaconNodeContext<E>,
+    context: UnrecoverableErrorsChecker<E>,
     slot_clock: T,
     pub allow_unsynced: bool,
 }
 
-impl<T, E> BeaconNodeFallbackWithSyncChecks<T, E>
+impl<T, E> BeaconNodeFallbackWithRecoverableChecks<T, E>
 where
     T: SlotClock + 'static,
     E: EthSpec,
@@ -295,7 +347,8 @@ where
         }
     }
 
-    /// Forgets all the sync states so that they get rechecked the next time a beacon node is used.
+    /// Forgets all the recoverable sync states so that they get rechecked the next time a beacon
+    /// node is used.
     pub async fn reset_sync_states(&self) {
         for (_, _, s) in self.fallback.iter_servers() {
             *s.write().await = None;
@@ -327,7 +380,11 @@ where
             .first_success(|(node, s1, s2)| async move {
                 check_preconditions(s1, |g| async move {
                     let result = self.context.check(node).await;
-                    save_result(g, &result);
+                    save_unrecoverable_result(g, &result);
+                    if let Err(UnrecoverableCheckError::Offline) = &result {
+                        //remember offline status as recoverable node error
+                        *s2.write().await = Some(Err(RecoverableNodeError::Offline));
+                    }
                     report_result(node, result)
                 })
                 .await?;
@@ -336,8 +393,7 @@ where
                     *g = Some(result);
                     report_result(node, result)
                 })
-                .await
-                .map_err(|()| BeaconNodeConnectionError::OutOfSync)?;
+                .await?;
                 trace!(self.context.log, "Send request after sync check"; "endpoint" => %node);
                 report_result(node, self.context.log_error(node, func(node).await))
             })
@@ -353,10 +409,8 @@ where
                     .fallback
                     .first_success(|(node, s1, _)| async move {
                         match *s1.read().await {
-                            None => Err(BeaconNodeError::ConnectionError(
-                                BeaconNodeConnectionError::Offline,
-                            )), // node is offline
-                            Some(Err(e)) => Err(BeaconNodeError::ConnectionError(e)),
+                            None => Err(BeaconNodeError::ConnectionError(NodeError::Offline)), // node is offline
+                            Some(Err(e)) => Err(BeaconNodeError::ConnectionError(e.into())),
                             Some(Ok(())) => {
                                 // this means the peer was offline or out of sync, we can't distinguish
                                 // that => retry without checking sync state
@@ -371,11 +425,10 @@ where
     }
 
     /// Checks if the beacon node is synced.
-    async fn check_sync(&self, beacon_node: &BeaconNodeHttpClient) -> Result<(), ()> {
-        if is_synced(beacon_node, &self.slot_clock, Some(&self.context.log)).await {
-            Ok(())
-        } else {
-            Err(())
-        }
+    async fn check_sync(
+        &self,
+        beacon_node: &BeaconNodeHttpClient,
+    ) -> Result<(), RecoverableNodeError> {
+        check_synced(beacon_node, &self.slot_clock, Some(&self.context.log)).await
     }
 }
