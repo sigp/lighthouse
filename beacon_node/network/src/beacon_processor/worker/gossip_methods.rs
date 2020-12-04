@@ -1,4 +1,5 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
+
 use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -371,6 +372,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
         self.chain.import_voluntary_exit(exit);
+
         debug!(self.log, "Successfully imported voluntary exit");
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_IMPORTED_TOTAL);

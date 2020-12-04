@@ -27,7 +27,6 @@ pub struct Client<T: BeaconChainTypes> {
     http_api_listen_addr: Option<SocketAddr>,
     /// Listen address for the HTTP server which serves Prometheus metrics.
     http_metrics_listen_addr: Option<SocketAddr>,
-    websocket_listen_addr: Option<SocketAddr>,
 }
 
 impl<T: BeaconChainTypes> Client<T> {
@@ -44,11 +43,6 @@ impl<T: BeaconChainTypes> Client<T> {
     /// Returns the address of the client's HTTP Prometheus metrics server, if it was started.
     pub fn http_metrics_listen_addr(&self) -> Option<SocketAddr> {
         self.http_metrics_listen_addr
-    }
-
-    /// Returns the address of the client's WebSocket API server, if it was started.
-    pub fn websocket_listen_addr(&self) -> Option<SocketAddr> {
-        self.websocket_listen_addr
     }
 
     /// Returns the port of the client's libp2p stack, if it was started.

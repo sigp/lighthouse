@@ -151,26 +151,6 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Websocket server
-     */
-
-    if cli_args.is_present("ws") {
-        client_config.websocket_server.enabled = true;
-    }
-
-    if let Some(address) = cli_args.value_of("ws-address") {
-        client_config.websocket_server.listen_address = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "ws-address is not a valid IPv4 address.")?;
-    }
-
-    if let Some(port) = cli_args.value_of("ws-port") {
-        client_config.websocket_server.port = port
-            .parse::<u16>()
-            .map_err(|_| "ws-port is not a valid u16.")?;
-    }
-
-    /*
      * Eth1
      */
 
@@ -250,7 +230,6 @@ pub fn get_config<E: EthSpec>(
             unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
-        client_config.websocket_server.port = 0;
     }
 
     /*

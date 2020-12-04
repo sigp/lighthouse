@@ -232,29 +232,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
         )
-        /* Websocket related arguments */
-        .arg(
-            Arg::with_name("ws")
-                .long("ws")
-                .help("Enable the websocket server. Disabled by default.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("ws-address")
-                .long("ws-address")
-                .value_name("ADDRESS")
-                .help("Set the listen address for the websocket server.")
-                .default_value("127.0.0.1")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("ws-port")
-                .long("ws-port")
-                .value_name("PORT")
-                .help("Set the listen TCP port for the websocket server.")
-                .default_value("5053")
-                .takes_value(true),
-        )
 
         /*
          * Standard staking flags

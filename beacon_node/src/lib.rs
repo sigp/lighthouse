@@ -5,18 +5,16 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-pub use cli::cli_app;
-pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_config};
-pub use eth2_config::Eth2Config;
-
-use beacon_chain::events::TeeEventHandler;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
+pub use cli::cli_app;
+pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
+pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_config};
 use environment::RuntimeContext;
+pub use eth2_config::Eth2Config;
 use slasher::Slasher;
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
@@ -24,16 +22,8 @@ use std::sync::Arc;
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> = Client<
-    Witness<
-        SystemTimeSlotClock,
-        CachingEth1Backend<E>,
-        E,
-        TeeEventHandler<E>,
-        LevelDB<E>,
-        LevelDB<E>,
-    >,
->;
+pub type ProductionClient<E> =
+    Client<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, LevelDB<E>, LevelDB<E>>>;
 
 /// The beacon node `Client` that will be used in production.
 ///
@@ -121,9 +111,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder.no_eth1_backend()?
         };
 
-        let (builder, _events) = builder
-            .system_time_slot_clock()?
-            .tee_event_handler(client_config.websocket_server.clone())?;
+        let builder = builder.system_time_slot_clock()?;
 
         // Inject the executor into the discv5 network config.
         let discv5_executor = Discv5Executor(executor);
