@@ -12,6 +12,7 @@ use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use types::{Epoch, EthSpec, MainnetEthSpec};
+use crate::local_network::INVALID_ADDRESS;
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -125,8 +126,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * One by one, add beacon nodes to the network.
          */
-        for _ in 0..node_count - 1 {
-            network.add_beacon_node(beacon_config.clone()).await?;
+        for i in 0..node_count - 1 {
+            let mut config = beacon_config.clone();
+            if i % 2 == 0 {
+                config.eth1.endpoints.insert(0, INVALID_ADDRESS.to_string());
+            }
+            network.add_beacon_node(config).await?;
         }
 
         /*

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use types::{Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
+pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
 
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
@@ -136,10 +137,7 @@ impl<E: EthSpec> LocalNetwork<E> {
 
         let beacon_node = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
         validator_config.beacon_nodes = if invalid_first_beacon_node {
-            vec![
-                format!("http://{}:{}", socket_addr.ip(), BOOTNODE_PORT - 1),
-                beacon_node,
-            ]
+            vec![INVALID_ADDRESS.to_string(), beacon_node]
         } else {
             vec![beacon_node]
         };
