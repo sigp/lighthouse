@@ -38,6 +38,9 @@ pub struct CreatedValidator {
     pub enabled: bool,
     pub description: String,
     pub voting_pubkey: PublicKeyBytes,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
     pub eth1_deposit_tx_data: String,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,

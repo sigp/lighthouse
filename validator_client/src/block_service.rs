@@ -223,19 +223,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let randao_reveal = self
             .validator_store
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
-            .ok_or("Unable to produce randao reveal")?;
+            .ok_or("Unable to produce randao reveal")?
+            .into();
 
         let graffiti = self
             .validator_store
             .graffiti(&validator_pubkey)
             .or(self.graffiti);
-
-        let block = self
-            .beacon_node
-            .get_validator_blocks(slot, randao_reveal.into(), graffiti.as_ref())
-            .await
-            .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
-            .data;
 
         let randao_reveal_ref = &randao_reveal;
         let self_ref = &self;
@@ -244,7 +238,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 let block = beacon_node
-                    .get_validator_blocks(slot, randao_reveal_ref, self_ref.graffiti.as_ref())
+                    .get_validator_blocks(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
                     .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
                     .data;
