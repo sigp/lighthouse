@@ -90,7 +90,7 @@ impl<E: Into<UnrecoverableCheckError>> From<E> for NodeError {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RecoverableNodeError {
     Offline,
     OutOfSync,
@@ -379,8 +379,8 @@ where
             .fallback
             .first_success(|(node, unrecoverable_state, recoverable_state)| async move {
                 check_preconditions(unrecoverable_state, |unrecoverable_lock| async move {
-                    let result = if let Some(Err(RecoverableNodeError::Offline)) =
-                        *recoverable_state.read().await {
+                    let result = if *recoverable_state.read().await ==
+                        Some(Err(RecoverableNodeError::Offline)) {
                             Err(UnrecoverableCheckError::Offline)
                         } else {
                             let result = self.unrecoverable_error_checker.check(node).await;
