@@ -235,7 +235,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Arbitrary bytes included in the blocks.
     pub(crate) graffiti: Graffiti,
     /// Optional slasher.
-    pub(crate) slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
