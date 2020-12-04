@@ -61,6 +61,12 @@ lazy_static! {
             "Score reports per client",
             &["client", "action", "source"]
         );
+    pub static ref GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_unaccepted_messages_per_client",
+            "Gossipsub messages that we did not accept, per client",
+            &["client", "validation_result"]
+        );
 }
 
 pub fn scrape_discovery_metrics() {

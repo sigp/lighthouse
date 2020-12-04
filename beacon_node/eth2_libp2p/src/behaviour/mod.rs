@@ -427,6 +427,25 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         message_id: MessageId,
         validation_result: MessageAcceptance,
     ) {
+        if let Some(result) = match validation_result {
+            MessageAcceptance::Accept => None,
+            MessageAcceptance::Ignore => Some("ignore"),
+            MessageAcceptance::Reject => Some("reject"),
+        } {
+            if let Some(client) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(propagation_source)
+                .map(|info| info.client.kind.as_static_ref())
+            {
+                metrics::inc_counter_vec(
+                    &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
+                    &[client, result],
+                )
+            }
+        }
+
         if let Err(e) = self.gossipsub.report_message_validation_result(
             &message_id,
             propagation_source,
