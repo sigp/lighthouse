@@ -14,14 +14,17 @@ use eth2_libp2p::{
     types::{EnrBitfield, SyncState},
     Enr, EnrExt, NetworkGlobals, PeerId,
 };
+use futures::stream::{Stream, StreamExt};
 use http_api::{Config, Context};
 use network::NetworkMessage;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
+use std::iter::Iterator;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::time::Duration;
 use tokio_compat_02::FutureExt;
 use tree_hash::TreeHash;
 use types::{
@@ -33,7 +36,7 @@ type E = MainnetEthSpec;
 
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
-const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5;
+const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
 const JUSTIFIED_EPOCH: u64 = 4;
 const FINALIZED_EPOCH: u64 = 3;
 const TCP_PORT: u16 = 42;
@@ -131,7 +134,7 @@ impl ApiTester {
 
         assert_eq!(
             chain.head_info().unwrap().finalized_checkpoint.epoch,
-            3,
+            2,
             "precondition: finality"
         );
         assert_eq!(
@@ -140,9 +143,114 @@ impl ApiTester {
                 .unwrap()
                 .current_justified_checkpoint
                 .epoch,
-            4,
+            3,
             "precondition: justification"
         );
+
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
+
+        let log = null_logger().unwrap();
+
+        // Default metadata
+        let meta_data = MetaData {
+            seq_number: SEQ_NUMBER,
+            attnets: EnrBitfield::<MainnetEthSpec>::default(),
+        };
+        let enr_key = CombinedKey::generate_secp256k1();
+        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+        let enr_clone = enr.clone();
+        let network_globals = NetworkGlobals::new(enr, TCP_PORT, UDP_PORT, meta_data, vec![], &log);
+
+        let peer_id = PeerId::random();
+        network_globals.peers.write().connect_ingoing(
+            &peer_id,
+            EXTERNAL_ADDR.parse().unwrap(),
+            None,
+        );
+
+        *network_globals.sync_state.write() = SyncState::Synced;
+
+        let eth1_service =
+            eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
+
+        let context = Arc::new(Context {
+            config: Config {
+                enabled: true,
+                listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+                listen_port: 0,
+                allow_origin: None,
+            },
+            chain: Some(chain.clone()),
+            network_tx: Some(network_tx),
+            network_globals: Some(Arc::new(network_globals)),
+            eth1_service: Some(eth1_service),
+            log,
+        });
+        let ctx = context.clone();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server_shutdown = async {
+            // It's not really interesting why this triggered, just that it happened.
+            let _ = shutdown_rx.await;
+        };
+        let (listening_socket, server) = http_api::serve(ctx, server_shutdown).unwrap();
+
+        tokio::spawn(async { server.await });
+
+        let client = BeaconNodeHttpClient::new(
+            Url::parse(&format!(
+                "http://{}:{}",
+                listening_socket.ip(),
+                listening_socket.port()
+            ))
+            .unwrap(),
+        );
+
+        Self {
+            chain,
+            client,
+            next_block,
+            attestations,
+            attester_slashing,
+            proposer_slashing,
+            voluntary_exit,
+            _server_shutdown: shutdown_tx,
+            validator_keypairs: harness.validator_keypairs,
+            network_rx,
+            local_enr: enr_clone,
+            external_peer_id: peer_id,
+        }
+    }
+
+    pub fn new_from_genesis() -> Self {
+        let harness = BeaconChainHarness::new(
+            MainnetEthSpec,
+            generate_deterministic_keypairs(VALIDATOR_COUNT),
+        );
+
+        harness.advance_slot();
+
+        let head = harness.chain.head().unwrap();
+
+        let (next_block, _next_state) =
+            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+
+        let attestations = harness
+            .get_unaggregated_attestations(
+                &AttestationStrategy::AllValidators,
+                &head.beacon_state,
+                head.beacon_block_root,
+                harness.chain.slot().unwrap(),
+            )
+            .into_iter()
+            .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
+        let proposer_slashing = harness.make_proposer_slashing(2);
+        let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
+
+        let chain = Arc::new(harness.chain);
 
         let (network_tx, network_rx) = mpsc::unbounded_channel();
 
@@ -1376,8 +1484,17 @@ impl ApiTester {
                     .client
                     .post_validator_duties_attester(epoch, indices.as_slice())
                     .await
+                    .unwrap();
+
+                let dependent_root = self
+                    .chain
+                    .root_at_slot((epoch - 1).start_slot(E::slots_per_epoch()) - 1)
                     .unwrap()
-                    .data;
+                    .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+
+                assert_eq!(results.dependent_root, dependent_root);
+
+                let result_duties = results.data;
 
                 let mut state = self
                     .chain
@@ -1395,7 +1512,7 @@ impl ApiTester {
                     .filter(|i| **i < state.validators.len() as u64)
                     .count();
 
-                assert_eq!(results.len(), expected_len);
+                assert_eq!(result_duties.len(), expected_len);
 
                 for (indices_set, &i) in indices.iter().enumerate() {
                     if let Some(duty) = state
@@ -1412,7 +1529,7 @@ impl ApiTester {
                             slot: duty.slot,
                         };
 
-                        let result = results
+                        let result = result_duties
                             .iter()
                             .find(|duty| duty.validator_index == i)
                             .unwrap();
@@ -1424,7 +1541,7 @@ impl ApiTester {
                         );
                     } else {
                         assert!(
-                            !results.iter().any(|duty| duty.validator_index == i),
+                            !result_duties.iter().any(|duty| duty.validator_index == i),
                             "validator index should not exist in response"
                         );
                     }
@@ -1438,12 +1555,17 @@ impl ApiTester {
     pub async fn test_get_validator_duties_proposer(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
 
+        let dependent_root = self
+            .chain
+            .root_at_slot(current_epoch.start_slot(E::slots_per_epoch()) - 1)
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+
         let result = self
             .client
             .get_validator_duties_proposer(current_epoch)
             .await
-            .unwrap()
-            .data;
+            .unwrap();
 
         let mut state = self.chain.head_beacon_state().unwrap();
 
@@ -1455,7 +1577,7 @@ impl ApiTester {
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
             .unwrap();
 
-        let expected = current_epoch
+        let expected_duties = current_epoch
             .slot_iter(E::slots_per_epoch())
             .map(|slot| {
                 let index = state
@@ -1470,6 +1592,11 @@ impl ApiTester {
                 }
             })
             .collect::<Vec<_>>();
+
+        let expected = DutiesResponse {
+            data: expected_duties,
+            dependent_root,
+        };
 
         assert_eq!(result, expected);
 
@@ -1824,6 +1951,185 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_get_events(self) -> Self {
+        // Subscribe to all events
+        let topics = vec![
+            EventTopic::Attestation,
+            EventTopic::VoluntaryExit,
+            EventTopic::Block,
+            EventTopic::Head,
+            EventTopic::FinalizedCheckpoint,
+        ];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        let expected_attestation_len = self.attestations.len();
+
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let attestation_events = poll_events(
+            &mut events_future,
+            expected_attestation_len,
+            Duration::from_millis(10000),
+        )
+        .await;
+        assert_eq!(
+            attestation_events.as_slice(),
+            self.attestations
+                .clone()
+                .into_iter()
+                .map(|attestation| EventKind::Attestation(attestation))
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+
+        // Produce a voluntary exit event
+        self.client
+            .post_beacon_pool_voluntary_exits(&self.voluntary_exit)
+            .await
+            .unwrap();
+
+        let exit_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        assert_eq!(
+            exit_events.as_slice(),
+            &[EventKind::VoluntaryExit(self.voluntary_exit.clone())]
+        );
+
+        // Submit the next block, which is on an epoch boundary, so this will produce a finalized
+        // checkpoint event, head event, and block event
+        let block_root = self.next_block.canonical_root();
+
+        // current_duty_dependent_root = block root because this is the first slot of the epoch
+        let current_duty_dependent_root = self.chain.head_beacon_block_root().unwrap();
+        let current_slot = self.chain.slot().unwrap();
+        let next_slot = self.next_block.slot();
+        let finalization_distance = E::slots_per_epoch() * 2;
+
+        let expected_block = EventKind::Block(SseBlock {
+            block: block_root,
+            slot: next_slot,
+        });
+
+        let expected_head = EventKind::Head(SseHead {
+            block: block_root,
+            slot: next_slot,
+            state: self.next_block.state_root(),
+            current_duty_dependent_root,
+            previous_duty_dependent_root: self
+                .chain
+                .root_at_slot(current_slot - E::slots_per_epoch())
+                .unwrap()
+                .unwrap(),
+            epoch_transition: true,
+        });
+
+        let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
+            block: self
+                .chain
+                .root_at_slot(next_slot - finalization_distance)
+                .unwrap()
+                .unwrap(),
+            state: self
+                .chain
+                .state_root_at_slot(next_slot - finalization_distance)
+                .unwrap()
+                .unwrap(),
+            epoch: Epoch::new(3),
+        });
+
+        self.client
+            .post_beacon_blocks(&self.next_block)
+            .await
+            .unwrap();
+
+        let block_events = poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
+        assert_eq!(
+            block_events.as_slice(),
+            &[expected_block, expected_finalized, expected_head]
+        );
+
+        self
+    }
+
+    pub async fn test_get_events_from_genesis(self) -> Self {
+        let topics = vec![EventTopic::Block, EventTopic::Head];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        let block_root = self.next_block.canonical_root();
+        let next_slot = self.next_block.slot();
+
+        let expected_block = EventKind::Block(SseBlock {
+            block: block_root,
+            slot: next_slot,
+        });
+
+        let expected_head = EventKind::Head(SseHead {
+            block: block_root,
+            slot: next_slot,
+            state: self.next_block.state_root(),
+            current_duty_dependent_root: self.chain.genesis_block_root,
+            previous_duty_dependent_root: self.chain.genesis_block_root,
+            epoch_transition: false,
+        });
+
+        self.client
+            .post_beacon_blocks(&self.next_block)
+            .await
+            .unwrap();
+
+        let block_events = poll_events(&mut events_future, 2, Duration::from_millis(10000)).await;
+        assert_eq!(block_events.as_slice(), &[expected_block, expected_head]);
+
+        self
+    }
+}
+
+async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin, T: EthSpec>(
+    stream: &mut S,
+    num_events: usize,
+    timeout: Duration,
+) -> Vec<EventKind<T>> {
+    let mut events = Vec::new();
+
+    let collect_stream_fut = async {
+        loop {
+            if let Some(result) = stream.next().await {
+                events.push(result.unwrap());
+                if events.len() == num_events {
+                    return;
+                }
+            }
+        }
+    };
+
+    tokio::select! {
+            _ = collect_stream_fut => {return events}
+            _ = tokio::time::sleep(timeout) => { return events; }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_events() {
+    ApiTester::new().test_get_events().compat().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_events_from_genesis() {
+    ApiTester::new_from_genesis()
+        .test_get_events_from_genesis()
+        .compat()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

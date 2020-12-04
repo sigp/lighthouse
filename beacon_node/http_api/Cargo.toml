@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 warp = { git = "https://github.com/sigp/warp ", branch = "lighthouse" }
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "0.3.2", features = ["macros"] }
+tokio = { version = "0.3.2", features = ["macros","stream","sync"] }
 parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 hex = "0.4.2"
@@ -26,6 +26,7 @@ warp_utils = { path = "../../common/warp_utils" }
 slot_clock = { path = "../../common/slot_clock" }
 eth2_ssz = { path = "../../consensus/ssz" }
 bs58 = "0.3.1"
+futures = "0.3.8"
 
 [dev-dependencies]
 store = { path = "../store" }

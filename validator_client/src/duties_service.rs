@@ -57,7 +57,7 @@ impl DutyAndProof {
 
         let selection_proof = validator_store
             .produce_selection_proof(&self.duty.validator_pubkey, slot)
-            .ok_or_else(|| "Failed to produce selection proof".to_string())?;
+            .ok_or("Failed to produce selection proof")?;
 
         self.selection_proof = selection_proof
             .is_aggregator(committee_length, spec)
@@ -375,16 +375,16 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
                 store: Arc::new(DutiesStore::default()),
                 validator_store: self
                     .validator_store
-                    .ok_or_else(|| "Cannot build DutiesService without validator_store")?,
+                    .ok_or("Cannot build DutiesService without validator_store")?,
                 slot_clock: self
                     .slot_clock
-                    .ok_or_else(|| "Cannot build DutiesService without slot_clock")?,
+                    .ok_or("Cannot build DutiesService without slot_clock")?,
                 beacon_node: self
                     .beacon_node
-                    .ok_or_else(|| "Cannot build DutiesService without beacon_node")?,
+                    .ok_or("Cannot build DutiesService without beacon_node")?,
                 context: self
                     .context
-                    .ok_or_else(|| "Cannot build DutiesService without runtime_context")?,
+                    .ok_or("Cannot build DutiesService without runtime_context")?,
                 allow_unsynced_beacon_node: self.allow_unsynced_beacon_node,
             }),
         })
@@ -466,7 +466,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
-            .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
+            .ok_or("Unable to determine duration to next slot")?;
 
         let mut interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);

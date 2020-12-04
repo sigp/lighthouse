@@ -55,8 +55,7 @@ pub fn decode_eth1_tx_data(
 ) -> Result<(DepositData, Hash256), DecodeError> {
     let abi = Contract::load(ABI)?;
     let function = abi.function("deposit")?;
-    let mut tokens =
-        function.decode_input(bytes.get(4..).ok_or_else(|| DecodeError::InadequateBytes)?)?;
+    let mut tokens = function.decode_input(bytes.get(4..).ok_or(DecodeError::InadequateBytes)?)?;
 
     macro_rules! decode_token {
         ($type: ty, $to_fn: ident) => {

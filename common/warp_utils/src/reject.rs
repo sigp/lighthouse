@@ -1,6 +1,23 @@
 use eth2::types::{ErrorMessage, Failure, IndexedErrorMessage};
 use std::convert::Infallible;
+use std::error::Error;
+use std::fmt;
 use warp::{http::StatusCode, reject::Reject};
+
+#[derive(Debug)]
+pub struct ServerSentEventError(pub String);
+
+impl Error for ServerSentEventError {}
+
+impl fmt::Display for ServerSentEventError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+pub fn server_sent_event_error(s: String) -> ServerSentEventError {
+    ServerSentEventError(s)
+}
 
 #[derive(Debug)]
 pub struct BeaconChainError(pub beacon_chain::BeaconChainError);

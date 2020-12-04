@@ -59,7 +59,6 @@ pub struct Config {
     pub store: store::StoreConfig,
     pub network: network::NetworkConfig,
     pub chain: beacon_chain::ChainConfig,
-    pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
@@ -77,7 +76,6 @@ impl Default for Config {
             store: <_>::default(),
             network: NetworkConfig::default(),
             chain: <_>::default(),
-            websocket_server: <_>::default(),
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),
@@ -101,7 +99,7 @@ impl Config {
     pub fn create_db_path(&self) -> Result<PathBuf, String> {
         let db_path = self
             .get_db_path()
-            .ok_or_else(|| "Unable to locate user home directory")?;
+            .ok_or("Unable to locate user home directory")?;
         ensure_dir_exists(db_path)
     }
 
@@ -125,7 +123,7 @@ impl Config {
     pub fn create_freezer_db_path(&self) -> Result<PathBuf, String> {
         let freezer_db_path = self
             .get_freezer_db_path()
-            .ok_or_else(|| "Unable to locate user home directory")?;
+            .ok_or("Unable to locate user home directory")?;
         ensure_dir_exists(freezer_db_path)
     }
 
@@ -142,7 +140,7 @@ impl Config {
     pub fn create_data_dir(&self) -> Result<PathBuf, String> {
         let path = self
             .get_data_dir()
-            .ok_or_else(|| "Unable to locate user home directory".to_string())?;
+            .ok_or("Unable to locate user home directory")?;
         ensure_dir_exists(path)
     }
 }

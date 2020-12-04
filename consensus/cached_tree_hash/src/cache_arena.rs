@@ -55,9 +55,7 @@ impl<T: Encode + Decode> CacheArena<T> {
                 .iter_mut()
                 .skip(alloc_id + 1)
                 .try_for_each(|offset| {
-                    *offset = offset
-                        .checked_add(grow_by)
-                        .ok_or_else(|| Error::OffsetOverflow)?;
+                    *offset = offset.checked_add(grow_by).ok_or(Error::OffsetOverflow)?;
 
                     Ok(())
                 })
@@ -75,7 +73,7 @@ impl<T: Encode + Decode> CacheArena<T> {
                 .try_for_each(|offset| {
                     *offset = offset
                         .checked_sub(shrink_by)
-                        .ok_or_else(|| Error::OffsetUnderflow)?;
+                        .ok_or(Error::OffsetUnderflow)?;
 
                     Ok(())
                 })
@@ -99,15 +97,12 @@ impl<T: Encode + Decode> CacheArena<T> {
         let offset = *self
             .offsets
             .get(alloc_id)
-            .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
+            .ok_or(Error::UnknownAllocId(alloc_id))?;
         let start = range
             .start
             .checked_add(offset)
-            .ok_or_else(|| Error::RangeOverFlow)?;
-        let end = range
-            .end
-            .checked_add(offset)
-            .ok_or_else(|| Error::RangeOverFlow)?;
+            .ok_or(Error::RangeOverFlow)?;
+        let end = range.end.checked_add(offset).ok_or(Error::RangeOverFlow)?;
 
         let prev_len = self.backing.len();
 
@@ -127,7 +122,7 @@ impl<T: Encode + Decode> CacheArena<T> {
         let start = self
             .offsets
             .get(alloc_id)
-            .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
+            .ok_or(Error::UnknownAllocId(alloc_id))?;
         let end = self
             .offsets
             .get(alloc_id + 1)
@@ -143,7 +138,7 @@ impl<T: Encode + Decode> CacheArena<T> {
             let offset = self
                 .offsets
                 .get(alloc_id)
-                .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
+                .ok_or(Error::UnknownAllocId(alloc_id))?;
             Ok(self.backing.get(i + offset))
         } else {
             Ok(None)
@@ -156,7 +151,7 @@ impl<T: Encode + Decode> CacheArena<T> {
             let offset = self
                 .offsets
                 .get(alloc_id)
-                .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
+                .ok_or(Error::UnknownAllocId(alloc_id))?;
             Ok(self.backing.get_mut(i + offset))
         } else {
             Ok(None)
@@ -168,7 +163,7 @@ impl<T: Encode + Decode> CacheArena<T> {
         let start = *self
             .offsets
             .get(alloc_id)
-            .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
+            .ok_or(Error::UnknownAllocId(alloc_id))?;
         let end = self
             .offsets
             .get(alloc_id + 1)

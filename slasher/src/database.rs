@@ -342,7 +342,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let bytes = txn
             .get(self.indexed_attestation_db, &key)
             .optional()?
-            .ok_or_else(|| Error::MissingIndexedAttestation {
+            .ok_or(Error::MissingIndexedAttestation {
                 root: indexed_attestation_hash,
             })?;
         Ok(IndexedAttestation::from_ssz_bytes(bytes)?)
@@ -400,7 +400,7 @@ impl<E: EthSpec> SlasherDB<E> {
     ) -> Result<IndexedAttestation<E>, Error> {
         let record = self
             .get_attester_record(txn, validator_index, target_epoch)?
-            .ok_or_else(|| Error::MissingAttesterRecord {
+            .ok_or(Error::MissingAttesterRecord {
                 validator_index,
                 target_epoch,
             })?;
@@ -512,7 +512,7 @@ impl<E: EthSpec> SlasherDB<E> {
             let key_bytes = cursor
                 .get(None, None, lmdb_sys::MDB_GET_CURRENT)?
                 .0
-                .ok_or_else(|| Error::MissingProposerKey)?;
+                .ok_or(Error::MissingProposerKey)?;
 
             let (slot, _) = ProposerKey::parse(key_bytes)?;
             if slot < min_slot {
@@ -558,7 +558,7 @@ impl<E: EthSpec> SlasherDB<E> {
             let key_bytes = cursor
                 .get(None, None, lmdb_sys::MDB_GET_CURRENT)?
                 .0
-                .ok_or_else(|| Error::MissingAttesterKey)?;
+                .ok_or(Error::MissingAttesterKey)?;
 
             let (target_epoch, _) = AttesterKey::parse(key_bytes)?;
 
@@ -605,7 +605,7 @@ impl<E: EthSpec> SlasherDB<E> {
             let key_bytes = cursor
                 .get(None, None, lmdb_sys::MDB_GET_CURRENT)?
                 .0
-                .ok_or_else(|| Error::MissingAttesterKey)?;
+                .ok_or(Error::MissingAttesterKey)?;
 
             let (target_epoch, _) = IndexedAttestationKey::parse(key_bytes)?;
 

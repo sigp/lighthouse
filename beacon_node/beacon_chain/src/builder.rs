@@ -2,7 +2,6 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
 };
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
-use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -14,7 +13,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
-    Eth1ChainBackend, EventHandler,
+    Eth1ChainBackend, ServerSentEventHandler,
 };
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
@@ -38,33 +37,24 @@ pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>(
-    PhantomData<(
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    )>,
+pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>(
+    PhantomData<(TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore)>,
 );
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore> BeaconChainTypes
-    for Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore> BeaconChainTypes
+    for Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
     type SlotClock = TSlotClock;
     type Eth1Chain = TEth1Backend;
     type EthSpec = TEthSpec;
-    type EventHandler = TEventHandler;
 }
 
 /// Builds a `BeaconChain` by either creating anew from genesis, or, resuming from an existing chain
@@ -88,7 +78,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
-    event_handler: Option<T::EventHandler>,
+    event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
@@ -103,17 +93,14 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
-    >
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Returns a new builder.
     ///
@@ -211,7 +198,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "get_persisted_eth1_backend requires a store.".to_string())?;
+            .ok_or("get_persisted_eth1_backend requires a store.")?;
 
         store
             .get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)
@@ -223,7 +210,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "store_contains_beacon_chain requires a store.".to_string())?;
+            .ok_or("store_contains_beacon_chain requires a store.")?;
 
         Ok(store
             .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
@@ -235,15 +222,12 @@ where
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
     pub fn resume_from_db(mut self) -> Result<Self, String> {
-        let log = self
-            .log
-            .as_ref()
-            .ok_or_else(|| "resume_from_db requires a log".to_string())?;
+        let log = self.log.as_ref().ok_or("resume_from_db requires a log")?;
 
         let pubkey_cache_path = self
             .pubkey_cache_path
             .as_ref()
-            .ok_or_else(|| "resume_from_db requires a data_dir".to_string())?;
+            .ok_or("resume_from_db requires a data_dir")?;
 
         info!(
             log,
@@ -254,7 +238,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "resume_from_db requires a store.".to_string())?;
+            .ok_or("resume_from_db requires a store.")?;
 
         let chain = store
             .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
@@ -267,7 +251,7 @@ where
         let persisted_fork_choice = store
             .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
-            .ok_or_else(|| "No persisted fork choice present in database.".to_string())?;
+            .ok_or("No persisted fork choice present in database.")?;
 
         let fc_store = BeaconForkChoiceStore::from_persisted(
             persisted_fork_choice.fork_choice_store,
@@ -282,11 +266,11 @@ where
         let genesis_block = store
             .get_item::<SignedBeaconBlock<TEthSpec>>(&chain.genesis_block_root)
             .map_err(|e| format!("DB error when reading genesis block: {:?}", e))?
-            .ok_or_else(|| "Genesis block not found in store".to_string())?;
+            .ok_or("Genesis block not found in store")?;
         let genesis_state = store
             .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
             .map_err(|e| format!("DB error when reading genesis state: {:?}", e))?
-            .ok_or_else(|| "Genesis block not found in store".to_string())?;
+            .ok_or("Genesis block not found in store")?;
 
         self.genesis_time = Some(genesis_state.genesis_time);
 
@@ -318,10 +302,7 @@ where
         mut self,
         mut beacon_state: BeaconState<TEthSpec>,
     ) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "genesis_state requires a store")?;
+        let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
@@ -383,9 +364,9 @@ where
 
     /// Sets the `BeaconChain` event handler backend.
     ///
-    /// For example, provide `WebSocketSender` as a `handler`.
-    pub fn event_handler(mut self, handler: TEventHandler) -> Self {
-        self.event_handler = Some(handler);
+    /// For example, provide `ServerSentEventHandler` as a `handler`.
+    pub fn event_handler(mut self, handler: Option<ServerSentEventHandler<TEthSpec>>) -> Self {
+        self.event_handler = handler;
         self
     }
 
@@ -431,40 +412,31 @@ where
     pub fn build(
         self,
     ) -> Result<
-        BeaconChain<
-            Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
-        >,
+        BeaconChain<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
         String,
     > {
-        let log = self
-            .log
-            .ok_or_else(|| "Cannot build without a logger".to_string())?;
+        let log = self.log.ok_or("Cannot build without a logger")?;
         let slot_clock = self
             .slot_clock
-            .ok_or_else(|| "Cannot build without a slot_clock.".to_string())?;
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "Cannot build without a store.".to_string())?;
+            .ok_or("Cannot build without a slot_clock.")?;
+        let store = self.store.clone().ok_or("Cannot build without a store.")?;
         let mut fork_choice = self
             .fork_choice
-            .ok_or_else(|| "Cannot build without fork choice.".to_string())?;
+            .ok_or("Cannot build without fork choice.")?;
         let genesis_block_root = self
             .genesis_block_root
-            .ok_or_else(|| "Cannot build without a genesis block root".to_string())?;
+            .ok_or("Cannot build without a genesis block root")?;
         let genesis_state_root = self
             .genesis_state_root
-            .ok_or_else(|| "Cannot build without a genesis state root".to_string())?;
+            .ok_or("Cannot build without a genesis state root")?;
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
-            .ok_or_else(|| "Unable to read slot clock".to_string())?
+            .ok_or("Unable to read slot clock")?
         {
             self.spec.genesis_slot
         } else {
-            slot_clock
-                .now()
-                .ok_or_else(|| "Unable to read slot".to_string())?
+            slot_clock.now().ok_or("Unable to read slot")?
         };
 
         let head_block_root = fork_choice
@@ -474,12 +446,12 @@ where
         let head_block = store
             .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
             .map_err(|e| format!("DB error when reading head block: {:?}", e))?
-            .ok_or_else(|| "Head block not found in store".to_string())?;
+            .ok_or("Head block not found in store")?;
         let head_state_root = head_block.state_root();
         let head_state = store
             .get_state(&head_state_root, Some(head_block.slot()))
             .map_err(|e| format!("DB error when reading head state: {:?}", e))?
-            .ok_or_else(|| "Head state not found in store".to_string())?;
+            .ok_or("Head state not found in store")?;
 
         let mut canonical_head = BeaconSnapshot {
             beacon_block_root: head_block_root,
@@ -520,7 +492,7 @@ where
 
         let pubkey_cache_path = self
             .pubkey_cache_path
-            .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
+            .ok_or("Cannot build without a pubkey cache path")?;
 
         let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
             ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
@@ -541,9 +513,7 @@ where
             store,
             store_migrator,
             slot_clock,
-            op_pool: self
-                .op_pool
-                .ok_or_else(|| "Cannot build without op pool".to_string())?,
+            op_pool: self.op_pool.ok_or("Cannot build without op pool")?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
@@ -564,9 +534,7 @@ where
             genesis_block_root,
             genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
-            event_handler: self
-                .event_handler
-                .ok_or_else(|| "Cannot build without an event handler".to_string())?,
+            event_handler: self.event_handler,
             head_tracker: Arc::new(self.head_tracker.unwrap_or_default()),
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
@@ -577,7 +545,7 @@ where
             disabled_forks: self.disabled_forks,
             shutdown_sender: self
                 .shutdown_sender
-                .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
+                .ok_or("Cannot build without a shutdown sender.")?,
             log: log.clone(),
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
@@ -620,23 +588,15 @@ where
     }
 }
 
-impl<TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEthSpec, THotStore, TColdStore>
     BeaconChainBuilder<
-        Witness<
-            TSlotClock,
-            CachingEth1Backend<TEthSpec>,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>,
     >
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
     pub fn no_eth1_backend(self) -> Self {
@@ -648,7 +608,7 @@ where
         let log = self
             .log
             .as_ref()
-            .ok_or_else(|| "dummy_eth1_backend requires a log".to_string())?;
+            .ok_or("dummy_eth1_backend requires a log")?;
 
         let backend =
             CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
@@ -659,16 +619,13 @@ where
     }
 }
 
-impl<TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<TestingSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
-    >
+impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
     ///
@@ -676,7 +633,7 @@ where
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
             .genesis_time
-            .ok_or_else(|| "testing_slot_clock requires an initialized state")?;
+            .ok_or("testing_slot_clock requires an initialized state")?;
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -685,31 +642,6 @@ where
         );
 
         Ok(self.slot_clock(slot_clock))
-    }
-}
-
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            NullEventHandler<TEthSpec>,
-            THotStore,
-            TColdStore,
-        >,
-    >
-where
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-{
-    /// Sets the `BeaconChain` event handler to `NullEventHandler`.
-    pub fn null_event_handler(self) -> Self {
-        let handler = NullEventHandler::default();
-        self.event_handler(handler)
     }
 }
 
@@ -782,7 +714,6 @@ mod test {
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build the dummy eth1 backend")
-            .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)

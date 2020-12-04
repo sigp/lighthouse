@@ -490,8 +490,8 @@ impl InitializedValidators {
 
         // Create a lock file for the cache
         let key_cache_path = KeyCache::cache_file_path(&self.validators_dir);
-        let cache_lockfile_path = get_lockfile_path(&key_cache_path)
-            .ok_or_else(|| Error::BadKeyCachePath(key_cache_path))?;
+        let cache_lockfile_path =
+            get_lockfile_path(&key_cache_path).ok_or(Error::BadKeyCachePath(key_cache_path))?;
         let _cache_lockfile = Lockfile::new(cache_lockfile_path)?;
 
         let cache =

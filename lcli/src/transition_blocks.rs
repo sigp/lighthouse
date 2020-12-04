@@ -9,19 +9,19 @@ use types::{BeaconState, EthSpec, SignedBeaconBlock};
 pub fn run_transition_blocks<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let pre_state_path = matches
         .value_of("pre-state")
-        .ok_or_else(|| "No pre-state file supplied".to_string())?
+        .ok_or("No pre-state file supplied")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse pre-state path: {}", e))?;
 
     let block_path = matches
         .value_of("block")
-        .ok_or_else(|| "No block file supplied".to_string())?
+        .ok_or("No block file supplied")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse block path: {}", e))?;
 
     let output_path = matches
         .value_of("output")
-        .ok_or_else(|| "No output file supplied".to_string())?
+        .ok_or("No output file supplied")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse output path: {}", e))?;
 
