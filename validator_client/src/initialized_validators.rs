@@ -214,7 +214,7 @@ impl InitializedValidator {
                         voting_keystore: voting_keystore.clone(),
                         voting_keypair,
                     },
-                    graffiti: def.graffiti,
+                    graffiti: def.graffiti.map(Into::into),
                 })
             }
         }

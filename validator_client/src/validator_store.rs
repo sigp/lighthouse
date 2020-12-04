@@ -10,9 +10,9 @@ use std::path::Path;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair,
-    PublicKey, SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot,
-    Slot,
+    graffiti::GraffitiString, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
+    Graffiti, Hash256, Keypair, PublicKey, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedRoot, Slot,
 };
 use validator_dir::ValidatorDir;
 
@@ -89,12 +89,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         voting_keystore_path: P,
         password: ZeroizeString,
         enable: bool,
-        graffiti: Option<Graffiti>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
             Some(password),
-            graffiti,
+            graffiti.map(Into::into),
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 

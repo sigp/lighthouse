@@ -7,7 +7,6 @@ use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
-use serde::{de::Error as SerdeError, Deserializer, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
@@ -15,7 +14,7 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-use types::{Graffiti, PublicKey, GRAFFITI_BYTES_LEN};
+use types::{graffiti::GraffitiString, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -67,54 +66,13 @@ pub enum SigningDefinition {
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    // The serialize/deserialize impl in `Graffiti` serializes and deserializes
-    // it as hex bytes for use in http api.
-    // We want to read it as a normal UTF-8 encoded string.
-    #[serde(serialize_with = "graffiti_serialize")]
-    #[serde(deserialize_with = "graffiti_deserialize")]
-    pub graffiti: Option<Graffiti>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
     #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
-}
-
-fn graffiti_serialize<S>(g: &Option<Graffiti>, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    if let Some(graffiti) = g {
-        s.serialize_str(&graffiti.as_utf8_lossy())
-    } else {
-        s.serialize_none()
-    }
-}
-
-fn graffiti_deserialize<'de, D>(deserializer: D) -> Result<Option<Graffiti>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: Option<String> = serde::Deserialize::deserialize(deserializer)?;
-    match s {
-        Some(g) => {
-            let bytes = g.as_bytes();
-
-            if bytes.len() > GRAFFITI_BYTES_LEN {
-                return Err(SerdeError::custom(format!(
-                    "Your graffiti is too long! {} bytes maximum!",
-                    GRAFFITI_BYTES_LEN
-                )));
-            }
-
-            let mut array = [0; GRAFFITI_BYTES_LEN];
-            array[..bytes.len()].copy_from_slice(&bytes);
-
-            Ok(Some(array.into()))
-        }
-        None => Ok(None),
-    }
 }
 
 impl ValidatorDefinition {
@@ -127,7 +85,7 @@ impl ValidatorDefinition {
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
         voting_keystore_password: Option<ZeroizeString>,
-        graffiti: Option<Graffiti>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -381,6 +339,7 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn voting_keystore_filename_lighthouse() {
@@ -415,5 +374,45 @@ mod tests {
         assert!(!is_voting_keystore("keystore-.json"));
         assert!(!is_voting_keystore("keystore-0a.json"));
         assert!(!is_voting_keystore("keystore-cats.json"));
+    }
+
+    #[test]
+    fn graffiti_checks() {
+        let no_graffiti = r#"--- 
+        description: ""
+        enabled: true
+        type: local_keystore
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+        let def: ValidatorDefinition = serde_yaml::from_str(&no_graffiti).unwrap();
+        assert!(def.graffiti.is_none());
+
+        let invalid_graffiti = r#"--- 
+        description: ""
+        enabled: true
+        type: local_keystore
+        graffiti: "mrfwasheremrfwasheremrfwasheremrf"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(&invalid_graffiti);
+        assert!(def.is_err());
+
+        let valid_graffiti = r#"--- 
+        description: ""
+        enabled: true
+        type: local_keystore
+        graffiti: "mrfwashere"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: ValidatorDefinition = serde_yaml::from_str(&valid_graffiti).unwrap();
+        assert_eq!(
+            def.graffiti,
+            Some(GraffitiString::from_str("mrfwashere").unwrap())
+        );
     }
 }
