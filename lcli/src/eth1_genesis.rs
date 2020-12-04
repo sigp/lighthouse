@@ -15,7 +15,10 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
     let endpoints = matches
         .value_of("eth1-endpoint")
-        .map(|e| vec![String::from(e)])
+        .map(|e| {
+            warn!("The --eth1-endpoint flag is deprecated. Please use --eth1-endpoints instead");
+            vec![String::from(e)]
+        })
         .or_else(|| {
             matches
                 .value_of("eth1-endpoints")

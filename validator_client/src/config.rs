@@ -111,6 +111,11 @@ impl Config {
         }
         // To be deprecated.
         else if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
+            warn!(
+                log,
+                "The --beacon-node flag is deprecated";
+                "msg" => "please use --beacon-nodes instead"
+            );
             config.beacon_nodes = vec![beacon_node];
         }
         // To be deprecated.
@@ -118,7 +123,7 @@ impl Config {
             warn!(
                 log,
                 "The --server flag is deprecated";
-                "msg" => "please use --beacon-node instead"
+                "msg" => "please use --beacon-nodes instead"
             );
             config.beacon_nodes = vec![server];
         }

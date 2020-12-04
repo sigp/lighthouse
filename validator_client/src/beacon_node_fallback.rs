@@ -90,7 +90,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                 info!(
                     self.log,
                     "Connected to beacon node";
-                    "endpoint" => format!("{}", beacon_node),
+                    "endpoint" => %beacon_node,
                     "version" => version,
                 );
             }
@@ -98,8 +98,8 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                 warn!(
                     self.log,
                     "Unable to connect to beacon node";
-                    "endpoint" => format!("{}", beacon_node),
-                    "error" => format!("{:?}", e),
+                    "endpoint" => %beacon_node,
+                    "error" => e,
                 );
                 return Err(BeaconNodeConnectionError::Offline);
             }
@@ -112,8 +112,8 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                 warn!(
                     self.log,
                     "Unable to read spec from beacon node";
-                    "endpoint" => format!("{}", beacon_node),
-                    "error" => format!("{:?}", e),
+                    "endpoint" => %beacon_node,
+                    "error" => ?e,
                 );
                 BeaconNodeConnectionError::Offline
             })?
@@ -126,7 +126,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                     self.log,
                     "The minimal/mainnet spec type of the beacon node does not match the validator \
                     client. See the --network command.";
-                    "endpoint" => format!("{}", beacon_node),
+                    "endpoint" => %beacon_node,
                 );
                 BeaconNodeConnectionError::WrongConfig
             })?;
@@ -136,7 +136,7 @@ impl<E: EthSpec> BeaconNodeContext<E> {
                 self.log,
                 "The beacon node is using a different Eth2 specification to this validator client. \
                 See the --network command.";
-                "endpoint" => format!("{}", beacon_node),
+                "endpoint" => %beacon_node,
             );
             return Err(BeaconNodeConnectionError::WrongConfig);
         }
@@ -155,8 +155,8 @@ impl<E: EthSpec> BeaconNodeContext<E> {
             warn!(
                 self.log,
                 "An error occurred on a beacon node request";
-                "error" => format!("{:?}", e),
-                "endpoint" => format!("{}", node),
+                "error" => ?e,
+                "endpoint" => %node,
             );
         }
         result
@@ -200,7 +200,7 @@ impl<E: EthSpec> BeaconNodeFallback<E> {
                     report_result(node, result)
                 })
                 .await?;
-                trace!(self.context.log, "Send request"; "endpoint" => format!("{}", node));
+                trace!(self.context.log, "Send request"; "endpoint" => %node);
                 report_result(node, self.context.log_error(node, func(node).await))
             })
             .await
@@ -338,8 +338,7 @@ where
                 })
                 .await
                 .map_err(|()| BeaconNodeConnectionError::OutOfSync)?;
-                trace!(self.context.log, "Send request after sync check";
-            "endpoint" => format!("{}", node));
+                trace!(self.context.log, "Send request after sync check"; "endpoint" => %node);
                 report_result(node, self.context.log_error(node, func(node).await))
             })
             .await;

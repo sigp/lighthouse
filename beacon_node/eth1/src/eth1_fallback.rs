@@ -82,11 +82,12 @@ impl Eth1Fallback {
     /// correct network id + has the correct chain id.
     async fn check(&self, server: &str) -> Result<(), EndpointError> {
         let endpoint: &str = &server;
-        let error_connecting = |_| {
+        let error_connecting = |e| {
             warn!(
                 self.log,
                 "Error connecting to eth1 node. Trying fallback ...";
                 "endpoint" => endpoint,
+                "error" => e,
             );
             EndpointError::NotReachable
         };
@@ -99,8 +100,8 @@ impl Eth1Fallback {
                 "Invalid eth1 network id. Please switch to correct network id. Trying \
                  fallback ...";
                 "endpoint" => endpoint,
-                "expected" => format!("{:?}", self.config_network_id),
-                "received" => format!("{:?}", network_id),
+                "expected" => ?self.config_network_id,
+                "received" => ?network_id,
             );
             return Err(EndpointError::WrongNetworkId);
         }
@@ -115,16 +116,15 @@ impl Eth1Fallback {
                 "Remote eth1 node is not synced";
                 "endpoint" => endpoint,
             );
-            return Err(EndpointError::FarBehind);
-        }
-        if chain_id != self.config_chain_id {
+            Err(EndpointError::FarBehind)
+        } else if chain_id != self.config_chain_id {
             warn!(
                 self.log,
                 "Invalid eth1 chain id. Please switch to correct chain id. Trying \
                  fallback ...";
                 "endpoint" => endpoint,
-                "expected" => format!("{:?}", self.config_chain_id),
-                "received" => format!("{:?}", chain_id),
+                "expected" => ?self.config_chain_id,
+                "received" => ?chain_id,
             );
             Err(EndpointError::WrongChainId)
         } else {

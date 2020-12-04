@@ -1,5 +1,4 @@
 use futures::future::select_all;
-use futures::FutureExt;
 use itertools::{join, zip};
 use std::fmt::{Debug, Display};
 use std::future::Future;
@@ -54,11 +53,7 @@ impl<T> Fallback<T> {
         R: Future<Output = Result<O, E>>,
     {
         let mut errors = Vec::with_capacity(self.servers.len());
-        let mut open_futures: Vec<_> = self
-            .servers
-            .iter()
-            .map(|s| Box::pin(func(s).fuse()))
-            .collect();
+        let mut open_futures: Vec<_> = self.servers.iter().map(|s| Box::pin(func(s))).collect();
         while !open_futures.is_empty() {
             let (output, index, rest) = select_all(open_futures.into_iter()).await;
             match output {
