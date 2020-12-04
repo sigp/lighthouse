@@ -594,6 +594,8 @@ where
             eth1_service_from_genesis.drop_block_cache();
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
+        } else if config.purge_cache {
+            CachingEth1Backend::new(config, context.log().clone(), spec)
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?

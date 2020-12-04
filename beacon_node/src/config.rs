@@ -183,6 +183,10 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
     }
 
+    if cli_args.is_present("eth1-purge-cache") {
+        client_config.eth1.purge_cache = true;
+    }
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }

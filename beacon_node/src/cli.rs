@@ -282,6 +282,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("eth1-purge-cache")
+                .long("eth1-purge-cache")
+                .value_name("PURGE-CACHE")
+                .help("Purges the eth1 block and deposit caches")
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("eth1-blocks-per-log-query")
                 .long("eth1-blocks-per-log-query")
                 .value_name("BLOCKS")
