@@ -7,7 +7,10 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconSnapshot, BlockError,
 };
+use slasher::{Config as SlasherConfig, Slasher};
+use std::sync::Arc;
 use store::config::StoreConfig;
+use tempfile::tempdir;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
     AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, EthSpec, Hash256,
@@ -793,4 +796,32 @@ fn block_gossip_verification() {
         ),
         "the second proposal by this validator should be rejected"
     );
+}
+
+#[test]
+fn verify_block_for_gossip_slashing_detection() {
+    let mut harness = get_harness(VALIDATOR_COUNT);
+
+    let slasher_dir = tempdir().unwrap();
+    let slasher = Arc::new(
+        Slasher::open(
+            SlasherConfig::new(slasher_dir.path().into()),
+            harness.logger().clone(),
+        )
+        .unwrap(),
+    );
+    harness.chain.slasher = Some(slasher.clone());
+
+    let state = harness.get_current_state();
+    let (block1, _) = harness.make_block(state.clone(), Slot::new(1));
+    let (block2, _) = harness.make_block(state, Slot::new(1));
+
+    let verified_block = harness.chain.verify_block_for_gossip(block1).unwrap();
+    harness.chain.process_block(verified_block).unwrap();
+    unwrap_err(harness.chain.verify_block_for_gossip(block2));
+
+    // Slasher should have been handed the two conflicting blocks and crafted a slashing.
+    slasher.process_queued(Epoch::new(0)).unwrap();
+    let proposer_slashings = slasher.get_proposer_slashings();
+    assert_eq!(proposer_slashings.len(), 1);
 }
