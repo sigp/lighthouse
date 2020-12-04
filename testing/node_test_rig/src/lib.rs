@@ -89,8 +89,6 @@ pub fn testing_client_config() -> ClientConfig {
     client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
-    client_config.websocket_server.enabled = true;
-    client_config.websocket_server.port = 0;
 
     client_config.dummy_eth1_backend = true;
 

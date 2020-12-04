@@ -15,7 +15,6 @@ network = { path = "../network" }
 timer = { path = "../timer" }
 eth2_libp2p = { path = "../eth2_libp2p" }
 parking_lot = "0.11.0"
-websocket_server = { path = "../websocket_server" }
 prometheus = "0.10.0"
 types = { path = "../../consensus/types" }
 tree_hash = "0.1.1"
@@ -40,7 +39,6 @@ eth2_ssz = "0.1.2"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 time = "0.2.22"
-bus = "2.2.3"
 directory = {path = "../../common/directory"}
 http_api = { path = "../http_api" }
 http_metrics = { path = "../http_metrics" }

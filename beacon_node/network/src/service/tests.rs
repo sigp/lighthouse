@@ -77,7 +77,7 @@ mod tests {
         });
 
         let raw_runtime = Arc::try_unwrap(runtime).unwrap();
-        raw_runtime.shutdown_timeout(tokio::time::Duration::from_secs(10));
+        raw_runtime.shutdown_timeout(tokio::time::Duration::from_secs(300));
 
         // Load the persisted dht from the store
         let persisted_enrs = load_dht(store);

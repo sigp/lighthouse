@@ -174,6 +174,20 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
             }
             (kind, version, os_version)
         }
+        Some("nimbus") => {
+            let kind = ClientKind::Nimbus;
+            let mut version = String::from("unknown");
+            let mut os_version = version.clone();
+            if agent_split.next().is_some() {
+                if let Some(agent_version) = agent_split.next() {
+                    version = agent_version.into();
+                    if let Some(agent_os_version) = agent_split.next() {
+                        os_version = agent_os_version.into();
+                    }
+                }
+            }
+            (kind, version, os_version)
+        }
         Some("nim-libp2p") => {
             let kind = ClientKind::Nimbus;
             let mut version = String::from("unknown");
