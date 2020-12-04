@@ -83,10 +83,7 @@ impl<T: EthSpec> PeerInfo<T> {
     /// Returns if the peer is subscribed to a given `SubnetId`
     pub fn on_subnet(&self, subnet_id: SubnetId) -> bool {
         if let Some(meta_data) = &self.meta_data {
-            return meta_data
-                .attnets
-                .get(*subnet_id as usize)
-                .unwrap_or_else(|_| false);
+            return meta_data.attnets.get(*subnet_id as usize).unwrap_or(false);
         }
         false
     }

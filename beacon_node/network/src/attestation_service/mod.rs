@@ -315,7 +315,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .beacon_chain
             .slot_clock
             .now()
-            .ok_or_else(|| "Could not get the current slot")?;
+            .ok_or("Could not get the current slot")?;
 
         let discovery_subnets: Vec<SubnetDiscovery> = exact_subnets
             .filter_map(|exact_subnet| {
@@ -363,7 +363,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .beacon_chain
             .slot_clock
             .now()
-            .ok_or_else(|| "Could not get the current slot")?;
+            .ok_or("Could not get the current slot")?;
 
         // Calculate the duration to the unsubscription event.
         // There are two main cases. Attempting to subscribe to the current slot and all others.
@@ -371,7 +371,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.beacon_chain
                 .slot_clock
                 .duration_to_next_slot()
-                .ok_or_else(|| "Unable to determine duration to next slot")?
+                .ok_or("Unable to determine duration to next slot")?
         } else {
             let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
@@ -380,7 +380,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.beacon_chain
                 .slot_clock
                 .duration_to_slot(exact_subnet.slot)
-                .ok_or_else(|| "Unable to determine duration to subscription slot")?
+                .ok_or("Unable to determine duration to subscription slot")?
                 + slot_duration
         };
 

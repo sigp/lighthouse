@@ -84,9 +84,9 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             let spec = config
                 .yaml_config
                 .as_ref()
-                .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+                .ok_or("The testnet directory must contain a spec config")?
                 .apply_to_chain_spec::<T>(&T::default_spec())
-                .ok_or_else(|| "The loaded config is not compatible with the current spec")?;
+                .ok_or("The loaded config is not compatible with the current spec")?;
 
             if config.beacon_state_is_known() {
                 let genesis_state = config.beacon_state::<T>()?;

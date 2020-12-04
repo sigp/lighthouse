@@ -450,7 +450,7 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
             bytes.get(start..offset)
         };
 
-        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte { i: offset })?;
+        let slice = slice_option.ok_or(DecodeError::OutOfBoundsByte { i: offset })?;
 
         values.push(T::from_ssz_bytes(slice)?);
     }

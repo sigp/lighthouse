@@ -1,36 +1,28 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
-use beacon_chain::events::TeeEventHandler;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
+    BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
 };
-use bus::Bus;
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
-use parking_lot::Mutex;
 use slasher::{Slasher, SlasherServer};
 use slog::{debug, info, warn};
 use ssz::Decode;
-use std::net::SocketAddr;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
-    SignedBeaconBlockHash,
-};
-use websocket_server::{Config as WebSocketConfig, WebSocketSender};
+use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
@@ -57,25 +49,22 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
-    event_handler: Option<T::EventHandler>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
-    websocket_listen_addr: Option<SocketAddr>,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
@@ -91,14 +80,12 @@ where
             beacon_chain_builder: None,
             beacon_chain: None,
             eth1_service: None,
-            event_handler: None,
             network_globals: None,
             network_send: None,
             db_path: None,
             freezer_db_path: None,
             http_api_config: <_>::default(),
             http_metrics_config: <_>::default(),
-            websocket_listen_addr: None,
             slasher: None,
             eth_spec_instance,
         }
@@ -137,13 +124,16 @@ where
         let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
 
-        let store =
-            store.ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
+        let store = store.ok_or("beacon_chain_start_method requires a store")?;
         let context = runtime_context
-            .ok_or_else(|| "beacon_chain_start_method requires a runtime context".to_string())?
+            .ok_or("beacon_chain_start_method requires a runtime context")?
             .service_context("beacon".into());
-        let spec = chain_spec
-            .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
+        let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
+        let event_handler = if self.http_api_config.enabled {
+            Some(ServerSentEventHandler::new(context.log().clone()))
+        } else {
+            None
+        };
 
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
@@ -152,7 +142,8 @@ where
             .custom_spec(spec.clone())
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
-            .graffiti(graffiti);
+            .graffiti(graffiti)
+            .event_handler(event_handler);
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -160,9 +151,7 @@ where
             builder
         };
 
-        let chain_exists = builder
-            .store_contains_beacon_chain()
-            .unwrap_or_else(|_| false);
+        let chain_exists = builder.store_contains_beacon_chain().unwrap_or(false);
 
         // If the client is expect to resume but there's no beacon chain in the database,
         // use the `DepositContract` method. This scenario is quite common when the client
@@ -228,14 +217,7 @@ where
                     #[allow(clippy::type_complexity)]
                     let ctx: Arc<
                         http_api::Context<
-                            Witness<
-                                TSlotClock,
-                                TEth1Backend,
-                                TEthSpec,
-                                TEventHandler,
-                                THotStore,
-                                TColdStore,
-                            >,
+                            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
                         >,
                     > = Arc::new(http_api::Context {
                         config: self.http_api_config.clone(),
@@ -310,11 +292,11 @@ where
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "network requires a beacon chain")?;
+            .ok_or("network requires a beacon chain")?;
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "network requires a runtime_context")?
+            .ok_or("network requires a runtime_context")?
             .clone();
 
         let (network_globals, network_send) =
@@ -333,16 +315,16 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "node timer requires a runtime_context")?
+            .ok_or("node timer requires a runtime_context")?
             .service_context("node_timer".into());
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "node timer requires a beacon chain")?;
+            .ok_or("node timer requires a beacon chain")?;
         let milliseconds_per_slot = self
             .chain_spec
             .as_ref()
-            .ok_or_else(|| "node timer requires a chain spec".to_string())?
+            .ok_or("node timer requires a chain spec")?
             .milliseconds_per_slot;
 
         spawn_timer(context.executor, beacon_chain, milliseconds_per_slot)
@@ -370,16 +352,16 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "slasher requires a runtime_context")?
+            .ok_or("slasher requires a runtime_context")?
             .service_context("slasher_server_ctxt".into());
         let slasher = self
             .slasher
             .clone()
-            .ok_or_else(|| "slasher server requires a slasher")?;
+            .ok_or("slasher server requires a slasher")?;
         let slot_clock = self
             .slot_clock
             .clone()
-            .ok_or_else(|| "slasher server requires a slot clock")?;
+            .ok_or("slasher server requires a slot clock")?;
         SlasherServer::run(slasher, slot_clock, &context.executor);
         Ok(())
     }
@@ -389,20 +371,20 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "slot_notifier requires a runtime_context")?
+            .ok_or("slot_notifier requires a runtime_context")?
             .service_context("slot_notifier".into());
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "slot_notifier requires a beacon chain")?;
+            .ok_or("slot_notifier requires a beacon chain")?;
         let network_globals = self
             .network_globals
             .clone()
-            .ok_or_else(|| "slot_notifier requires a libp2p network")?;
+            .ok_or("slot_notifier requires a libp2p network")?;
         let milliseconds_per_slot = self
             .chain_spec
             .as_ref()
-            .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
+            .ok_or("slot_notifier requires a chain spec")?
             .milliseconds_per_slot;
 
         spawn_notifier(
@@ -423,14 +405,12 @@ where
     #[allow(clippy::type_complexity)]
     pub fn build(
         self,
-    ) -> Result<
-        Client<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>,
-        String,
-    > {
+    ) -> Result<Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>, String>
+    {
         let runtime_context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "build requires a runtime context".to_string())?;
+            .ok_or("build requires a runtime context")?;
         let log = runtime_context.log().clone();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
@@ -498,18 +478,16 @@ where
             network_globals: self.network_globals,
             http_api_listen_addr,
             http_metrics_listen_addr,
-            websocket_listen_addr: self.websocket_listen_addr,
         })
     }
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
@@ -518,20 +496,16 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "beacon_chain requires a runtime context")?
+            .ok_or("beacon_chain requires a runtime context")?
             .clone();
 
         let chain = self
             .beacon_chain_builder
-            .ok_or_else(|| "beacon_chain requires a beacon_chain_builder")?
-            .event_handler(
-                self.event_handler
-                    .ok_or_else(|| "beacon_chain requires an event handler")?,
-            )
+            .ok_or("beacon_chain requires a beacon_chain_builder")?
             .slot_clock(
                 self.slot_clock
                     .clone()
-                    .ok_or_else(|| "beacon_chain requires a slot clock")?,
+                    .ok_or("beacon_chain requires a slot clock")?,
             )
             .shutdown_sender(context.executor.shutdown_sender())
             .build()
@@ -539,75 +513,18 @@ where
 
         self.beacon_chain = Some(Arc::new(chain));
         self.beacon_chain_builder = None;
-        self.event_handler = None;
 
         // a beacon chain requires a timer
         self.timer()
     }
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TeeEventHandler<TEthSpec>,
-            THotStore,
-            TColdStore,
-        >,
-    >
+impl<TSlotClock, TEth1Backend, TEthSpec>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>>>
 where
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-{
-    #[allow(clippy::type_complexity)]
-    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
-    pub fn tee_event_handler(
-        mut self,
-        config: WebSocketConfig,
-    ) -> Result<(Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>), String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "tee_event_handler requires a runtime_context")?
-            .service_context("ws".into());
-
-        let log = context.log().clone();
-        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
-            let (sender, listening_addr) =
-                websocket_server::start_server(context.executor, &config)?;
-            (sender, Some(listening_addr))
-        } else {
-            (WebSocketSender::dummy(), None)
-        };
-
-        self.websocket_listen_addr = listening_addr;
-        let (tee_event_handler, bus) = TeeEventHandler::new(log, sender)?;
-        self.event_handler = Some(tee_event_handler);
-        Ok((self, bus))
-    }
-}
-
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
-    ClientBuilder<
-        Witness<
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-            LevelDB<TEthSpec>,
-            LevelDB<TEthSpec>,
-        >,
-    >
-where
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
@@ -619,12 +536,12 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "disk_store requires a log".to_string())?
+            .ok_or("disk_store requires a log")?
             .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
-            .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
+            .ok_or("disk_store requires a chain spec")?;
 
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
@@ -636,21 +553,13 @@ where
     }
 }
 
-impl<TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEthSpec, THotStore, TColdStore>
     ClientBuilder<
-        Witness<
-            TSlotClock,
-            CachingEth1Backend<TEthSpec>,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>,
     >
 where
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
@@ -661,15 +570,15 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "caching_eth1_backend requires a runtime_context")?
+            .ok_or("caching_eth1_backend requires a runtime_context")?
             .service_context("eth1_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
         let spec = self
             .chain_spec
             .clone()
-            .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
+            .ok_or("caching_eth1_backend requires a chain spec")?;
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;
@@ -685,6 +594,8 @@ where
             eth1_service_from_genesis.drop_block_cache();
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
+        } else if config.purge_cache {
+            CachingEth1Backend::new(config, context.log().clone(), spec)
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
@@ -720,7 +631,7 @@ where
     pub fn no_eth1_backend(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
 
         self.beacon_chain_builder = Some(beacon_chain_builder.no_eth1_backend());
 
@@ -739,7 +650,7 @@ where
     pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
 
         self.beacon_chain_builder = Some(beacon_chain_builder.dummy_eth1_backend()?);
 
@@ -747,14 +658,11 @@ where
     }
 }
 
-impl<TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
-    >
+impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
+    ClientBuilder<Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
@@ -763,16 +671,16 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .as_ref()
-            .ok_or_else(|| "system_time_slot_clock requires a beacon_chain_builder")?;
+            .ok_or("system_time_slot_clock requires a beacon_chain_builder")?;
 
         let genesis_time = beacon_chain_builder
             .genesis_time
-            .ok_or_else(|| "system_time_slot_clock requires an initialized beacon state")?;
+            .ok_or("system_time_slot_clock requires an initialized beacon state")?;
 
         let spec = self
             .chain_spec
             .clone()
-            .ok_or_else(|| "system_time_slot_clock requires a chain spec".to_string())?;
+            .ok_or("system_time_slot_clock requires a chain spec")?;
 
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,

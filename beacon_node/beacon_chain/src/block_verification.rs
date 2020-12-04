@@ -289,6 +289,37 @@ impl<E: EthSpec> BlockSlashInfo<BlockError<E>> {
     }
 }
 
+/// Process invalid blocks to see if they are suitable for the slasher.
+///
+/// If no slasher is configured, this is a no-op.
+fn process_block_slash_info<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    slash_info: BlockSlashInfo<BlockError<T::EthSpec>>,
+) -> BlockError<T::EthSpec> {
+    if let Some(slasher) = chain.slasher.as_ref() {
+        let (verified_header, error) = match slash_info {
+            BlockSlashInfo::SignatureNotChecked(header, e) => {
+                if verify_header_signature(chain, &header).is_ok() {
+                    (header, e)
+                } else {
+                    return e;
+                }
+            }
+            BlockSlashInfo::SignatureInvalid(e) => return e,
+            BlockSlashInfo::SignatureValid(header, e) => (header, e),
+        };
+
+        slasher.accept_block_header(verified_header);
+        error
+    } else {
+        match slash_info {
+            BlockSlashInfo::SignatureNotChecked(_, e)
+            | BlockSlashInfo::SignatureInvalid(e)
+            | BlockSlashInfo::SignatureValid(_, e) => e,
+        }
+    }
+}
+
 /// Verify all signatures (except deposit signatures) on all blocks in the `chain_segment`. If all
 /// signatures are valid, the `chain_segment` is mapped to a `Vec<SignatureVerifiedBlock>` that can
 /// later be transformed into a `FullyVerifiedBlock` without re-checking the signatures. If any
@@ -403,31 +434,7 @@ pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
                 }
                 fully_verified
             })
-            .map_err(|slash_info| {
-                // Process invalid blocks to see if they are suitable for the slasher.
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    let (verified_header, error) = match slash_info {
-                        BlockSlashInfo::SignatureNotChecked(header, e) => {
-                            if verify_header_signature(chain, &header).is_ok() {
-                                (header, e)
-                            } else {
-                                return e;
-                            }
-                        }
-                        BlockSlashInfo::SignatureInvalid(e) => return e,
-                        BlockSlashInfo::SignatureValid(header, e) => (header, e),
-                    };
-
-                    slasher.accept_block_header(verified_header);
-                    error
-                } else {
-                    match slash_info {
-                        BlockSlashInfo::SignatureNotChecked(_, e)
-                        | BlockSlashInfo::SignatureInvalid(e)
-                        | BlockSlashInfo::SignatureValid(_, e) => e,
-                    }
-                }
-            })
+            .map_err(|slash_info| process_block_slash_info(chain, slash_info))
     }
 
     /// Convert the block to fully-verified form while producing data to aid checking slashability.
@@ -448,11 +455,26 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        // If the block is valid for gossip we don't supply it to the slasher here because
+        // we assume it will be transformed into a fully verified block. We *do* need to supply
+        // it to the slasher if an error occurs, because that's the end of this block's journey,
+        // and it could be a repeat proposal (a likely cause for slashing!).
+        let header = block.signed_block_header();
+        Self::new_without_slasher_checks(block, chain).map_err(|e| {
+            process_block_slash_info(chain, BlockSlashInfo::from_early_error(header, e))
+        })
+    }
+
+    /// As for new, but doesn't pass the block to the slasher.
+    fn new_without_slasher_checks(
+        block: SignedBeaconBlock<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, BlockError<T::EthSpec>> {
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
             .slot_clock
             .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or_else(|| BeaconChainError::UnableToReadSlot)?;
+            .ok_or(BeaconChainError::UnableToReadSlot)?;
         if block.slot() > present_slot_with_tolerance {
             return Err(BlockError::FutureSlot {
                 present_slot: present_slot_with_tolerance,
@@ -513,7 +535,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
                 .get(block.message.proposer_index as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message.proposer_index))?;
+                .ok_or(BlockError::UnknownValidator(block.message.proposer_index))?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,
@@ -1180,7 +1202,7 @@ fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
         .map_err(BlockError::BeaconChainError)
 }
 
@@ -1220,7 +1242,7 @@ fn verify_header_signature<T: BeaconChainTypes>(
     let proposer_pubkey = get_validator_pubkey_cache(chain)?
         .get(header.message.proposer_index as usize)
         .cloned()
-        .ok_or_else(|| BlockError::UnknownValidator(header.message.proposer_index))?;
+        .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
     let (fork, genesis_validators_root) = chain
         .with_head(|head| {
             Ok((

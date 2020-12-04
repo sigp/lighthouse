@@ -79,7 +79,7 @@ impl ValidatorClientHttpClient {
         let sig = response
             .headers()
             .get("Signature")
-            .ok_or_else(|| Error::MissingSignatureHeader)?
+            .ok_or(Error::MissingSignatureHeader)?
             .to_str()
             .map_err(|_| Error::InvalidSignatureHeader)?
             .to_string();
@@ -96,7 +96,7 @@ impl ValidatorClientHttpClient {
                 Some(secp256k1::verify(&message, &sig, &self.server_pubkey))
             })
             .filter(|is_valid| *is_valid)
-            .ok_or_else(|| Error::InvalidSignatureHeader)?;
+            .ok_or(Error::InvalidSignatureHeader)?;
 
         Ok(body)
     }

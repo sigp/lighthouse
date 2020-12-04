@@ -31,7 +31,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let duration_to_next_slot = beacon_chain
         .slot_clock
         .duration_to_next_slot()
-        .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
+        .ok_or("slot_notifier unable to determine time to next slot")?;
 
     // Run this half way through each slot.
     let start_instant = tokio::time::Instant::now() + duration_to_next_slot + (slot_duration / 2);
@@ -94,7 +94,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             metrics::set_gauge(
                 &metrics::SYNC_SLOTS_PER_SECOND,
-                speedo.slots_per_second().unwrap_or_else(|| 0_f64) as i64,
+                speedo.slots_per_second().unwrap_or(0_f64) as i64,
             );
 
             // The next two lines take advantage of saturating subtraction on `Slot`.

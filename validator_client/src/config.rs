@@ -82,10 +82,10 @@ impl Config {
             validator_dir = Some(base_dir.join(DEFAULT_VALIDATOR_DIR));
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
-        if cli_args.value_of("validators-dir").is_some()
-            && cli_args.value_of("secrets-dir").is_some()
-        {
+        if cli_args.value_of("validators-dir").is_some() {
             validator_dir = Some(parse_required(cli_args, "validators-dir")?);
+        }
+        if cli_args.value_of("secrets-dir").is_some() {
             secrets_dir = Some(parse_required(cli_args, "secrets-dir")?);
         }
 
