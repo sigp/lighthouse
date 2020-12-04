@@ -1,6 +1,6 @@
 use crate::{
     test_utils::TestRandom, BeaconBlock, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
-    SignedRoot, SigningData, Slot,
+    SignedBeaconBlockHeader, SignedRoot, SigningData, Slot,
 };
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use ssz_derive::{Decode, Encode};
 use std::fmt;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -41,7 +42,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBeaconBlock<E: EthSpec> {
     pub message: BeaconBlock<E>,
@@ -79,6 +80,14 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         };
 
         self.signature.verify(pubkey, message)
+    }
+
+    /// Produce a signed beacon block header corresponding to this block.
+    pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        SignedBeaconBlockHeader {
+            message: self.message.block_header(),
+            signature: self.signature.clone(),
+        }
     }
 
     /// Convenience accessor for the block's slot.

@@ -92,10 +92,11 @@ mod tests {
 
     fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
         let log = get_logger();
+        let config = NetworkConfig::default();
 
         let beacon_chain = CHAIN.chain.clone();
 
-        AttestationService::new(beacon_chain, &log)
+        AttestationService::new(beacon_chain, &config, &log)
     }
 
     fn get_subscription(
@@ -155,7 +156,7 @@ mod tests {
 
         tokio::select! {
             _ = collect_stream_fut => {return events}
-            _ = tokio::time::delay_for(
+            _ = tokio::time::sleep(
             Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
         ) => { return events; }
             }

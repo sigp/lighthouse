@@ -1,7 +1,6 @@
 use crate::sync::RequestId;
 use eth2_libp2p::rpc::methods::BlocksByRangeRequest;
 use eth2_libp2p::PeerId;
-use slog::{crit, warn, Logger};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
@@ -14,6 +13,13 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 /// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
+
+/// Error type of a batch in a wrong state.
+// Such errors should never be encountered.
+pub struct WrongState(pub(super) String);
+
+/// Auxiliary type alias for readability.
+type IsFailed = bool;
 
 /// A segment of a chain.
 pub struct BatchInfo<T: EthSpec> {
@@ -57,6 +63,14 @@ impl<T: EthSpec> BatchState<T> {
     pub fn poison(&mut self) -> BatchState<T> {
         std::mem::replace(self, BatchState::Poisoned)
     }
+
+    pub fn is_failed(&self) -> IsFailed {
+        match self {
+            BatchState::Failed => true,
+            BatchState::Poisoned => unreachable!("Poisoned batch"),
+            _ => false,
+        }
+    }
 }
 
 impl<T: EthSpec> BatchInfo<T> {
@@ -98,6 +112,14 @@ impl<T: EthSpec> BatchInfo<T> {
         peers
     }
 
+    /// Verifies if an incomming block belongs to this batch.
+    pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &RequestId) -> bool {
+        if let BatchState::Downloading(expected_peer, _, expected_id) = &self.state {
+            return peer_id == expected_peer && expected_id == request_id;
+        }
+        false
+    }
+
     pub fn current_peer(&self) -> Option<&PeerId> {
         match &self.state {
             BatchState::AwaitingDownload | BatchState::Failed => None,
@@ -126,16 +148,20 @@ impl<T: EthSpec> BatchInfo<T> {
     }
 
     /// Adds a block to a downloading batch.
-    pub fn add_block(&mut self, block: SignedBeaconBlock<T>, logger: &Logger) {
+    pub fn add_block(&mut self, block: SignedBeaconBlock<T>) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, mut blocks, req_id) => {
                 blocks.push(block);
-                self.state = BatchState::Downloading(peer, blocks, req_id)
+                self.state = BatchState::Downloading(peer, blocks, req_id);
+                Ok(())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
-                crit!(logger, "Add block for batch in wrong state"; "state" => ?other);
-                self.state = other
+                self.state = other;
+                Err(WrongState(format!(
+                    "Add block for batch in wrong state {:?}",
+                    self.state
+                )))
             }
         }
     }
@@ -145,8 +171,7 @@ impl<T: EthSpec> BatchInfo<T> {
     #[must_use = "Batch may have failed"]
     pub fn download_completed(
         &mut self,
-        logger: &Logger,
-    ) -> Result<usize /* Received blocks */, &BatchState<T>> {
+    ) -> Result<usize /* Received blocks */, Result<(Slot, Slot, IsFailed), WrongState>> {
         match self.state.poison() {
             BatchState::Downloading(peer, blocks, _request_id) => {
                 // verify that blocks are in range
@@ -174,9 +199,8 @@ impl<T: EthSpec> BatchInfo<T> {
                             // drop the blocks
                             BatchState::AwaitingDownload
                         };
-                        warn!(logger, "Batch received out of range blocks";
-                            &self, "expected" => expected, "received" => received);
-                        return Err(&self.state);
+
+                        return Err(Ok((expected, received, self.state.is_failed())));
                     }
                 }
 
@@ -186,15 +210,17 @@ impl<T: EthSpec> BatchInfo<T> {
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
-                crit!(logger, "Download completed for batch in wrong state"; "state" => ?other);
                 self.state = other;
-                Err(&self.state)
+                Err(Err(WrongState(format!(
+                    "Download completed for batch in wrong state {:?}",
+                    self.state
+                ))))
             }
         }
     }
 
     #[must_use = "Batch may have failed"]
-    pub fn download_failed(&mut self, logger: &Logger) -> &BatchState<T> {
+    pub fn download_failed(&mut self) -> Result<IsFailed, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, _, _request_id) => {
                 // register the attempt and check if the batch can be tried again
@@ -207,13 +233,15 @@ impl<T: EthSpec> BatchInfo<T> {
                     // drop the blocks
                     BatchState::AwaitingDownload
                 };
-                &self.state
+                Ok(self.state.is_failed())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
-                crit!(logger, "Download failed for batch in wrong state"; "state" => ?other);
                 self.state = other;
-                &self.state
+                Err(WrongState(format!(
+                    "Download failed for batch in wrong state {:?}",
+                    self.state
+                )))
             }
         }
     }
@@ -222,37 +250,42 @@ impl<T: EthSpec> BatchInfo<T> {
         &mut self,
         peer: PeerId,
         request_id: RequestId,
-        logger: &Logger,
-    ) {
+    ) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::AwaitingDownload => {
                 self.state = BatchState::Downloading(peer, Vec::new(), request_id);
+                Ok(())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
-                crit!(logger, "Starting download for batch in wrong state"; "state" => ?other);
-                self.state = other
+                self.state = other;
+                Err(WrongState(format!(
+                    "Starting download for batch in wrong state {:?}",
+                    self.state
+                )))
             }
         }
     }
 
-    pub fn start_processing(&mut self, logger: &Logger) -> Vec<SignedBeaconBlock<T>> {
+    pub fn start_processing(&mut self) -> Result<Vec<SignedBeaconBlock<T>>, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, blocks) => {
                 self.state = BatchState::Processing(Attempt::new(peer, &blocks));
-                blocks
+                Ok(blocks)
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
-                crit!(logger, "Starting procesing batch in wrong state"; "state" => ?other);
                 self.state = other;
-                vec![]
+                Err(WrongState(format!(
+                    "Starting procesing batch in wrong state {:?}",
+                    self.state
+                )))
             }
         }
     }
 
     #[must_use = "Batch may have failed"]
-    pub fn processing_completed(&mut self, was_sucessful: bool, logger: &Logger) -> &BatchState<T> {
+    pub fn processing_completed(&mut self, was_sucessful: bool) -> Result<IsFailed, WrongState> {
         match self.state.poison() {
             BatchState::Processing(attempt) => {
                 self.state = if !was_sucessful {
@@ -270,19 +303,21 @@ impl<T: EthSpec> BatchInfo<T> {
                 } else {
                     BatchState::AwaitingValidation(attempt)
                 };
-                &self.state
+                Ok(self.state.is_failed())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
-                crit!(logger, "Procesing completed for batch in wrong state"; "state" => ?other);
                 self.state = other;
-                &self.state
+                Err(WrongState(format!(
+                    "Procesing completed for batch in wrong state: {:?}",
+                    self.state
+                )))
             }
         }
     }
 
     #[must_use = "Batch may have failed"]
-    pub fn validation_failed(&mut self, logger: &Logger) -> &BatchState<T> {
+    pub fn validation_failed(&mut self) -> Result<IsFailed, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingValidation(attempt) => {
                 self.failed_processing_attempts.push(attempt);
@@ -295,13 +330,15 @@ impl<T: EthSpec> BatchInfo<T> {
                 } else {
                     BatchState::AwaitingDownload
                 };
-                &self.state
+                Ok(self.state.is_failed())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
-                crit!(logger, "Validation failed for batch in wrong state"; "state" => ?other);
                 self.state = other;
-                &self.state
+                Err(WrongState(format!(
+                    "Validation failed for batch in wrong state: {:?}",
+                    self.state
+                )))
             }
         }
     }
@@ -354,7 +391,7 @@ impl<T: EthSpec> slog::KV for BatchInfo<T> {
         )?;
         serializer.emit_usize("downloaded", self.failed_download_attempts.len())?;
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
-        serializer.emit_str("state", &format!("{:?}", self.state))?;
+        serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }
 }
@@ -362,8 +399,14 @@ impl<T: EthSpec> slog::KV for BatchInfo<T> {
 impl<T: EthSpec> std::fmt::Debug for BatchState<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BatchState::Processing(_) => f.write_str("Processing"),
-            BatchState::AwaitingValidation(_) => f.write_str("AwaitingValidation"),
+            BatchState::Processing(Attempt {
+                ref peer_id,
+                hash: _,
+            }) => write!(f, "Processing({})", peer_id),
+            BatchState::AwaitingValidation(Attempt {
+                ref peer_id,
+                hash: _,
+            }) => write!(f, "AwaitingValidation({})", peer_id),
             BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
             BatchState::Failed => f.write_str("Failed"),
             BatchState::AwaitingProcessing(ref peer, ref blocks) => {

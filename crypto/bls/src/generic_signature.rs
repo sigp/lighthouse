@@ -44,7 +44,7 @@ pub trait TSignature<GenericPublicKey>: Sized + Clone {
 ///
 /// Provides generic functionality whilst deferring all serious cryptographic operations to the
 /// generics.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GenericSignature<Pub, Sig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<Sig>,
@@ -125,10 +125,6 @@ where
 {
     /// Returns `true` if `self` is a signature across `msg` by `pubkey`.
     pub fn verify(&self, pubkey: &GenericPublicKey<Pub>, msg: Hash256) -> bool {
-        if self.is_infinity && pubkey.is_infinity {
-            return true;
-        }
-
         if let Some(point) = &self.point {
             point.verify(pubkey.point(), msg)
         } else {

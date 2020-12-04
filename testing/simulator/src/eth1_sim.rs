@@ -1,6 +1,7 @@
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
-use eth1::http::Eth1NetworkId;
+use eth1::http::Eth1Id;
+use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
@@ -53,16 +54,17 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let spec = &mut env.eth2_config.spec;
 
+    let total_validator_count = validators_per_node * node_count;
+
     spec.milliseconds_per_slot /= speed_up_factor;
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
-    spec.min_genesis_active_validator_count = 64;
+    spec.min_genesis_active_validator_count = total_validator_count as u64;
     spec.seconds_per_eth1_block = 1;
 
     let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
-    let total_validator_count = validators_per_node * node_count;
     let deposit_amount = env.eth2_config.spec.max_effective_balance;
 
     let context = env.core_context();
@@ -72,9 +74,11 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Deploy the deposit contract, spawn tasks to keep creating new blocks and deposit
          * validators.
          */
-        let ganache_eth1_instance = GanacheEth1Instance::new().await?;
+        let ganache_eth1_instance =
+            GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), DEFAULT_CHAIN_ID.into()).await?;
         let deposit_contract = ganache_eth1_instance.deposit_contract;
         let network_id = ganache_eth1_instance.ganache.network_id();
+        let chain_id = ganache_eth1_instance.ganache.chain_id();
         let ganache = ganache_eth1_instance.ganache;
         let eth1_endpoint = ganache.endpoint();
         let deposit_contract_address = deposit_contract.address();
@@ -100,14 +104,16 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let mut beacon_config = testing_client_config();
 
         beacon_config.genesis = ClientGenesis::DepositContract;
-        beacon_config.eth1.endpoint = eth1_endpoint;
+        beacon_config.eth1.endpoints = vec![eth1_endpoint];
         beacon_config.eth1.deposit_contract_address = deposit_contract_address;
         beacon_config.eth1.deposit_contract_deploy_block = 0;
         beacon_config.eth1.lowest_cached_block_number = 0;
         beacon_config.eth1.follow_distance = 1;
+        beacon_config.eth1.node_far_behind_seconds = 20;
         beacon_config.dummy_eth1_backend = false;
         beacon_config.sync_eth1_chain = true;
-        beacon_config.eth1.network_id = Eth1NetworkId::Custom(network_id);
+        beacon_config.eth1.network_id = Eth1Id::from(network_id);
+        beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
 
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
@@ -191,6 +197,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    env.runtime().block_on(main_future).unwrap();
+    env.runtime()
+        .block_on(tokio_compat_02::FutureExt::compat(main_future))
+        .unwrap();
+
+    env.fire_signal();
+    env.shutdown_on_idle();
+
     Ok(())
 }

@@ -419,6 +419,7 @@ fn scrape_attestation_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &B
 
     if let Some(count) = chain
         .observed_attesters
+        .read()
         .observed_validator_count(prev_epoch)
     {
         set_gauge_by_usize(&ATTN_OBSERVATION_PREV_EPOCH_ATTESTERS, count);
@@ -426,6 +427,7 @@ fn scrape_attestation_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &B
 
     if let Some(count) = chain
         .observed_aggregators
+        .read()
         .observed_validator_count(prev_epoch)
     {
         set_gauge_by_usize(&ATTN_OBSERVATION_PREV_EPOCH_AGGREGATORS, count);

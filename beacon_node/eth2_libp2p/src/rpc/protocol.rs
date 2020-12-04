@@ -163,8 +163,8 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 /// Represents the ssz length bounds for RPC messages.
 #[derive(Debug, PartialEq)]
 pub struct RpcLimits {
-    min: usize,
-    max: usize,
+    pub min: usize,
+    pub max: usize,
 }
 
 impl RpcLimits {
@@ -503,8 +503,8 @@ impl From<ssz::DecodeError> for RPCError {
         RPCError::SSZDecodeError(err)
     }
 }
-impl From<tokio::time::Elapsed> for RPCError {
-    fn from(_: tokio::time::Elapsed) -> Self {
+impl From<tokio::time::error::Elapsed> for RPCError {
+    fn from(_: tokio::time::error::Elapsed) -> Self {
         RPCError::StreamTimeout
     }
 }

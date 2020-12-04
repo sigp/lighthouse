@@ -20,9 +20,12 @@ use parse_hex::run_parse_hex;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
-use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{
+    test_utils::TestingBeaconStateBuilder, EthSpec, EthSpecId, MainnetEthSpec, MinimalEthSpec,
+};
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -230,8 +233,17 @@ fn main() {
                         .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
-                        .default_value("http://localhost:8545")
-                        .help("The URL to the eth1 JSON-RPC http API."),
+                        .help("Deprecated. Use --eth1-endpoints."),
+                )
+                .arg(
+                    Arg::with_name("eth1-endpoints")
+                        .long("eth1-endpoints")
+                        .value_name("HTTP_SERVER_LIST")
+                        .takes_value(true)
+                        .conflicts_with("eth1-endpoint")
+                        .help("One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
+                                If multiple endpoints are given the endpoints are used as \
+                                fallback in the given order."),
                 )
         )
         .subcommand(
@@ -482,25 +494,21 @@ fn main() {
         )
         .get_matches();
 
-    macro_rules! run_with_spec {
-        ($env_builder: expr) => {
-            match run($env_builder, &matches) {
-                Ok(()) => process::exit(0),
-                Err(e) => {
-                    println!("Failed to run lcli: {}", e);
-                    process::exit(1)
-                }
-            }
-        };
-    }
+    let result = matches
+        .value_of("spec")
+        .ok_or_else(|| "Missing --spec flag".to_string())
+        .and_then(FromStr::from_str)
+        .and_then(|eth_spec_id| match eth_spec_id {
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
+            EthSpecId::V012Legacy => run(EnvironmentBuilder::v012_legacy(), &matches),
+        });
 
-    match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
-        spec => {
-            // This path should be unreachable due to slog having a `default_value`
-            unreachable!("Unknown spec configuration: {:?}", spec);
+    match result {
+        Ok(()) => process::exit(0),
+        Err(e) => {
+            println!("Failed to run lcli: {}", e);
+            process::exit(1)
         }
     }
 }

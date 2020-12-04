@@ -13,7 +13,7 @@ use rand::seq::SliceRandom;
 use slog::{debug, error, o, trace, warn};
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::SubnetDiscovery;
+use eth2_libp2p::{NetworkConfig, SubnetDiscovery};
 use hashset_delay::HashSetDelay;
 use slot_clock::SlotClock;
 use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
@@ -38,7 +38,7 @@ const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 ///  36s at 12s slot time
 const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum AttServiceMessage {
     /// Subscribe to the specified subnet id.
     Subscribe(SubnetId),
@@ -50,6 +50,32 @@ pub enum AttServiceMessage {
     EnrRemove(SubnetId),
     /// Discover peers for a list of `SubnetDiscovery`.
     DiscoverPeers(Vec<SubnetDiscovery>),
+}
+
+/// Note: This `PartialEq` impl is for use only in tests.
+/// The `DiscoverPeers` comparison is good enough for testing only.
+#[cfg(test)]
+impl PartialEq for AttServiceMessage {
+    fn eq(&self, other: &AttServiceMessage) -> bool {
+        match (self, other) {
+            (AttServiceMessage::Subscribe(a), AttServiceMessage::Subscribe(b)) => a == b,
+            (AttServiceMessage::Unsubscribe(a), AttServiceMessage::Unsubscribe(b)) => a == b,
+            (AttServiceMessage::EnrAdd(a), AttServiceMessage::EnrAdd(b)) => a == b,
+            (AttServiceMessage::EnrRemove(a), AttServiceMessage::EnrRemove(b)) => a == b,
+            (AttServiceMessage::DiscoverPeers(a), AttServiceMessage::DiscoverPeers(b)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                for i in 0..a.len() {
+                    if a[i].subnet_id != b[i].subnet_id || a[i].min_ttl != b[i].min_ttl {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// A particular subnet at a given slot.
@@ -89,6 +115,15 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// The waker for the current thread.
     waker: Option<std::task::Waker>,
 
+    /// The discovery mechanism of lighthouse is disabled.
+    discovery_disabled: bool,
+
+    /// We are always subscribed to all subnets.
+    subscribe_all_subnets: bool,
+
+    /// We process and aggregate all attestations on subscribed subnets.
+    import_all_attestations: bool,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -96,7 +131,11 @@ pub struct AttestationService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> AttestationService<T> {
     /* Public functions */
 
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: &slog::Logger) -> Self {
+    pub fn new(
+        beacon_chain: Arc<BeaconChain<T>>,
+        config: &NetworkConfig,
+        log: &slog::Logger,
+    ) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
 
         // calculate the random subnet duration from the spec constants
@@ -124,6 +163,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
+            subscribe_all_subnets: config.subscribe_all_subnets,
+            import_all_attestations: config.import_all_attestations,
+            discovery_disabled: config.disable_discovery,
             log,
         }
     }
@@ -131,7 +173,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
     #[cfg(test)]
     pub fn subscription_count(&self) -> usize {
-        self.subscriptions.len()
+        if self.subscribe_all_subnets {
+            self.beacon_chain.spec.attestation_subnet_count as usize
+        } else {
+            self.subscriptions.len()
+        }
     }
 
     /// Processes a list of validator subscriptions.
@@ -160,7 +206,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // This will subscribe to long-lived random subnets if required.
             trace!(self.log,
                 "Validator subscription";
-                "subscription" => format!("{:?}", subscription),
+                "subscription" => ?subscription,
             );
             self.add_known_validator(subscription.validator_index);
 
@@ -174,7 +220,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 Err(e) => {
                     warn!(self.log,
                         "Failed to compute subnet id for validator subscription";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                         "validator_index" => subscription.validator_index
                     );
                     continue;
@@ -186,7 +232,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 if subscription.slot > *slot {
                     subnets_to_discover.insert(subnet_id, subscription.slot);
                 }
-            } else {
+            } else if !self.discovery_disabled {
                 subnets_to_discover.insert(subnet_id, subscription.slot);
             }
 
@@ -211,20 +257,24 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 } else {
                     trace!(self.log,
                         "Subscribed to subnet for aggregator duties";
-                        "exact_subnet" => format!("{:?}", exact_subnet),
+                        "exact_subnet" => ?exact_subnet,
                         "validator_index" => subscription.validator_index
                     );
                 }
             }
         }
 
-        if let Err(e) = self.discover_peers_request(
-            subnets_to_discover
-                .into_iter()
-                .map(|(subnet_id, slot)| ExactSubnet { subnet_id, slot }),
-        ) {
-            warn!(self.log, "Discovery lookup request error"; "error" => e);
-        };
+        // If the discovery mechanism isn't disabled, attempt to set up a peer discovery for the
+        // required subnets.
+        if !self.discovery_disabled {
+            if let Err(e) = self.discover_peers_request(
+                subnets_to_discover
+                    .into_iter()
+                    .map(|(subnet_id, slot)| ExactSubnet { subnet_id, slot }),
+            ) {
+                warn!(self.log, "Discovery lookup request error"; "error" => e);
+            };
+        }
 
         // pre-emptively wake the thread to check for new events
         if let Some(waker) = &self.waker {
@@ -240,6 +290,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
+        if self.import_all_attestations {
+            return true;
+        }
+
         let exact_subnet = ExactSubnet {
             subnet_id: subnet,
             slot: attestation.data.slot,
@@ -285,7 +339,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     // peer before they can be removed.
                     warn!(self.log,
                         "Not enough time for a discovery search";
-                        "subnet_id" => format!("{:?}", exact_subnet)
+                        "subnet_id" => ?exact_subnet
                     );
                     None
                 }
@@ -343,7 +397,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // in-active. This case is checked on the subscription event (see `handle_subscriptions`).
 
         // Return if we already have a subscription for this subnet_id and slot
-        if self.unsubscriptions.contains(&exact_subnet) {
+        if self.unsubscriptions.contains(&exact_subnet) || self.subscribe_all_subnets {
             return Ok(());
         }
 
@@ -366,7 +420,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// This also updates the ENR to indicate our long-lived subscription to the subnet
     fn add_known_validator(&mut self, validator_index: u64) {
-        if self.known_validators.get(&validator_index).is_none() {
+        if self.known_validators.get(&validator_index).is_none() && !self.subscribe_all_subnets {
             // New validator has subscribed
             // Subscribe to random topics and update the ENR if needed.
 

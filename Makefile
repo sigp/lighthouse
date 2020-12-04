@@ -38,7 +38,7 @@ endif
 # optimized CPU functions that may not be available on some systems. This
 # results in a more portable binary with ~20% slower BLS verification.
 build-x86_64:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu
+	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern
 build-x86_64-portable:
 	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features portable
 build-aarch64:
@@ -69,7 +69,6 @@ build-release-tarballs:
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"")
 	$(MAKE) build-aarch64-portable
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"-portable")
-
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
@@ -137,7 +136,7 @@ audit:
 	#
 	# Tracking issue:
 	# https://github.com/sigp/lighthouse/issues/1669
-	cargo audit --ignore RUSTSEC-2020-0043
+	cargo audit --ignore RUSTSEC-2020-0043 --ignore RUSTSEC-2016-0002 --ignore RUSTSEC-2020-0008 --ignore RUSTSEC-2017-0002
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:

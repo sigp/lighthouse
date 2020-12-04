@@ -4,8 +4,8 @@
 //! - UPnP
 
 use crate::{NetworkConfig, NetworkMessage};
-use get_if_addrs::get_if_addrs;
-use slog::{debug, info, warn};
+use if_addrs::get_if_addrs;
+use slog::{debug, info};
 use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -36,32 +36,41 @@ pub fn construct_upnp_mappings<T: EthSpec>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
     log: slog::Logger,
 ) {
-    debug!(log, "UPnP Initialising routes");
+    info!(log, "UPnP Attempting to initialise routes");
     match igd::search_gateway(Default::default()) {
-        Err(e) => debug!(log, "UPnP not available"; "error" => %e),
+        Err(e) => info!(log, "UPnP not available"; "error" => %e),
         Ok(gateway) => {
             // Need to find the local listening address matched with the router subnet
-            let mut local_ip = None;
             let interfaces = match get_if_addrs() {
                 Ok(v) => v,
                 Err(e) => {
-                    debug!(log, "UPnP failed to get local interfaces"; "error" => %e);
+                    info!(log, "UPnP failed to get local interfaces"; "error" => %e);
                     return;
                 }
             };
-            for interface in interfaces {
-                // Just use the first IP of the first interface that is not a loopback
+            let local_ip = interfaces.iter().find_map(|interface| {
+                // Just use the first IP of the first interface that is not a loopback and not an
+                // ipv6 address.
                 if !interface.is_loopback() {
-                    local_ip = Some(interface.ip());
+                    if let IpAddr::V4(_) = interface.ip() {
+                        Some(interface.ip())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 }
-            }
+            });
 
-            if local_ip.is_none() {
-                debug!(log, "UPnP failed to find local IP address");
-                return;
-            }
+            let local_ip = match local_ip {
+                None => {
+                    info!(log, "UPnP failed to find local IP address");
+                    return;
+                }
+                Some(v) => v,
+            };
 
-            let local_ip = local_ip.expect("IP exists");
+            debug!(log, "UPnP Local IP Discovered"; "ip" => ?local_ip);
 
             match local_ip {
                 IpAddr::V4(address) => {
@@ -71,58 +80,88 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                     // one.
                     // I've found this to be more reliable. If multiple users are behind a single
                     // router, they should ideally try to set different port numbers.
-                    let tcp_socket = match gateway.add_port(
+                    let tcp_socket = add_port_mapping(
+                        &gateway,
                         igd::PortMappingProtocol::TCP,
-                        libp2p_socket.port(),
                         libp2p_socket,
-                        0,
-                        "lighthouse-tcp",
-                    ) {
-                        Err(e) => {
-                            debug!(log, "UPnP could not construct libp2p port route"; "error" => %e);
-                            None
-                        }
-                        Ok(_) => {
-                            info!(log, "UPnP TCP route established"; "external_socket" => format!("{}:{}", external_ip.as_ref().map(|ip| ip.to_string()).unwrap_or_else(|_| "".into()), config.tcp_port));
-                            external_ip
-                                .as_ref()
-                                .map(|ip| SocketAddr::new(ip.clone().into(), config.tcp_port))
-                                .ok()
-                        }
-                    };
+                        "tcp",
+                        &log,
+                    ).and_then(|_| {
+                        let external_socket = external_ip.as_ref().map(|ip| SocketAddr::new(ip.clone().into(), config.tcp_port)).map_err(|_| ());
+                        info!(log, "UPnP TCP route established"; "external_socket" => format!("{}:{}", external_socket.as_ref().map(|ip| ip.to_string()).unwrap_or_else(|_| "".into()), config.tcp_port));
+                        external_socket
+                    }).ok();
 
                     let udp_socket = if !config.disable_discovery {
                         let discovery_socket = SocketAddrV4::new(address, config.udp_port);
-                        match gateway.add_port(
+                        add_port_mapping(
+                            &gateway,
                             igd::PortMappingProtocol::UDP,
-                            discovery_socket.port(),
                             discovery_socket,
-                            0,
-                            "lighthouse-udp",
-                        ) {
-                            Err(e) => {
-                                debug!(log, "UPnP could not construct discovery port route"; "error" => %e);
-                                None
-                            }
-                            Ok(_) => {
-                                info!(log, "UPnP UDP route established"; "external_socket" => format!("{}:{}", external_ip.as_ref().map(|ip| ip.to_string()).unwrap_or_else(|_| "".into()), config.tcp_port));
-                                external_ip
-                                    .map(|ip| SocketAddr::new(ip.into(), config.tcp_port))
-                                    .ok()
-                            }
-                        }
+                            "udp",
+                            &log,
+                        ).and_then(|_| {
+                            let external_socket = external_ip
+                                    .map(|ip| SocketAddr::new(ip.into(), config.udp_port)).map_err(|_| ());
+                        info!(log, "UPnP UDP route established"; "external_socket" => format!("{}:{}", external_socket.as_ref().map(|ip| ip.to_string()).unwrap_or_else(|_| "".into()), config.udp_port));
+                        external_socket
+                    }).ok()
                     } else {
                         None
                     };
 
                     // report any updates to the network service.
                     network_send.send(NetworkMessage::UPnPMappingEstablished{ tcp_socket, udp_socket })
-            .unwrap_or_else(|e| warn!(log, "Could not send message to the network service"; "error" => %e));
+            .unwrap_or_else(|e| debug!(log, "Could not send message to the network service"; "error" => %e));
                 }
                 _ => debug!(log, "UPnP no routes constructed. IPv6 not supported"),
             }
         }
     };
+}
+
+/// Sets up a port mapping for a protocol returning the mapped port if successful.
+fn add_port_mapping(
+    gateway: &igd::Gateway,
+    protocol: igd::PortMappingProtocol,
+    socket: SocketAddrV4,
+    protocol_string: &'static str,
+    log: &slog::Logger,
+) -> Result<(), ()> {
+    // We add specific port mappings rather than getting the router to arbitrary assign
+    // one.
+    // I've found this to be more reliable. If multiple users are behind a single
+    // router, they should ideally try to set different port numbers.
+    let mapping_string = &format!("lighthouse-{}", protocol_string);
+    for _ in 0..2 {
+        match gateway.add_port(protocol, socket.port(), socket, 0, mapping_string) {
+            Err(e) => {
+                match e {
+                    igd::AddPortError::PortInUse => {
+                        // Try and remove and re-create
+                        debug!(log, "UPnP port in use, attempting to remap"; "protocol" => protocol_string, "port" => socket.port());
+                        match gateway.remove_port(protocol, socket.port()) {
+                            Ok(()) => {
+                                debug!(log, "UPnP Removed port mapping"; "protocol" => protocol_string,  "port" => socket.port())
+                            }
+                            Err(e) => {
+                                debug!(log, "UPnP Port remove failure"; "protocol" => protocol_string, "port" => socket.port(), "error" => %e);
+                                return Err(());
+                            }
+                        }
+                    }
+                    e => {
+                        info!(log, "UPnP TCP route not set"; "error" => %e);
+                        return Err(());
+                    }
+                }
+            }
+            Ok(_) => {
+                return Ok(());
+            }
+        }
+    }
+    Err(())
 }
 
 /// Removes the specified TCP and UDP port mappings.

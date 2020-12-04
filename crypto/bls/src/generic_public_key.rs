@@ -33,8 +33,6 @@ pub trait TPublicKey: Sized + Clone {
 pub struct GenericPublicKey<Pub> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Pub,
-    /// True if this point is equal to the `INFINITY_PUBLIC_KEY`.
-    pub(crate) is_infinity: bool,
 }
 
 impl<Pub> GenericPublicKey<Pub>
@@ -42,8 +40,8 @@ where
     Pub: TPublicKey,
 {
     /// Instantiates `Self` from a `point`.
-    pub(crate) fn from_point(point: Pub, is_infinity: bool) -> Self {
-        Self { point, is_infinity }
+    pub(crate) fn from_point(point: Pub) -> Self {
+        Self { point }
     }
 
     /// Returns a reference to the underlying BLS point.
@@ -63,10 +61,13 @@ where
 
     /// Deserialize `self` from compressed bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self {
-            point: Pub::deserialize(bytes)?,
-            is_infinity: bytes == &INFINITY_PUBLIC_KEY[..],
-        })
+        if bytes == &INFINITY_PUBLIC_KEY[..] {
+            Err(Error::InvalidInfinityPublicKey)
+        } else {
+            Ok(Self {
+                point: Pub::deserialize(bytes)?,
+            })
+        }
     }
 }
 

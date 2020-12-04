@@ -34,14 +34,16 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::network_context::SyncNetworkContext;
-use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
-use super::range_sync::{ChainId, RangeSync, EPOCHS_PER_BATCH};
+use super::peer_sync_info::{remote_sync_type, PeerSyncType};
+use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
+use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
-use eth2_libp2p::types::NetworkGlobals;
+use eth2_libp2p::types::{NetworkGlobals, SyncState};
+use eth2_libp2p::SyncInfo;
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
 use lru_cache::LRUCache;
@@ -73,7 +75,7 @@ const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 /// A message than can be sent to the sync manager thread.
 pub enum SyncMessage<T: EthSpec> {
     /// A useful peer has been discovered.
-    AddPeer(PeerId, PeerSyncInfo),
+    AddPeer(PeerId, SyncInfo),
 
     /// A `BlocksByRange` response has been received.
     BlocksByRangeResponse {
@@ -176,11 +178,11 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// The flag allows us to determine if the peer returned data or sent us nothing.
     single_block_lookups: FnvHashMap<RequestId, SingleBlockRequest>,
 
-    /// The logger for the import manager.
-    log: Logger,
-
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+
+    /// The logger for the import manager.
+    log: Logger,
 }
 
 /// Object representing a single block lookup request.
@@ -222,7 +224,6 @@ pub fn spawn<T: BeaconChainTypes>(
     let mut sync_manager = SyncManager {
         range_sync: RangeSync::new(
             beacon_chain.clone(),
-            network_globals.clone(),
             beacon_processor_send.clone(),
             log.clone(),
         ),
@@ -233,8 +234,8 @@ pub fn spawn<T: BeaconChainTypes>(
         parent_queue: SmallVec::new(),
         failed_chains: LRUCache::new(500),
         single_block_lookups: FnvHashMap::default(),
-        log: log.clone(),
         beacon_processor_send,
+        log: log.clone(),
     };
 
     // spawn the sync manager thread
@@ -255,66 +256,32 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ///
     /// If the peer is within the `SLOT_IMPORT_TOLERANCE`, then it's head is sufficiently close to
     /// ours that we consider it fully sync'd with respect to our current chain.
-    fn add_peer(&mut self, peer_id: PeerId, remote: PeerSyncInfo) {
+    fn add_peer(&mut self, peer_id: PeerId, remote: SyncInfo) {
         // ensure the beacon chain still exists
-        let local_peer_info = match PeerSyncInfo::from_chain(&self.chain) {
-            Some(local) => local,
-            None => {
-                return error!(
-                    self.log,
-                    "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention"
-                )
+        let local = match self.chain.status_message() {
+            Ok(status) => SyncInfo {
+                head_slot: status.head_slot,
+                head_root: status.head_root,
+                finalized_epoch: status.finalized_epoch,
+                finalized_root: status.finalized_root,
+            },
+            Err(e) => {
+                return error!(self.log, "Failed to get peer sync info";
+                    "msg" => "likely due to head lock contention", "err" => ?e)
             }
         };
 
-        match local_peer_info.peer_sync_type(&remote) {
-            PeerSyncType::FullySynced => {
-                trace!(self.log, "Peer synced to our head found";
-                    "peer" => %peer_id,
-                    "peer_head_slot" => remote.head_slot,
-                    "local_head_slot" => local_peer_info.head_slot,
-                );
-                self.synced_peer(&peer_id, remote);
-                // notify the range sync that a peer has been added
-                self.range_sync.fully_synced_peer_found(&mut self.network);
-            }
-            PeerSyncType::Advanced => {
-                trace!(self.log, "Useful peer for sync found";
-                    "peer" => %peer_id,
-                    "peer_head_slot" => remote.head_slot,
-                    "local_head_slot" => local_peer_info.head_slot,
-                    "peer_finalized_epoch" => remote.finalized_epoch,
-                    "local_finalized_epoch" => local_peer_info.finalized_epoch,
-                );
+        let sync_type = remote_sync_type(&local, &remote, &self.chain);
 
-                // There are few cases to handle here:
-                //
-                // - A peer could appear advanced if our fork choice has rejected their version of
-                // the chain. If we know of their head slot, we consider this peer fully synced.
-                // - A peer could have just advanced to the next epoch and have a new finalized
-                // epoch that is currently ahead of ours. If their finalized epoch is ahead of ours
-                // by one and their head_slot is within the slot tolerance, consider this peer
-                // fully synced.
+        // update the state of the peer.
+        let should_add = self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
 
-                if (self.chain.fork_choice.read().contains_block(&remote.head_root)) || // the first case
-                    (remote.finalized_epoch.sub(local_peer_info.finalized_epoch) == 1 && remote.head_slot.sub(local_peer_info.head_slot) < SLOT_IMPORT_TOLERANCE as u64)
-                // the second case
-                {
-                    self.synced_peer(&peer_id, remote);
-                    // notify the range sync that a peer has been added
-                    self.range_sync.fully_synced_peer_found(&mut self.network);
-                } else {
-                    // Add the peer to our RangeSync
-                    self.range_sync
-                        .add_peer(&mut self.network, peer_id.clone(), remote);
-                    self.advanced_peer(&peer_id, remote);
-                }
-            }
-            PeerSyncType::Behind => {
-                self.behind_peer(&peer_id, remote);
-            }
+        if matches!(sync_type, PeerSyncType::Advanced) && should_add {
+            self.range_sync
+                .add_peer(&mut self.network, local, peer_id, remote);
         }
+
+        self.update_sync_state();
     }
 
     /// The response to a `BlocksByRoot` request.
@@ -621,6 +588,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // otherwise, this is a range sync issue, notify the range sync
         self.range_sync
             .inject_error(&mut self.network, peer_id, request_id);
+        self.update_sync_state();
     }
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
@@ -628,55 +596,89 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.update_sync_state();
     }
 
-    // TODO: Group these functions into one for cleaner code.
-    /// Updates the syncing state of a peer to be synced.
-    fn synced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
-        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let head_slot = sync_info.head_slot;
-            let finalized_epoch = sync_info.finalized_epoch;
-            if peer_info.sync_status.update_synced(sync_info.into()) {
-                debug!(self.log, "Peer transitioned sync state"; "new_state" => "synced", "peer_id" => %peer_id, "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
-            }
-        } else {
-            crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
-        }
-        self.update_sync_state();
-    }
+    /// Updates the syncing state of a peer.
+    /// Return whether the peer should be used for range syncing or not, according to its
+    /// connection status.
+    fn update_peer_sync_state(
+        &mut self,
+        peer_id: &PeerId,
+        local_sync_info: &SyncInfo,
+        remote_sync_info: &SyncInfo,
+        sync_type: &PeerSyncType,
+    ) -> bool {
+        // NOTE: here we are gracefully handling two race conditions: Receiving the status message
+        // of a peer that is 1) disconnected 2) not in the PeerDB.
 
-    /// Updates the syncing state of a peer to be advanced.
-    fn advanced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let head_slot = sync_info.head_slot;
-            let finalized_epoch = sync_info.finalized_epoch;
-            if peer_info.sync_status.update_advanced(sync_info.into()) {
-                debug!(self.log, "Peer transitioned sync state"; "new_state" => "advanced", "peer_id" => %peer_id, "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
+            let new_state = sync_type.as_sync_status(remote_sync_info);
+            let rpr = new_state.as_str();
+            let was_updated = peer_info.sync_status.update(new_state);
+            if was_updated {
+                debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
+                    "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,
+                    "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch,
+                    "is_connected" => peer_info.is_connected());
             }
+            peer_info.is_connected()
         } else {
             crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
+            false
         }
-        self.update_sync_state();
-    }
-
-    /// Updates the syncing state of a peer to be behind.
-    fn behind_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
-        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let head_slot = sync_info.head_slot;
-            let finalized_epoch = sync_info.finalized_epoch;
-            if peer_info.sync_status.update_behind(sync_info.into()) {
-                debug!(self.log, "Peer transitioned sync state"; "new_state" => "behind", "peer_id" => %peer_id, "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
-            }
-        } else {
-            crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
-        }
-        self.update_sync_state();
     }
 
     /// Updates the global sync state and logs any changes.
     fn update_sync_state(&mut self) {
-        if let Some((old_state, new_state)) = self.network_globals.update_sync_state() {
+        let new_state: SyncState = match self.range_sync.state() {
+            Err(e) => {
+                crit!(self.log, "Error getting range sync state"; "error" => %e);
+                return;
+            }
+            Ok(state) => match state {
+                None => {
+                    // no range sync, decide if we are stalled or synced.
+                    // For this we check if there is at least one advanced peer. An advanced peer
+                    // with Idle range is possible since a peer's status is updated periodically.
+                    // If we synced a peer between status messages, most likely the peer has
+                    // advanced and will produce a head chain on re-status. Otherwise it will shift
+                    // to being synced
+                    let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
+                    let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
+
+                    let peers = self.network_globals.peers.read();
+                    if current_slot >= head
+                        && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
+                        && head > 0
+                    {
+                        SyncState::Synced
+                    } else if peers.advanced_peers().next().is_some() {
+                        SyncState::SyncTransition
+                    } else if peers.synced_peers().next().is_none() {
+                        SyncState::Stalled
+                    } else {
+                        // There are no peers that require syncing and we have at least one synced
+                        // peer
+                        SyncState::Synced
+                    }
+                }
+                Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
+                    SyncState::SyncingFinalized {
+                        start_slot,
+                        target_slot,
+                    }
+                }
+                Some((RangeSyncType::Head, start_slot, target_slot)) => SyncState::SyncingHead {
+                    start_slot,
+                    target_slot,
+                },
+            },
+        };
+
+        let old_state = self.network_globals.set_sync_state(new_state);
+        let new_state = self.network_globals.sync_state.read();
+        if !new_state.eq(&old_state) {
             info!(self.log, "Sync state updated"; "old_state" => %old_state, "new_state" => %new_state);
             // If we have become synced - Subscribe to all the core subnet topics
-            if new_state == eth2_libp2p::types::SyncState::Synced {
+            if new_state.is_synced() {
                 self.network.subscribe_core_topics();
             }
         }
@@ -879,6 +881,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             request_id,
                             beacon_block.map(|b| *b),
                         );
+                        self.update_sync_state();
                     }
                     SyncMessage::BlocksByRootResponse {
                         peer_id,
@@ -911,6 +914,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             epoch,
                             result,
                         );
+                        self.update_sync_state();
                     }
                     SyncMessage::ParentLookupFailed {
                         chain_head,

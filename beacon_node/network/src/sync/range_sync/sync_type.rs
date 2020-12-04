@@ -1,12 +1,12 @@
 //! Contains logic about identifying which Sync to perform given PeerSyncInfo of ourselves and
 //! of a remote.
 
-use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2_libp2p::SyncInfo;
 use std::sync::Arc;
 
 /// The type of Range sync that should be done relative to our current state.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum RangeSyncType {
     /// A finalized chain sync should be started with this peer.
     Finalized,
@@ -19,8 +19,8 @@ impl RangeSyncType {
     /// `PeerSyncInfo`.
     pub fn new<T: BeaconChainTypes>(
         chain: &Arc<BeaconChain<T>>,
-        local_info: &PeerSyncInfo,
-        remote_info: &PeerSyncInfo,
+        local_info: &SyncInfo,
+        remote_info: &SyncInfo,
     ) -> RangeSyncType {
         // Check for finalized chain sync
         //
@@ -37,6 +37,14 @@ impl RangeSyncType {
             RangeSyncType::Finalized
         } else {
             RangeSyncType::Head
+        }
+    }
+
+    /// Get a `str` representation of the `RangeSyncType`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RangeSyncType::Finalized => "Finalized",
+            RangeSyncType::Head => "Head",
         }
     }
 }

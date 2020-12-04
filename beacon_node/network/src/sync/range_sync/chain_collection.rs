@@ -3,16 +3,19 @@
 //! Each chain type is stored in it's own map. A variety of helper functions are given along with
 //! this struct to simplify the logic of the other layers of sync.
 
-use super::chain::{ChainId, ChainSyncingState, ProcessingResult, SyncingChain};
+use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId};
+use eth2_libp2p::PeerId;
+use eth2_libp2p::SyncInfo;
 use fnv::FnvHashMap;
-use slog::{crit, debug, error, info, trace};
+use slog::{crit, debug, error};
+use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -21,70 +24,24 @@ use types::{Epoch, Hash256, Slot};
 /// The number of head syncing chains to sync at a time.
 const PARALLEL_HEAD_CHAINS: usize = 2;
 
+/// Minimum work we require a finalized chain to do before picking a chain with more peers.
+const MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS: u64 = 10;
+
 /// The state of the long range/batch sync.
 #[derive(Clone)]
 pub enum RangeSyncState {
     /// A finalized chain is being synced.
-    Finalized {
-        /// The start of the finalized chain.
-        start_slot: Slot,
-        /// The target head slot of the finalized chain.
-        head_slot: Slot,
-        /// The target head root of the finalized chain.
-        head_root: Hash256,
-    },
+    Finalized(u64),
     /// There are no finalized chains and we are syncing one more head chains.
-    Head {
-        /// The last finalized checkpoint for all head chains.
-        start_slot: Slot,
-        /// The largest known slot to sync to.
-        head_slot: Slot,
-    },
+    Head(SmallVec<[u64; PARALLEL_HEAD_CHAINS]>),
     /// There are no head or finalized chains and no long range sync is in progress.
     Idle,
-}
-
-impl PartialEq for RangeSyncState {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (RangeSyncState::Finalized { .. }, RangeSyncState::Finalized { .. }) => true,
-            (RangeSyncState::Head { .. }, RangeSyncState::Head { .. }) => true,
-            (RangeSyncState::Idle, RangeSyncState::Idle) => true,
-            _ => false,
-        }
-    }
-}
-
-impl Into<SyncState> for RangeSyncState {
-    fn into(self) -> SyncState {
-        match self {
-            RangeSyncState::Finalized {
-                start_slot,
-                head_slot,
-                head_root,
-            } => SyncState::SyncingFinalized {
-                start_slot,
-                head_slot,
-                head_root,
-            },
-            RangeSyncState::Head {
-                start_slot,
-                head_slot,
-            } => SyncState::SyncingHead {
-                start_slot,
-                head_slot,
-            },
-            RangeSyncState::Idle => SyncState::Stalled, // this should never really be used
-        }
-    }
 }
 
 /// A collection of finalized and head chains currently being processed.
 pub struct ChainCollection<T: BeaconChainTypes> {
     /// The beacon chain for processing.
     beacon_chain: Arc<BeaconChain<T>>,
-    /// A reference to the global network parameters.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// The set of finalized chains being synced.
     finalized_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The set of head chains being synced.
@@ -96,14 +53,9 @@ pub struct ChainCollection<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> ChainCollection<T> {
-    pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
-        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        log: slog::Logger,
-    ) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: slog::Logger) -> Self {
         ChainCollection {
             beacon_chain,
-            network_globals,
             finalized_chains: FnvHashMap::default(),
             head_chains: FnvHashMap::default(),
             state: RangeSyncState::Idle,
@@ -111,107 +63,85 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
-    pub fn state(&self) -> &RangeSyncState {
-        &self.state
-    }
+    /// Updates the Syncing state of the collection after a chain is removed.
+    fn on_chain_removed(&mut self, id: &ChainId, was_syncing: bool, sync_type: RangeSyncType) {
+        let _ = metrics::get_int_gauge(&metrics::SYNCING_CHAINS_COUNT, &[sync_type.as_str()])
+            .map(|m| m.dec());
 
-    /// Updates the global sync state and logs any changes.
-    pub fn update_sync_state(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        // if there is no range sync occurring, the state is either synced or not based on
-        // connected peers.
-
-        if self.state == RangeSyncState::Idle {
-            // there is no range sync, let the state of peers determine the global node sync state
-            let new_state = self
-                .network_globals
-                .peers
-                .read()
-                .synced_peers()
-                .next()
-                .map(|_| SyncState::Synced)
-                .unwrap_or_else(|| SyncState::Stalled);
-            let mut peer_state = self.network_globals.sync_state.write();
-            if new_state != *peer_state {
-                info!(self.log, "Sync state updated"; "old_state" => %peer_state, "new_state" => %new_state);
-                if new_state == SyncState::Synced {
-                    network.subscribe_core_topics();
+        match self.state {
+            RangeSyncState::Finalized(ref syncing_id) => {
+                if syncing_id == id {
+                    // the finalized chain that was syncing was removed
+                    debug_assert!(was_syncing);
+                    let syncing_head_ids: SmallVec<[u64; PARALLEL_HEAD_CHAINS]> = self
+                        .head_chains
+                        .iter()
+                        .filter(|(_id, chain)| chain.is_syncing())
+                        .map(|(id, _)| *id)
+                        .collect();
+                    self.state = if syncing_head_ids.is_empty() {
+                        RangeSyncState::Idle
+                    } else {
+                        RangeSyncState::Head(syncing_head_ids)
+                    };
+                } else {
+                    debug_assert!(!was_syncing);
                 }
-                *peer_state = new_state;
             }
-        } else {
-            // The state is based on a range sync state, update it
-            let mut node_sync_state = self.network_globals.sync_state.write();
-            let new_state: SyncState = self.state.clone().into();
-            if *node_sync_state != new_state {
-                // we are updating the state, inform the user
-                info!(self.log, "Sync state updated"; "old_state" => %node_sync_state, "new_state" => %new_state);
+            RangeSyncState::Head(ref mut syncing_head_ids) => {
+                if let Some(index) = syncing_head_ids
+                    .iter()
+                    .enumerate()
+                    .find(|(_, &chain_id)| &chain_id == id)
+                    .map(|(i, _)| i)
+                {
+                    // a syncing head chain was removed
+                    debug_assert!(was_syncing);
+                    syncing_head_ids.swap_remove(index);
+                    if syncing_head_ids.is_empty() {
+                        self.state = RangeSyncState::Idle;
+                    }
+                } else {
+                    debug_assert!(!was_syncing);
+                }
             }
-            *node_sync_state = new_state;
-        }
-    }
-
-    /// A fully synced peer has joined.
-    ///
-    /// We could be awaiting a head sync. If we are in the head syncing state, without any head
-    /// chains, then update the state to idle.
-    pub fn fully_synced_peer_found(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        if let RangeSyncState::Head { .. } = self.state {
-            if self.head_chains.is_empty() {
-                // Update the global network state to either synced or stalled.
-                self.state = RangeSyncState::Idle;
-                self.update_sync_state(network);
+            RangeSyncState::Idle => {
+                // the removed chain should not be syncing
+                debug_assert!(!was_syncing)
             }
-        }
-    }
-
-    /// After a finalized chain completes this function is called. It ensures the state is set to
-    /// `SyncState::Head` indicating we are awaiting new peers to connect before we can consider
-    /// the state as idle.
-    pub fn set_head_sync(&mut self) {
-        if let RangeSyncState::Idle = self.state {
-            let current_slot = self
-                .beacon_chain
-                .head_info()
-                .map(|info| info.slot)
-                .unwrap_or_else(|_| Slot::from(0u64));
-
-            // NOTE: This will modify the /node/syncing API to show current slot for all fields
-            // while we update peers to look for new potentially HEAD chains.
-            let temp_head_state = RangeSyncState::Head {
-                start_slot: current_slot,
-                head_slot: current_slot,
-            };
-            self.state = temp_head_state;
         }
     }
 
     /// Calls `func` on every chain of the collection. If the result is
     /// `ProcessingResult::RemoveChain`, the chain is removed and returned.
-    pub fn call_all<F>(&mut self, mut func: F) -> Vec<(SyncingChain<T>, RangeSyncType)>
+    /// NOTE: `func` must not change the syncing state of a chain.
+    pub fn call_all<F>(&mut self, mut func: F) -> Vec<(SyncingChain<T>, RangeSyncType, RemoveChain)>
     where
         F: FnMut(&mut SyncingChain<T>) -> ProcessingResult,
     {
         let mut to_remove = Vec::new();
 
         for (id, chain) in self.finalized_chains.iter_mut() {
-            if let ProcessingResult::RemoveChain = func(chain) {
-                to_remove.push((*id, RangeSyncType::Finalized));
+            if let Err(remove_reason) = func(chain) {
+                to_remove.push((*id, RangeSyncType::Finalized, remove_reason));
             }
         }
 
         for (id, chain) in self.head_chains.iter_mut() {
-            if let ProcessingResult::RemoveChain = func(chain) {
-                to_remove.push((*id, RangeSyncType::Head));
+            if let Err(remove_reason) = func(chain) {
+                to_remove.push((*id, RangeSyncType::Head, remove_reason));
             }
         }
 
         let mut results = Vec::with_capacity(to_remove.len());
-        for (id, sync_type) in to_remove.into_iter() {
+        for (id, sync_type, reason) in to_remove.into_iter() {
             let chain = match sync_type {
                 RangeSyncType::Finalized => self.finalized_chains.remove(&id),
                 RangeSyncType::Head => self.head_chains.remove(&id),
             };
-            results.push((chain.expect("Chain exits"), sync_type));
+            let chain = chain.expect("Chain exists");
+            self.on_chain_removed(&id, chain.is_syncing(), sync_type);
+            results.push((chain, sync_type, reason));
         }
         results
     }
@@ -220,25 +150,31 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ///
     /// If the function returns `ProcessingResult::RemoveChain`, the chain is removed and returned.
     /// If the chain is found, its syncing type is returned, or an error otherwise.
+    /// NOTE: `func` should not change the sync state of a chain.
+    #[allow(clippy::type_complexity)]
     pub fn call_by_id<F>(
         &mut self,
         id: ChainId,
         func: F,
-    ) -> Result<(Option<SyncingChain<T>>, RangeSyncType), ()>
+    ) -> Result<(Option<(SyncingChain<T>, RemoveChain)>, RangeSyncType), ()>
     where
         F: FnOnce(&mut SyncingChain<T>) -> ProcessingResult,
     {
         if let Entry::Occupied(mut entry) = self.finalized_chains.entry(id) {
             // Search in our finalized chains first
-            if let ProcessingResult::RemoveChain = func(entry.get_mut()) {
-                Ok((Some(entry.remove()), RangeSyncType::Finalized))
+            if let Err(remove_reason) = func(entry.get_mut()) {
+                let chain = entry.remove();
+                self.on_chain_removed(&id, chain.is_syncing(), RangeSyncType::Finalized);
+                Ok((Some((chain, remove_reason)), RangeSyncType::Finalized))
             } else {
                 Ok((None, RangeSyncType::Finalized))
             }
         } else if let Entry::Occupied(mut entry) = self.head_chains.entry(id) {
             // Search in our head chains next
-            if let ProcessingResult::RemoveChain = func(entry.get_mut()) {
-                Ok((Some(entry.remove()), RangeSyncType::Head))
+            if let Err(remove_reason) = func(entry.get_mut()) {
+                let chain = entry.remove();
+                self.on_chain_removed(&id, chain.is_syncing(), RangeSyncType::Head);
+                Ok((Some((chain, remove_reason)), RangeSyncType::Head))
             } else {
                 Ok((None, RangeSyncType::Head))
             }
@@ -253,31 +189,65 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// This removes any out-dated chains, swaps to any higher priority finalized chains and
     /// updates the state of the collection. This starts head chains syncing if any are required to
     /// do so.
-    pub fn update(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        let (local_finalized_epoch, local_head_epoch) =
-            match PeerSyncInfo::from_chain(&self.beacon_chain) {
-                None => {
-                    return error!(
-                        self.log,
-                        "Failed to get peer sync info";
-                        "msg" => "likely due to head lock contention"
-                    )
-                }
-                Some(local) => (
-                    local.finalized_epoch,
-                    local.head_slot.epoch(T::EthSpec::slots_per_epoch()),
-                ),
-            };
-
+    pub fn update(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        local: &SyncInfo,
+        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
+        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    ) {
         // Remove any outdated finalized/head chains
-        self.purge_outdated_chains(network);
+        self.purge_outdated_chains(local, awaiting_head_peers);
 
+        let local_head_epoch = local.head_slot.epoch(T::EthSpec::slots_per_epoch());
         // Choose the best finalized chain if one needs to be selected.
-        self.update_finalized_chains(network, local_finalized_epoch, local_head_epoch);
+        self.update_finalized_chains(network, local.finalized_epoch, local_head_epoch);
 
-        if self.finalized_syncing_chain().is_none() {
+        if !matches!(self.state, RangeSyncState::Finalized(_)) {
             // Handle head syncing chains if there are no finalized chains left.
-            self.update_head_chains(network, local_finalized_epoch, local_head_epoch);
+            self.update_head_chains(
+                network,
+                local.finalized_epoch,
+                local_head_epoch,
+                awaiting_head_peers,
+                beacon_processor_send,
+            );
+        }
+    }
+
+    pub fn state(
+        &self,
+    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
+        match self.state {
+            RangeSyncState::Finalized(ref syncing_id) => {
+                let chain = self
+                    .finalized_chains
+                    .get(syncing_id)
+                    .ok_or("Finalized syncing chain not found")?;
+                Ok(Some((
+                    RangeSyncType::Finalized,
+                    chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    chain.target_head_slot,
+                )))
+            }
+            RangeSyncState::Head(ref syncing_head_ids) => {
+                let mut range: Option<(Slot, Slot)> = None;
+                for id in syncing_head_ids {
+                    let chain = self
+                        .head_chains
+                        .get(id)
+                        .ok_or("Head syncing chain not found")?;
+                    let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                    let target = chain.target_head_slot;
+
+                    range = range
+                        .map(|(min_start, max_slot)| (min_start.min(start), max_slot.max(target)))
+                        .or(Some((start, target)));
+                }
+                let (start_slot, target_slot) = range.ok_or("Syncing head with empty head ids")?;
+                Ok(Some((RangeSyncType::Head, start_slot, target_slot)))
+            }
+            RangeSyncState::Idle => Ok(None),
         }
     }
 
@@ -290,26 +260,35 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         local_head_epoch: Epoch,
     ) {
         // Find the chain with most peers and check if it is already syncing
-        if let Some((new_id, peers)) = self
+        if let Some((mut new_id, max_peers)) = self
             .finalized_chains
             .iter()
             .max_by_key(|(_, chain)| chain.available_peers())
             .map(|(id, chain)| (*id, chain.available_peers()))
         {
-            let old_id = self.finalized_syncing_chain().map(
-                |(currently_syncing_id, currently_syncing_chain)| {
-                    if *currently_syncing_id != new_id
-                        && peers > currently_syncing_chain.available_peers()
-                    {
-                        currently_syncing_chain.stop_syncing();
-                        // we stop this chain and start syncing the one with more peers
-                        Some(*currently_syncing_id)
-                    } else {
-                        // the best chain is already the syncing chain, advance it if possible
-                        None
+            let mut old_id = None;
+            if let RangeSyncState::Finalized(syncing_id) = self.state {
+                if syncing_id == new_id {
+                    // best chain is already syncing
+                    old_id = Some(None);
+                } else {
+                    // chains are different, check that they don't have the same number of peers
+                    if let Some(syncing_chain) = self.finalized_chains.get_mut(&syncing_id) {
+                        if max_peers > syncing_chain.available_peers()
+                            && syncing_chain.validated_epochs()
+                                > MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS
+                        {
+                            syncing_chain.stop_syncing();
+                            old_id = Some(Some(syncing_id));
+                        } else {
+                            // chains have the same number of peers, pick the currently syncing
+                            // chain to avoid unnecesary switchings and try to advance it
+                            new_id = syncing_id;
+                            old_id = Some(None);
+                        }
                     }
-                },
-            );
+                }
+            }
 
             let chain = self
                 .finalized_chains
@@ -318,25 +297,26 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
             match old_id {
                 Some(Some(old_id)) => debug!(self.log, "Switching finalized chains";
-                        "old_id" => old_id, &chain),
-                None => debug!(self.log, "Syncing new chain"; &chain),
-                Some(None) => trace!(self.log, "Advancing currently syncing chain"),
-                // this is the same chain. We try to advance it.
+                    "old_id" => old_id, &chain),
+                None => debug!(self.log, "Syncing new finalized chain"; &chain),
+                Some(None) => {
+                    // this is the same chain. We try to advance it.
+                }
             }
-            // update the state to a new finalized state
-            let state = RangeSyncState::Finalized {
-                start_slot: chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                head_slot: chain.target_head_slot,
-                head_root: chain.target_head_root,
-            };
-            self.state = state;
 
-            if let ProcessingResult::RemoveChain =
-                chain.start_syncing(network, local_epoch, local_head_epoch)
+            // update the state to a new finalized state
+            self.state = RangeSyncState::Finalized(new_id);
+
+            if let Err(remove_reason) = chain.start_syncing(network, local_epoch, local_head_epoch)
             {
-                // this happens only if sending a batch over the `network` fails a lot
-                error!(self.log, "Chain removed while switching chains");
+                if remove_reason.is_critical() {
+                    crit!(self.log, "Chain removed while switching chains"; "chain" => new_id, "reason" => ?remove_reason);
+                } else {
+                    // this happens only if sending a batch over the `network` fails a lot
+                    error!(self.log, "Chain removed while switching chains"; "chain" => new_id, "reason" => ?remove_reason);
+                }
                 self.finalized_chains.remove(&new_id);
+                self.on_chain_removed(&new_id, true, RangeSyncType::Finalized);
             }
         }
     }
@@ -347,80 +327,69 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         local_epoch: Epoch,
         local_head_epoch: Epoch,
+        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
+        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     ) {
-        // There are no finalized chains, update the state.
+        // Include the awaiting head peers
+        for (peer_id, peer_sync_info) in awaiting_head_peers.drain() {
+            debug!(self.log, "including head peer");
+            self.add_peer_or_create_chain(
+                local_epoch,
+                peer_sync_info.head_root,
+                peer_sync_info.head_slot,
+                peer_id,
+                RangeSyncType::Head,
+                beacon_processor_send,
+                network,
+            );
+        }
+
         if self.head_chains.is_empty() {
+            // There are no finalized chains, update the state.
             self.state = RangeSyncState::Idle;
             return;
         }
 
-        let mut currently_syncing = self
+        // Order chains by available peers, if two chains have the same number of peers, prefer one
+        // that is already syncing
+        let mut preferred_ids = self
             .head_chains
-            .values()
-            .filter(|chain| chain.is_syncing())
-            .count();
-        let mut not_syncing = self.head_chains.len() - currently_syncing;
-        // Find all head chains that are not currently syncing ordered by peer count.
-        while currently_syncing <= PARALLEL_HEAD_CHAINS && not_syncing > 0 {
-            // Find the chain with the most peers and start syncing
-            if let Some((_id, chain)) = self
-                .head_chains
-                .iter_mut()
-                .filter(|(_id, chain)| !chain.is_syncing())
-                .max_by_key(|(_id, chain)| chain.available_peers())
-            {
-                // start syncing this chain
-                debug!(self.log, "New head chain started syncing"; &chain);
-                if let ProcessingResult::RemoveChain =
+            .iter()
+            .map(|(id, chain)| (chain.available_peers(), !chain.is_syncing(), *id))
+            .collect::<Vec<_>>();
+        preferred_ids.sort_unstable();
+
+        let mut syncing_chains = SmallVec::<[u64; PARALLEL_HEAD_CHAINS]>::new();
+        for (_, _, id) in preferred_ids {
+            let chain = self.head_chains.get_mut(&id).expect("known chain");
+            if syncing_chains.len() < PARALLEL_HEAD_CHAINS {
+                // start this chain if it's not already syncing
+                if !chain.is_syncing() {
+                    debug!(self.log, "New head chain started syncing"; &chain);
+                }
+                if let Err(remove_reason) =
                     chain.start_syncing(network, local_epoch, local_head_epoch)
                 {
-                    error!(self.log, "Chain removed while switching head chains")
+                    self.head_chains.remove(&id);
+                    if remove_reason.is_critical() {
+                        crit!(self.log, "Chain removed while switching head chains"; "chain" => id, "reason" => ?remove_reason);
+                    } else {
+                        error!(self.log, "Chain removed while switching head chains"; "chain" => id, "reason" => ?remove_reason);
+                    }
+                } else {
+                    syncing_chains.push(id);
                 }
-            }
-            // update variables
-            currently_syncing = self
-                .head_chains
-                .iter()
-                .filter(|(_id, chain)| chain.is_syncing())
-                .count();
-            not_syncing = self.head_chains.len() - currently_syncing;
-        }
-        // Start
-        // for the syncing API, we find the minimal start_slot and the maximum
-        // target_slot of all head chains to report back.
-        let (min_epoch, max_slot) = self
-            .head_chains
-            .values()
-            .filter(|chain| chain.is_syncing())
-            .fold(
-                (Epoch::from(0u64), Slot::from(0u64)),
-                |(min, max), chain| {
-                    (
-                        std::cmp::min(min, chain.start_epoch),
-                        std::cmp::max(max, chain.target_head_slot),
-                    )
-                },
-            );
-        let head_state = RangeSyncState::Head {
-            start_slot: min_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-            head_slot: max_slot,
-        };
-        self.state = head_state;
-    }
-
-    /// This is called once a head chain has completed syncing. It removes all non-syncing head
-    /// chains and re-status their peers.
-    pub fn clear_head_chains(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        let log_ref = &self.log;
-        self.head_chains.retain(|_id, chain| {
-            if !chain.is_syncing() {
-                debug!(log_ref, "Removing old head chain"; &chain);
-                chain.status_peers(network);
-                false
             } else {
-                true
+                // stop any other chain
+                chain.stop_syncing();
             }
-        });
+        }
+
+        self.state = if syncing_chains.is_empty() {
+            RangeSyncState::Idle
+        } else {
+            RangeSyncState::Head(syncing_chains)
+        };
     }
 
     /// Returns if `true` if any finalized chains exist, `false` otherwise.
@@ -430,64 +399,62 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
     /// Removes any outdated finalized or head chains.
     /// This removes chains with no peers, or chains whose start block slot is less than our current
-    /// finalized block slot.
-    pub fn purge_outdated_chains(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        // Remove any chains that have no peers
-        self.finalized_chains
-            .retain(|_id, chain| chain.available_peers() > 0);
-        self.head_chains
-            .retain(|_id, chain| chain.available_peers() > 0);
-
-        let local_info = match PeerSyncInfo::from_chain(&self.beacon_chain) {
-            Some(local) => local,
-            None => {
-                return error!(
-                    self.log,
-                    "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention"
-                )
-            }
-        };
-
+    /// finalized block slot. Peers that would create outdated chains are removed too.
+    pub fn purge_outdated_chains(
+        &mut self,
+        local_info: &SyncInfo,
+        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
+    ) {
         let local_finalized_slot = local_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
         let beacon_chain = &self.beacon_chain;
         let log_ref = &self.log;
-        // Remove chains that are out-dated and re-status their peers
-        self.finalized_chains.retain(|_id, chain| {
-            if chain.target_head_slot <= local_finalized_slot
-                || beacon_chain
-                    .fork_choice
-                    .read()
-                    .contains_block(&chain.target_head_root)
+
+        let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
+            target_slot <= &local_finalized_slot
+                || beacon_chain.fork_choice.read().contains_block(target_root)
+        };
+
+        // Retain only head peers that remain relevant
+        awaiting_head_peers.retain(|_peer_id, peer_sync_info| {
+            !is_outdated(&peer_sync_info.head_slot, &peer_sync_info.head_root)
+        });
+
+        // Remove chains that are out-dated
+        let mut removed_chains = Vec::new();
+        self.finalized_chains.retain(|id, chain| {
+            if is_outdated(&chain.target_head_slot, &chain.target_head_root)
+                || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of finalized chain"; &chain);
-                chain.status_peers(network);
+                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Finalized));
                 false
             } else {
                 true
             }
         });
-        self.head_chains.retain(|_id, chain| {
-            if chain.target_head_slot <= local_finalized_slot
-                || beacon_chain
-                    .fork_choice
-                    .read()
-                    .contains_block(&chain.target_head_root)
+        self.head_chains.retain(|id, chain| {
+            if is_outdated(&chain.target_head_slot, &chain.target_head_root)
+                || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of date head chain"; &chain);
-                chain.status_peers(network);
+                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Head));
                 false
             } else {
                 true
             }
         });
+
+        // update the state of the collection
+        for (id, was_syncing, sync_type) in removed_chains {
+            self.on_chain_removed(&id, was_syncing, sync_type);
+        }
     }
 
     /// Adds a peer to a chain with the given target, or creates a new syncing chain if it doesn't
-    /// exits.
+    /// exists.
     #[allow(clippy::too_many_arguments)]
     pub fn add_peer_or_create_chain(
         &mut self,
@@ -501,27 +468,24 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ) {
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
         let collection = if let RangeSyncType::Finalized = sync_type {
-            if let Some(chain) = self.head_chains.get(&id) {
-                // sanity verification for chain duplication / purging issues
-                crit!(self.log, "Adding known head chain as finalized chain"; chain);
-            }
             &mut self.finalized_chains
         } else {
-            if let Some(chain) = self.finalized_chains.get(&id) {
-                // sanity verification for chain duplication / purging issues
-                crit!(self.log, "Adding known finalized chain as head chain"; chain);
-            }
             &mut self.head_chains
         };
         match collection.entry(id) {
             Entry::Occupied(mut entry) => {
                 let chain = entry.get_mut();
                 debug!(self.log, "Adding peer to known chain"; "peer_id" => %peer, "sync_type" => ?sync_type, &chain);
-                assert_eq!(chain.target_head_root, target_head_root);
-                assert_eq!(chain.target_head_slot, target_head_slot);
-                if let ProcessingResult::RemoveChain = chain.add_peer(network, peer) {
-                    debug!(self.log, "Chain removed after adding peer"; "chain" => id);
-                    entry.remove();
+                debug_assert_eq!(chain.target_head_root, target_head_root);
+                debug_assert_eq!(chain.target_head_slot, target_head_slot);
+                if let Err(remove_reason) = chain.add_peer(network, peer) {
+                    if remove_reason.is_critical() {
+                        error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                    } else {
+                        error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                    }
+                    let chain = entry.remove();
+                    self.on_chain_removed(&id, chain.is_syncing(), sync_type);
                 }
             }
             Entry::Vacant(entry) => {
@@ -532,25 +496,15 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     target_head_root,
                     peer,
                     beacon_processor_send.clone(),
-                    self.beacon_chain.clone(),
                     &self.log,
                 );
-                assert_eq!(new_chain.get_id(), id);
+                debug_assert_eq!(new_chain.get_id(), id);
                 debug!(self.log, "New chain added to sync"; "peer_id" => peer_rpr, "sync_type" => ?sync_type, &new_chain);
                 entry.insert(new_chain);
+                let _ =
+                    metrics::get_int_gauge(&metrics::SYNCING_CHAINS_COUNT, &[sync_type.as_str()])
+                        .map(|m| m.inc());
             }
         }
-    }
-
-    /// Returns the index of finalized chain that is currently syncing. Returns `None` if no
-    /// finalized chain is currently syncing.
-    fn finalized_syncing_chain(&mut self) -> Option<(&ChainId, &mut SyncingChain<T>)> {
-        self.finalized_chains.iter_mut().find_map(|(id, chain)| {
-            if chain.state == ChainSyncingState::Syncing {
-                Some((id, chain))
-            } else {
-                None
-            }
-        })
     }
 }

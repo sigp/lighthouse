@@ -183,13 +183,6 @@ where
             return false;
         }
 
-        if self.is_infinity
-            && pubkeys.len() == 1
-            && pubkeys.first().map_or(false, |pk| pk.is_infinity)
-        {
-            return true;
-        }
-
         match self.point.as_ref() {
             Some(point) => point.fast_aggregate_verify(msg, pubkeys),
             None => false,
@@ -205,13 +198,6 @@ where
     pub fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&GenericPublicKey<Pub>]) -> bool {
         if msgs.is_empty() || msgs.len() != pubkeys.len() {
             return false;
-        }
-
-        if self.is_infinity
-            && pubkeys.len() == 1
-            && pubkeys.first().map_or(false, |pk| pk.is_infinity)
-        {
-            return true;
         }
 
         match self.point.as_ref() {

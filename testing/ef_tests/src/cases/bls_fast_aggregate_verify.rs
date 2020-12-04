@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{AggregateSignature, PublicKey, PublicKeyBytes};
+use bls::{AggregateSignature, PublicKeyBytes};
 use serde_derive::Deserialize;
 use std::convert::TryInto;
 use types::Hash256;
@@ -9,6 +9,7 @@ use types::Hash256;
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsFastAggregateVerifyInput {
     pub pubkeys: Vec<PublicKeyBytes>,
+    #[serde(alias = "messages")]
     pub message: String,
     pub signature: String,
 }
@@ -28,13 +29,20 @@ impl Case for BlsFastAggregateVerify {
                 .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?,
         );
 
-        let pubkeys = self
+        let pubkeys_result = self
             .input
             .pubkeys
             .iter()
             .map(|pkb| pkb.try_into())
-            .collect::<Result<Vec<PublicKey>, bls::Error>>()
-            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+            .collect::<Result<Vec<_>, _>>();
+
+        let pubkeys = match pubkeys_result {
+            Ok(pubkeys) => pubkeys,
+            Err(bls::Error::InvalidInfinityPublicKey) if !self.output => {
+                return Ok(());
+            }
+            Err(e) => return Err(Error::FailedToParseTest(format!("{:?}", e))),
+        };
 
         let pubkey_refs = pubkeys.iter().collect::<Vec<_>>();
 

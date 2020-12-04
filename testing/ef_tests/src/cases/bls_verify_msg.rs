@@ -1,14 +1,14 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{PublicKey, Signature, SignatureBytes};
+use bls::{PublicKeyBytes, Signature, SignatureBytes};
 use serde_derive::Deserialize;
 use std::convert::TryInto;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsVerifyInput {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub message: String,
     pub signature: SignatureBytes,
 }
@@ -28,8 +28,9 @@ impl Case for BlsVerify {
 
         let signature_ok = (&self.input.signature)
             .try_into()
-            .map(|signature: Signature| {
-                signature.verify(&self.input.pubkey, Hash256::from_slice(&message))
+            .and_then(|signature: Signature| {
+                let pk = self.input.pubkey.decompress()?;
+                Ok(signature.verify(&pk, Hash256::from_slice(&message)))
             })
             .unwrap_or(false);
 

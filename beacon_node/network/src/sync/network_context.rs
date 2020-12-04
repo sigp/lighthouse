@@ -3,8 +3,8 @@
 
 use super::range_sync::{BatchId, ChainId};
 use super::RequestId as SyncRequestId;
-use crate::router::processor::status_message;
 use crate::service::NetworkMessage;
+use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
 use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, Request};
@@ -63,7 +63,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         chain: Arc<BeaconChain<U>>,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Some(status_message) = status_message(&chain) {
+        if let Ok(status_message) = &chain.status_message() {
             for peer_id in peers {
                 debug!(
                     self.log,
@@ -125,7 +125,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
             "count" => request.block_roots.len(),
-            "peer" => format!("{:?}", peer_id)
+            "peer" => %peer_id
         );
         self.send_rpc_request(peer_id, Request::BlocksByRoot(request))
     }
@@ -139,11 +139,11 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
-        debug!(self.log, "Sync reporting peer"; "peer_id" => peer_id.to_string(), "action" => action.to_string());
+        debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
         self.network_send
             .send(NetworkMessage::ReportPeer { peer_id, action })
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not report peer, channel failed"; "error"=> e.to_string());
+                warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
             });
     }
 
@@ -166,7 +166,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SubscribeCoreTopics)
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not subscribe to core topics."; "error" => e.to_string());
+                warn!(self.log, "Could not subscribe to core topics."; "error" => %e);
             });
     }
 

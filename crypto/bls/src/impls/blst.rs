@@ -4,7 +4,7 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     generic_secret_key::TSecretKey,
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
+    Error, Hash256, ZeroizeHash, INFINITY_SIGNATURE,
 };
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
@@ -50,18 +50,12 @@ pub fn verify_signature_sets<'a>(
     let mut pks = Vec::with_capacity(sets.len());
 
     for set in &sets {
-        // If this set is simply an infinity signature and infinity pubkey then skip verification.
-        // This has the effect of always declaring that this sig/pubkey combination is valid.
-        if set.signature.is_infinity
-            && set.signing_keys.len() == 1
-            && set.signing_keys.first().map_or(false, |pk| pk.is_infinity)
-        {
-            continue;
-        }
-
         // Generate random scalars.
         let mut vals = [0u64; 4];
-        vals[0] = rng.gen();
+        while vals[0] == 0 {
+            // Do not use zero
+            vals[0] = rng.gen();
+        }
         let mut rand_i = std::mem::MaybeUninit::<blst_scalar>::uninit();
 
         // TODO: remove this `unsafe` code-block once we get a safe option from `blst`.
@@ -75,8 +69,12 @@ pub fn verify_signature_sets<'a>(
         // Grab a slice of the message, to satisfy the blst API.
         msgs_refs.push(set.message.as_bytes());
 
-        // Convert the aggregate signature into a signature.
         if let Some(point) = set.signature.point() {
+            // Subgroup check the signature
+            if !point.0.subgroup_check() {
+                return false;
+            }
+            // Convert the aggregate signature into a signature.
             sigs.push(point.0.to_signature())
         } else {
             // Any "empty" signature should cause a signature failure.
@@ -100,19 +98,21 @@ pub fn verify_signature_sets<'a>(
             .collect::<Vec<_>>();
 
         // Aggregate all the public keys.
-        pks.push(blst_core::AggregatePublicKey::aggregate(&signing_keys).to_public_key());
-    }
-
-    // Due to an earlier check, the only case this can be empty is if all the sets consisted of
-    // infinity pubkeys/sigs. In such a case we wish to return `true`.
-    if msgs_refs.is_empty() {
-        return true;
+        // Public keys have already been checked for subgroup and infinity
+        let agg_pk = match blst_core::AggregatePublicKey::aggregate(&signing_keys, false) {
+            Ok(agg_pk) => agg_pk,
+            Err(_) => return false,
+        };
+        pks.push(agg_pk.to_public_key());
     }
 
     let (sig_refs, pks_refs): (Vec<_>, Vec<_>) = sigs.iter().zip(pks.iter()).unzip();
 
+    // Public keys have already been checked for subgroup and infinity
+    // Signatures have already been checked for subgroup
+    // Signature checks above could be done here for convienence as well
     let err = blst_core::Signature::verify_multiple_aggregate_signatures(
-        &msgs_refs, DST, &pks_refs, &sig_refs, &rands, RAND_BITS,
+        &msgs_refs, DST, &pks_refs, false, &sig_refs, false, &rands, RAND_BITS,
     );
 
     err == blst::BLST_ERROR::BLST_SUCCESS
@@ -124,7 +124,15 @@ impl TPublicKey for blst_core::PublicKey {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::uncompress(&bytes).map_err(Into::into)
+        // key_validate accepts uncompressed bytes too so enforce byte length here.
+        // It also does subgroup checks, noting infinity check is done in `generic_public_key.rs`.
+        if bytes.len() != PUBLIC_KEY_BYTES_LEN {
+            return Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: PUBLIC_KEY_BYTES_LEN,
+            });
+        }
+        Self::key_validate(&bytes).map_err(Into::into)
     }
 }
 
@@ -145,25 +153,7 @@ impl PartialEq for BlstAggregatePublicKey {
     }
 }
 
-impl TAggregatePublicKey for BlstAggregatePublicKey {
-    fn infinity() -> Self {
-        blst_core::PublicKey::from_bytes(&INFINITY_PUBLIC_KEY)
-            .map(|pk| blst_core::AggregatePublicKey::from_public_key(&pk))
-            .map(Self)
-            .expect("should decode infinity public key")
-    }
-
-    fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
-        self.0.to_public_key().compress()
-    }
-
-    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        blst_core::PublicKey::from_bytes(&bytes)
-            .map_err(Into::into)
-            .map(|pk| blst_core::AggregatePublicKey::from_public_key(&pk))
-            .map(Self)
-    }
-}
+impl TAggregatePublicKey for BlstAggregatePublicKey {}
 
 impl TSignature<blst_core::PublicKey> for blst_core::Signature {
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
@@ -175,7 +165,9 @@ impl TSignature<blst_core::PublicKey> for blst_core::Signature {
     }
 
     fn verify(&self, pubkey: &blst_core::PublicKey, msg: Hash256) -> bool {
-        self.verify(msg.as_bytes(), DST, &[], pubkey) == BLST_ERROR::BLST_SUCCESS
+        // Public keys have already been checked for subgroup and infinity
+        // Check Signature inside function for subgroup
+        self.verify(true, msg.as_bytes(), DST, &[], pubkey, false) == BLST_ERROR::BLST_SUCCESS
     }
 }
 
@@ -207,7 +199,8 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     }
 
     fn add_assign(&mut self, other: &blst_core::Signature) {
-        self.0.add_signature(other)
+        // Add signature into aggregate, signature has already been subgroup checked
+        let _ = self.0.add_signature(other, false);
     }
 
     fn add_assign_aggregate(&mut self, other: &Self) {
@@ -232,7 +225,10 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         let signature = self.0.clone().to_signature();
-        signature.fast_aggregate_verify(msg.as_bytes(), DST, &pubkeys) == BLST_ERROR::BLST_SUCCESS
+        // Public keys are already valid due to PoP
+        // Check Signature inside function for subgroup
+        signature.fast_aggregate_verify(true, msg.as_bytes(), DST, &pubkeys)
+            == BLST_ERROR::BLST_SUCCESS
     }
 
     fn aggregate_verify(
@@ -243,7 +239,9 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();
         let signature = self.0.clone().to_signature();
-        signature.aggregate_verify(&msgs, DST, &pubkeys) == BLST_ERROR::BLST_SUCCESS
+        // Public keys have already been checked for subgroup and infinity
+        // Check Signature inside function for subgroup
+        signature.aggregate_verify(true, &msgs, DST, &pubkeys, false) == BLST_ERROR::BLST_SUCCESS
     }
 }
 

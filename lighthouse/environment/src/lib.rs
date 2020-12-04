@@ -15,29 +15,30 @@ use futures::channel::{
 };
 use futures::{future, StreamExt};
 
-use slog::{info, o, Drain, Level, Logger};
+use slog::{error, info, o, warn, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
-const MAXIMUM_SHUTDOWN_TIME: u64 = 3;
+const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
-    runtime: Option<Runtime>,
+    runtime: Option<Arc<Runtime>>,
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
-    testnet: Option<Eth2TestnetConfig<E>>,
+    testnet: Option<Eth2TestnetConfig>,
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
@@ -66,14 +67,14 @@ impl EnvironmentBuilder<MainnetEthSpec> {
     }
 }
 
-impl EnvironmentBuilder<InteropEthSpec> {
-    /// Creates a new builder using the `interop` eth2 specification.
-    pub fn interop() -> Self {
+impl EnvironmentBuilder<V012LegacyEthSpec> {
+    /// Creates a new builder using the v0.12.x eth2 specification.
+    pub fn v012_legacy() -> Self {
         Self {
             runtime: None,
             log: None,
-            eth_spec_instance: InteropEthSpec,
-            eth2_config: Eth2Config::interop(),
+            eth_spec_instance: V012LegacyEthSpec,
+            eth2_config: Eth2Config::v012_legacy(),
             testnet: None,
         }
     }
@@ -84,28 +85,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     ///
     /// The `Runtime` used is just the standard tokio runtime.
     pub fn multi_threaded_tokio_runtime(mut self) -> Result<Self, String> {
-        self.runtime = Some(
-            RuntimeBuilder::new()
-                .threaded_scheduler()
+        self.runtime = Some(Arc::new(
+            RuntimeBuilder::new_multi_thread()
                 .enable_all()
                 .build()
                 .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
-        );
-        Ok(self)
-    }
-
-    /// Specifies that a single-threaded tokio runtime should be used. Ideal for testing purposes
-    /// where tests are already multi-threaded.
-    ///
-    /// This can solve problems if "too many open files" errors are thrown during tests.
-    pub fn single_thread_tokio_runtime(mut self) -> Result<Self, String> {
-        self.runtime = Some(
-            RuntimeBuilder::new()
-                .basic_scheduler()
-                .enable_all()
-                .build()
-                .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
-        );
+        ));
         Ok(self)
     }
 
@@ -238,7 +223,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Adds a testnet configuration to the environment.
     pub fn eth2_testnet_config(
         mut self,
-        eth2_testnet_config: Eth2TestnetConfig<E>,
+        eth2_testnet_config: Eth2TestnetConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
         self.eth2_config.spec = eth2_testnet_config
@@ -249,7 +234,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .ok_or_else(|| {
                 format!(
                     "The loaded config is not compatible with the {} spec",
-                    &self.eth2_config.spec_constants
+                    &self.eth2_config.eth_spec_id
                 )
             })?;
 
@@ -261,7 +246,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Optionally adds a testnet configuration to the environment.
     pub fn optional_eth2_testnet_config(
         self,
-        optional_config: Option<Eth2TestnetConfig<E>>,
+        optional_config: Option<Eth2TestnetConfig>,
     ) -> Result<Self, String> {
         if let Some(config) = optional_config {
             self.eth2_testnet_config(config)
@@ -329,7 +314,7 @@ impl<E: EthSpec> RuntimeContext<E> {
 /// An environment where Lighthouse services can run. Used to start a production beacon node or
 /// validator client, or to run tests that involve logging and async task execution.
 pub struct Environment<E: EthSpec> {
-    runtime: Runtime,
+    runtime: Arc<Runtime>,
     /// Receiver side of an internal shutdown signal.
     signal_rx: Option<Receiver<&'static str>>,
     /// Sender to request shutting down.
@@ -339,7 +324,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
-    pub testnet: Option<Eth2TestnetConfig<E>>,
+    pub testnet: Option<Eth2TestnetConfig>,
 }
 
 impl<E: EthSpec> Environment<E> {
@@ -347,15 +332,15 @@ impl<E: EthSpec> Environment<E> {
     ///
     /// Useful in the rare scenarios where it's necessary to block the current thread until a task
     /// is finished (e.g., during testing).
-    pub fn runtime(&mut self) -> &mut Runtime {
-        &mut self.runtime
+    pub fn runtime(&self) -> &Arc<Runtime> {
+        &self.runtime
     }
 
     /// Returns a `Context` where no "service" has been added to the logger output.
     pub fn core_context(&mut self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
-                self.runtime().handle().clone(),
+                Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.log.clone(),
                 self.signal_tx.clone(),
@@ -369,7 +354,7 @@ impl<E: EthSpec> Environment<E> {
     pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
-                self.runtime().handle().clone(),
+                Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.log.new(o!("service" => service_name)),
                 self.signal_tx.clone(),
@@ -395,9 +380,16 @@ impl<E: EthSpec> Environment<E> {
         // setup for handling a Ctrl-C
         let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
         let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
+        let log = self.log.clone();
         ctrlc::set_handler(move || {
             if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
-                ctrlc_send.send(()).expect("Error sending ctrl-c message");
+                if let Err(e) = ctrlc_send.send(()) {
+                    error!(
+                        log,
+                        "Error sending ctrl-c message";
+                        "error" => e
+                    );
+                }
             }
         })
         .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;
@@ -418,8 +410,16 @@ impl<E: EthSpec> Environment<E> {
 
     /// Shutdown the `tokio` runtime when all tasks are idle.
     pub fn shutdown_on_idle(self) {
-        self.runtime
-            .shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))
+        match Arc::try_unwrap(self.runtime) {
+            Ok(runtime) => {
+                runtime.shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))
+            }
+            Err(e) => warn!(
+                self.log,
+                "Failed to obtain runtime access to shutdown gracefully";
+                "error" => ?e
+            ),
+        }
     }
 
     /// Fire exit signal which shuts down all spawned services

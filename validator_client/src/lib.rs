@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod http_metrics;
 mod initialized_validators;
 mod is_synced;
 mod key_cache;
@@ -28,24 +29,29 @@ use futures::channel::mpsc;
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
+use parking_lot::RwLock;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
-use slog::{error, info, Logger};
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::time::{delay_for, Duration};
-use types::{EthSpec, Hash256, YamlConfig};
+use tokio::time::{sleep, Duration};
+use types::{EthSpec, Hash256};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 
+/// The time between polls when waiting for genesis.
+const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
+
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
+#[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
     duties_service: DutiesService<SystemTimeSlotClock, T>,
@@ -54,6 +60,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
+    http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
     config: Config,
 }
 
@@ -81,6 +88,36 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "validator_dir" => format!("{:?}", config.validator_dir),
         );
 
+        // Optionally start the metrics server.
+        let http_metrics_ctx = if config.http_metrics.enabled {
+            let shared = http_metrics::Shared {
+                validator_store: None,
+                genesis_time: None,
+                duties_service: None,
+            };
+
+            let ctx: Arc<http_metrics::Context<T>> = Arc::new(http_metrics::Context {
+                config: config.http_metrics.clone(),
+                shared: RwLock::new(shared),
+                log: log.clone(),
+            });
+
+            let exit = context.executor.exit();
+
+            let (_listen_addr, server) = http_metrics::serve(ctx.clone(), exit)
+                .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
+
+            context
+                .clone()
+                .executor
+                .spawn_without_exit(async move { server.await }, "metrics-api");
+
+            Some(ctx)
+        } else {
+            info!(log, "HTTP metrics server is disabled");
+            None
+        };
+
         let mut validator_defs = ValidatorDefinitions::open_or_create(&config.validator_dir)
             .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
 
@@ -101,11 +138,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
-            config.delete_lockfiles,
             log.clone(),
         )
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
+
+        let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
 
         info!(
             log,
@@ -114,16 +152,21 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "enabled" => validators.num_enabled(),
         );
 
-        if validators.num_enabled() == 0 {
-            return Err("Cannot run with 0 enabled validators. \
-                        Please create or import validators before starting the validator client, \
-                        or check your datadir configuration"
-                .to_string());
+        if voting_pubkeys.is_empty() {
+            warn!(
+                log,
+                "No enabled validators";
+                "hint" => "create validators via the API, or the `lighthouse account` CLI command"
+            );
         }
 
         // Initialize slashing protection.
+        //
+        // Create the slashing database if there are no validators, even if
+        // `init_slashing_protection` is not supplied. There is no risk in creating a slashing
+        // database without any validators in it.
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection = if config.init_slashing_protection {
+        let slashing_protection = if config.init_slashing_protection || voting_pubkeys.is_empty() {
             SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
                 format!(
                     "Failed to open or create slashing protection database: {:?}",
@@ -143,11 +186,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // Check validator registration with slashing protection, or auto-register all validators.
         if config.init_slashing_protection {
             slashing_protection
-                .register_validators(validators.iter_voting_pubkeys())
+                .register_validators(voting_pubkeys.iter().copied())
                 .map_err(|e| format!("Error while registering slashing protection: {:?}", e))?;
         } else {
             slashing_protection
-                .check_validator_registrations(validators.iter_voting_pubkeys())
+                .check_validator_registrations(voting_pubkeys.iter().copied())
                 .map_err(|e| {
                     format!(
                         "One or more validators not found in slashing protection database.\n\
@@ -171,22 +214,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             BeaconNodeHttpClient::from_components(beacon_node_url, beacon_node_http_client);
 
         // Perform some potentially long-running initialization tasks.
-        let (yaml_config, genesis_time, genesis_validators_root) = tokio::select! {
+        let (genesis_time, genesis_validators_root) = tokio::select! {
             tuple = init_from_beacon_node(&beacon_node, &context) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
-        let beacon_node_spec = yaml_config.apply_to_chain_spec::<T>(&T::default_spec())
-            .ok_or_else(||
-                    "The minimal/mainnet spec type of the beacon node does not match the validator client. \
-                    See the --testnet command.".to_string()
-            )?;
 
-        if context.eth2_config.spec != beacon_node_spec {
-            return Err(
-                "The beacon node is using a different Eth2 specification to this validator client. \
-                See the --testnet command."
-                    .to_string(),
-            );
+        // Update the metrics server.
+        if let Some(ctx) = &http_metrics_ctx {
+            ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
         let slot_clock = SystemTimeSlotClock::new(
@@ -224,6 +259,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
             .build()?;
 
+        // Update the metrics server.
+        if let Some(ctx) = &http_metrics_ctx {
+            ctx.shared.write().validator_store = Some(validator_store.clone());
+            ctx.shared.write().duties_service = Some(duties_service.clone());
+        }
+
         let block_service = BlockServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
@@ -236,9 +277,15 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock)
             .validator_store(validator_store.clone())
-            .beacon_node(beacon_node)
+            .beacon_node(beacon_node.clone())
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
+
+        // Wait until genesis has occured.
+        //
+        // It seems most sensible to move this into the `start_service` function, but I'm caution
+        // of making too many changes this close to genesis (<1 week).
+        wait_for_genesis(&beacon_node, genesis_time, &context).await?;
 
         Ok(Self {
             context,
@@ -249,6 +296,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_store,
             config,
             http_api_listen_addr: None,
+            http_metrics_ctx,
         })
     }
 
@@ -289,6 +337,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx: Arc<http_api::Context<SystemTimeSlotClock, T>> = Arc::new(http_api::Context {
+                runtime: self.context.executor.runtime(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
@@ -321,15 +370,31 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_node: &BeaconNodeHttpClient,
     context: &RuntimeContext<E>,
-) -> Result<(YamlConfig, u64, Hash256), String> {
+) -> Result<(u64, Hash256), String> {
     // Wait for the beacon node to come online.
-    wait_for_node(beacon_node, context.log()).await?;
+    wait_for_connectivity(beacon_node, context.log()).await?;
 
     let yaml_config = beacon_node
         .get_config_spec()
         .await
         .map_err(|e| format!("Unable to read spec from beacon node: {:?}", e))?
         .data;
+
+    let beacon_node_spec = yaml_config
+        .apply_to_chain_spec::<E>(&E::default_spec())
+        .ok_or_else(|| {
+            "The minimal/mainnet spec type of the beacon node does not match the validator client. \
+                See the --network command."
+                .to_string()
+        })?;
+
+    if context.eth2_config.spec != beacon_node_spec {
+        return Err(
+            "The beacon node is using a different Eth2 specification to this validator client. \
+            See the --network command."
+                .to_string(),
+        );
+    }
 
     let genesis = loop {
         match beacon_node.get_beacon_genesis().await {
@@ -351,13 +416,21 @@ async fn init_from_beacon_node<E: EthSpec>(
             }
         }
 
-        delay_for(RETRY_DELAY).await;
+        sleep(RETRY_DELAY).await;
     };
 
+    Ok((genesis.genesis_time, genesis.genesis_validators_root))
+}
+
+async fn wait_for_genesis<E: EthSpec>(
+    beacon_node: &BeaconNodeHttpClient,
+    genesis_time: u64,
+    context: &RuntimeContext<E>,
+) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("Unable to read system time: {:?}", e))?;
-    let genesis_time = Duration::from_secs(genesis.genesis_time);
+    let genesis_time = Duration::from_secs(genesis_time);
 
     // If the time now is less than (prior to) genesis, then delay until the
     // genesis instant.
@@ -371,7 +444,18 @@ async fn init_from_beacon_node<E: EthSpec>(
             "seconds_to_wait" => (genesis_time - now).as_secs()
         );
 
-        delay_for(genesis_time - now).await;
+        // Start polling the node for pre-genesis information, cancelling the polling as soon as the
+        // timer runs out.
+        tokio::select! {
+            result = poll_whilst_waiting_for_genesis(beacon_node, genesis_time, context.log()) => result?,
+            () = sleep(genesis_time - now) => ()
+        };
+
+        info!(
+            context.log(),
+            "Genesis has occurred";
+            "ms_since_genesis" => (genesis_time - now).as_millis()
+        );
     } else {
         info!(
             context.log(),
@@ -380,16 +464,15 @@ async fn init_from_beacon_node<E: EthSpec>(
         );
     }
 
-    Ok((
-        yaml_config,
-        genesis.genesis_time,
-        genesis.genesis_validators_root,
-    ))
+    Ok(())
 }
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Result<(), String> {
+async fn wait_for_connectivity(
+    beacon_node: &BeaconNodeHttpClient,
+    log: &Logger,
+) -> Result<(), String> {
     // Try to get the version string from the node, looping until success is returned.
     loop {
         let log = log.clone();
@@ -415,8 +498,55 @@ async fn wait_for_node(beacon_node: &BeaconNodeHttpClient, log: &Logger) -> Resu
                     "Unable to connect to beacon node";
                     "error" => format!("{:?}", e),
                 );
-                delay_for(RETRY_DELAY).await;
+                sleep(RETRY_DELAY).await;
             }
         }
+    }
+}
+
+/// Request the version from the node, looping back and trying again on failure. Exit once the node
+/// has been contacted.
+async fn poll_whilst_waiting_for_genesis(
+    beacon_node: &BeaconNodeHttpClient,
+    genesis_time: Duration,
+    log: &Logger,
+) -> Result<(), String> {
+    loop {
+        match beacon_node.get_lighthouse_staking().await {
+            Ok(is_staking) => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| format!("Unable to read system time: {:?}", e))?;
+
+                if !is_staking {
+                    error!(
+                        log,
+                        "Staking is disabled for beacon node";
+                        "msg" => "this will caused missed duties",
+                        "info" => "see the --staking CLI flag on the beacon node"
+                    );
+                }
+
+                if now < genesis_time {
+                    info!(
+                        log,
+                        "Waiting for genesis";
+                        "bn_staking_enabled" => is_staking,
+                        "seconds_to_wait" => (genesis_time - now).as_secs()
+                    );
+                } else {
+                    break Ok(());
+                }
+            }
+            Err(e) => {
+                error!(
+                    log,
+                    "Error polling beacon node";
+                    "error" => format!("{:?}", e)
+                );
+            }
+        }
+
+        sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }

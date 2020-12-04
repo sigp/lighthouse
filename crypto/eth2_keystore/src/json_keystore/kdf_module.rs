@@ -4,6 +4,7 @@
 //! data structures. Specifically, there should not be any actual crypto logic in this file.
 
 use super::hex_bytes::HexBytes;
+use crate::DKLEN;
 use hmac::{Hmac, Mac, NewMac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -127,4 +128,16 @@ pub struct Scrypt {
     pub r: u32,
     pub p: u32,
     pub salt: HexBytes,
+}
+
+impl Scrypt {
+    pub fn default_scrypt(salt: Vec<u8>) -> Self {
+        Self {
+            dklen: DKLEN,
+            n: 262144,
+            p: 1,
+            r: 8,
+            salt: salt.into(),
+        }
+    }
 }

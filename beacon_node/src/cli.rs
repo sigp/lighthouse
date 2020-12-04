@@ -5,6 +5,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .visible_aliases(&["b", "bn", "beacon"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
+        .setting(clap::AppSettings::ColoredHelp)
         .about("The primary component which connects to the Ethereum 2.0 P2P network and \
                 downloads, verifies and stores blocks. Provides a HTTP API for querying \
                 the beacon chain and publishing messages to the network.")
@@ -29,6 +30,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         /*
          * Network parameters.
          */
+        .arg(
+            Arg::with_name("subscribe-all-subnets")
+                .long("subscribe-all-subnets")
+                .help("Subscribe to all subnets regardless of validator count. \
+                       This will also advertise the beacon node as being long-lived subscribed to all subnets.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("import-all-attestations")
+                .long("import-all-attestations")
+                .help("Import and aggregate all attestations, regardless of validator subscriptions. \
+                       This will only import attestations from already-subscribed subnets, use with \
+                       --subscribe-all-subnets to ensure all attestations are received for import.")
+                .takes_value(false),
+        )
         .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
@@ -79,6 +95,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("disable-upnp")
                 .long("disable-upnp")
                 .help("Disables UPnP support. Setting this will prevent Lighthouse from attempting to automatically establish external port mappings.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("private")
+                .long("private")
+                .help("Prevents sending various client identification information.")
                 .takes_value(false),
         )
         .arg(
@@ -171,8 +193,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
-                .default_value("")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5052).")
                 .takes_value(true),
         )
         /* Prometheus metrics HTTP server related arguments */
@@ -202,9 +226,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("metrics-allow-origin")
                 .long("metrics-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header for the Prometheus metrics HTTP server. \
-                    Use * to allow any origin (not recommended in production)")
-                .default_value("")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                    Use * to allow any origin (not recommended in production). \
+                    If no value is supplied, the CORS allowed origin is set to the listen \
+                    address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
         )
         /* Websocket related arguments */
@@ -265,7 +290,27 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
-                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag. Defaults to http://127.0.0.1:8545.")
+                .help("Deprecated. Use --eth1-endpoints.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("eth1-endpoints")
+                .long("eth1-endpoints")
+                .value_name("HTTP-ENDPOINTS")
+                .conflicts_with("eth1-endpoint")
+                .help("One or more comma-delimited server endpoints for web3 connection. \
+                       If multiple endpoints are given the endpoints are used as fallback in the \
+                       given order. Also enables the --eth1 flag. \
+                       Defaults to http://127.0.0.1:8545.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("eth1-blocks-per-log-query")
+                .long("eth1-blocks-per-log-query")
+                .value_name("BLOCKS")
+                .help("Specifies the number of blocks that a deposit log query should span. \
+                    This will reduce the size of responses from the Eth1 endpoint.")
+                .default_value("1000")
                 .takes_value(true)
         )
         .arg(
@@ -286,12 +331,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
-         * Purge.
+         * Database purging and compaction.
          */
         .arg(
             Arg::with_name("purge-db")
                 .long("purge-db")
                 .help("If present, the chain database will be deleted. Use with caution.")
+        )
+        .arg(
+            Arg::with_name("compact-db")
+                .long("compact-db")
+                .help("If present, apply compaction to the database on start-up. Use with caution. \
+                       It is generally not recommended unless auto-compaction is disabled.")
+        )
+        .arg(
+            Arg::with_name("auto-compact-db")
+                .long("auto-compact-db")
+                .help("Enable or disable automatic compaction of the database on finalization.")
+                .takes_value(true)
+                .default_value("true")
         )
 
         /*
@@ -312,13 +370,85 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("max-skip-slots")
                 .help(
                     "Refuse to skip more than this many slots when processing a block or attestation. \
-                    This prevents nodes on minority forks from wasting our time and RAM, \
-                    but might need to be raised or set to 'none' in times of extreme network \
-                    outage."
+                    This prevents nodes on minority forks from wasting our time and disk space, \
+                    but could also cause unnecessary consensus failures, so is disabled by default."
                 )
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
-                .default_value("700")
+        )
+        /*
+         * Slasher.
+         */
+        .arg(
+            Arg::with_name("slasher")
+                .long("slasher")
+                .help(
+                    "Run a slasher alongside the beacon node. It is currently only recommended for \
+                     expert users because of the immaturity of the slasher UX and the extra \
+                     resources required."
+                )
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("slasher-dir")
+                .long("slasher-dir")
+                .help(
+                    "Set the slasher's database directory."
+                )
+                .value_name("PATH")
+                .takes_value(true)
+                .requires("slasher")
+        )
+        .arg(
+            Arg::with_name("slasher-update-period")
+                .long("slasher-update-period")
+                .help(
+                    "Configure how often the slasher runs batch processing."
+                )
+                .value_name("SECONDS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-history-length")
+                .long("slasher-history-length")
+                .help(
+                    "Configure how many epochs of history the slasher keeps. Immutable after \
+                     initialization."
+                )
+                .value_name("EPOCHS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-max-db-size")
+                .long("slasher-max-db-size")
+                .help(
+                    "Maximum size of the LMDB database used by the slasher."
+                )
+                .value_name("GIGABYTES")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-chunk-size")
+                .long("slasher-chunk-size")
+                .help(
+                    "Number of epochs per validator per chunk stored on disk."
+                )
+                .value_name("EPOCHS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-validator-chunk-size")
+                .long("slasher-validator-chunk-size")
+                .help(
+                    "Number of validators per chunk stored on disk."
+                )
+                .value_name("NUM_VALIDATORS")
+                .requires("slasher")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("wss-checkpoint")

@@ -30,13 +30,16 @@ members = [
     "common/hashset_delay",
     "common/lighthouse_metrics",
     "common/lighthouse_version",
+    "common/lockfile",
     "common/logging",
     "common/lru_cache",
+    "common/remote_signer_consumer",
     "common/slot_clock",
-    "common/test_random_derive",
-    "common/warp_utils",
     "common/task_executor",
+    "common/test_random_derive",
     "common/validator_dir",
+    "common/warp_utils",
+    "common/fallback",
 
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",
@@ -63,10 +66,17 @@ members = [
     "lighthouse",
     "lighthouse/environment",
 
-    "testing/simulator",
+    "remote_signer",
+    "remote_signer/backend",
+    "remote_signer/client",
+
+    "slasher",
+
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/node_test_rig",
+    "testing/remote_signer_test",
+    "testing/simulator",
     "testing/state_transition_vectors",
 
     "validator_client",

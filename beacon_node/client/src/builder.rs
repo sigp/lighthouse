@@ -16,14 +16,16 @@ use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use parking_lot::Mutex;
-use slog::{debug, info};
+use slasher::{Slasher, SlasherServer};
+use slog::{debug, info, warn};
 use ssz::Decode;
 use std::net::SocketAddr;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     SignedBeaconBlockHash,
@@ -63,6 +65,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
     websocket_listen_addr: Option<SocketAddr>,
+    slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -96,6 +99,7 @@ where
             http_api_config: <_>::default(),
             http_metrics_config: <_>::default(),
             websocket_listen_addr: None,
+            slasher: None,
             eth_spec_instance,
         }
     }
@@ -109,6 +113,11 @@ where
     /// Specifies the `ChainSpec`.
     pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
         self.chain_spec = Some(spec);
+        self
+    }
+
+    pub fn slasher(mut self, slasher: Arc<Slasher<TEthSpec>>) -> Self {
+        self.slasher = Some(slasher);
         self
     }
 
@@ -144,6 +153,12 @@ where
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
             .graffiti(graffiti);
+
+        let builder = if let Some(slasher) = self.slasher.clone() {
+            builder.slasher(slasher)
+        } else {
+            builder
+        };
 
         let chain_exists = builder
             .store_contains_beacon_chain()
@@ -191,7 +206,7 @@ where
                 info!(
                     context.log(),
                     "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoint" => &config.eth1.endpoint,
+                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoints),
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
@@ -202,12 +217,81 @@ where
                     context.eth2_config().spec.clone(),
                 );
 
+                // If the HTTP API server is enabled, start an instance of it where it only
+                // contains a reference to the eth1 service (all non-eth1 endpoints will fail
+                // gracefully).
+                //
+                // Later in this function we will shutdown this temporary "waiting for genesis"
+                // server so the real one can be started later.
+                let (exit_tx, exit_rx) = oneshot::channel::<()>();
+                let http_listen_opt = if self.http_api_config.enabled {
+                    #[allow(clippy::type_complexity)]
+                    let ctx: Arc<
+                        http_api::Context<
+                            Witness<
+                                TSlotClock,
+                                TEth1Backend,
+                                TEthSpec,
+                                TEventHandler,
+                                THotStore,
+                                TColdStore,
+                            >,
+                        >,
+                    > = Arc::new(http_api::Context {
+                        config: self.http_api_config.clone(),
+                        chain: None,
+                        network_tx: None,
+                        network_globals: None,
+                        eth1_service: Some(genesis_service.eth1_service.clone()),
+                        log: context.log().clone(),
+                    });
+
+                    // Discard the error from the oneshot.
+                    let exit_future = async {
+                        let _ = exit_rx.await;
+                    };
+
+                    let (listen_addr, server) = http_api::serve(ctx, exit_future)
+                        .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+
+                    let log_clone = context.log().clone();
+                    let http_api_task = async move {
+                        server.await;
+                        debug!(log_clone, "HTTP API server task ended");
+                    };
+
+                    context
+                        .clone()
+                        .executor
+                        .spawn_without_exit(http_api_task, "http-api");
+
+                    Some(listen_addr)
+                } else {
+                    None
+                };
+
                 let genesis_state = genesis_service
                     .wait_for_genesis_state(
                         Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
                         context.eth2_config().spec.clone(),
                     )
                     .await?;
+
+                let _ = exit_tx.send(());
+
+                if let Some(http_listen) = http_listen_opt {
+                    // This is a bit of a hack to ensure that the HTTP server has indeed shutdown.
+                    //
+                    // We will restart it again after we've finished setting up for genesis.
+                    while TcpListener::bind(http_listen).is_err() {
+                        warn!(
+                            context.log(),
+                            "Waiting for HTTP server port to open";
+                            "port" => http_listen
+                        );
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
 
                 builder
                     .genesis_state(genesis_state)
@@ -279,6 +363,27 @@ where
         self
     }
 
+    /// Immediately start the slasher service.
+    ///
+    /// Error if no slasher is configured.
+    pub fn start_slasher_server(&self) -> Result<(), String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "slasher requires a runtime_context")?
+            .service_context("slasher_server_ctxt".into());
+        let slasher = self
+            .slasher
+            .clone()
+            .ok_or_else(|| "slasher server requires a slasher")?;
+        let slot_clock = self
+            .slot_clock
+            .clone()
+            .ok_or_else(|| "slasher server requires a slot clock")?;
+        SlasherServer::run(slasher, slot_clock, &context.executor);
+        Ok(())
+    }
+
     /// Immediately starts the service that periodically logs information each slot.
     pub fn notifier(self) -> Result<Self, String> {
         let context = self
@@ -334,6 +439,7 @@ where
                 chain: self.beacon_chain.clone(),
                 network_tx: self.network_send.clone(),
                 network_globals: self.network_globals.clone(),
+                eth1_service: self.eth1_service.clone(),
                 log: log.clone(),
             });
 
@@ -342,10 +448,16 @@ where
             let (listen_addr, server) = http_api::serve(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
+            let http_log = runtime_context.log().clone();
+            let http_api_task = async move {
+                server.await;
+                debug!(http_log, "HTTP API server task ended");
+            };
+
             runtime_context
                 .clone()
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-api");
+                .spawn_without_exit(http_api_task, "http-api");
 
             Some(listen_addr)
         } else {
@@ -365,17 +477,21 @@ where
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_metrics::serve(ctx, exit)
-                .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
+                .map_err(|e| format!("Unable to start HTTP metrics server: {:?}", e))?;
 
             runtime_context
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-api");
+                .spawn_without_exit(async move { server.await }, "http-metrics");
 
             Some(listen_addr)
         } else {
             debug!(log, "Metrics server is disabled");
             None
         };
+
+        if self.slasher.is_some() {
+            self.start_slasher_server()?;
+        }
 
         Ok(Client {
             beacon_chain: self.beacon_chain,
@@ -590,7 +706,7 @@ where
                 })?
         };
 
-        self.eth1_service = None;
+        self.eth1_service = Some(backend.core.clone());
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
         backend.start(context.executor);

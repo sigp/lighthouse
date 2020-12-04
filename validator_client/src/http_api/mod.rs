@@ -14,7 +14,8 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+use tokio::runtime::Runtime;
 use types::{ChainSpec, EthSpec, YamlConfig};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
@@ -50,6 +51,7 @@ impl From<String> for Error {
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: Clone, E: EthSpec> {
+    pub runtime: Weak<Runtime>,
     pub api_secret: ApiSecret,
     pub validator_store: Option<ValidatorStore<T, E>>,
     pub validator_dir: Option<PathBuf>,
@@ -100,7 +102,19 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
     let log = ctx.log.clone();
-    let allow_origin = config.allow_origin.clone();
+
+    // Configure CORS.
+    let cors_builder = {
+        let builder = warp::cors()
+            .allow_methods(vec!["GET", "POST", "PATCH"])
+            .allow_headers(vec!["Content-Type", "Authorization"]);
+
+        warp_utils::cors::set_builder_origins(
+            builder,
+            config.allow_origin.as_deref(),
+            (config.listen_addr, config.listen_port),
+        )?
+    };
 
     // Sanity check.
     if !config.enabled {
@@ -125,6 +139,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )
             })
         });
+
+    let inner_runtime = ctx.runtime.clone();
+    let runtime_filter = warp::any().map(move || inner_runtime.clone());
 
     let inner_validator_dir = ctx.validator_dir.clone();
     let validator_dir_filter = warp::any()
@@ -246,26 +263,34 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(spec_filter.clone())
         .and(signer.clone())
+        .and(runtime_filter.clone())
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
              validator_dir: PathBuf,
              validator_store: ValidatorStore<T, E>,
              spec: Arc<ChainSpec>,
-             signer| {
+             signer,
+             runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
-                    let (validators, mnemonic) = create_validators(
-                        None,
-                        None,
-                        &body,
-                        &validator_dir,
-                        &validator_store,
-                        &spec,
-                    )?;
-                    let response = api_types::PostValidatorsResponseData {
-                        mnemonic: mnemonic.into_phrase().into(),
-                        validators,
-                    };
-                    Ok(api_types::GenericResponse::from(response))
+                    if let Some(runtime) = runtime.upgrade() {
+                        let (validators, mnemonic) = runtime.block_on(create_validators(
+                            None,
+                            None,
+                            &body,
+                            &validator_dir,
+                            &validator_store,
+                            &spec,
+                        ))?;
+                        let response = api_types::PostValidatorsResponseData {
+                            mnemonic: mnemonic.into_phrase().into(),
+                            validators,
+                        };
+                        Ok(api_types::GenericResponse::from(response))
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Runtime shutdown".into(),
+                        ))
+                    }
                 })
             },
         );
@@ -280,25 +305,37 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(spec_filter)
         .and(signer.clone())
+        .and(runtime_filter.clone())
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
              validator_dir: PathBuf,
              validator_store: ValidatorStore<T, E>,
              spec: Arc<ChainSpec>,
-             signer| {
+             signer,
+             runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
-                    let mnemonic = mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!("invalid mnemonic: {:?}", e))
-                    })?;
-                    let (validators, _mnemonic) = create_validators(
-                        Some(mnemonic),
-                        Some(body.key_derivation_path_offset),
-                        &body.validators,
-                        &validator_dir,
-                        &validator_store,
-                        &spec,
-                    )?;
-                    Ok(api_types::GenericResponse::from(validators))
+                    if let Some(runtime) = runtime.upgrade() {
+                        let mnemonic =
+                            mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid mnemonic: {:?}",
+                                    e
+                                ))
+                            })?;
+                        let (validators, _mnemonic) = runtime.block_on(create_validators(
+                            Some(mnemonic),
+                            Some(body.key_derivation_path_offset),
+                            &body.validators,
+                            &validator_dir,
+                            &validator_store,
+                            &spec,
+                        ))?;
+                        Ok(api_types::GenericResponse::from(validators))
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Runtime shutdown".into(),
+                        ))
+                    }
                 })
             },
         );
@@ -312,11 +349,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_dir_filter)
         .and(validator_store_filter.clone())
         .and(signer.clone())
+        .and(runtime_filter.clone())
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              validator_dir: PathBuf,
              validator_store: ValidatorStore<T, E>,
-             signer| {
+             signer,
+             runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
                     // Check to ensure the password is correct.
                     let keypair = body
@@ -340,20 +379,31 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             ))
                         })?;
 
+                    // Drop validator dir so that `add_validator_keystore` can re-lock the keystore.
+                    let voting_keystore_path = validator_dir.voting_keystore_path();
+                    drop(validator_dir);
                     let voting_password = body.password.clone();
 
-                    let validator_def = tokio::runtime::Handle::current()
-                        .block_on(validator_store.add_validator_keystore(
-                            validator_dir.voting_keystore_path(),
-                            voting_password,
-                            body.enable,
-                        ))
-                        .map_err(|e| {
-                            warp_utils::reject::custom_server_error(format!(
-                                "failed to initialize validator: {:?}",
-                                e
-                            ))
-                        })?;
+                    let validator_def = {
+                        if let Some(runtime) = runtime.upgrade() {
+                            runtime
+                                .block_on(validator_store.add_validator_keystore(
+                                    voting_keystore_path,
+                                    voting_password,
+                                    body.enable,
+                                ))
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to initialize validator: {:?}",
+                                        e
+                                    ))
+                                })?
+                        } else {
+                            return Err(warp_utils::reject::custom_server_error(
+                                "Runtime shutdown".into(),
+                            ));
+                        }
+                    };
 
                     Ok(api_types::GenericResponse::from(api_types::ValidatorData {
                         enabled: body.enable,
@@ -372,11 +422,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter)
         .and(signer)
+        .and(runtime_filter)
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
              validator_store: ValidatorStore<T, E>,
-             signer| {
+             signer,
+             runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
@@ -388,19 +440,24 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
-                            tokio::runtime::Handle::current()
-                                .block_on(
-                                    initialized_validators
-                                        .set_validator_status(&validator_pubkey, body.enabled),
-                                )
-                                .map_err(|e| {
-                                    warp_utils::reject::custom_server_error(format!(
-                                        "unable to set validator status: {:?}",
-                                        e
-                                    ))
-                                })?;
-
-                            Ok(())
+                            if let Some(runtime) = runtime.upgrade() {
+                                runtime
+                                    .block_on(
+                                        initialized_validators
+                                            .set_validator_status(&validator_pubkey, body.enabled),
+                                    )
+                                    .map_err(|e| {
+                                        warp_utils::reject::custom_server_error(format!(
+                                            "unable to set validator status: {:?}",
+                                            e
+                                        ))
+                                    })?;
+                                Ok(())
+                            } else {
+                                Err(warp_utils::reject::custom_server_error(
+                                    "Runtime shutdown".into(),
+                                ))
+                            }
                         }
                     }
                 })
@@ -428,8 +485,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        // Maybe add some CORS headers.
-        .map(move |reply| warp_utils::reply::maybe_cors(reply, allow_origin.as_ref()));
+        .with(cors_builder.build());
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
         SocketAddrV4::new(config.listen_addr, config.listen_port),
@@ -457,8 +513,8 @@ pub async fn blocking_signed_json_task<S, F, T>(
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     S: Fn(&[u8]) -> String,
-    F: Fn() -> Result<T, warp::Rejection>,
-    T: Serialize,
+    F: Fn() -> Result<T, warp::Rejection> + Send + 'static,
+    T: Serialize + Send + 'static,
 {
     warp_utils::task::blocking_task(func)
         .await

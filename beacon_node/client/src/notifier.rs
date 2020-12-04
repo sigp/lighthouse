@@ -3,11 +3,11 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::NetworkGlobals;
 use futures::prelude::*;
 use parking_lot::Mutex;
-use slog::{debug, error, info, warn};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
@@ -56,7 +56,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "peers" => peer_count_pretty(network.connected_peers()),
                         "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                     );
-                    delay_for(slot_duration).await;
+                    eth1_logging(&beacon_chain, &log);
+                    sleep(slot_duration).await;
                 }
                 _ => break,
             }
@@ -171,6 +172,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "current_slot" => current_slot,
                 );
             }
+
+            eth1_logging(&beacon_chain, &log);
         }
         Ok::<(), ()>(())
     };
@@ -179,6 +182,59 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor.spawn(interval_future.unwrap_or_else(|_| ()), "notifier");
 
     Ok(())
+}
+
+fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
+    let current_slot_opt = beacon_chain.slot().ok();
+
+    if let Ok(head_info) = beacon_chain.head_info() {
+        // Perform some logging about the eth1 chain
+        if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
+            if let Some(status) =
+                eth1_chain.sync_status(head_info.genesis_time, current_slot_opt, &beacon_chain.spec)
+            {
+                debug!(
+                    log,
+                    "Eth1 cache sync status";
+                    "eth1_head_block" => status.head_block_number,
+                    "latest_cached_block_number" => status.latest_cached_block_number,
+                    "latest_cached_timestamp" => status.latest_cached_block_timestamp,
+                    "voting_target_timestamp" => status.voting_target_timestamp,
+                    "ready" => status.lighthouse_is_cached_and_ready
+                );
+
+                if !status.lighthouse_is_cached_and_ready {
+                    let voting_target_timestamp = status.voting_target_timestamp;
+
+                    let distance = status
+                        .latest_cached_block_timestamp
+                        .map(|latest| {
+                            voting_target_timestamp.saturating_sub(latest)
+                                / beacon_chain.spec.seconds_per_eth1_block
+                        })
+                        .map(|distance| distance.to_string())
+                        .unwrap_or_else(|| "initializing deposits".to_string());
+
+                    warn!(
+                        log,
+                        "Syncing eth1 block cache";
+                        "msg" => "sync can take longer when using remote eth1 nodes",
+                        "est_blocks_remaining" => distance,
+                    );
+                }
+            } else {
+                error!(
+                    log,
+                    "Unable to determine eth1 sync status";
+                );
+            }
+        }
+    } else {
+        error!(
+            log,
+            "Unable to get head info";
+        );
+    }
 }
 
 /// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a

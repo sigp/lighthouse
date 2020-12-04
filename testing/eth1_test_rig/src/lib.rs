@@ -13,7 +13,7 @@ use deposit_contract::{
 use futures::compat::Future01CompatExt;
 use ganache::GanacheInstance;
 use std::time::Duration;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use types::DepositData;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
 use web3::contract::{Contract, Options};
@@ -31,8 +31,8 @@ pub struct GanacheEth1Instance {
 }
 
 impl GanacheEth1Instance {
-    pub async fn new() -> Result<Self, String> {
-        let ganache = GanacheInstance::new()?;
+    pub async fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
+        let ganache = GanacheInstance::new(network_id, chain_id)?;
         DepositContract::deploy(ganache.web3.clone(), 0, None)
             .await
             .map(|deposit_contract| Self {
@@ -220,7 +220,7 @@ impl DepositContract {
     /// Peforms many deposits, each preceded by a delay.
     pub async fn deposit_multiple(&self, deposits: Vec<DelayThenDeposit>) -> Result<(), String> {
         for deposit in deposits.into_iter() {
-            delay_for(deposit.delay).await;
+            sleep(deposit.delay).await;
             self.deposit_async(deposit.deposit).await?;
         }
         Ok(())

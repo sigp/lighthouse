@@ -17,8 +17,10 @@ use beacon_chain::{
 };
 use clap::ArgMatches;
 use environment::RuntimeContext;
+use slasher::Slasher;
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
@@ -53,12 +55,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
-        let client_config = get_config::<E>(
-            &matches,
-            &context.eth2_config.spec_constants,
-            &context.eth2_config().spec,
-            context.log().clone(),
-        )?;
+        let client_config =
+            get_config::<E>(&matches, &context.eth2_config().spec, context.log().clone())?;
         Self::new(context, client_config).await
     }
 
@@ -74,16 +72,25 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
         let log = context.log().clone();
-
         let db_path = client_config.create_db_path()?;
         let freezer_db_path_res = client_config.create_freezer_db_path();
-
         let executor = context.executor.clone();
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
+            .http_api_config(client_config.http_api.clone())
             .disk_store(&db_path, &freezer_db_path_res?, store_config)?;
+
+        let builder = if let Some(slasher_config) = client_config.slasher.clone() {
+            let slasher = Arc::new(
+                Slasher::open(slasher_config, log.new(slog::o!("service" => "slasher")))
+                    .map_err(|e| format!("Slasher open error: {:?}", e))?,
+            );
+            builder.slasher(slasher)
+        } else {
+            builder
+        };
 
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config_1)
@@ -92,7 +99,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             info!(
                 log,
                 "Block production enabled";
-                "endpoint" => &client_config.eth1.endpoint,
+                "endpoints" => format!("{:?}", &client_config.eth1.endpoints),
                 "method" => "json rpc via http"
             );
             builder
@@ -127,7 +134,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .network(&client_config.network)
             .await?
             .notifier()?
-            .http_api_config(client_config.http_api.clone())
             .http_metrics_config(client_config.http_metrics.clone())
             .build()
             .map(Self)

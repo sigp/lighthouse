@@ -3,15 +3,14 @@ use crate::builder::{
     WITHDRAWAL_KEYSTORE_FILE,
 };
 use deposit_contract::decode_eth1_tx_data;
+use derivative::Derivative;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
-use std::fs::{read, remove_file, write, OpenOptions};
+use lockfile::{Lockfile, LockfileError};
+use std::fs::{read, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
 use types::{DepositData, Hash256, Keypair};
-
-/// The file used for indicating if a directory is in-use by another process.
-const LOCK_FILE: &str = ".lock";
 
 /// The file used to save the Eth1 transaction hash from a deposit.
 pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
@@ -19,8 +18,7 @@ pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
 #[derive(Debug)]
 pub enum Error {
     DirectoryDoesNotExist(PathBuf),
-    DirectoryLocked(PathBuf),
-    UnableToCreateLockfile(io::Error),
+    LockfileError(LockfileError),
     UnableToOpenKeystore(io::Error),
     UnableToReadKeystore(KeystoreError),
     UnableToOpenPassword(io::Error),
@@ -58,19 +56,22 @@ pub struct Eth1DepositData {
 
 /// Provides a wrapper around a directory containing validator information.
 ///
-/// Creates/deletes a lockfile in `self.dir` to attempt to prevent concurrent access from multiple
+/// Holds a lockfile in `self.dir` to attempt to prevent concurrent access from multiple
 /// processes.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Derivative)]
+#[derivative(PartialEq)]
 pub struct ValidatorDir {
     dir: PathBuf,
+    #[derivative(PartialEq = "ignore")]
+    lockfile: Lockfile,
 }
 
 impl ValidatorDir {
-    /// Open `dir`, creating a lockfile to prevent concurrent access.
+    /// Open `dir`, obtaining a lockfile to prevent concurrent access.
     ///
     /// ## Errors
     ///
-    /// If there is a filesystem error or if a lockfile already exists.
+    /// If there is a filesystem error or if the lockfile is locked by another process.
     pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, Error> {
         let dir: &Path = dir.as_ref();
         let dir: PathBuf = dir.into();
@@ -79,49 +80,12 @@ impl ValidatorDir {
             return Err(Error::DirectoryDoesNotExist(dir));
         }
 
-        let lockfile = dir.join(LOCK_FILE);
-        if lockfile.exists() {
-            return Err(Error::DirectoryLocked(dir));
-        } else {
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(lockfile)
-                .map_err(Error::UnableToCreateLockfile)?;
-        }
+        // Lock the keystore file that *might* be in this directory.
+        // This is not ideal, see: https://github.com/sigp/lighthouse/issues/1978
+        let lockfile_path = dir.join(format!("{}.lock", VOTING_KEYSTORE_FILE));
+        let lockfile = Lockfile::new(lockfile_path).map_err(Error::LockfileError)?;
 
-        Ok(Self { dir })
-    }
-
-    /// Open `dir`, regardless or not if a lockfile exists.
-    ///
-    /// Returns `(validator_dir, lockfile_existed)`, where `lockfile_existed == true` if a lockfile
-    /// was already present before opening. Creates a lockfile if one did not already exist.
-    ///
-    /// ## Errors
-    ///
-    /// If there is a filesystem error.
-    pub fn force_open<P: AsRef<Path>>(dir: P) -> Result<(Self, bool), Error> {
-        let dir: &Path = dir.as_ref();
-        let dir: PathBuf = dir.into();
-
-        if !dir.exists() {
-            return Err(Error::DirectoryDoesNotExist(dir));
-        }
-
-        let lockfile = dir.join(LOCK_FILE);
-
-        let lockfile_exists = lockfile.exists();
-
-        if !lockfile_exists {
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(lockfile)
-                .map_err(Error::UnableToCreateLockfile)?;
-        }
-
-        Ok((Self { dir }, lockfile_exists))
+        Ok(Self { dir, lockfile })
     }
 
     /// Returns the `dir` provided to `Self::open`.
@@ -143,7 +107,7 @@ impl ValidatorDir {
     ///
     /// If there is a filesystem error, a password is missing or the password is incorrect.
     pub fn voting_keypair<P: AsRef<Path>>(&self, password_dir: P) -> Result<Keypair, Error> {
-        unlock_keypair(&self.dir.clone(), VOTING_KEYSTORE_FILE, password_dir)
+        unlock_keypair(&self.dir.join(VOTING_KEYSTORE_FILE), password_dir)
     }
 
     /// Attempts to read the keystore in `self.dir` and decrypt the keypair using a password file
@@ -155,7 +119,7 @@ impl ValidatorDir {
     ///
     /// If there is a file-system error, a password is missing or the password is incorrect.
     pub fn withdrawal_keypair<P: AsRef<Path>>(&self, password_dir: P) -> Result<Keypair, Error> {
-        unlock_keypair(&self.dir.clone(), WITHDRAWAL_KEYSTORE_FILE, password_dir)
+        unlock_keypair(&self.dir.join(WITHDRAWAL_KEYSTORE_FILE), password_dir)
     }
 
     /// Indicates if there is a file containing an eth1 deposit transaction. This can be used to
@@ -238,29 +202,16 @@ impl ValidatorDir {
     }
 }
 
-impl Drop for ValidatorDir {
-    fn drop(&mut self) {
-        let lockfile = self.dir.clone().join(LOCK_FILE);
-        if let Err(e) = remove_file(&lockfile) {
-            eprintln!(
-                "Unable to remove validator lockfile {:?}: {:?}",
-                lockfile, e
-            );
-        }
-    }
-}
-
-/// Attempts to load and decrypt a keystore.
-fn unlock_keypair<P: AsRef<Path>>(
-    keystore_dir: &PathBuf,
-    filename: &str,
+/// Attempts to load and decrypt a Keypair given path to the keystore.
+pub fn unlock_keypair<P: AsRef<Path>>(
+    keystore_path: &PathBuf,
     password_dir: P,
 ) -> Result<Keypair, Error> {
     let keystore = Keystore::from_json_reader(
         &mut OpenOptions::new()
             .read(true)
             .create(false)
-            .open(keystore_dir.clone().join(filename))
+            .open(keystore_path)
             .map_err(Error::UnableToOpenKeystore)?,
     )
     .map_err(Error::UnableToReadKeystore)?;
@@ -271,7 +222,28 @@ fn unlock_keypair<P: AsRef<Path>>(
     let password: PlainText = read(&password_path)
         .map_err(|_| Error::UnableToReadPassword(password_path))?
         .into();
+    keystore
+        .decrypt_keypair(password.as_bytes())
+        .map_err(Error::UnableToDecryptKeypair)
+}
 
+/// Attempts to load and decrypt a Keypair given path to the keystore and the password file.
+pub fn unlock_keypair_from_password_path(
+    keystore_path: &PathBuf,
+    password_path: &PathBuf,
+) -> Result<Keypair, Error> {
+    let keystore = Keystore::from_json_reader(
+        &mut OpenOptions::new()
+            .read(true)
+            .create(false)
+            .open(keystore_path)
+            .map_err(Error::UnableToOpenKeystore)?,
+    )
+    .map_err(Error::UnableToReadKeystore)?;
+
+    let password: PlainText = read(password_path)
+        .map_err(|_| Error::UnableToReadPassword(password_path.clone()))?
+        .into();
     keystore
         .decrypt_keypair(password.as_bytes())
         .map_err(Error::UnableToDecryptKeypair)

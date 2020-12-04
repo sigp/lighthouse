@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 pub use eth2_testnet_config::DEFAULT_HARDCODED_TESTNET;
-use std::fs::create_dir_all;
+use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
 
 /// Names for the default directories.
@@ -14,13 +14,13 @@ pub const DEFAULT_WALLET_DIR: &str = "wallets";
 /// Base directory name for unnamed testnets passed through the --testnet-dir flag
 pub const CUSTOM_TESTNET_DIR: &str = "custom";
 
-/// Gets the testnet directory name
+/// Gets the network directory name
 ///
-/// Tries to get the name first from the "testnet" flag,
+/// Tries to get the name first from the "network" flag,
 /// if not present, then checks the "testnet-dir" flag and returns a custom name
 /// If neither flags are present, returns the default hardcoded network name.
 pub fn get_testnet_name(matches: &ArgMatches) -> String {
-    if let Some(testnet_name) = matches.value_of("testnet") {
+    if let Some(testnet_name) = matches.value_of("network") {
         testnet_name.to_string()
     } else if matches.value_of("testnet-dir").is_some() {
         CUSTOM_TESTNET_DIR.to_string()
@@ -57,4 +57,22 @@ pub fn parse_path_or_default_with_flag(
             .join(get_testnet_name(matches))
             .join(flag),
     )
+}
+
+/// Get the approximate size of a directory and its contents.
+///
+/// Will skip unreadable files, and files. Not 100% accurate if files are being created and deleted
+/// while this function is running.
+pub fn size_of_dir(path: &Path) -> u64 {
+    if let Ok(iter) = fs::read_dir(path) {
+        iter.filter_map(std::result::Result::ok)
+            .map(size_of_dir_entry)
+            .sum()
+    } else {
+        0
+    }
+}
+
+fn size_of_dir_entry(dir: fs::DirEntry) -> u64 {
+    dir.metadata().map(|m| m.len()).unwrap_or(0)
 }

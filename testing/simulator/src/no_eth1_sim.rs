@@ -8,7 +8,7 @@ use node_test_rig::{
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::time::{delay_until, Instant};
+use tokio::time::{sleep_until, Instant};
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
@@ -52,11 +52,13 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let spec = &mut env.eth2_config.spec;
 
+    let total_validator_count = validators_per_node * node_count;
+
     spec.milliseconds_per_slot /= speed_up_factor;
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
-    spec.min_genesis_active_validator_count = 64;
+    spec.min_genesis_active_validator_count = total_validator_count as u64;
     spec.seconds_per_eth1_block = 1;
 
     let genesis_delay = Duration::from_secs(5);
@@ -67,7 +69,6 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let genesis_instant = Instant::now() + genesis_delay;
 
     let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-    let total_validator_count = validators_per_node * node_count;
 
     let context = env.core_context();
 
@@ -110,7 +111,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * The processes that will run checks on the network as it runs.
          */
         let checks_fut = async {
-            delay_until(genesis_instant).await;
+            sleep_until(genesis_instant).await;
 
             let (finalization, block_prod) = futures::join!(
                 // Check that the chain finalizes at the first given opportunity.
@@ -155,6 +156,11 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    env.runtime().block_on(main_future).unwrap();
+    env.runtime()
+        .block_on(tokio_compat_02::FutureExt::compat(main_future))
+        .unwrap();
+
+    env.fire_signal();
+    env.shutdown_on_idle();
     Ok(())
 }

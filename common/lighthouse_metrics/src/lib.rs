@@ -57,6 +57,7 @@
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 use std::time::Duration;
 
+use prometheus::core::{Atomic, GenericGauge, GenericGaugeVec};
 pub use prometheus::{
     Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
     IntGaugeVec, Result, TextEncoder,
@@ -142,7 +143,7 @@ pub fn try_create_float_gauge_vec(
     Ok(counter_vec)
 }
 
-/// Attempts to create a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// Attempts to create a `IntCounterVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_counter_vec(
     name: &str,
@@ -162,6 +163,27 @@ pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Opti
     } else {
         None
     }
+}
+
+pub fn get_gauge<P: Atomic>(
+    gauge_vec: &Result<GenericGaugeVec<P>>,
+    name: &[&str],
+) -> Option<GenericGauge<P>> {
+    if let Ok(gauge_vec) = gauge_vec {
+        Some(gauge_vec.get_metric_with_label_values(name).ok()?)
+    } else {
+        None
+    }
+}
+
+pub fn set_gauge_entry<P: Atomic>(
+    gauge_vec: &Result<GenericGaugeVec<P>>,
+    name: &[&str],
+    value: P::T,
+) {
+    if let Some(v) = get_gauge(gauge_vec, name) {
+        v.set(value)
+    };
 }
 
 /// If `int_gauge_vec.is_ok()`, sets the gauge with the given `name` to the given `value`
@@ -196,6 +218,12 @@ pub fn get_int_counter(
 pub fn inc_counter_vec(int_counter_vec: &Result<IntCounterVec>, name: &[&str]) {
     if let Some(counter) = get_int_counter(int_counter_vec, name) {
         counter.inc()
+    }
+}
+
+pub fn inc_counter_vec_by(int_counter_vec: &Result<IntCounterVec>, name: &[&str], amount: i64) {
+    if let Some(counter) = get_int_counter(int_counter_vec, name) {
+        counter.inc_by(amount);
     }
 }
 

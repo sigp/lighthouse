@@ -21,6 +21,7 @@ use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use slasher::Slasher;
 use slog::{crit, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
@@ -80,6 +81,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     store_migrator_config: Option<MigratorConfig>,
     pub genesis_time: Option<u64>,
     genesis_block_root: Option<Hash256>,
+    genesis_state_root: Option<Hash256>,
     #[allow(clippy::type_complexity)]
     fork_choice: Option<
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
@@ -98,6 +100,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     disabled_forks: Vec<String>,
     log: Option<Logger>,
     graffiti: Graffiti,
+    slasher: Option<Arc<Slasher<T::EthSpec>>>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
@@ -122,6 +125,7 @@ where
             store_migrator_config: None,
             genesis_time: None,
             genesis_block_root: None,
+            genesis_state_root: None,
             fork_choice: None,
             op_pool: None,
             eth1_chain: None,
@@ -137,6 +141,7 @@ where
             chain_config: ChainConfig::default(),
             log: None,
             graffiti: Graffiti::default(),
+            slasher: None,
         }
     }
 
@@ -169,6 +174,12 @@ where
     /// Sets the store migrator config (optional).
     pub fn store_migrator_config(mut self, config: MigratorConfig) -> Self {
         self.store_migrator_config = Some(config);
+        self
+    }
+
+    /// Sets the slasher.
+    pub fn slasher(mut self, slasher: Arc<Slasher<TEthSpec>>) -> Self {
+        self.slasher = Some(slasher);
         self
     }
 
@@ -291,6 +302,7 @@ where
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
+        self.genesis_state_root = Some(genesis_block.state_root());
         self.head_tracker = Some(
             HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
@@ -320,6 +332,7 @@ where
         let beacon_state_root = beacon_block.message.state_root;
         let beacon_block_root = beacon_block.canonical_root();
 
+        self.genesis_state_root = Some(beacon_state_root);
         self.genesis_block_root = Some(beacon_block_root);
 
         store
@@ -439,6 +452,9 @@ where
         let genesis_block_root = self
             .genesis_block_root
             .ok_or_else(|| "Cannot build without a genesis block root".to_string())?;
+        let genesis_state_root = self
+            .genesis_state_root
+            .ok_or_else(|| "Cannot build without a genesis state root".to_string())?;
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -544,9 +560,9 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
-            genesis_state_root: canonical_head.beacon_state_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
+            genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
             event_handler: self
                 .event_handler
@@ -564,6 +580,7 @@ where
                 .ok_or_else(|| "Cannot build without a shutdown sender.".to_string())?,
             log: log.clone(),
             graffiti: self.graffiti,
+            slasher: self.slasher.clone(),
         };
 
         let head = beacon_chain

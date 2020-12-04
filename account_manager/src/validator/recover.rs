@@ -56,7 +56,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/{testnet}/secrets",
+                    Defaults to ~/.lighthouse/{network}/secrets",
                 )
                 .takes_value(true),
         )
@@ -87,6 +87,9 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+
+    eprintln!("validator-dir path: {:?}", validator_dir);
+    eprintln!("secrets-dir path: {:?}", secrets_dir);
 
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;

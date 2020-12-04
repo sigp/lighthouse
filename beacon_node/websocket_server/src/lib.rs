@@ -79,11 +79,11 @@ pub fn start_server<T: EthSpec>(
 
     // Place a future on the handle that will shutdown the websocket server when the
     // application exits.
-    executor.runtime_handle().spawn(exit_future);
+
+    executor.spawn(exit_future, "Websocket exit");
 
     let log_inner = log.clone();
-
-    let _ = std::thread::spawn(move || match server.run() {
+    let server_future = move || match server.run() {
         Ok(_) => {
             debug!(
                 log_inner,
@@ -97,7 +97,9 @@ pub fn start_server<T: EthSpec>(
                 "error" => format!("{:?}", e)
             );
         }
-    });
+    };
+
+    executor.spawn_blocking(server_future, "Websocket server");
 
     info!(
         log,

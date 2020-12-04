@@ -6,6 +6,7 @@ use deposit_contract::{
 use environment::Environment;
 use futures::compat::Future01CompatExt;
 use std::path::PathBuf;
+use tokio_compat_02::FutureExt;
 use types::EthSpec;
 use web3::{
     contract::{Contract, Options},
@@ -14,7 +15,7 @@ use web3::{
     Web3,
 };
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
+pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
     let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
     let from_address: Address = clap_utils::parse_required(matches, "from-address")?;
     let confirmations: usize = clap_utils::parse_required(matches, "confirmations")?;
@@ -30,38 +31,41 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
         )
     })?;
 
-    env.runtime().block_on(async {
-        // It's unlikely that this will be the _actual_ deployment block, however it'll be close
-        // enough to serve our purposes.
-        //
-        // We only need the deposit block to put a lower bound on the block number we need to search
-        // for deposit logs.
-        let deploy_block = web3
-            .eth()
-            .block_number()
-            .compat()
-            .await
-            .map_err(|e| format!("Failed to get block number: {}", e))?;
+    env.runtime().block_on(
+        async {
+            // It's unlikely that this will be the _actual_ deployment block, however it'll be close
+            // enough to serve our purposes.
+            //
+            // We only need the deposit block to put a lower bound on the block number we need to search
+            // for deposit logs.
+            let deploy_block = web3
+                .eth()
+                .block_number()
+                .compat()
+                .await
+                .map_err(|e| format!("Failed to get block number: {}", e))?;
 
-        let pending_contract = Contract::deploy(web3.eth(), &ABI)
-            .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
-            .confirmations(confirmations)
-            .options(Options {
-                gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
-                ..Options::default()
-            })
-            .execute(bytecode, (), from_address)
-            .map_err(|e| format!("Unable to execute deployment: {:?}", e))?;
+            let pending_contract = Contract::deploy(web3.eth(), &ABI)
+                .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
+                .confirmations(confirmations)
+                .options(Options {
+                    gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
+                    ..Options::default()
+                })
+                .execute(bytecode, (), from_address)
+                .map_err(|e| format!("Unable to execute deployment: {:?}", e))?;
 
-        let address = pending_contract
-            .compat()
-            .await
-            .map_err(|e| format!("Unable to await pending contract: {:?}", e))?
-            .address();
+            let address = pending_contract
+                .compat()
+                .await
+                .map_err(|e| format!("Unable to await pending contract: {:?}", e))?
+                .address();
 
-        println!("deposit_contract_address: {:?}", address);
-        println!("deposit_contract_deploy_block: {}", deploy_block);
+            println!("deposit_contract_address: {:?}", address);
+            println!("deposit_contract_deploy_block: {}", deploy_block);
 
-        Ok(())
-    })
+            Ok(())
+        }
+        .compat(),
+    )
 }

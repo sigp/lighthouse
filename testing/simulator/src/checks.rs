@@ -46,13 +46,13 @@ pub async fn verify_first_finalization<E: EthSpec>(
 /// Delays for `epochs`, plus half a slot extra.
 pub async fn epoch_delay(epochs: Epoch, slot_duration: Duration, slots_per_epoch: u64) {
     let duration = slot_duration * (epochs.as_u64() * slots_per_epoch) as u32 + slot_duration / 2;
-    tokio::time::delay_for(duration).await
+    tokio::time::sleep(duration).await
 }
 
 /// Delays for `slots`, plus half a slot extra.
 async fn slot_delay(slots: Slot, slot_duration: Duration) {
     let duration = slot_duration * slots.as_u64() as u32 + slot_duration / 2;
-    tokio::time::delay_for(duration).await;
+    tokio::time::sleep(duration).await;
 }
 
 /// Verifies that all beacon nodes in the given network have a head state that has a finalized

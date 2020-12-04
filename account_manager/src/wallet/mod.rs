@@ -16,7 +16,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
                 .value_name("WALLETS_DIRECTORY")
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
                 .takes_value(true)
                 .conflicts_with("datadir"),
         )

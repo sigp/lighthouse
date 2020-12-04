@@ -5,9 +5,9 @@ use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, warn, Logger};
-use ssz::Encode;
+use slog::{info, warn, Logger};
 use std::cmp;
+use std::cmp::max;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
@@ -21,10 +21,8 @@ use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-#[allow(clippy::cognitive_complexity)]
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    spec_constants: &str,
     spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
@@ -67,8 +65,6 @@ pub fn get_config<E: EthSpec>(
     // remove /beacon from the end
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
-
-    client_config.spec_constants = spec_constants.into();
 
     /*
      * Networking
@@ -199,7 +195,16 @@ pub fn get_config<E: EthSpec>(
     // Defines the URL to reach the eth1 node.
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoint = val.to_string();
+        client_config.eth1.endpoints = vec![val.to_string()];
+    } else if let Some(val) = cli_args.value_of("eth1-endpoints") {
+        client_config.sync_eth1_chain = true;
+        client_config.eth1.endpoints = val.split(',').map(String::from).collect();
+    }
+
+    if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
+        client_config.eth1.blocks_per_log_query = val
+            .parse()
+            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
@@ -223,12 +228,11 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
-    if spec_constants != client_config.spec_constants {
-        crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants,
-              "eth2_config" => spec_constants
-        );
-        return Err("Specification constant mismatch".into());
+    client_config.store.compact_on_init = cli_args.is_present("compact-db");
+    if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
+        client_config.store.compact_on_prune = compact_on_prune
+            .parse()
+            .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
     }
 
     /*
@@ -256,31 +260,37 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 testnet dir to obtain some additional config values.
      */
-    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&cli_args)?;
+    let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
 
-    client_config.eth1.deposit_contract_address =
-        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
-    let spec_contract_address = format!("{:?}", spec.deposit_contract_address);
-    if client_config.eth1.deposit_contract_address != spec_contract_address {
-        return Err("Testnet contract address does not match spec".into());
-    }
-
+    client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
+    client_config.eth1.node_far_behind_seconds =
+        max(5, spec.eth1_follow_distance / 2) * spec.seconds_per_eth1_block;
+    client_config.eth1.network_id = spec.deposit_network_id.into();
+    client_config.eth1.chain_id = spec.deposit_chain_id.into();
+    client_config.eth1.set_block_cache_truncation::<E>(spec);
+
+    info!(
+        log,
+        "Deposit contract";
+        "deploy_block" => client_config.eth1.deposit_contract_deploy_block,
+        "address" => &client_config.eth1.deposit_contract_address
+    );
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state) = eth2_testnet_config.genesis_state {
+    if let Some(genesis_state_bytes) = eth2_testnet_config.genesis_state_bytes {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.
         client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes: genesis_state.as_ssz_bytes(),
+            genesis_state_bytes,
         };
     } else {
         client_config.genesis = ClientGenesis::DepositContract;
@@ -295,6 +305,8 @@ pub fn get_config<E: EthSpec>(
         }
 
         graffiti.as_bytes()
+    } else if cli_args.is_present("private") {
+        b""
     } else {
         lighthouse_version::VERSION.as_bytes()
     };
@@ -348,6 +360,45 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
+    if cli_args.is_present("slasher") {
+        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
+            PathBuf::from(slasher_dir)
+        } else {
+            client_config.data_dir.join("slasher_db")
+        };
+
+        let mut slasher_config = slasher::Config::new(slasher_dir);
+
+        if let Some(update_period) = clap_utils::parse_optional(cli_args, "slasher-update-period")?
+        {
+            slasher_config.update_period = update_period;
+        }
+
+        if let Some(history_length) =
+            clap_utils::parse_optional(cli_args, "slasher-history-length")?
+        {
+            slasher_config.history_length = history_length;
+        }
+
+        if let Some(max_db_size_gbs) =
+            clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
+        {
+            slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
+        }
+
+        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
+            slasher_config.chunk_size = chunk_size;
+        }
+
+        if let Some(validator_chunk_size) =
+            clap_utils::parse_optional(cli_args, "slasher-validator-chunk-size")?
+        {
+            slasher_config.validator_chunk_size = validator_chunk_size;
+        }
+
+        client_config.slasher = Some(slasher_config);
+    }
+
     Ok(client_config)
 }
 
@@ -365,6 +416,14 @@ pub fn set_network_config(
     } else {
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
+
+    if cli_args.is_present("subscribe-all-subnets") {
+        config.subscribe_all_subnets = true;
+    }
+
+    if cli_args.is_present("import-all-attestations") {
+        config.import_all_attestations = true;
+    }
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
         let listen_address = listen_address_str
@@ -520,6 +579,10 @@ pub fn set_network_config(
         config.upnp_enabled = false;
     }
 
+    if cli_args.is_present("private") {
+        config.private = true;
+    }
+
     Ok(())
 }
 
@@ -543,17 +606,17 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
+/// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_testnet_config<E: EthSpec>(
-    cli_args: &ArgMatches,
-) -> Result<Eth2TestnetConfig<E>, String> {
-    let optional_testnet_config = if cli_args.is_present("testnet") {
-        clap_utils::parse_hardcoded_network(cli_args, "testnet")?
+pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
+    let optional_testnet_config = if cli_args.is_present("network") {
+        clap_utils::parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        Eth2TestnetConfig::hard_coded_default()?
+        return Err(
+            "No --network or --testnet-dir flags provided, cannot load config.".to_string(),
+        );
     };
     optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }

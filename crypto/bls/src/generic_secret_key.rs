@@ -58,8 +58,7 @@ where
 
     /// Returns the public key that corresponds to self.
     pub fn public_key(&self) -> GenericPublicKey<Pub> {
-        let is_infinity = false;
-        GenericPublicKey::from_point(self.point.public_key(), is_infinity)
+        GenericPublicKey::from_point(self.point.public_key())
     }
 
     /// Serialize `self` as compressed bytes.
@@ -79,6 +78,8 @@ where
                 got: bytes.len(),
                 expected: SECRET_KEY_BYTES_LEN,
             })
+        } else if bytes.iter().all(|b| *b == 0) {
+            Err(Error::InvalidZeroSecretKey)
         } else {
             Ok(Self {
                 point: Sec::deserialize(bytes)?,

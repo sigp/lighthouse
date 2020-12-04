@@ -7,12 +7,24 @@ need is:
 
 - `git clone https://github.com/sigp/lighthouse.git`
 - `cd lighthouse`
+- `git checkout stable`
 - `make`
 
 If this doesn't work or is not clear enough, see the [Detailed
 Instructions](#detailed-instructions) below. If you have further issues, see
 [Troubleshooting](#troubleshooting). If you'd prefer to use Docker, see the
 [Docker Guide](./docker.md).
+
+## Updating lighthouse
+
+You can update Lighthouse to a specific version by running the commands below. The `lighthouse`
+directory will be the location you cloned Lighthouse to during the installation process.
+`${VERSION}` will be the version you wish to build in the format `vX.X.X`.
+
+- `cd lighthouse`
+- `git fetch`
+- `git checkout ${VERSION}`
+- `make`
 
 ## Detailed Instructions
 
@@ -50,14 +62,14 @@ Several dependencies may be required to compile Lighthouse. The following
 packages may be required in addition a base Ubuntu Server installation:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config libssl-dev
+sudo apt install -y git gcc g++ make cmake pkg-config
 ```
 
 #### macOS
 
 You will need `cmake`. You can install via homebrew:
 
-    brew install openssl cmake
+    brew install cmake
 
 ### Command is not found
 
@@ -71,12 +83,10 @@ See ["Configuring the `PATH` environment variable"
 
 Make sure you are running the latest version of Rust. If you have installed Rust using rustup, simply type `$ rustup update`.
 
-### OpenSSL
+If compilation fails with `(signal: 9, SIGKILL: kill)`, this could mean your machine ran out of
+memory during compilation. If you are on a resource-constrained device you can
+look into [cross compilation](./cross-compiling.md).
 
-If you get a build failure relating to OpenSSL, try installing `openssl-dev` or
-`libssl-dev` using your OS package manager.
-
-- Ubuntu: `$ apt-get install libssl-dev`.
-- Amazon Linux: `$ yum install openssl-devel`.
+If compilation fails with `error: linking with cc failed: exit code: 1`, try running `cargo clean`.
 
 [WSL]: https://docs.microsoft.com/en-us/windows/wsl/about
