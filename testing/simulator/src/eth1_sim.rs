@@ -1,3 +1,4 @@
+use crate::local_network::INVALID_ADDRESS;
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
 use eth1::http::Eth1Id;
@@ -12,7 +13,6 @@ use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use types::{Epoch, EthSpec, MainnetEthSpec};
-use crate::local_network::INVALID_ADDRESS;
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
