@@ -362,9 +362,9 @@ fn validator_create() {
     );
     drop(created_validators);
 
-    // Number of dir entries should be #validators + 1 for the slashing protection DB
+    // Number of dir entries should be #validators + 2 for the slashing protection DB and validator_definitions.yml
     assert_eq!(dir_validator_count(validator_dir.path()), 1);
-    assert_eq!(dir_child_count(validator_dir.path()), 2);
+    assert_eq!(dir_child_count(validator_dir.path()), 3);
 
     // Create a validator storing the withdraw key.
     validator.create_expect_success(COUNT_FLAG, 1, true);
