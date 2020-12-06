@@ -2,7 +2,10 @@ use crate::common::read_wallet_name_from_cli;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{
-    random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
+    random_password, read_password_from_user, strip_off_newlines, PlainText,
+    validator_definitions::{
+       CONFIG_FILENAME, ValidatorDefinition, ValidatorDefinitions
+    }
 };
 use clap::{App, Arg, ArgMatches};
 use directory::{
@@ -117,6 +120,9 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
+    let mut validator_definitions = ValidatorDefinitions::open_or_create(&validator_dir)
+        .map_err(|e| format!("Unable to create {}: {:?}", CONFIG_FILENAME, e))?;
+
     let name: Option<String> = clap_utils::parse_optional(matches, WALLET_NAME_FLAG)?;
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
     let wallet_base_dir = if matches.value_of("datadir").is_some() {
@@ -226,7 +232,7 @@ pub fn cli_run<T: EthSpec>(
                 )
             })?;
 
-        ValidatorDirBuilder::new(validator_dir.clone())
+        let validator = ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
@@ -234,6 +240,15 @@ pub fn cli_run<T: EthSpec>(
             .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
+
+        let validator_def = ValidatorDefinition::new_keystore_with_password(
+                validator.voting_keystore_path(),
+                Some(voting_password.into()))
+            .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
+
+        validator_definitions.push(validator_def);
+        validator_definitions.save(&validator_dir)
+            .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
 
         println!("{}/{}\t{}", i + 1, n, voting_pubkey.to_hex_string());
     }
@@ -251,7 +266,7 @@ fn existing_validator_count<P: AsRef<Path>>(validator_dir: P) -> Result<usize, S
         .map(|iter| {
             iter.filter_map(|e| e.ok())
                 .filter(|e| {
-                    e.file_name() != OsStr::new(validator_definitions::CONFIG_FILENAME)
+                    e.file_name() != OsStr::new(CONFIG_FILENAME)
                         && e.file_name()
                             != OsStr::new(slashing_protection::SLASHING_PROTECTION_FILENAME)
                 })

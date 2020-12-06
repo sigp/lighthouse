@@ -53,14 +53,7 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
     for request in validator_requests {
         let voting_password = random_password();
         let withdrawal_password = random_password();
-        let voting_password_string = ZeroizeString::from(
-            String::from_utf8(voting_password.as_bytes().to_vec()).map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "locally generated password is not utf8: {:?}",
-                    e
-                ))
-            })?,
-        );
+        let voting_password_string = ZeroizeString::from(voting_password.clone());
 
         let mut keystores = wallet
             .next_validator(

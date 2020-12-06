@@ -334,9 +334,7 @@ impl ApiTester {
         if !s.correct_password {
             let request = KeystoreValidatorsPostRequest {
                 enable: s.enabled,
-                password: String::from_utf8(random_password().as_ref().to_vec())
-                    .unwrap()
-                    .into(),
+                password: random_password().into(),
                 keystore,
             };
 
@@ -350,9 +348,7 @@ impl ApiTester {
 
         let request = KeystoreValidatorsPostRequest {
             enable: s.enabled,
-            password: String::from_utf8(password.as_ref().to_vec())
-                .unwrap()
-                .into(),
+            password: password.into(),
             keystore,
         };
 
