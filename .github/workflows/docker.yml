@@ -10,6 +10,12 @@ jobs:
         runs-on: ubuntu-18.04
         steps:
             - uses: actions/checkout@master
+            - uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+            - uses: actions-rs/cargo@v1
+              with:
+                  use-cross: true
 
             - name: Dockerhub login
               env:
