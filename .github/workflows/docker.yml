@@ -6,10 +6,10 @@ on:
             - master
 
 jobs:
-    build-docker-image:
+    build-docker-arm64:
         runs-on: ubuntu-18.04
         steps:
-            - uses: actions/checkout@master
+            - uses: actions/checkout@v1
             - name: Dockerhub login
               env:
                   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
@@ -19,17 +19,19 @@ jobs:
             - uses: actions-rs/toolchain@v1
               with:
                   toolchain: stable
-            - uses: actions-rs/cargo@v1
+            - name: Cross build lighthouse binary
+              uses: actions-rs/cargo@v1
               with:
                   use-cross: true
                   command: build
                   args: --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
-            - uses: actions-rs/cargo@v1
+            - name: Cross build lcli binary
+              uses: actions-rs/cargo@v1
               with:
                   use-cross: true
                   command: build
                   args: --manifest-path lcli/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
-            - name: Move cross-built ARM binary
+            - name: Move cross-built ARM binaries into Docker scope
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
@@ -53,12 +55,26 @@ jobs:
                       --file ./Dockerfile.cross . \
                       --tag seananderson33/lighthouse:latest-arm64
             - name: Build AMD64 dockerfile (with push)
+    build-docker-amd64:
+        runs-on: ubuntu-18.04
+        steps:
+            - uses: actions/checkout@v1
+            - name: Dockerhub login
+              env:
+                  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+                  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
               run: |
+                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin              run: |
                   docker build \
                       --build-arg PORTABLE=true \
                       --output "type=image,push=true" \
                       --file ./Dockerfile . \
                       --tag seananderson33/lighthouse:latest-amd64
+    build-docker-multiarch:
+        runs-on: ubuntu-18.04
+        needs: [build-docker-arm64, build-docker-amd64]
+        steps:
+            - uses: actions/checkout@v1
             - name: Create and push multiarch manifest
               run: |
                   docker manifest create seananderson33/lighthouse:latest \
