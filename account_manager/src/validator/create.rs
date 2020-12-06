@@ -2,10 +2,9 @@ use crate::common::read_wallet_name_from_cli;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{
-    random_password, read_password_from_user, strip_off_newlines, PlainText,
-    validator_definitions::{
-       CONFIG_FILENAME, ValidatorDefinition, ValidatorDefinitions
-    }
+    random_password, read_password_from_user, strip_off_newlines,
+    validator_definitions::{ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME},
+    PlainText,
 };
 use clap::{App, Arg, ArgMatches};
 use directory::{
@@ -242,12 +241,14 @@ pub fn cli_run<T: EthSpec>(
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
         let validator_def = ValidatorDefinition::new_keystore_with_password(
-                validator.voting_keystore_path(),
-                Some(voting_password.into()))
-            .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
+            validator.voting_keystore_path(),
+            Some(voting_password.into()),
+        )
+        .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         validator_definitions.push(validator_def);
-        validator_definitions.save(&validator_dir)
+        validator_definitions
+            .save(&validator_dir)
             .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
 
         println!("{}/{}\t{}", i + 1, n, voting_pubkey.to_hex_string());

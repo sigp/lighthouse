@@ -4,13 +4,9 @@ use crate::validator::create::COUNT_FLAG;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::SECRETS_DIR_FLAG;
 use account_utils::{
+    eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder},
     random_password,
-    validator_definitions::{
-       CONFIG_FILENAME, ValidatorDefinition, ValidatorDefinitions
-    },
-    eth2_keystore::{
-        keypair_from_secret, Keystore, KeystoreBuilder
-    }
+    validator_definitions::{ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME},
 };
 use clap::{App, Arg, ArgMatches};
 use directory::ensure_dir_exists;
@@ -180,12 +176,14 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
         let validator_def = ValidatorDefinition::new_keystore_with_password(
-                validator.voting_keystore_path(),
-                Some(voting_password.into()))
-            .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
+            validator.voting_keystore_path(),
+            Some(voting_password.into()),
+        )
+        .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         validator_definitions.push(validator_def);
-        validator_definitions.save(&validator_dir)
+        validator_definitions
+            .save(&validator_dir)
             .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
 
         println!(
