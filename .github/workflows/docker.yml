@@ -19,6 +19,7 @@ jobs:
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
             - name: Cross build ARM binary
               run: |
+                  cargo install cross;
                   make build-aarch64-portable;
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
