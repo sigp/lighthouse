@@ -3,13 +3,21 @@ use crate::common::read_mnemonic_from_cli;
 use crate::validator::create::COUNT_FLAG;
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::SECRETS_DIR_FLAG;
-use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
-use account_utils::random_password;
+use account_utils::{
+    random_password,
+    validator_definitions::{
+       CONFIG_FILENAME, ValidatorDefinition, ValidatorDefinitions
+    },
+    eth2_keystore::{
+        keypair_from_secret, Keystore, KeystoreBuilder
+    }
+};
 use clap::{App, Arg, ArgMatches};
 use directory::ensure_dir_exists;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::path::PathBuf;
 use validator_dir::Builder as ValidatorDirBuilder;
 pub const CMD: &str = "recover";
@@ -88,10 +96,32 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
 
+    let mut validator_definitions = ValidatorDefinitions::open_or_create(&validator_dir)
+        .map_err(|e| format!("Unable to create {}: {:?}", CONFIG_FILENAME, e))?;
+
+    eprintln!("validator-dir path: {:?}", validator_dir);
     eprintln!("secrets-dir path: {:?}", secrets_dir);
 
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;
+
+    let slashing_protection_path = validator_dir.join(SLASHING_PROTECTION_FILENAME);
+    let slashing_protection =
+        SlashingDatabase::open_or_create(&slashing_protection_path).map_err(|e| {
+            format!(
+                "Unable to open or create slashing protection database at {}: {:?}",
+                slashing_protection_path.display(),
+                e
+            )
+        })?;
+
+    // Create an empty transaction and drops it. Used to test if the database is locked.
+    slashing_protection.test_transaction().map_err(|e| {
+        format!(
+            "Cannot create keys while the validator client is running: {:?}",
+            e
+        )
+    })?;
 
     eprintln!("");
     eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
@@ -124,9 +154,24 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             withdrawal: derive(KeyType::Withdrawal, withdrawal_password.as_bytes())?,
         };
 
-        let voting_pubkey = keystores.voting.pubkey().to_string();
+        let voting_pubkey = keystores.voting.public_key().ok_or_else(|| {
+            format!(
+                "Keystore public key is invalid: {}",
+                keystores.voting.pubkey()
+            )
+        })?;
 
-        ValidatorDirBuilder::new(validator_dir.clone())
+        slashing_protection
+            .register_validator(&voting_pubkey)
+            .map_err(|e| {
+                format!(
+                    "Error registering validator {}: {:?}",
+                    voting_pubkey.to_hex_string(),
+                    e
+                )
+            })?;
+
+        let validator = ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
@@ -134,12 +179,21 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
+        let validator_def = ValidatorDefinition::new_keystore_with_password(
+                validator.voting_keystore_path(),
+                Some(voting_password.into()))
+            .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
+
+        validator_definitions.push(validator_def);
+        validator_definitions.save(&validator_dir)
+            .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
+
         println!(
-            "{}/{}\tIndex: {}\t0x{}",
+            "{}/{}\tIndex: {}\t{}",
             index - first_index,
             count - first_index,
             index,
-            voting_pubkey
+            voting_pubkey.to_hex_string()
         );
     }
 
