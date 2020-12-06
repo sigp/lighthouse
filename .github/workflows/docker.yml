@@ -16,6 +16,9 @@ jobs:
             - uses: actions-rs/cargo@v1
               with:
                   use-cross: true
+                  command: build
+                  args: --release --manifest-path lighthouse/Cargo.toml \
+                        --target aarch64-unknown-linux-gnu --features portable
 
             - name: Dockerhub login
               env:
@@ -23,9 +26,8 @@ jobs:
                   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Cross build ARM binary
+            - name: Move cross-built ARM binary
               run: |
-                  make build-aarch64-portable;
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
             - name: Build Docker Buildx
