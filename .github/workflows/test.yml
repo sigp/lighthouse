@@ -1,0 +1,28 @@
+name: docker
+
+on:
+    push:
+        branches:
+            - master
+        tags:
+            - '*'
+
+env:
+    IS_RELEASE: startsWith( github.ref, 'refs/tags/')
+    AMD64_TAG:
+    ARM64_TAG:
+    LATEST_TAG:
+
+jobs:
+    test-job1:
+        runs-on: ubuntu-18.04
+        steps:
+            - uses: actions/checkout@v1
+            - name: Dockerhub login
+              env:
+                  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+                  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+              run: |
+                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+            - uses: actions-rs/toolchain@v1
+              with:
