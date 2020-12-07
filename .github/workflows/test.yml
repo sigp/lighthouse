@@ -26,7 +26,7 @@ jobs:
                 # We need to enable experimental docker features in order to use `docker manifest`
               run: |
                   export DOCKER_CLI_EXPERIMENTAL=enabled;
-                  docker manifest create seananderson33/lighthouse:${LATEST_TAG} \
-                      --amend seananderson33/lighthouse:${ARM64_TAG} \
-                      --amend seananderson33/lighthouse:${AMD64_TAG};
-                  docker manifest push seananderson33/lighthouse:${LATEST_TAG}
+                  docker manifest create seananderson33/lighthouse:${{ env.LATEST_TAG }} \
+                      --amend seananderson33/lighthouse:${{ env.ARM64_TAG }} \
+                      --amend seananderson33/lighthouse:${ env.AMD64_TAG }};
+                  docker manifest push seananderson33/lighthouse:${{ env.LATEST_TAG }}
