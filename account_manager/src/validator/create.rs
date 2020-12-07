@@ -208,9 +208,9 @@ pub fn cli_run<T: EthSpec>(
 
         let keystores = wallet
             .next_validator(
-                wallet_password.as_bytes(),
-                voting_password.as_bytes(),
-                withdrawal_password.as_bytes(),
+                wallet_password.as_ref(),
+                voting_password.as_ref(),
+                withdrawal_password.as_ref(),
             )
             .map_err(|e| format!("Unable to create validator keys: {:?}", e))?;
 
@@ -233,8 +233,8 @@ pub fn cli_run<T: EthSpec>(
 
         let validator = ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
-            .voting_keystore(keystores.voting, voting_password.as_bytes())
-            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+            .voting_keystore(keystores.voting, voting_password.as_ref())
+            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_ref())
             .create_eth1_tx_data(deposit_gwei, &spec)
             .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
             .build()
@@ -242,7 +242,7 @@ pub fn cli_run<T: EthSpec>(
 
         let validator_def = ValidatorDefinition::new_keystore_with_password(
             validator.voting_keystore_path(),
-            Some(voting_password.into()),
+            Some(voting_password),
         )
         .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 

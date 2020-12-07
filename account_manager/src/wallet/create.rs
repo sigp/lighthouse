@@ -176,7 +176,7 @@ pub fn create_wallet_from_mnemonic(
                     ));
                 }
 
-                create_with_600_perms(&path, random_password().as_bytes())
+                create_with_600_perms(&path, random_password().as_ref())
                     .map_err(|e| format!("Unable to write to {:?}: {:?}", path, e))?;
             }
             read_new_wallet_password_from_cli(Some(path), stdin_inputs)?

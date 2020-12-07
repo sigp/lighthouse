@@ -146,8 +146,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         };
 
         let keystores = ValidatorKeystores {
-            voting: derive(KeyType::Voting, voting_password.as_bytes())?,
-            withdrawal: derive(KeyType::Withdrawal, withdrawal_password.as_bytes())?,
+            voting: derive(KeyType::Voting, voting_password.as_ref())?,
+            withdrawal: derive(KeyType::Withdrawal, withdrawal_password.as_ref())?,
         };
 
         let voting_pubkey = keystores.voting.public_key().ok_or_else(|| {
@@ -169,15 +169,15 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
         let validator = ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
-            .voting_keystore(keystores.voting, voting_password.as_bytes())
-            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+            .voting_keystore(keystores.voting, voting_password.as_ref())
+            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_ref())
             .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
         let validator_def = ValidatorDefinition::new_keystore_with_password(
             validator.voting_keystore_path(),
-            Some(voting_password.into()),
+            Some(voting_password),
         )
         .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 

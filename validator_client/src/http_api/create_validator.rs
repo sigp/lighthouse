@@ -33,7 +33,7 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
 
     let wallet_password = random_password();
     let mut wallet =
-        WalletBuilder::from_mnemonic(&mnemonic, wallet_password.as_bytes(), String::new())
+        WalletBuilder::from_mnemonic(&mnemonic, wallet_password.as_ref(), String::new())
             .and_then(|builder| builder.build())
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
@@ -57,9 +57,9 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
 
         let mut keystores = wallet
             .next_validator(
-                wallet_password.as_bytes(),
-                voting_password.as_bytes(),
-                withdrawal_password.as_bytes(),
+                wallet_password.as_ref(),
+                voting_password.as_ref(),
+                withdrawal_password.as_ref(),
             )
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
@@ -85,8 +85,8 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
             })?;
 
         let validator_dir = ValidatorDirBuilder::new(validator_dir.as_ref().into())
-            .voting_keystore(keystores.voting, voting_password.as_bytes())
-            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+            .voting_keystore(keystores.voting, voting_password.as_ref())
+            .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_ref())
             .create_eth1_tx_data(request.deposit_gwei, &spec)
             .store_withdrawal_keystore(false)
             .build()
