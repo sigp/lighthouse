@@ -1,4 +1,4 @@
-name: docker
+name: test
 
 on:
     push:
@@ -18,17 +18,10 @@ jobs:
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
             - name: Set Env Release
-              if: startsWith( github.ref, 'refs/tags/')
               run: |
                   echo "ARM64_TAG=latest-arm64" >> $GITHUB_ENV;
                   echo "AMD64_TAG=latest-amd64" >> $GITHUB_ENV;
                   echo "LATEST_TAG=latest" >> $GITHUB_ENV;
-            - name: Set Env Non-release
-              if: !startsWith( github.ref, 'refs/tags/')
-              run: |
-                  echo "ARM64_TAG=latest-arm64-unstable" >> $GITHUB_ENV;
-                  echo "AMD64_TAG=latest-amd64-unstable" >> $GITHUB_ENV;
-                  echo "LATEST_TAG=latest-unstable" >> $GITHUB_ENV;
             - name: Create and push multiarch manifest
                 # We need to enable experimental docker features in order to use `docker manifest`
               run: |
