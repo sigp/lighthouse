@@ -13,7 +13,7 @@ pub fn store_full_state<E: EthSpec>(
         let _overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_OVERHEAD_TIMES);
         StorageContainer::new(state).as_ssz_bytes()
     };
-    metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
+    metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as u64);
     metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
     let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
     ops.push(KeyValueStoreOp::PutKeyValue(key, bytes));
@@ -34,7 +34,7 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
             metrics::stop_timer(overhead_timer);
             metrics::stop_timer(total_timer);
             metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
-            metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, bytes.len() as i64);
+            metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, bytes.len() as u64);
 
             Ok(Some(container.try_into()?))
         }

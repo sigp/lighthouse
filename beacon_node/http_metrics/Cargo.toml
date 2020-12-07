@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-prometheus = "0.10.0"
+prometheus = "0.11.0"
 warp = { git = "https://github.com/sigp/warp ", branch = "lighthouse" }
 serde = { version = "1.0.116", features = ["derive"] }
 slog = "2.5.2"

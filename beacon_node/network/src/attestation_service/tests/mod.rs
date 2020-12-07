@@ -4,7 +4,6 @@ mod tests {
     use beacon_chain::{
         builder::{BeaconChainBuilder, Witness},
         eth1_chain::CachingEth1Backend,
-        events::NullEventHandler,
     };
     use futures::Stream;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
@@ -25,7 +24,6 @@ mod tests {
         SystemTimeSlotClock,
         CachingEth1Backend<MinimalEthSpec>,
         MinimalEthSpec,
-        NullEventHandler<MinimalEthSpec>,
         MemoryStore<MinimalEthSpec>,
         MemoryStore<MinimalEthSpec>,
     >;
@@ -61,7 +59,6 @@ mod tests {
                     .expect("should build state using recent genesis")
                     .dummy_eth1_backend()
                     .expect("should build dummy backend")
-                    .null_event_handler()
                     .slot_clock(SystemTimeSlotClock::new(
                         Slot::new(0),
                         Duration::from_secs(recent_genesis_time()),

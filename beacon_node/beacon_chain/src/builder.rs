@@ -2,7 +2,6 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
 };
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
-use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -14,7 +13,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
-    Eth1ChainBackend, EventHandler,
+    Eth1ChainBackend, ServerSentEventHandler,
 };
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
@@ -38,33 +37,24 @@ pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>(
-    PhantomData<(
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    )>,
+pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>(
+    PhantomData<(TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore)>,
 );
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore> BeaconChainTypes
-    for Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore> BeaconChainTypes
+    for Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
     type SlotClock = TSlotClock;
     type Eth1Chain = TEth1Backend;
     type EthSpec = TEthSpec;
-    type EventHandler = TEventHandler;
 }
 
 /// Builds a `BeaconChain` by either creating anew from genesis, or, resuming from an existing chain
@@ -88,7 +78,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
-    event_handler: Option<T::EventHandler>,
+    event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
@@ -103,17 +93,14 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
-    >
+impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Returns a new builder.
     ///
@@ -377,9 +364,9 @@ where
 
     /// Sets the `BeaconChain` event handler backend.
     ///
-    /// For example, provide `WebSocketSender` as a `handler`.
-    pub fn event_handler(mut self, handler: TEventHandler) -> Self {
-        self.event_handler = Some(handler);
+    /// For example, provide `ServerSentEventHandler` as a `handler`.
+    pub fn event_handler(mut self, handler: Option<ServerSentEventHandler<TEthSpec>>) -> Self {
+        self.event_handler = handler;
         self
     }
 
@@ -425,9 +412,7 @@ where
     pub fn build(
         self,
     ) -> Result<
-        BeaconChain<
-            Witness<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
-        >,
+        BeaconChain<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
         String,
     > {
         let log = self.log.ok_or("Cannot build without a logger")?;
@@ -549,9 +534,7 @@ where
             genesis_block_root,
             genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
-            event_handler: self
-                .event_handler
-                .ok_or("Cannot build without an event handler")?,
+            event_handler: self.event_handler,
             head_tracker: Arc::new(self.head_tracker.unwrap_or_default()),
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
@@ -605,23 +588,15 @@ where
     }
 }
 
-impl<TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TSlotClock, TEthSpec, THotStore, TColdStore>
     BeaconChainBuilder<
-        Witness<
-            TSlotClock,
-            CachingEth1Backend<TEthSpec>,
-            TEthSpec,
-            TEventHandler,
-            THotStore,
-            TColdStore,
-        >,
+        Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>,
     >
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
     pub fn no_eth1_backend(self) -> Self {
@@ -644,16 +619,13 @@ where
     }
 }
 
-impl<TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<TestingSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>,
-    >
+impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
     ///
@@ -670,31 +642,6 @@ where
         );
 
         Ok(self.slot_clock(slot_clock))
-    }
-}
-
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            NullEventHandler<TEthSpec>,
-            THotStore,
-            TColdStore,
-        >,
-    >
-where
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-{
-    /// Sets the `BeaconChain` event handler to `NullEventHandler`.
-    pub fn null_event_handler(self) -> Self {
-        let handler = NullEventHandler::default();
-        self.event_handler(handler)
     }
 }
 
@@ -767,7 +714,6 @@ mod test {
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build the dummy eth1 backend")
-            .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)

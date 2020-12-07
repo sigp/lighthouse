@@ -22,7 +22,7 @@ sloggers = "1.0.1"
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
 clap = "2.33.3"
-env_logger = "0.7.1"
+env_logger = "0.8.2"
 logging = { path = "../common/logging" }
 slog-term = "2.6.0"
 slog-async = "2.5.0"

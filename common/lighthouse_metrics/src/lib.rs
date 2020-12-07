@@ -221,7 +221,7 @@ pub fn inc_counter_vec(int_counter_vec: &Result<IntCounterVec>, name: &[&str]) {
     }
 }
 
-pub fn inc_counter_vec_by(int_counter_vec: &Result<IntCounterVec>, name: &[&str], amount: i64) {
+pub fn inc_counter_vec_by(int_counter_vec: &Result<IntCounterVec>, name: &[&str], amount: u64) {
     if let Some(counter) = get_int_counter(int_counter_vec, name) {
         counter.inc_by(amount);
     }
@@ -276,7 +276,7 @@ pub fn inc_counter(counter: &Result<IntCounter>) {
     }
 }
 
-pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
+pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
     if let Ok(counter) = counter {
         counter.inc_by(value);
     }

@@ -620,7 +620,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     metrics::inc_counter_vec_by(
         &SLASHER_NUM_CHUNKS_UPDATED,
         &[T::name()],
-        updated_chunks.len() as i64,
+        updated_chunks.len() as u64,
     );
 
     for (chunk_index, chunk) in updated_chunks {
