@@ -1,32 +1,32 @@
-name: test
-
-on:
-    push:
-        branches:
-            - master
-        tags:
-            - '*'
-
-jobs:
-    build-docker-multiarch:
-        runs-on: ubuntu-18.04
-        steps:
-            - name: Dockerhub login
-              env:
-                  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-                  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-              run: |
-                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Set Env Release
-              run: |
-                  echo "ARM64_TAG=latest-arm64" >> $GITHUB_ENV;
-                  echo "AMD64_TAG=latest-amd64" >> $GITHUB_ENV;
-                  echo "LATEST_TAG=latest" >> $GITHUB_ENV;
-            - name: Create and push multiarch manifest
-                # We need to enable experimental docker features in order to use `docker manifest`
-              run: |
-                  export DOCKER_CLI_EXPERIMENTAL=enabled;
-                  docker manifest create seananderson33/lighthouse:${{ env.LATEST_TAG }} \
-                      --amend seananderson33/lighthouse:${{ env.ARM64_TAG }} \
-                      --amend seananderson33/lighthouse:${ env.AMD64_TAG }};
-                  docker manifest push seananderson33/lighthouse:${{ env.LATEST_TAG }}
+#name: test
+#
+#on:
+#    push:
+#        branches:
+#            - master
+#        tags:
+#            - '*'
+#
+#jobs:
+#    build-docker-multiarch:
+#        runs-on: ubuntu-18.04
+#        steps:
+#            -   name: Dockerhub login
+#                env:
+#                    DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+#                    DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+#                run: |
+#                    echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+#            -   name: Set Env Release
+#                run: |
+#                    echo "ARM64_TAG=latest-arm64" >> $GITHUB_ENV;
+#                    echo "AMD64_TAG=latest-amd64" >> $GITHUB_ENV;
+#                    echo "LATEST_TAG=latest" >> $GITHUB_ENV;
+#            -   name: Create and push multiarch manifest
+#                # We need to enable experimental docker features in order to use `docker manifest`
+#                run: |
+#                    export DOCKER_CLI_EXPERIMENTAL=enabled;
+#                    docker manifest create seananderson33/lighthouse:${{ env.LATEST_TAG }} \
+#                        --amend seananderson33/lighthouse:${{ env.ARM64_TAG }} \
+#                        --amend seananderson33/lighthouse:${ env.AMD64_TAG }};
+#                    docker manifest push seananderson33/lighthouse:${{ env.LATEST_TAG }}
