@@ -10,7 +10,7 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.3.3"
-env_logger = "0.7.1"
+env_logger = "0.8.2"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 lazy_static = "1.4.0"
