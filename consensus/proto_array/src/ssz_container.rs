@@ -2,19 +2,20 @@ use crate::{
     proto_array::{ProtoArray, ProtoNode},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
 };
+use im::{HashMap, Vector};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
 use std::iter::FromIterator;
+use std::sync::Arc;
 use types::{Epoch, Hash256};
 
 #[derive(Encode, Decode)]
 pub struct SszContainer {
-    votes: Vec<VoteTracker>,
-    balances: Vec<u64>,
+    votes: Vector<Arc<VoteTracker>>,
+    balances: Vector<u64>,
     prune_threshold: usize,
     justified_epoch: Epoch,
     finalized_epoch: Epoch,
-    nodes: Vec<ProtoNode>,
+    nodes: Vector<Arc<ProtoNode>>,
     indices: Vec<(Hash256, usize)>,
 }
 

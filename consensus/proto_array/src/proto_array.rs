@@ -1,7 +1,8 @@
 use crate::{error::Error, Block};
+use im::{HashMap, Vector};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
+use std::sync::Arc;
 use types::{Epoch, Hash256, ShufflingId, Slot};
 
 #[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
@@ -36,7 +37,7 @@ pub struct ProtoArray {
     pub prune_threshold: usize,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
-    pub nodes: Vec<ProtoNode>,
+    pub nodes: Vector<Arc<ProtoNode>>,
     pub indices: HashMap<Hash256, usize>,
 }
 
@@ -92,7 +93,7 @@ impl ProtoArray {
                 .ok_or(Error::InvalidNodeDelta(node_index))?;
 
             // Apply the delta to the node.
-            if node_delta < 0 {
+            let new_weight = if node_delta < 0 {
                 // Note: I am conflicted about whether to use `saturating_sub` or `checked_sub`
                 // here.
                 //
@@ -102,16 +103,17 @@ impl ProtoArray {
                 //
                 // However, I am not fully convinced that some valid case for `saturating_sub` does
                 // not exist.
-                node.weight = node
-                    .weight
-                    .checked_sub(node_delta.abs() as u64)
-                    .ok_or(Error::DeltaOverflow(node_index))?;
+                node.weight.checked_sub(node_delta.abs() as u64)
             } else {
-                node.weight = node
-                    .weight
-                    .checked_add(node_delta as u64)
-                    .ok_or(Error::DeltaOverflow(node_index))?;
+                node.weight.checked_add(node_delta as u64)
             }
+            .ok_or_else(|| Error::DeltaOverflow(node_index))?;
+
+            let updated_node = Arc::new(ProtoNode {
+                weight: new_weight,
+                ..node.as_ref().clone()
+            });
+            *node = updated_node;
 
             // If the node has a parent, try to update its best-child and best-descendant.
             if let Some(parent_index) = node.parent {
@@ -140,7 +142,7 @@ impl ProtoArray {
 
         let node_index = self.nodes.len();
 
-        let node = ProtoNode {
+        let node = Arc::new(ProtoNode {
             slot: block.slot,
             root: block.root,
             target_root: block.target_root,
@@ -155,10 +157,10 @@ impl ProtoArray {
             weight: 0,
             best_child: None,
             best_descendant: None,
-        };
+        });
 
         self.indices.insert(node.root, node_index);
-        self.nodes.push(node.clone());
+        self.nodes.push_back(node.clone());
 
         if let Some(parent_index) = node.parent {
             self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
@@ -256,24 +258,26 @@ impl ProtoArray {
         // Iterate through all the existing nodes and adjust their indices to match the new layout
         // of `self.nodes`.
         for node in self.nodes.iter_mut() {
+            let mut updated_node = node.as_ref().clone();
             if let Some(parent) = node.parent {
                 // If `node.parent` is less than `finalized_index`, set it to `None`.
-                node.parent = parent.checked_sub(finalized_index);
+                updated_node.parent = parent.checked_sub(finalized_index);
             }
             if let Some(best_child) = node.best_child {
-                node.best_child = Some(
+                updated_node.best_child = Some(
                     best_child
                         .checked_sub(finalized_index)
                         .ok_or(Error::IndexOverflow("best_child"))?,
                 );
             }
             if let Some(best_descendant) = node.best_descendant {
-                node.best_descendant = Some(
+                updated_node.best_descendant = Some(
                     best_descendant
                         .checked_sub(finalized_index)
                         .ok_or(Error::IndexOverflow("best_descendant"))?,
                 );
             }
+            *node = Arc::new(updated_node);
         }
 
         Ok(())
@@ -373,8 +377,13 @@ impl ProtoArray {
             .get_mut(parent_index)
             .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
-        parent.best_child = new_best_child;
-        parent.best_descendant = new_best_descendant;
+        let updated_parent = Arc::new(ProtoNode {
+            best_child: new_best_child,
+            best_descendant: new_best_descendant,
+            ..parent.as_ref().clone()
+        });
+
+        *parent = updated_parent;
 
         Ok(())
     }

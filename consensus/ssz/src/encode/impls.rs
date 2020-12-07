@@ -3,6 +3,9 @@ use core::num::NonZeroUsize;
 use ethereum_types::{H256, U128, U256};
 use smallvec::SmallVec;
 
+#[cfg(feature = "arc")]
+use std::sync::Arc;
+
 macro_rules! impl_encodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Encode for $type {
@@ -233,7 +236,10 @@ impl<T: Encode> Encode for Option<T> {
 
 macro_rules! impl_for_vec {
     ($type: ty) => {
-        impl<T: Encode> Encode for $type {
+        impl_for_vec!($type, );
+    };
+    ($type: ty, $($extra_type_bounds: tt),*) => {
+        impl<T: Encode $(+ $extra_type_bounds)*> Encode for $type {
             fn is_ssz_fixed_len() -> bool {
                 false
             }
@@ -252,14 +258,14 @@ macro_rules! impl_for_vec {
                 if T::is_ssz_fixed_len() {
                     buf.reserve(T::ssz_fixed_len() * self.len());
 
-                    for item in self {
+                    for item in self.iter() {
                         item.ssz_append(buf);
                     }
                 } else {
                     let mut encoder =
                         SszEncoder::container(buf, self.len() * BYTES_PER_LENGTH_OFFSET);
 
-                    for item in self {
+                    for item in self.iter() {
                         encoder.append(item);
                     }
 
@@ -279,6 +285,9 @@ impl_for_vec!(SmallVec<[T; 5]>);
 impl_for_vec!(SmallVec<[T; 6]>);
 impl_for_vec!(SmallVec<[T; 7]>);
 impl_for_vec!(SmallVec<[T; 8]>);
+
+#[cfg(feature = "im")]
+impl_for_vec!(im::Vector<T>, Clone);
 
 impl Encode for bool {
     fn is_ssz_fixed_len() -> bool {
@@ -402,6 +411,25 @@ macro_rules! impl_encodable_for_u8_array {
 
 impl_encodable_for_u8_array!(4);
 impl_encodable_for_u8_array!(32);
+
+#[cfg(feature = "arc")]
+impl<T: Encode> Encode for Arc<T> {
+    fn is_ssz_fixed_len() -> bool {
+        T::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        T::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.as_ref().ssz_bytes_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.as_ref().ssz_append(buf)
+    }
+}
 
 #[cfg(test)]
 mod tests {

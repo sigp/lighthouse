@@ -1639,7 +1639,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let mut fork_choice = self.fork_choice.write();
+        // Perform a cheap clone of the fork choice data structure, which is comprised of smaller
+        // persistent (copy-on-write) data structures.
+        // The clone will be enshrined as the official version if all operations succeed.
+        let mut fork_choice_lock = self.fork_choice.write();
+        let mut fork_choice = fork_choice_lock.clone();
 
         // Do not import a block that doesn't descend from the finalized root.
         let signed_block =
@@ -1724,9 +1728,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.do_atomically(ops)?;
         drop(txn_lock);
 
-        // The fork choice write-lock is dropped *after* the on-disk database has been updated.
-        // This prevents inconsistency between the two at the expense of concurrency.
-        drop(fork_choice);
+        // Update fork choice atomically after the database write has succeeded. This prevents
+        // fork choice becoming inconsistent with the on-disk database in the event of a
+        // write failure, or a concurrent mutation.
+        *fork_choice_lock = fork_choice;
+        drop(fork_choice_lock);
 
         let parent_root = block.parent_root;
         let slot = block.slot;

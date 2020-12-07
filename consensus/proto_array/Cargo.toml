@@ -9,9 +9,10 @@ name = "proto_array"
 path = "src/bin.rs"
 
 [dependencies]
+im = { version = "15.0.0", features = ["serde"] }
 types = { path = "../types" }
-eth2_ssz = "0.1.2"
+eth2_ssz = { version = "0.1.2", features = ["arc", "im"] }
 eth2_ssz_derive = "0.1.0"
-serde = "1.0.116"
+serde = { version = "1.0.116", features = ["rc"] }
 serde_derive = "1.0.116"
 serde_yaml = "0.8.13"

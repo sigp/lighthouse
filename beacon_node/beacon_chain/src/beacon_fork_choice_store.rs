@@ -5,7 +5,9 @@
 //! reads when fork choice requires the validator balances of the justified state.
 
 use crate::{metrics, BeaconSnapshot};
+use derivative::Derivative;
 use fork_choice::ForkChoiceStore;
+use im::Vector;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -72,7 +74,7 @@ struct CacheItem {
 /// It is effectively a mapping of `epoch_boundary_block_root -> state.balances`.
 #[derive(PartialEq, Clone, Default, Debug, Encode, Decode)]
 struct BalancesCache {
-    items: Vec<CacheItem>,
+    items: Vector<CacheItem>,
 }
 
 impl BalancesCache {
@@ -109,7 +111,7 @@ impl BalancesCache {
                 self.items.remove(0);
             }
 
-            self.items.push(item);
+            self.items.push_back(item);
         }
 
         Ok(())
@@ -157,8 +159,10 @@ impl BalancesCache {
 
 /// Implements `fork_choice::ForkChoiceStore` in order to provide a persistent backing to the
 /// `fork_choice::ForkChoice` struct.
-#[derive(Debug)]
+#[derive(Debug, Derivative)]
+#[derivative(PartialEq, Clone(bound = ""))]
 pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    #[derivative(PartialEq = "ignore")]
     store: Arc<HotColdDB<E, Hot, Cold>>,
     balances_cache: BalancesCache,
     time: Slot,
@@ -167,23 +171,6 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
     _phantom: PhantomData<E>,
-}
-
-impl<E, Hot, Cold> PartialEq for BeaconForkChoiceStore<E, Hot, Cold>
-where
-    E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
-{
-    /// This implementation ignores the `store` and `slot_clock`.
-    fn eq(&self, other: &Self) -> bool {
-        self.balances_cache == other.balances_cache
-            && self.time == other.time
-            && self.finalized_checkpoint == other.finalized_checkpoint
-            && self.justified_checkpoint == other.justified_checkpoint
-            && self.justified_balances == other.justified_balances
-            && self.best_justified_checkpoint == other.best_justified_checkpoint
-    }
 }
 
 impl<E, Hot, Cold> BeaconForkChoiceStore<E, Hot, Cold>

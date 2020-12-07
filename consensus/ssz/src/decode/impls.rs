@@ -3,6 +3,9 @@ use core::num::NonZeroUsize;
 use ethereum_types::{H256, U128, U256};
 use smallvec::SmallVec;
 
+#[cfg(feature = "arc")]
+use std::sync::Arc;
+
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Decode for $type {
@@ -367,14 +370,17 @@ impl_decodable_for_u8_array!(32);
 
 macro_rules! impl_for_vec {
     ($type: ty, $max_len: expr) => {
-        impl<T: Decode> Decode for $type {
+        impl_for_vec!($type, $max_len,);
+    };
+    ($type: ty, $max_len: expr, $($extra_type_bounds:tt),*) => {
+        impl<T: Decode $(+ $extra_type_bounds)*> Decode for $type {
             fn is_ssz_fixed_len() -> bool {
                 false
             }
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
                 if bytes.is_empty() {
-                    Ok(vec![].into())
+                    Ok(Self::default())
                 } else if T::is_ssz_fixed_len() {
                     bytes
                         .chunks(T::ssz_fixed_len())
@@ -397,6 +403,9 @@ impl_for_vec!(SmallVec<[T; 5]>, Some(5));
 impl_for_vec!(SmallVec<[T; 6]>, Some(6));
 impl_for_vec!(SmallVec<[T; 7]>, Some(7));
 impl_for_vec!(SmallVec<[T; 8]>, Some(8));
+
+#[cfg(feature = "im")]
+impl_for_vec!(im::Vector<T>, None, Clone);
 
 /// Decodes `bytes` as if it were a list of variable-length items.
 ///
@@ -456,6 +465,22 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
     }
 
     Ok(values)
+}
+
+#[cfg(feature = "arc")]
+impl<T: Decode> Decode for Arc<T> {
+    fn is_ssz_fixed_len() -> bool {
+        T::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        T::ssz_fixed_len()
+    }
+
+    /// Note that this creates a new `Arc`, which may lead to sub-optimal data sharing.
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        T::from_ssz_bytes(bytes).map(Arc::new)
+    }
 }
 
 #[cfg(test)]

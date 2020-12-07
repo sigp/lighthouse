@@ -566,6 +566,7 @@ dependencies = [
  "fork_choice",
  "futures 0.3.8",
  "genesis",
+ "im",
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.9.0",
@@ -674,6 +675,15 @@ name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
+
+[[package]]
+name = "bitmaps"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031043d04099746d8db04daf1fa424b2bc8bd69d92b25962dcde24da39ab64a2"
+dependencies = [
+ "typenum",
+]
 
 [[package]]
 name = "bitvec"
@@ -2122,6 +2132,7 @@ version = "0.1.2"
 dependencies = [
  "eth2_ssz_derive",
  "ethereum-types",
+ "im",
  "smallvec 1.5.0",
 ]
 
@@ -2370,9 +2381,11 @@ name = "fork_choice"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "derivative",
  "eth2_ssz",
  "eth2_ssz_derive",
  "hex",
+ "im",
  "proto_array",
  "slot_clock",
  "state_processing",
@@ -3293,6 +3306,21 @@ dependencies = [
  "rand 0.7.3",
  "url 2.2.0",
  "xmltree",
+]
+
+[[package]]
+name = "im"
+version = "15.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "111c1983f3c5bb72732df25cddacee9b546d08325fb584b5ebd38148be7b0246"
+dependencies = [
+ "bitmaps",
+ "rand_core 0.5.1",
+ "rand_xoshiro",
+ "serde",
+ "sized-chunks",
+ "typenum",
+ "version_check 0.9.2",
 ]
 
 [[package]]
@@ -5161,6 +5189,7 @@ version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
+ "im",
  "serde",
  "serde_derive",
  "serde_yaml",
@@ -5476,6 +5505,15 @@ name = "rand_xorshift"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77d416b86801d23dde1aa643023b775c3a462efc0ed96443add11546cdf1dca8"
+dependencies = [
+ "rand_core 0.5.1",
+]
+
+[[package]]
+name = "rand_xoshiro"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fcdd2e881d02f1d9390ae47ad8e5696a9e4be7b547a1da2afbc61973217004"
 dependencies = [
  "rand_core 0.5.1",
 ]
@@ -6182,6 +6220,16 @@ name = "siphasher"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa8f3741c7372e75519bd9346068370c9cdaabcc1f9599cbcf2a2719352286b7"
+
+[[package]]
+name = "sized-chunks"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ec31ceca5644fa6d444cc77548b88b67f46db6f7c71683b0f9336e671830d2f"
+dependencies = [
+ "bitmaps",
+ "typenum",
+]
 
 [[package]]
 name = "slab"

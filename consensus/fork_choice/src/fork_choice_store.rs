@@ -16,7 +16,7 @@ use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 /// The primary motivation for defining this as a trait to be implemented upstream rather than a
 /// concrete struct is to allow this crate to be free from "impure" on-disk database logic,
 /// hopefully making auditing easier.
-pub trait ForkChoiceStore<T: EthSpec>: Sized {
+pub trait ForkChoiceStore<T: EthSpec>: Sized + Clone {
     type Error;
 
     /// Returns the last value passed to `Self::update_time`.

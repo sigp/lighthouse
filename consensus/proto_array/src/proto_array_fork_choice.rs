@@ -1,14 +1,15 @@
 use crate::error::Error;
 use crate::proto_array::ProtoArray;
 use crate::ssz_container::SszContainer;
+use im::{HashMap, Vector};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
+use std::sync::Arc;
 use types::{Epoch, Hash256, ShufflingId, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
-#[derive(Default, PartialEq, Clone, Encode, Decode)]
+#[derive(Debug, Default, PartialEq, Clone, Encode, Decode)]
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
@@ -36,15 +37,15 @@ pub struct Block {
 /// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
 /// Default) to the smallest size required to fulfill the request.
 #[derive(Default, Clone, Debug, PartialEq)]
-pub struct ElasticList<T>(pub Vec<T>);
+pub struct ElasticList<T: Clone>(pub Vector<T>);
 
 impl<T> ElasticList<T>
 where
-    T: Default,
+    T: Clone + Default,
 {
     fn ensure(&mut self, i: usize) {
-        if self.0.len() <= i {
-            self.0.resize_with(i + 1, Default::default);
+        while self.0.len() <= i {
+            self.0.push_back(T::default());
         }
     }
 
@@ -58,11 +59,11 @@ where
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
-    pub(crate) votes: ElasticList<VoteTracker>,
-    pub(crate) balances: Vec<u64>,
+    pub(crate) votes: ElasticList<Arc<VoteTracker>>,
+    pub(crate) balances: Vector<u64>,
 }
 
 impl ProtoArrayForkChoice {
@@ -79,8 +80,8 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             justified_epoch,
             finalized_epoch,
-            nodes: Vec::with_capacity(1),
-            indices: HashMap::with_capacity(1),
+            nodes: Vector::new(),
+            indices: HashMap::new(),
         };
 
         let block = Block {
@@ -104,7 +105,7 @@ impl ProtoArrayForkChoice {
         Ok(Self {
             proto_array,
             votes: ElasticList::default(),
-            balances: vec![],
+            balances: Vector::new(),
         })
     }
 
@@ -116,9 +117,12 @@ impl ProtoArrayForkChoice {
     ) -> Result<(), String> {
         let vote = self.votes.get_mut(validator_index);
 
-        if target_epoch > vote.next_epoch || *vote == VoteTracker::default() {
-            vote.next_root = block_root;
-            vote.next_epoch = target_epoch;
+        if target_epoch > vote.next_epoch || **vote == VoteTracker::default() {
+            *vote = Arc::new(VoteTracker {
+                next_root: block_root,
+                next_epoch: target_epoch,
+                current_root: vote.current_root,
+            });
         }
 
         Ok(())
@@ -157,7 +161,7 @@ impl ProtoArrayForkChoice {
             .apply_score_changes(deltas, justified_epoch, finalized_epoch)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
-        *old_balances = new_balances.to_vec();
+        *old_balances = new_balances.into();
 
         self.proto_array
             .find_head(&justified_root)
@@ -232,7 +236,7 @@ impl ProtoArrayForkChoice {
         if validator_index < self.votes.0.len() {
             let vote = &self.votes.0[validator_index];
 
-            if *vote == VoteTracker::default() {
+            if **vote == VoteTracker::default() {
                 None
             } else {
                 Some((vote.next_root, vote.next_epoch))
@@ -272,8 +276,8 @@ impl ProtoArrayForkChoice {
 /// always valid).
 fn compute_deltas(
     indices: &HashMap<Hash256, usize>,
-    votes: &mut ElasticList<VoteTracker>,
-    old_balances: &[u64],
+    votes: &mut ElasticList<Arc<VoteTracker>>,
+    old_balances: &Vector<u64>,
     new_balances: &[u64],
 ) -> Result<Vec<i64>, Error> {
     let mut deltas = vec![0_i64; indices.len()];
@@ -323,7 +327,10 @@ fn compute_deltas(
                 deltas[next_delta_index] = delta;
             }
 
-            vote.current_root = vote.next_root;
+            *vote = Arc::new(VoteTracker {
+                current_root: vote.next_root,
+                ..vote.as_ref().clone()
+            });
         }
     }
 
@@ -333,6 +340,7 @@ fn compute_deltas(
 #[cfg(test)]
 mod test_compute_deltas {
     use super::*;
+    use im::vector;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
     fn hash_from_index(i: usize) -> Hash256 {
@@ -419,17 +427,17 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
-        let mut old_balances = vec![];
+        let mut old_balances = vector![];
         let mut new_balances = vec![];
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
-            votes.0.push(VoteTracker {
+            votes.0.push_back(Arc::new(VoteTracker {
                 current_root: Hash256::zero(),
                 next_root: Hash256::zero(),
                 next_epoch: Epoch::new(0),
-            });
-            old_balances.push(0);
+            }));
+            old_balances.push_back(0);
             new_balances.push(0);
         }
 
@@ -463,17 +471,17 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
-        let mut old_balances = vec![];
+        let mut old_balances = vector![];
         let mut new_balances = vec![];
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
-            votes.0.push(VoteTracker {
+            votes.0.push_back(Arc::new(VoteTracker {
                 current_root: Hash256::zero(),
                 next_root: hash_from_index(0),
                 next_epoch: Epoch::new(0),
-            });
-            old_balances.push(BALANCE);
+            }));
+            old_balances.push_back(BALANCE);
             new_balances.push(BALANCE);
         }
 
@@ -514,17 +522,17 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
-        let mut old_balances = vec![];
+        let mut old_balances = vector![];
         let mut new_balances = vec![];
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
-            votes.0.push(VoteTracker {
+            votes.0.push_back(Arc::new(VoteTracker {
                 current_root: Hash256::zero(),
                 next_root: hash_from_index(i),
                 next_epoch: Epoch::new(0),
-            });
-            old_balances.push(BALANCE);
+            }));
+            old_balances.push_back(BALANCE);
             new_balances.push(BALANCE);
         }
 
@@ -560,17 +568,17 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
-        let mut old_balances = vec![];
+        let mut old_balances = vector![];
         let mut new_balances = vec![];
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
-            votes.0.push(VoteTracker {
+            votes.0.push_back(Arc::new(VoteTracker {
                 current_root: hash_from_index(0),
                 next_root: hash_from_index(1),
                 next_epoch: Epoch::new(0),
-            });
-            old_balances.push(BALANCE);
+            }));
+            old_balances.push_back(BALANCE);
             new_balances.push(BALANCE);
         }
 
@@ -618,22 +626,22 @@ mod test_compute_deltas {
         indices.insert(hash_from_index(1), 0);
 
         // There are two validators.
-        let old_balances = vec![BALANCE; 2];
+        let old_balances = vector![BALANCE, BALANCE];
         let new_balances = vec![BALANCE; 2];
 
         // One validator moves their vote from the block to the zero hash.
-        votes.0.push(VoteTracker {
+        votes.0.push_back(Arc::new(VoteTracker {
             current_root: hash_from_index(1),
             next_root: Hash256::zero(),
             next_epoch: Epoch::new(0),
-        });
+        }));
 
         // One validator moves their vote from the block to something outside the tree.
-        votes.0.push(VoteTracker {
+        votes.0.push_back(Arc::new(VoteTracker {
             current_root: hash_from_index(1),
             next_root: Hash256::from_low_u64_be(1337),
             next_epoch: Epoch::new(0),
-        });
+        }));
 
         let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
             .expect("should compute deltas");
@@ -663,17 +671,17 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
-        let mut old_balances = vec![];
+        let mut old_balances = vector![];
         let mut new_balances = vec![];
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
-            votes.0.push(VoteTracker {
+            votes.0.push_back(Arc::new(VoteTracker {
                 current_root: hash_from_index(0),
                 next_root: hash_from_index(1),
                 next_epoch: Epoch::new(0),
-            });
-            old_balances.push(OLD_BALANCE);
+            }));
+            old_balances.push_back(OLD_BALANCE);
             new_balances.push(NEW_BALANCE);
         }
 
@@ -724,17 +732,17 @@ mod test_compute_deltas {
         indices.insert(hash_from_index(2), 1);
 
         // There is only one validator in the old balances.
-        let old_balances = vec![BALANCE; 1];
+        let old_balances = vector![BALANCE];
         // There are two validators in the new balances.
         let new_balances = vec![BALANCE; 2];
 
         // Both validator move votes from block 1 to block 2.
         for _ in 0..2 {
-            votes.0.push(VoteTracker {
+            votes.0.push_back(Arc::new(VoteTracker {
                 current_root: hash_from_index(1),
                 next_root: hash_from_index(2),
                 next_epoch: Epoch::new(0),
-            });
+            }));
         }
 
         let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
@@ -773,17 +781,17 @@ mod test_compute_deltas {
         indices.insert(hash_from_index(2), 1);
 
         // There are two validators in the old balances.
-        let old_balances = vec![BALANCE; 2];
+        let old_balances = vector![BALANCE, BALANCE];
         // There is only one validator in the new balances.
         let new_balances = vec![BALANCE; 1];
 
         // Both validator move votes from block 1 to block 2.
         for _ in 0..2 {
-            votes.0.push(VoteTracker {
+            votes.0.push_back(Arc::new(VoteTracker {
                 current_root: hash_from_index(1),
                 next_root: hash_from_index(2),
                 next_epoch: Epoch::new(0),
-            });
+            }));
         }
 
         let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)

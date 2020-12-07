@@ -9,6 +9,7 @@ use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
+use im::Vector;
 use std::fmt;
 use std::sync::Mutex;
 use store::{MemoryStore, StoreConfig};
@@ -141,7 +142,7 @@ impl ForkChoiceTest {
     /// Inspect the queued attestations in fork choice.
     pub fn inspect_queued_attestations<F>(self, mut func: F) -> Self
     where
-        F: FnMut(&[QueuedAttestation]),
+        F: FnMut(&Vector<QueuedAttestation>),
     {
         self.harness
             .chain

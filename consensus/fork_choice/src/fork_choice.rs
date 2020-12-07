@@ -1,14 +1,14 @@
-use std::marker::PhantomData;
-
+use crate::ForkChoiceStore;
+use derivative::Derivative;
+use im::Vector;
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
+use std::marker::PhantomData;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256,
     IndexedAttestation, RelativeEpoch, ShufflingId, Slot,
 };
-
-use crate::ForkChoiceStore;
-use std::cmp::Ordering;
 
 /// Defined here:
 ///
@@ -188,8 +188,8 @@ impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
 /// current slot. Also removes those values from `self.queued_attestations`.
 fn dequeue_attestations(
     current_slot: Slot,
-    queued_attestations: &mut Vec<QueuedAttestation>,
-) -> Vec<QueuedAttestation> {
+    queued_attestations: &mut Vector<QueuedAttestation>,
+) -> Vector<QueuedAttestation> {
     let remaining = queued_attestations.split_off(
         queued_attestations
             .iter()
@@ -210,26 +210,16 @@ fn dequeue_attestations(
 ///
 /// - Management of the justified state and caching of balances.
 /// - Queuing of attestations from the current slot.
+#[derive(Clone, Derivative)]
+#[derivative(PartialEq(bound = "T: ForkChoiceStore<E> + PartialEq, E: EthSpec"))]
 pub struct ForkChoice<T, E> {
     /// Storage for `ForkChoice`, modelled off the spec `Store` object.
     fc_store: T,
     /// The underlying representation of the block DAG.
     proto_array: ProtoArrayForkChoice,
     /// Attestations that arrived at the current slot and must be queued for later processing.
-    queued_attestations: Vec<QueuedAttestation>,
+    queued_attestations: Vector<QueuedAttestation>,
     _phantom: PhantomData<E>,
-}
-
-impl<T, E> PartialEq for ForkChoice<T, E>
-where
-    T: ForkChoiceStore<E> + PartialEq,
-    E: EthSpec,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.fc_store == other.fc_store
-            && self.proto_array == other.proto_array
-            && self.queued_attestations == other.queued_attestations
-    }
 }
 
 impl<T, E> ForkChoice<T, E>
@@ -266,7 +256,7 @@ where
         Ok(Self {
             fc_store,
             proto_array,
-            queued_attestations: vec![],
+            queued_attestations: Vector::new(),
             _phantom: PhantomData,
         })
     }
@@ -278,7 +268,7 @@ where
     pub fn from_components(
         fc_store: T,
         proto_array: ProtoArrayForkChoice,
-        queued_attestations: Vec<QueuedAttestation>,
+        queued_attestations: Vector<QueuedAttestation>,
     ) -> Self {
         Self {
             fc_store,
@@ -711,7 +701,7 @@ where
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
             self.queued_attestations
-                .push(QueuedAttestation::from(attestation));
+                .push_back(QueuedAttestation::from(attestation));
         }
 
         Ok(())
@@ -800,7 +790,7 @@ where
     }
 
     /// Returns a reference to the currently queued attestations.
-    pub fn queued_attestations(&self) -> &[QueuedAttestation] {
+    pub fn queued_attestations(&self) -> &Vector<QueuedAttestation> {
         &self.queued_attestations
     }
 
@@ -835,7 +825,7 @@ where
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
             proto_array_bytes: self.proto_array().as_bytes(),
-            queued_attestations: self.queued_attestations().to_vec(),
+            queued_attestations: self.queued_attestations().clone(),
         }
     }
 }
@@ -846,7 +836,7 @@ where
 #[derive(Encode, Decode, Clone)]
 pub struct PersistedForkChoice {
     proto_array_bytes: Vec<u8>,
-    queued_attestations: Vec<QueuedAttestation>,
+    queued_attestations: Vector<QueuedAttestation>,
 }
 
 #[cfg(test)]
@@ -877,7 +867,7 @@ mod tests {
         }
     }
 
-    fn get_queued_attestations() -> Vec<QueuedAttestation> {
+    fn get_queued_attestations() -> Vector<QueuedAttestation> {
         (1..4)
             .into_iter()
             .map(|i| QueuedAttestation {
@@ -889,7 +879,7 @@ mod tests {
             .collect()
     }
 
-    fn get_slots(queued_attestations: &[QueuedAttestation]) -> Vec<u64> {
+    fn get_slots(queued_attestations: &Vector<QueuedAttestation>) -> Vec<u64> {
         queued_attestations.iter().map(|a| a.slot.into()).collect()
     }
 
