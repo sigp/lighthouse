@@ -5,7 +5,7 @@ on:
         branches:
             - master
         tags:
-            - *
+            - '*'
 
 jobs:
     build-docker-arm64:
