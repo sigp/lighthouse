@@ -32,7 +32,7 @@ base64 = "0.13.0"
 snap = "1.0.1"
 void = "1.0.2"
 hex = "0.4.2"
-tokio-util = { version = "0.4.0", features = ["codec", "compat"] }
+tokio-util = { version = "0.4.0", features = ["codec", "compat", "time"] }
 tiny-keccak = "2.0.2"
 task_executor = { path = "../../common/task_executor" }
 rand = "0.7.3"

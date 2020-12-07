@@ -24,7 +24,7 @@ slog = "2.5.2"
 sloggers = "*"
 slot_clock = { path = "../common/slot_clock" }
 task_executor = { path = "../common/task_executor" }
-tokio = { version = "0.2.21", features = ["full"] }
+tokio = { version = "0.3.5", features = ["full"] }
 tree_hash = { path = "../consensus/tree_hash" }
 tree_hash_derive = { path = "../consensus/tree_hash_derive" }
 types = { path = "../consensus/types" }

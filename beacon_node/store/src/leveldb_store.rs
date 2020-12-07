@@ -61,7 +61,7 @@ impl<E: EthSpec> LevelDB<E> {
         let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
+        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         self.db
@@ -103,7 +103,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
             .map_err(Into::into)
             .map(|opt| {
                 opt.map(|bytes| {
-                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as i64);
+                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as u64);
                     metrics::stop_timer(timer);
                     bytes
                 })
