@@ -86,9 +86,8 @@ jobs:
               run: |
                   docker build \
                       --build-arg PORTABLE=true \
-                      --output "type=image,push=true" \
-                      --file ./Dockerfile . \
-                      --tag ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX};
+                      --tag ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX} \
+                      --file ./Dockerfile .
                   docker push ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX}
     build-docker-multiarch:
         runs-on: ubuntu-18.04
