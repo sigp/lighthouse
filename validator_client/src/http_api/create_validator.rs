@@ -1,7 +1,7 @@
 use crate::ValidatorStore;
 use account_utils::{
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
-    random_mnemonic, random_password, ZeroizeString,
+    random_mnemonic, random_password,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
 use slot_clock::SlotClock;
