@@ -27,7 +27,7 @@ jobs:
               run: |
                   echo '{"experimental": true}' | sudo tee -a /etc/docker/daemon.json;
                   sudo systemctl restart docker;
-                  docker manifest create seananderson33/lighthouse:$LATEST_TAG \
-                      --amend seananderson33/lighthouse:$ARM64_TAG \
-                      --amend seananderson33/lighthouse:$AMD64_TAG;
-                  docker manifest push seananderson33/lighthouse:LATEST_TAG
+                  docker manifest create seananderson33/lighthouse:${LATEST_TAG} \
+                      --amend seananderson33/lighthouse:${ARM64_TAG} \
+                      --amend seananderson33/lighthouse:${AMD64_TAG};
+                  docker manifest push seananderson33/lighthouse:${LATEST_TAG}
