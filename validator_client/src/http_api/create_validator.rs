@@ -53,7 +53,7 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
     for request in validator_requests {
         let voting_password = random_password();
         let withdrawal_password = random_password();
-        let voting_password_string = ZeroizeString::from(voting_password.clone());
+        let voting_password_string = voting_password.clone();
 
         let mut keystores = wallet
             .next_validator(
