@@ -76,7 +76,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             let spec = eth2_network_config
                 .yaml_config
                 .as_ref()
-                .ok_or("The testnet directory must contain a spec config")?
+                .ok_or("The network directory must contain a spec config")?
                 .apply_to_chain_spec::<T>(&T::default_spec())
                 .ok_or("The loaded config is not compatible with the current spec")?;
 
