@@ -8,7 +8,7 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response,
 };
 use eth2_libp2p::{types::GossipKind, BehaviourEvent, MessageId, NetworkGlobals, PeerId};
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
@@ -78,13 +78,13 @@ pub enum NetworkMessage<T: EthSpec> {
     ReportPeer {
         peer_id: PeerId,
         action: PeerAction,
-        source: &'static str,
+        source: ReportSource,
     },
     /// Disconnect an ban a peer, providing a reason.
     GoodbyePeer {
         peer_id: PeerId,
         reason: GoodbyeReason,
-        source: &'static str,
+        source: ReportSource,
     },
 }
 

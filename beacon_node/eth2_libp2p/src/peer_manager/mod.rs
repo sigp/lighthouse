@@ -33,7 +33,7 @@ pub(crate) mod score;
 
 pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
-use score::{PeerAction, ScoreState};
+use score::{PeerAction, ReportSource, ScoreState};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -145,7 +145,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// All instant disconnections are fatal and we ban the associated peer.
     ///
     /// This will send a goodbye and disconnect the peer if it is connected or dialing.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: &'static str) {
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         // get the peer info
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
@@ -160,7 +160,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &[
                     info.client.kind.as_static_ref(),
                     PeerAction::Fatal.as_static_str(),
-                    source,
+                    source.into(),
                 ],
             );
         }
@@ -181,7 +181,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: &'static str) {
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
         // Helper function to avoid any potential deadlocks.
         let mut to_ban_peers = Vec::with_capacity(1);
         let mut to_unban_peers = Vec::with_capacity(1);
@@ -196,7 +196,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     &[
                         info.client.kind.as_static_ref(),
                         action.as_static_str(),
-                        source,
+                        source.into(),
                     ],
                 );
 
@@ -456,7 +456,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
         };
 
-        self.report_peer(peer_id, peer_action, "rpc_error");
+        self.report_peer(peer_id, peer_action, ReportSource::RPC);
     }
 
     /// A ping request has been received.

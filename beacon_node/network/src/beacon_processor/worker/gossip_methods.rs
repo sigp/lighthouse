@@ -4,7 +4,7 @@ use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
-use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId};
+use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
 use ssz::Encode;
 use types::{
@@ -22,7 +22,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.send_network_message(NetworkMessage::ReportPeer {
             peer_id,
             action,
-            source: "gossip",
+            source: ReportSource::Gossipsub,
         })
     }
 

@@ -1,6 +1,6 @@
 #![cfg(test)]
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::{BehaviourEvent, Libp2pEvent, Request, Response};
+use eth2_libp2p::{BehaviourEvent, Libp2pEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
 use ssz_types::VariableList;
 use std::sync::Arc;
@@ -762,7 +762,7 @@ fn test_goodbye_rpc() {
                         sender.swarm.goodbye_peer(
                             &peer_id,
                             GoodbyeReason::IrrelevantNetwork,
-                            "test",
+                            ReportSource::SyncService,
                         );
                     }
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDisconnected(_)) => {

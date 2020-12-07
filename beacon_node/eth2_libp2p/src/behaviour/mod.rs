@@ -1,5 +1,8 @@
 use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
-use crate::peer_manager::{score::PeerAction, ConnectionDirection, PeerManager, PeerManagerEvent};
+use crate::peer_manager::{
+    score::{PeerAction, ReportSource},
+    ConnectionDirection, PeerManager, PeerManagerEvent,
+};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetDiscovery};
@@ -488,7 +491,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Peer management functions */
 
     /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: &'static str) {
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
         self.peer_manager.report_peer(peer_id, action, source)
     }
 
@@ -496,7 +499,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ///
     /// This will send a goodbye, disconnect and then ban the peer.
     /// This is fatal for a peer, and should be used in unrecoverable circumstances.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: &'static str) {
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         self.peer_manager.goodbye_peer(peer_id, reason, source);
     }
 

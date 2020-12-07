@@ -63,6 +63,26 @@ pub enum PeerAction {
     HighToleranceError,
 }
 
+/// Service reporting a `PeerAction` for a peer.
+#[derive(Debug)]
+pub enum ReportSource {
+    Gossipsub,
+    RPC,
+    Processor,
+    SyncService,
+}
+
+impl From<ReportSource> for &'static str {
+    fn from(report_source: ReportSource) -> &'static str {
+        match report_source {
+            ReportSource::Gossipsub => "gossipsub",
+            ReportSource::RPC => "rpc_error",
+            ReportSource::Processor => "processor",
+            ReportSource::SyncService => "sync",
+        }
+    }
+}
+
 impl std::fmt::Display for PeerAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

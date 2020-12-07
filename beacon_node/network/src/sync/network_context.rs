@@ -7,7 +7,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
-use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, Request};
+use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use fnv::FnvHashMap;
 use slog::{debug, trace, warn};
 use std::sync::Arc;
@@ -135,7 +135,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             .send(NetworkMessage::GoodbyePeer {
                 peer_id,
                 reason,
-                source: "sync",
+                source: ReportSource::SyncService,
             })
             .unwrap_or_else(|_| {
                 warn!(self.log, "Could not report peer, channel failed");
@@ -148,7 +148,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             .send(NetworkMessage::ReportPeer {
                 peer_id,
                 action,
-                source: "sync",
+                source: ReportSource::SyncService,
             })
             .unwrap_or_else(|e| {
                 warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
