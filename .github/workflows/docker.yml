@@ -37,7 +37,7 @@ jobs:
                   use-cross: true
                   command: build
                   args: --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
-            - name: Move cross-built ARM binaries into Docker scope
+            - name: Move cross-built ARM binary into Docker scope
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
