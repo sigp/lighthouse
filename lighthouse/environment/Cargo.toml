@@ -11,7 +11,7 @@ sloggers = "1.0.1"
 types = { "path" = "../../consensus/types" }
 eth2_config = { "path" = "../../common/eth2_config" }
 task_executor = { "path" = "../../common/task_executor" }
-eth2_testnet_config = { path = "../../common/eth2_testnet_config" }
+eth2_network_config = { path = "../../common/eth2_network_config" }
 logging = { path = "../../common/logging" }
 slog-term = "2.6.0"
 slog-async = "2.5.0"

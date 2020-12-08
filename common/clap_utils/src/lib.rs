@@ -1,7 +1,7 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
 use clap::ArgMatches;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -16,9 +16,9 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 pub fn parse_testnet_dir(
     matches: &ArgMatches,
     name: &'static str,
-) -> Result<Option<Eth2TestnetConfig>, String> {
+) -> Result<Option<Eth2NetworkConfig>, String> {
     let path = parse_required::<PathBuf>(matches, name)?;
-    Eth2TestnetConfig::load(path.clone())
+    Eth2NetworkConfig::load(path.clone())
         .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
         .map(Some)
 }
@@ -28,9 +28,9 @@ pub fn parse_testnet_dir(
 pub fn parse_hardcoded_network(
     matches: &ArgMatches,
     name: &str,
-) -> Result<Option<Eth2TestnetConfig>, String> {
+) -> Result<Option<Eth2NetworkConfig>, String> {
     let network_name = parse_required::<String>(matches, name)?;
-    Eth2TestnetConfig::constant(network_name.as_str())
+    Eth2NetworkConfig::constant(network_name.as_str())
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's

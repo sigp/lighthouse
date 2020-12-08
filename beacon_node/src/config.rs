@@ -4,7 +4,7 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
@@ -237,13 +237,13 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Load the eth2 testnet dir to obtain some additional config values.
+     * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
+    let eth2_network_config = get_eth2_network_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
-        eth2_testnet_config.deposit_contract_deploy_block;
+        eth2_network_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
@@ -260,11 +260,11 @@ pub fn get_config<E: EthSpec>(
         "address" => &client_config.eth1.deposit_contract_address
     );
 
-    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+    if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state_bytes) = eth2_testnet_config.genesis_state_bytes {
+    if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.
@@ -578,26 +578,25 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .or_else(|| {
             dirs::home_dir().map(|home| {
                 home.join(DEFAULT_ROOT_DIR)
-                    .join(directory::get_testnet_name(cli_args))
+                    .join(directory::get_network_dir(cli_args))
                     .join(DEFAULT_BEACON_NODE_DIR)
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.
+/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    let optional_testnet_config = if cli_args.is_present("network") {
+pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
+    let optional_network_config = if cli_args.is_present("network") {
         clap_utils::parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        return Err(
-            "No --network or --testnet-dir flags provided, cannot load config.".to_string(),
-        );
+        // if neither is present, assume the default network
+        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
-    optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
+    optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }
 
 /// A bit of hack to find an unused port.

@@ -50,6 +50,23 @@ lazy_static! {
         "Failed gossip publishes",
         &["topic_hash"]
     );
+    pub static ref TOTAL_RPC_ERRORS_PER_CLIENT: Result<IntCounterVec> = try_create_int_counter_vec(
+        "libp2p_rpc_errors_per_client",
+        "RPC errors per client",
+        &["client", "rpc_error", "direction"]
+    );
+    pub static ref PEER_ACTION_EVENTS_PER_CLIENT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "libp2p_peer_actions_per_client",
+            "Score reports per client",
+            &["client", "action", "source"]
+        );
+    pub static ref GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_unaccepted_messages_per_client",
+            "Gossipsub messages that we did not accept, per client",
+            &["client", "validation_result"]
+        );
 }
 
 pub fn scrape_discovery_metrics() {

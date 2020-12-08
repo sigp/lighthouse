@@ -14,9 +14,9 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_keystore",
+ "eth2_network_config",
  "eth2_ssz",
  "eth2_ssz_derive",
- "eth2_testnet_config",
  "eth2_wallet",
  "eth2_wallet_manager",
  "futures 0.3.8",
@@ -594,8 +594,8 @@ dependencies = [
  "environment",
  "eth2_config",
  "eth2_libp2p",
+ "eth2_network_config",
  "eth2_ssz",
- "eth2_testnet_config",
  "exit-future",
  "futures 0.3.8",
  "genesis",
@@ -812,8 +812,8 @@ dependencies = [
  "beacon_node",
  "clap",
  "eth2_libp2p",
+ "eth2_network_config",
  "eth2_ssz",
- "eth2_testnet_config",
  "futures 0.3.8",
  "hex",
  "log",
@@ -1033,8 +1033,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dirs 3.0.1",
+ "eth2_network_config",
  "eth2_ssz",
- "eth2_testnet_config",
  "hex",
  "types",
 ]
@@ -1552,7 +1552,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "dirs 3.0.1",
- "eth2_testnet_config",
+ "eth2_network_config",
 ]
 
 [[package]]
@@ -1799,7 +1799,7 @@ version = "0.1.2"
 dependencies = [
  "ctrlc",
  "eth2_config",
- "eth2_testnet_config",
+ "eth2_network_config",
  "exit-future",
  "futures 0.3.8",
  "logging",
@@ -2011,6 +2011,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth2_network_config"
+version = "0.2.0"
+dependencies = [
+ "enr",
+ "eth2_config",
+ "eth2_ssz",
+ "serde",
+ "serde_yaml",
+ "tempdir",
+ "types",
+ "zip",
+]
+
+[[package]]
 name = "eth2_ssz"
 version = "0.1.2"
 dependencies = [
@@ -2040,20 +2054,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "typenum",
-]
-
-[[package]]
-name = "eth2_testnet_config"
-version = "0.2.0"
-dependencies = [
- "enr",
- "eth2_config",
- "eth2_ssz",
- "serde",
- "serde_yaml",
- "tempdir",
- "types",
- "zip",
 ]
 
 [[package]]
@@ -3300,8 +3300,8 @@ dependencies = [
  "environment",
  "eth2_keystore",
  "eth2_libp2p",
+ "eth2_network_config",
  "eth2_ssz",
- "eth2_testnet_config",
  "futures 0.3.8",
  "genesis",
  "hex",
@@ -3693,7 +3693,7 @@ dependencies = [
  "directory",
  "env_logger 0.8.2",
  "environment",
- "eth2_testnet_config",
+ "eth2_network_config",
  "futures 0.3.8",
  "lighthouse_version",
  "logging",

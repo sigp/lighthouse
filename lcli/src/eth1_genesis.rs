@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 use environment::Environment;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use genesis::{Eth1Config, Eth1GenesisService};
 use ssz::Encode;
 use std::cmp::max;
@@ -32,9 +32,9 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
                 .expect("should locate home directory")
         });
 
-    let mut eth2_testnet_config = Eth2TestnetConfig::load(testnet_dir.clone())?;
+    let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
-    let spec = eth2_testnet_config
+    let spec = eth2_network_config
         .yaml_config
         .as_ref()
         .ok_or("The testnet directory must contain a spec config")?
@@ -51,8 +51,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
         config.endpoints = v;
     }
     config.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
-    config.deposit_contract_deploy_block = eth2_testnet_config.deposit_contract_deploy_block;
-    config.lowest_cached_block_number = eth2_testnet_config.deposit_contract_deploy_block;
+    config.deposit_contract_deploy_block = eth2_network_config.deposit_contract_deploy_block;
+    config.lowest_cached_block_number = eth2_network_config.deposit_contract_deploy_block;
     config.follow_distance = spec.eth1_follow_distance / 2;
     config.node_far_behind_seconds = max(5, config.follow_distance) * spec.seconds_per_eth1_block;
 
@@ -65,8 +65,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
                 .wait_for_genesis_state::<T>(ETH1_GENESIS_UPDATE_INTERVAL, spec)
                 .await
                 .map(move |genesis_state| {
-                    eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
-                    eth2_testnet_config.force_write_to_file(testnet_dir)
+                    eth2_network_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
+                    eth2_network_config.force_write_to_file(testnet_dir)
                 })
                 .map_err(|e| format!("Failed to find genesis: {}", e))?;
 
