@@ -299,10 +299,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None => return Ok(None),
             };
 
-        let fc_store = BeaconForkChoiceStore::from_persisted(
-            persisted_fork_choice.fork_choice_store,
-            store.clone(),
-        )?;
+        let fc_store =
+            BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, store)?;
 
         Ok(Some(ForkChoice::from_persisted(
             persisted_fork_choice.fork_choice,
