@@ -1,133 +1,133 @@
 use crate::check_synced::check_synced;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
-use eth2::{BeaconNodeHttpClient, Error};
-use fallback::{check_preconditions, Fallback, FallbackError, ServerState};
-use slog::{info, trace, warn, Logger};
+use environment::RuntimeContext;
+use eth2::BeaconNodeHttpClient;
+use slog::{error, info, Logger};
 use slot_clock::SlotClock;
+use std::fmt;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
-use tokio::sync::RwLockWriteGuard;
-use tokio::time::Duration;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, EthSpec};
 
-/// Error object returned on fallback calls.
-#[derive(Debug)]
-pub enum BeaconNodeError<E> {
-    /// A precondition is not satisfied for this node
-    ConnectionError(NodeError),
-    /// An error occurred during executing the function on the endpoint
-    ApiError(E),
-}
+const SLOT_LOOKAHEAD: Duration = Duration::from_secs(1);
 
-impl From<Error> for BeaconNodeError<Error> {
-    fn from(e: Error) -> Self {
-        Self::ApiError(e)
+pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
+    context: RuntimeContext<E>,
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+) -> Result<(), &'static str> {
+    let executor = context.executor.clone();
+    if beacon_nodes.slot_clock.is_none() {
+        return Err("Cannot start fallback updater without slot clock");
     }
+
+    let future = async move {
+        loop {
+            // We don't care about the outcome of this function.
+            let _ = beacon_nodes.update_unready_candidates().await;
+
+            let sleep_time = beacon_nodes
+                .slot_clock
+                .as_ref()
+                .and_then(|slot_clock| {
+                    let slot = slot_clock.now()?;
+                    let till_next_slot = slot_clock.duration_to_slot(slot + 1)?;
+
+                    till_next_slot.checked_sub(SLOT_LOOKAHEAD)
+                })
+                .unwrap_or(Duration::from_secs(1));
+
+            sleep(sleep_time).await
+        }
+    };
+
+    executor.spawn(future, "fallback");
+
+    Ok(())
 }
 
-impl From<()> for BeaconNodeError<()> {
-    fn from(_: ()) -> Self {
-        Self::ApiError(())
-    }
+#[derive(PartialEq, Clone, Copy)]
+pub enum RequireSynced {
+    Yes,
+    No,
 }
 
-impl From<String> for BeaconNodeError<String> {
-    fn from(e: String) -> Self {
-        Self::ApiError(e)
-    }
-}
+pub struct AllErrored<E>(pub Vec<(String, E)>);
 
-impl From<&str> for BeaconNodeError<String> {
-    fn from(s: &str) -> Self {
-        Self::ApiError(s.to_string())
-    }
-}
+impl<E: Debug> fmt::Display for AllErrored<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "All endpoints failed")?;
+        for (i, (id, error)) in self.0.iter().enumerate() {
+            let comma = if i + 1 < self.0.len() { "," } else { "" };
 
-impl<E1, E2: Into<NodeError>> From<E2> for BeaconNodeError<E1> {
-    fn from(e: E2) -> Self {
-        Self::ConnectionError(e.into())
-    }
-}
-
-impl From<NodeError> for String {
-    fn from(e: NodeError) -> Self {
-        format!("{:?}", e)
+            write!(f, " {} => {:?}{}", id, error, comma)?;
+        }
+        Ok(())
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum NodeError {
+pub enum CandidateError {
+    Uninitialized,
     Offline,
-    WrongConfig,
-    OutOfSync,
+    Incompatible,
+    NotSynced,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum UnrecoverableNodeError {
-    WrongConfig,
+pub struct CandidateBeaconNode<E> {
+    beacon_node: BeaconNodeHttpClient,
+    status: RwLock<Result<(), CandidateError>>,
+    _phantom: PhantomData<E>,
 }
 
-pub enum UnrecoverableCheckError {
-    Offline,
-    Unrecoverable(UnrecoverableNodeError),
-}
-
-impl From<UnrecoverableNodeError> for UnrecoverableCheckError {
-    fn from(e: UnrecoverableNodeError) -> Self {
-        Self::Unrecoverable(e)
-    }
-}
-
-impl<E: Into<UnrecoverableCheckError>> From<E> for NodeError {
-    fn from(e: E) -> Self {
-        match e.into() {
-            UnrecoverableCheckError::Offline => Self::Offline,
-            UnrecoverableCheckError::Unrecoverable(UnrecoverableNodeError::WrongConfig) => {
-                Self::WrongConfig
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum RecoverableNodeError {
-    Offline,
-    OutOfSync,
-}
-
-impl Into<NodeError> for RecoverableNodeError {
-    fn into(self) -> NodeError {
-        match self {
-            RecoverableNodeError::Offline => NodeError::Offline,
-            RecoverableNodeError::OutOfSync => NodeError::OutOfSync,
-        }
-    }
-}
-
-/// Data used to check if a beacon node uses the same specs as the validator client.
-#[derive(Clone)]
-pub struct UnrecoverableErrorChecker<E: EthSpec> {
-    chain_spec: ChainSpec,
-    phantom: PhantomData<E>,
-    log: Logger,
-}
-
-impl<E: EthSpec> UnrecoverableErrorChecker<E> {
-    pub fn new(chain_spec: ChainSpec, log: Logger) -> Self {
+impl<E: EthSpec> CandidateBeaconNode<E> {
+    pub fn new(beacon_node: BeaconNodeHttpClient) -> Self {
         Self {
-            chain_spec,
-            phantom: PhantomData,
-            log,
+            beacon_node,
+            status: RwLock::new(Err(CandidateError::Uninitialized)),
+            _phantom: PhantomData,
         }
     }
 
-    /// Checks if a beacon node is online and uses the same specs as the validator client
-    async fn check(
+    pub async fn is_ready(&self, synced: RequireSynced) -> bool {
+        match *self.status.read().await {
+            Ok(()) => true,
+            Err(CandidateError::NotSynced) if synced == RequireSynced::No => true,
+            _ => false,
+        }
+    }
+
+    pub async fn set_offline(&self) {
+        *self.status.write().await = Err(CandidateError::Offline)
+    }
+
+    pub async fn refresh_status<T: SlotClock>(
         &self,
-        beacon_node: &BeaconNodeHttpClient,
-    ) -> Result<(), UnrecoverableCheckError> {
-        let result = beacon_node
+        slot_clock: Option<&T>,
+        spec: &ChainSpec,
+        log: &Logger,
+    ) -> Result<(), CandidateError> {
+        let mut status = self.status.write().await;
+
+        if let Err(e) = self.is_online(log).await {
+            *status = Err(e);
+        } else if let Err(e) = self.is_compatible(spec, log).await {
+            *status = Err(e);
+        } else if let Err(e) = self.is_synced(slot_clock, log).await {
+            *status = Err(e);
+        } else {
+            *status = Ok(())
+        }
+
+        *status
+    }
+
+    async fn is_online(&self, log: &Logger) -> Result<(), CandidateError> {
+        let result = self
+            .beacon_node
             .get_node_version()
             .await
             .map_err(|e| format!("{:?}", e))
@@ -136,327 +136,220 @@ impl<E: EthSpec> UnrecoverableErrorChecker<E> {
         match result {
             Ok(version) => {
                 info!(
-                    self.log,
+                    log,
                     "Connected to beacon node";
-                    "endpoint" => %beacon_node,
+                    "endpoint" => %self.beacon_node,
                     "version" => version,
                 );
+                Ok(())
             }
             Err(e) => {
-                warn!(
-                    self.log,
+                error!(
+                    log,
                     "Unable to connect to beacon node";
-                    "endpoint" => %beacon_node,
+                    "endpoint" => %self.beacon_node,
                     "error" => e,
                 );
-                return Err(UnrecoverableCheckError::Offline);
+                Err(CandidateError::Offline)
             }
         }
+    }
 
-        let yaml_config = beacon_node
+    async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
+        let yaml_config = self
+            .beacon_node
             .get_config_spec()
             .await
             .map_err(|e| {
-                warn!(
-                    self.log,
+                error!(
+                    log,
                     "Unable to read spec from beacon node";
-                    "endpoint" => %beacon_node,
+                    "endpoint" => %self.beacon_node,
                     "error" => ?e,
                 );
-                UnrecoverableCheckError::Offline
+                CandidateError::Offline
             })?
             .data;
 
         let beacon_node_spec = yaml_config
             .apply_to_chain_spec::<E>(&E::default_spec())
             .ok_or_else(|| {
-                warn!(
-                    self.log,
+                error!(
+                    log,
                     "The minimal/mainnet spec type of the beacon node does not match the validator \
                     client. See the --network command.";
-                    "endpoint" => %beacon_node,
+                    "endpoint" => %self.beacon_node,
                 );
-                UnrecoverableCheckError::Unrecoverable(UnrecoverableNodeError::WrongConfig)
+                CandidateError::Incompatible
             })?;
 
-        if self.chain_spec != beacon_node_spec {
-            warn!(
-                self.log,
+        if *spec == beacon_node_spec {
+            Ok(())
+        } else {
+            error!(
+                log,
                 "The beacon node is using a different Eth2 specification to this validator client. \
                 See the --network command.";
-                "endpoint" => %beacon_node,
+                "endpoint" => %self.beacon_node,
             );
-            return Err(UnrecoverableCheckError::Unrecoverable(
-                UnrecoverableNodeError::WrongConfig,
-            ));
+            Err(CandidateError::Incompatible)
         }
-
-        Ok(())
     }
 
-    /// Log a warning if the given result is an error. Convenience function to use during result
-    /// processing.
-    fn log_error<O, Err: Debug>(
+    /// Checks if the beacon node is synced.
+    async fn is_synced<T: SlotClock>(
         &self,
-        node: &BeaconNodeHttpClient,
-        result: Result<O, Err>,
-    ) -> Result<O, Err> {
-        if let Err(e) = &result {
-            warn!(
-                self.log,
-                "An error occurred on a beacon node request";
-                "error" => ?e,
-                "endpoint" => %node,
-            );
+        slot_clock: Option<&T>,
+        log: &Logger,
+    ) -> Result<(), CandidateError> {
+        if let Some(slot_clock) = slot_clock {
+            match check_synced(&self.beacon_node, slot_clock, Some(log)).await {
+                Ok(_) => Ok(()),
+                Err(_) => Err(CandidateError::NotSynced),
+            }
+        } else {
+            // Skip this check if we don't supply a slot clock.
+            Ok(())
         }
-        result
     }
 }
 
 /// Holds possibly multiple beacon nodes structured as fallbacks. Before a beacon node is used the
 /// first time it gets checked if it uses the same spec as the validator client.
-#[derive(Clone)]
-pub struct BeaconNodeFallback<E: EthSpec> {
-    pub fallback: Fallback<(BeaconNodeHttpClient, ServerState<UnrecoverableNodeError>)>,
-    context: UnrecoverableErrorChecker<E>,
+pub struct BeaconNodeFallback<T, E> {
+    candidates: Vec<CandidateBeaconNode<E>>,
+    slot_clock: Option<T>,
+    spec: ChainSpec,
+    log: Logger,
 }
 
-impl<E: EthSpec> BeaconNodeFallback<E> {
-    pub fn new(
-        fallback: Fallback<(BeaconNodeHttpClient, ServerState<UnrecoverableNodeError>)>,
-        context: UnrecoverableErrorChecker<E>,
-    ) -> Self {
-        Self { fallback, context }
-    }
-
-    /// Wrapper function for `Fallback::first_success` that checks if a beacon node is online (but
-    /// does not remember the online state) + checks if the the node uses the correct spec (gets
-    /// remembered) + increase metric counts for each used beacon node.
-    pub async fn first_success<'a, F, O, R, Err>(
-        &'a self,
-        func: F,
-    ) -> Result<O, FallbackError<BeaconNodeError<Err>>>
-    where
-        Err: Debug,
-        F: Fn(&'a BeaconNodeHttpClient) -> R,
-        R: Future<Output = Result<O, BeaconNodeError<Err>>>,
-    {
-        let func = &func;
-        self.fallback
-            .first_success(|(node, state)| async move {
-                check_preconditions(state, |g| async move {
-                    let result = self.context.check(node).await;
-                    save_unrecoverable_result(g, &result);
-                    report_result(node, result)
-                })
-                .await?;
-                trace!(self.context.log, "Send request"; "endpoint" => %node);
-                report_result(node, self.context.log_error(node, func(node).await))
-            })
-            .await
-    }
-
-    /// Wrapper function for `Fallback::first_success_concurrent_retry` that checks if a beacon node
-    /// is online (but does not remember the online state) + checks if the the node uses the correct
-    /// spec (gets remembered) + increase metric counts for each used beacon node.
-    pub async fn first_success_concurrent_retry<'a, F, G, O, R, Err: Debug>(
-        &'a self,
-        func: F,
-        should_retry: G,
-        retry_delay: Duration,
-    ) -> Result<O, FallbackError<(usize, BeaconNodeError<Err>)>>
-    where
-        F: Fn(&'a BeaconNodeHttpClient) -> R,
-        R: Future<Output = Result<O, BeaconNodeError<Err>>>,
-        G: Fn(&Result<O, BeaconNodeError<Err>>) -> bool,
-    {
-        let func = &func;
-        self.fallback
-            .first_success_concurrent_retry(
-                |(node, unrecoverable_state)| async move {
-                    check_preconditions(unrecoverable_state, |unrecoverable_lock| async move {
-                        let result = self.context.check(node).await;
-                        save_unrecoverable_result(unrecoverable_lock, &result);
-                        report_result(node, result)
-                    })
-                    .await?;
-                    report_result(node, self.context.log_error(node, func(node).await))
-                },
-                should_retry,
-                retry_delay,
-            )
-            .await
-    }
-}
-
-fn report_result<T, E>(endpoint: &BeaconNodeHttpClient, result: Result<T, E>) -> Result<T, E> {
-    inc_counter_vec(&ENDPOINT_REQUESTS, &[endpoint.as_ref()]);
-    if result.is_err() {
-        inc_counter_vec(&ENDPOINT_ERRORS, &[endpoint.as_ref()]);
-    }
-    result
-}
-
-fn save_unrecoverable_result(
-    mut g: RwLockWriteGuard<Option<Result<(), UnrecoverableNodeError>>>,
-    result: &Result<(), UnrecoverableCheckError>,
-) {
-    match result {
-        Ok(()) => *g = Some(Ok(())),
-        Err(UnrecoverableCheckError::Unrecoverable(e)) => *g = Some(Err(*e)),
-        Err(UnrecoverableCheckError::Offline) => (), //gets ignored
-    }
-}
-
-/// Holds possibly multiple beacon nodes structured as fallbacks. Before a beacon node is used the
-/// first time it gets checked if it uses the same spec as the validator client and if it is fully
-/// synced.
-#[derive(Clone)]
-pub struct BeaconNodeFallbackWithRecoverableChecks<T, E: EthSpec> {
-    pub fallback: Fallback<(
-        BeaconNodeHttpClient,
-        ServerState<UnrecoverableNodeError>, //gets never reset
-        ServerState<RecoverableNodeError>,   //gets reset regularly
-    )>,
-    unrecoverable_error_checker: UnrecoverableErrorChecker<E>,
-    slot_clock: T,
-    pub allow_unsynced: bool,
-}
-
-impl<T, E> BeaconNodeFallbackWithRecoverableChecks<T, E>
-where
-    T: SlotClock + 'static,
-    E: EthSpec,
-{
-    pub fn from(
-        beacon_node_fallback: &BeaconNodeFallback<E>,
-        slot_clock: T,
-        allow_unsynced: bool,
-    ) -> Self {
+impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
+    pub fn new(candidates: Vec<CandidateBeaconNode<E>>, spec: ChainSpec, log: Logger) -> Self {
         Self {
-            fallback: Fallback::new(
-                beacon_node_fallback
-                    .fallback
-                    .iter_servers()
-                    .map(|(n, s)| (n.clone(), s.clone(), Default::default()))
-                    .collect(),
-            ),
-            unrecoverable_error_checker: beacon_node_fallback.context.clone(),
-            slot_clock,
-            allow_unsynced,
+            candidates,
+            slot_clock: None,
+            spec,
+            log,
         }
     }
 
-    /// Forgets all the recoverable sync states so that they get rechecked the next time a beacon
-    /// node is used.
-    pub async fn reset_sync_states(&self) {
-        for (_, _, s) in self.fallback.iter_servers() {
-            *s.write().await = None;
+    pub fn set_slot_clock(&mut self, slot_clock: T) {
+        self.slot_clock = Some(slot_clock);
+    }
+
+    pub async fn num_total(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub async fn num_synced(&self) -> usize {
+        let mut n = 0;
+        for candidate in &self.candidates {
+            if candidate.is_ready(RequireSynced::Yes).await {
+                n += 1
+            }
         }
+        n
     }
 
-    /// Format the given fallback error according to the beacon node list.
-    pub fn format_err<Err: Debug>(&self, error: &FallbackError<Err>) -> String {
-        self.fallback.map_format_error(|(n, _, _)| n, &error)
+    pub async fn num_available(&self) -> usize {
+        let mut n = 0;
+        for candidate in &self.candidates {
+            if candidate.is_ready(RequireSynced::No).await {
+                n += 1
+            }
+        }
+        n
     }
 
-    /// Wrapper function for `Fallback::first_success` that checks if a beacon node is online (but
-    /// does not remember the online state) + checks if the the node uses the correct spec (gets
-    /// remembered) + checks if the node is fully synced (gets remembered) + increase metric counts
-    /// for each used beacon node. If `self.allow_unsynced` is true and all beacon nodes are
-    /// offline, have wrong specs, or are unsynced it retries ignoring the sync state.
-    pub async fn first_success<'a, F, O, R, Err>(
-        &'a self,
-        func: F,
-    ) -> Result<O, FallbackError<BeaconNodeError<Err>>>
-    where
-        Err: Debug,
-        F: Fn(&'a BeaconNodeHttpClient) -> R,
-        R: Future<Output = Result<O, BeaconNodeError<Err>>>,
-    {
-        let func = &func;
-        let result = self
-            .fallback
-            .first_success(|(node, unrecoverable_state, recoverable_state)| async move {
-                check_preconditions(unrecoverable_state, |unrecoverable_lock| async move {
-                    let result = if *recoverable_state.read().await ==
-                        Some(Err(RecoverableNodeError::Offline)) {
-                            Err(UnrecoverableCheckError::Offline)
-                        } else {
-                            let result = self.unrecoverable_error_checker.check(node).await;
-                            save_unrecoverable_result(unrecoverable_lock, &result);
-                            if let Err(UnrecoverableCheckError::Offline) = &result {
-                                //remember offline status as recoverable node error
-                                *recoverable_state.write().await =
-                                    Some(Err(RecoverableNodeError::Offline));
-                            }
-                            result
-                        };
-                    report_result(node, result)
-                })
-                .await?;
-                check_preconditions(recoverable_state, |mut g| async move {
-                    let result = self.check_sync(node).await;
-                    *g = Some(result);
-                    report_result(node, result)
-                })
-                .await?;
-                trace!(self.unrecoverable_error_checker.log, "Send request after sync check"; "endpoint" => %node);
-                report_result(node,
-                              self.unrecoverable_error_checker.log_error(node, func(node).await))
-            })
-            .await;
-        if let Err(FallbackError::AllErrored(v)) = &result {
-            if self.allow_unsynced
-                && v.iter()
-                    .all(|e| matches!(e, BeaconNodeError::ConnectionError(_)))
-            {
-                // all nodes are not available or out of sync => retry by checking only
-                // out of sync
-                return self
-                    .fallback
-                    .first_success(
-                        |(node, unrecoverable_state, recoverable_state)| async move {
-                            match *unrecoverable_state.read().await {
-                                None => Err(BeaconNodeError::ConnectionError(NodeError::Offline)), // node is offline
-                                Some(Err(e)) => Err(BeaconNodeError::ConnectionError(e.into())),
-                                Some(Ok(())) => {
-                                    // Peer was either offline or out of sync, but note that it might
-                                    // happen that the recoverable memory got already reset in the mean
-                                    // time. In this case we have to assume that the node was out of
-                                    // sync, although it could have been offline too.
-                                    if matches!(
-                                        *recoverable_state.read().await,
-                                        Some(Err(RecoverableNodeError::Offline))
-                                    ) {
-                                        Err(BeaconNodeError::ConnectionError(NodeError::Offline))
-                                    } else {
-                                        report_result(
-                                            node,
-                                            self.unrecoverable_error_checker
-                                                .log_error(node, func(node).await),
-                                        )
-                                    }
-                                }
-                            }
-                        },
-                    )
+    pub async fn update_unready_candidates(&self) {
+        for candidate in &self.candidates {
+            // There is a potential race condition between having the read lock and the write
+            // lock. The worst case of this race is running `try_become_ready` twice, which is
+            // acceptable.
+            //
+            // Note: `is_ready` is always set to false here. This forces us to recheck the sync
+            // status of nodes that were previously not-synced.
+            if !candidate.is_ready(RequireSynced::Yes).await {
+                // There exists a race-condition that could result in `refresh_status` being called
+                // when the status does not require refreshing anymore. This deemed is an
+                // acceptable inefficiency.
+                let _ = candidate
+                    .refresh_status(self.slot_clock.as_ref(), &self.spec, &self.log)
                     .await;
             }
         }
-        result
     }
 
-    /// Checks if the beacon node is synced.
-    async fn check_sync(
-        &self,
-        beacon_node: &BeaconNodeHttpClient,
-    ) -> Result<(), RecoverableNodeError> {
-        check_synced(
-            beacon_node,
-            &self.slot_clock,
-            Some(&self.unrecoverable_error_checker.log),
-        )
-        .await
+    pub async fn first_success<'a, F, O, Err, R>(
+        &'a self,
+        require_synced: RequireSynced,
+        func: F,
+    ) -> Result<O, AllErrored<Err>>
+    where
+        F: Fn(&'a BeaconNodeHttpClient) -> R,
+        R: Future<Output = Result<O, Err>>,
+    {
+        let mut errors = vec![];
+        let mut to_retry = vec![];
+
+        // First pass: try `func` on all ready candidates.
+        for candidate in &self.candidates {
+            if candidate.is_ready(require_synced).await {
+                inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
+
+                // There exists a race condition where `func` may be called when the candidate is
+                // actually not ready. We deem this an acceptable inefficiency.
+                match func(&candidate.beacon_node).await {
+                    Ok(val) => return Ok(val),
+                    Err(e) => {
+                        // If we have an error on this function, make the client as not-ready.
+                        //
+                        // There exists a race condition where the candidate may have been marked
+                        // as ready between the `func` call and now. We deem this an acceptable
+                        // inefficiency.
+                        candidate.set_offline().await;
+                        errors.push((candidate.beacon_node.to_string(), e));
+                        inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
+                    }
+                }
+            } else {
+                // This client was not ready on the first pass, we might try it again later.
+                to_retry.push(candidate);
+            }
+        }
+
+        // Second pass: try again, attempting to make non-ready clients become ready.
+        for candidate in to_retry {
+            let became_ready = {
+                candidate.is_ready(require_synced).await
+                    || candidate
+                        .refresh_status(self.slot_clock.as_ref(), &self.spec, &self.log)
+                        .await
+                        .is_ok()
+            };
+
+            if became_ready {
+                inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
+
+                // There exists a race condition where `func` may be called when the candidate is
+                // actually not ready. We deem this an acceptable inefficiency.
+                match func(&candidate.beacon_node).await {
+                    Ok(val) => return Ok(val),
+                    Err(e) => {
+                        // If we have an error on this function, make the client as not-ready.
+                        //
+                        // There exists a race condition where the candidate may have been marked
+                        // as ready between the `func` call and now. We deem this an acceptable
+                        // inefficiency.
+                        candidate.set_offline().await;
+                        errors.push((candidate.beacon_node.to_string(), e));
+                        inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
+                    }
+                }
+            }
+        }
+
+        // There were no candidates already ready and we were unable to make any of them ready.
+        Err(AllErrored(errors))
     }
 }

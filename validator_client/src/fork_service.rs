@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeError, BeaconNodeFallback};
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
@@ -12,8 +12,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{EthSpec, Fork};
+
 #[cfg(test)]
-use {crate::UnrecoverableErrorChecker, fallback::Fallback, types::ChainSpec};
+use types::ChainSpec;
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
@@ -22,7 +23,7 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
 pub struct ForkServiceBuilder<T, E: EthSpec> {
     fork: Option<Fork>,
     slot_clock: Option<T>,
-    beacon_nodes: Option<BeaconNodeFallback<E>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     log: Option<Logger>,
 }
 
@@ -41,7 +42,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: BeaconNodeFallback<E>) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
@@ -70,6 +71,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
     }
 }
 
+/*
 #[cfg(test)]
 #[allow(dead_code)]
 impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
@@ -92,11 +94,12 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
         }
     }
 }
+*/
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     fork: RwLock<Option<Fork>>,
-    beacon_nodes: BeaconNodeFallback<E>,
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     log: Logger,
     slot_clock: T,
 }
@@ -173,27 +176,25 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let fork = self
             .inner
             .beacon_nodes
-            .first_success(|beacon_node| async move {
-                Result::<_, BeaconNodeError<()>>::Ok(
-                    beacon_node
-                        .get_beacon_states_fork(StateId::Head)
-                        .await
-                        .map_err(|e| {
-                            trace!(
-                                log,
-                                "Fork update failed";
-                                "error" => format!("Error retrieving fork: {:?}", e)
-                            )
-                        })?
-                        .ok_or_else(|| {
-                            trace!(
-                                log,
-                                "Fork update failed";
-                                "error" => "The beacon head fork is unknown"
-                            )
-                        })?
-                        .data,
-                )
+            .first_success(RequireSynced::No, |beacon_node| async move {
+                beacon_node
+                    .get_beacon_states_fork(StateId::Head)
+                    .await
+                    .map_err(|e| {
+                        trace!(
+                            log,
+                            "Fork update failed";
+                            "error" => format!("Error retrieving fork: {:?}", e)
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        trace!(
+                            log,
+                            "Fork update failed";
+                            "error" => "The beacon head fork is unknown"
+                        )
+                    })
+                    .map(|result| result.data)
             })
             .await
             .map_err(|_| ())?;

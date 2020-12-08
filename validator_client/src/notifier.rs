@@ -1,4 +1,3 @@
-use crate::beacon_node_fallback::BeaconNodeError;
 use crate::ProductionValidatorClient;
 use futures::StreamExt;
 use slog::{error, info};
@@ -11,7 +10,6 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let context = client.context.service_context("notifier".into());
     let executor = context.executor.clone();
     let duties_service = client.duties_service.clone();
-    let allow_unsynced_beacon_node = client.config.allow_unsynced_beacon_node;
 
     let slot_duration = Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot);
     let duration_to_next_slot = duties_service
@@ -27,18 +25,25 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
         let log = context.log();
 
         while interval.next().await.is_some() {
-            duties_service.beacon_nodes.reset_sync_states().await;
-            if !allow_unsynced_beacon_node
-                && duties_service
-                    .beacon_nodes
-                    .first_success(|_| async move {
-                        //do nothing since is_synced gets already checked in state checker
-                        Result::<(), BeaconNodeError<()>>::Ok(())
-                    })
-                    .await
-                    .is_err()
-            {
-                continue;
+            let num_available = duties_service.beacon_nodes.num_available().await;
+            let num_synced = duties_service.beacon_nodes.num_synced().await;
+            let num_total = duties_service.beacon_nodes.num_total().await;
+            if num_available > 0 {
+                info!(
+                    log,
+                    "Connected to beacon node(s)";
+                    "total" => num_total,
+                    "available" => num_available,
+                    "synced" => num_synced,
+                )
+            } else {
+                error!(
+                    log,
+                    "No available beacon nodes";
+                    "total" => num_total,
+                    "available" => num_available,
+                    "synced" => num_synced,
+                )
             }
 
             if let Some(slot) = duties_service.slot_clock.now() {

@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::RecoverableNodeError;
+use crate::beacon_node_fallback::CandidateError;
 use eth2::BeaconNodeHttpClient;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -20,7 +20,7 @@ pub async fn check_synced<T: SlotClock>(
     beacon_node: &BeaconNodeHttpClient,
     slot_clock: &T,
     log_opt: Option<&Logger>,
-) -> Result<(), RecoverableNodeError> {
+) -> Result<(), CandidateError> {
     let resp = match beacon_node.get_node_syncing().await {
         Ok(resp) => resp,
         Err(e) => {
@@ -32,7 +32,7 @@ pub async fn check_synced<T: SlotClock>(
                 )
             }
 
-            return Err(RecoverableNodeError::Offline);
+            return Err(CandidateError::Offline);
         }
     };
 
@@ -72,6 +72,6 @@ pub async fn check_synced<T: SlotClock>(
     if is_synced {
         Ok(())
     } else {
-        Err(RecoverableNodeError::OutOfSync)
+        Err(CandidateError::NotSynced)
     }
 }

@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::BeaconNodeFallbackWithRecoverableChecks;
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
@@ -14,7 +14,7 @@ use types::{EthSpec, PublicKey, Slot};
 pub struct BlockServiceBuilder<T, E: EthSpec> {
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
-    beacon_nodes: Option<BeaconNodeFallbackWithRecoverableChecks<T, E>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
 }
@@ -40,10 +40,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(
-        mut self,
-        beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
-    ) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
@@ -83,7 +80,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 pub struct Inner<T, E: EthSpec> {
     validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
-    beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
 }
@@ -234,7 +231,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let validator_pubkey_ref = &validator_pubkey;
         let signed_block = self
             .beacon_nodes
-            .first_success(|beacon_node| async move {
+            .first_success(RequireSynced::No, |beacon_node| async move {
                 let block = beacon_node
                     .get_validator_blocks(slot, randao_reveal_ref, self_ref.graffiti.as_ref())
                     .await
@@ -253,10 +250,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         format!("Error from beacon node when publishing block: {:?}", e)
                     })?;
 
-                Ok(signed_block)
+                Ok::<_, String>(signed_block)
             })
             .await
-            .map_err(|e| self.beacon_nodes.format_err(&e))?;
+            .map_err(|e| e.to_string())?;
 
         info!(
             log,

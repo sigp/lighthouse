@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeError, BeaconNodeFallbackWithRecoverableChecks};
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, validator_duty::ValidatorDuty,
     validator_store::ValidatorStore,
@@ -327,7 +327,8 @@ impl DutiesStore {
 pub struct DutiesServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<T>,
-    beacon_nodes: Option<BeaconNodeFallbackWithRecoverableChecks<T, E>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    allow_unsynced_beacon_node: bool,
     context: Option<RuntimeContext<E>>,
 }
 
@@ -337,6 +338,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
             validator_store: None,
             slot_clock: None,
             beacon_nodes: None,
+            allow_unsynced_beacon_node: false,
             context: None,
         }
     }
@@ -351,11 +353,13 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(
-        mut self,
-        beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
-    ) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
+        self
+    }
+
+    pub fn allow_unsynced_beacon_node(mut self, allow_unsynced_beacon_node: bool) -> Self {
+        self.allow_unsynced_beacon_node = allow_unsynced_beacon_node;
         self
     }
 
@@ -377,6 +381,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
                 beacon_nodes: self
                     .beacon_nodes
                     .ok_or("Cannot build DutiesService without beacon_node")?,
+                allow_unsynced_beacon_node: self.allow_unsynced_beacon_node,
                 context: self
                     .context
                     .ok_or("Cannot build DutiesService without runtime_context")?,
@@ -390,7 +395,8 @@ pub struct Inner<T, E: EthSpec> {
     store: Arc<DutiesStore>,
     validator_store: ValidatorStore<T, E>,
     pub(crate) slot_clock: T,
-    pub(crate) beacon_nodes: BeaconNodeFallbackWithRecoverableChecks<T, E>,
+    pub(crate) beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    allow_unsynced_beacon_node: bool,
     context: RuntimeContext<E>,
 }
 
@@ -504,8 +510,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let _timer =
             metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
 
-        self.beacon_nodes.reset_sync_states().await;
-
         let slot = if let Some(slot) = self.slot_clock.now() {
             slot
         } else {
@@ -581,6 +585,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     ) -> Result<(), String> {
         let log = self.context.log();
 
+        let maybe_require_synced = if self.allow_unsynced_beacon_node {
+            RequireSynced::No
+        } else {
+            RequireSynced::Yes
+        };
+
         let mut new_validator = 0;
         let mut new_epoch = 0;
         let mut new_proposal_slots = 0;
@@ -604,7 +614,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let pubkeys_ref = &pubkeys;
         let remote_duties: Vec<ValidatorDuty> = match self
             .beacon_nodes
-            .first_success(|beacon_node| async move {
+            .first_success(maybe_require_synced, |beacon_node| async move {
                 ValidatorDuty::download(
                     &beacon_node,
                     current_epoch,
@@ -613,7 +623,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     &log,
                 )
                 .await
-                .map_err(BeaconNodeError::ApiError)
             })
             .await
         {
@@ -622,7 +631,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 error!(
                     log,
                     "Failed to download validator duties";
-                    "errors" => self.beacon_nodes.fallback.map_format_error(|(n, _, _)| n, &e)
+                    "error" => %e
                 );
                 vec![]
             }
@@ -716,22 +725,13 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         } else {
             let validator_subscriptions_ref = &validator_subscriptions;
             self.beacon_nodes
-                .first_success(|beacon_node| async move {
-                    Result::<_, BeaconNodeError<_>>::Ok(
-                        beacon_node
-                            .post_validator_beacon_committee_subscriptions(
-                                validator_subscriptions_ref,
-                            )
-                            .await?,
-                    )
+                .first_success(RequireSynced::No, |beacon_node| async move {
+                    beacon_node
+                        .post_validator_beacon_committee_subscriptions(validator_subscriptions_ref)
+                        .await
                 })
                 .await
-                .map_err(|e| {
-                    format!(
-                        "Failed to subscribe validators: {:?}",
-                        self.beacon_nodes.format_err(&e)
-                    )
-                })?;
+                .map_err(|e| format!("Failed to subscribe validators: {}", e))?;
 
             debug!(
                 log,

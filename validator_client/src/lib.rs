@@ -19,8 +19,7 @@ pub use cli::cli_app;
 pub use config::Config;
 
 use crate::beacon_node_fallback::{
-    BeaconNodeError, BeaconNodeFallback, BeaconNodeFallbackWithRecoverableChecks, NodeError,
-    UnrecoverableErrorChecker,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
@@ -29,7 +28,6 @@ use clap::ArgMatches;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
-use fallback::{Fallback, FallbackError};
 use fork_service::{ForkService, ForkServiceBuilder};
 use futures::channel::mpsc;
 use http_api::ApiSecret;
@@ -228,15 +226,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             })
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
 
-        let beacon_nodes: BeaconNodeFallback<T> = BeaconNodeFallback::new(
-            Fallback::new(
-                beacon_nodes
-                    .into_iter()
-                    .map(|n| (n, Default::default()))
-                    .collect(),
-            ),
-            UnrecoverableErrorChecker::new(context.eth2_config.spec.clone(), log.clone()),
-        );
+        let candidates = beacon_nodes
+            .into_iter()
+            .map(CandidateBeaconNode::new)
+            .collect();
+        let mut beacon_nodes: BeaconNodeFallback<_, T> =
+            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
         // Perform some potentially long-running initialization tasks.
         let (genesis_time, genesis_validators_root) = tokio::select! {
@@ -254,6 +249,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             Duration::from_secs(genesis_time),
             Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
         );
+
+        beacon_nodes.set_slot_clock(slot_clock.clone());
+        let beacon_nodes = Arc::new(beacon_nodes);
+        start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
 
         let fork_service = ForkServiceBuilder::new()
             .slot_clock(slot_clock.clone())
@@ -276,15 +275,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
-        let beacon_nodes_with_sync_checks = BeaconNodeFallbackWithRecoverableChecks::from(
-            &beacon_nodes,
-            slot_clock.clone(),
-            config.allow_unsynced_beacon_node,
-        );
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
-            .beacon_nodes(beacon_nodes_with_sync_checks.clone())
+            .beacon_nodes(beacon_nodes.clone())
+            .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
             .runtime_context(context.service_context("duties".into()))
             .build()?;
 
@@ -294,12 +289,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
 
-        let mut beacon_node_prefer_synced = beacon_nodes_with_sync_checks;
-        beacon_node_prefer_synced.allow_unsynced = true;
         let block_service = BlockServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
-            .beacon_nodes(beacon_node_prefer_synced.clone())
+            .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .build()?;
@@ -308,7 +301,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock)
             .validator_store(validator_store.clone())
-            .beacon_nodes(beacon_node_prefer_synced)
+            .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
 
@@ -399,65 +392,59 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 }
 
 async fn init_from_beacon_node<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<E>,
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
-    // Wait for the beacon node to come online.
-    beacon_nodes
-        .first_success_concurrent_retry(
-            |_| async move {
-                //all the checks are done within `ServerStateChecker::server_state`
-                Ok(())
-            },
-            //retry as long as the node is offline
-            |result: &Result<(), BeaconNodeError<E>>| {
-                matches!(
-                    result,
-                    Err(BeaconNodeError::ConnectionError(NodeError::Offline))
-                )
-            },
-            RETRY_DELAY,
-        )
-        .await
-        .map_err(|_| "all beacon node endpoints have a wrong configuration")?;
+    loop {
+        beacon_nodes.update_unready_candidates().await;
+        let num_available = beacon_nodes.num_available().await;
+        let num_total = beacon_nodes.num_total().await;
+        if num_available > 0 {
+            info!(
+                context.log(),
+                "Initialized beacon node connections";
+                "total" => num_total,
+                "available" => num_available,
+            );
+            break;
+        } else {
+            warn!(
+                context.log(),
+                "Unable to connect to a beacon node";
+                "retry in" => format!("{} seconds", RETRY_DELAY.as_secs()),
+                "total" => num_total,
+                "available" => num_available,
+            );
+            sleep(RETRY_DELAY).await;
+        }
+    }
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(|node| async move {
-                node.get_beacon_genesis()
-                    .await
-                    .map_err(BeaconNodeError::from)
+            .first_success(RequireSynced::No, |node| async move {
+                node.get_beacon_genesis().await
             })
             .await
         {
             Ok(genesis) => break genesis.data,
-            Err(e) => {
-                match &e {
-                    FallbackError::AllErrored(errors) => {
-                        // check if the first ApiError is a 404 error which indicates that genesis
-                        // has not yet occurred.
-                        if errors
-                            .iter()
-                            .filter_map(|e| match e {
-                                BeaconNodeError::ApiError(e) => Some(e),
-                                _ => None,
-                            })
-                            .next()
-                            .map(|e| e.status() == Some(StatusCode::NOT_FOUND))
-                            .unwrap_or(false)
-                        {
-                            info!(
-                                context.log(),
-                                "Waiting for genesis";
-                            );
-                        } else {
-                            error!(
-                                context.log(),
-                                "Errors polling beacon node";
-                                "errors" => beacon_nodes.fallback.map_format_error(|(n, _)| n, &e)
-                            );
-                        }
-                    }
+            Err(errors) => {
+                // Search for a 404 error which indicates that genesis has not yet
+                // occurred.
+                if errors
+                    .0
+                    .iter()
+                    .any(|(_, e)| e.status() == Some(StatusCode::NOT_FOUND))
+                {
+                    info!(
+                        context.log(),
+                        "Waiting for genesis";
+                    );
+                } else {
+                    error!(
+                        context.log(),
+                        "Errors polling beacon node";
+                        "error" => %errors
+                    );
                 }
             }
         }
@@ -469,7 +456,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 }
 
 async fn wait_for_genesis<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<E>,
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     genesis_time: u64,
     context: &RuntimeContext<E>,
 ) -> Result<(), String> {
@@ -516,17 +503,14 @@ async fn wait_for_genesis<E: EthSpec>(
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
 async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<E>,
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     genesis_time: Duration,
     log: &Logger,
 ) -> Result<(), String> {
     loop {
         match beacon_nodes
-            .first_success(|beacon_node| async move {
-                beacon_node
-                    .get_lighthouse_staking()
-                    .await
-                    .map_err(BeaconNodeError::from)
+            .first_success(RequireSynced::No, |beacon_node| async move {
+                beacon_node.get_lighthouse_staking().await
             })
             .await
         {
@@ -559,7 +543,7 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
                 error!(
                     log,
                     "Error polling beacon node";
-                    "error" => format!("{:?}", e)
+                    "error" => %e
                 );
             }
         }
