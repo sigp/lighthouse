@@ -475,7 +475,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         match info.connection_status() {
             PeerConnectionStatus::Disconnected { .. } => {
                 // It is possible to ban a peer that has a disconnected score, if there are many
-                // events that score it poorly and are processed after has disconnected.
+                // events that score it poorly and are processed after it has disconnected.
                 debug!(log_ref, "Banning a disconnected peer"; "peer_id" => %peer_id);
                 self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
                 info.ban();
