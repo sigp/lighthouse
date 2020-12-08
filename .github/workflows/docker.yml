@@ -24,7 +24,7 @@ jobs:
         runs-on: ubuntu-latest
         needs: [extract-branch-name]
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
@@ -67,7 +67,7 @@ jobs:
         runs-on: ubuntu-latest
         needs: [extract-branch-name]
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
