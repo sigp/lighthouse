@@ -33,7 +33,7 @@ pub(crate) mod score;
 
 pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
-use score::{PeerAction, ScoreState};
+use score::{PeerAction, ReportSource, ScoreState};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -145,7 +145,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// All instant disconnections are fatal and we ban the associated peer.
     ///
     /// This will send a goodbye and disconnect the peer if it is connected or dialing.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         // get the peer info
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
@@ -155,6 +155,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // Goodbye's are fatal
             info.apply_peer_action_to_score(PeerAction::Fatal);
+            metrics::inc_counter_vec(
+                &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
+                &[
+                    info.client.kind.as_static_ref(),
+                    PeerAction::Fatal.as_static_str(),
+                    source.into(),
+                ],
+            );
         }
 
         // Update the peerdb and peer state accordingly
@@ -173,7 +181,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
         // Helper function to avoid any potential deadlocks.
         let mut to_ban_peers = Vec::with_capacity(1);
         let mut to_unban_peers = Vec::with_capacity(1);
@@ -183,6 +191,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(info) = peer_db.peer_info_mut(peer_id) {
                 let previous_state = info.score_state();
                 info.apply_peer_action_to_score(action);
+                metrics::inc_counter_vec(
+                    &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
+                    &[
+                        info.client.kind.as_static_ref(),
+                        action.as_static_str(),
+                        source.into(),
+                    ],
+                );
+
                 Self::handle_score_transitions(
                     previous_state,
                     peer_id,
@@ -352,7 +369,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    /// An error has occured in the RPC.
+    /// An error has occurred in the RPC.
     ///
     /// This adjusts a peer's score based on the error.
     pub fn handle_rpc_error(
@@ -366,6 +383,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let score = self.network_globals.peers.read().score(peer_id);
         debug!(self.log, "RPC Error"; "protocol" => %protocol, "err" => %err, "client" => %client,
             "peer_id" => %peer_id, "score" => %score, "direction" => ?direction);
+        metrics::inc_counter_vec(
+            &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,
+            &[
+                client.kind.as_static_ref(),
+                err.as_static_str(),
+                direction.as_static_str(),
+            ],
+        );
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -389,7 +414,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
-                RPCResponseErrorCode::RateLimited => PeerAction::LowToleranceError,
+                RPCResponseErrorCode::RateLimited => match protocol {
+                    Protocol::Ping => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::Goodbye => PeerAction::LowToleranceError,
+                    Protocol::MetaData => PeerAction::LowToleranceError,
+                    Protocol::Status => PeerAction::LowToleranceError,
+                },
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -422,17 +454,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 },
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
-            RPCError::RateLimited => match protocol {
-                Protocol::Ping => PeerAction::MidToleranceError,
-                Protocol::BlocksByRange => PeerAction::HighToleranceError,
-                Protocol::BlocksByRoot => PeerAction::HighToleranceError,
-                Protocol::Goodbye => PeerAction::LowToleranceError,
-                Protocol::MetaData => PeerAction::LowToleranceError,
-                Protocol::Status => PeerAction::LowToleranceError,
-            },
         };
 
-        self.report_peer(peer_id, peer_action);
+        self.report_peer(peer_id, peer_action, ReportSource::RPC);
     }
 
     /// A ping request has been received.

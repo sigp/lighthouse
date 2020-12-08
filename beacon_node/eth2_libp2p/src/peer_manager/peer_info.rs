@@ -318,6 +318,15 @@ pub enum ConnectionDirection {
     Outgoing,
 }
 
+impl ConnectionDirection {
+    pub fn as_static_str(&self) -> &'static str {
+        match self {
+            ConnectionDirection::Incoming => "incoming",
+            ConnectionDirection::Outgoing => "outgoing",
+        }
+    }
+}
+
 /// Connection Status of the peer.
 #[derive(Debug, Clone)]
 pub enum PeerConnectionStatus {

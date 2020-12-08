@@ -285,6 +285,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
         let code = match response_code {
             1 => RPCResponseErrorCode::InvalidRequest,
             2 => RPCResponseErrorCode::ServerError,
+            139 => RPCResponseErrorCode::RateLimited,
             _ => RPCResponseErrorCode::Unknown,
         };
         RPCCodedResponse::Error(code, err)
@@ -318,7 +319,7 @@ impl RPCResponseErrorCode {
             RPCResponseErrorCode::InvalidRequest => 1,
             RPCResponseErrorCode::ServerError => 2,
             RPCResponseErrorCode::Unknown => 255,
-            RPCResponseErrorCode::RateLimited => 128,
+            RPCResponseErrorCode::RateLimited => 139,
         }
     }
 }
