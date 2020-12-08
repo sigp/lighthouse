@@ -37,17 +37,10 @@ jobs:
                   use-cross: true
                   command: build
                   args: --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
-            - name: Cross build lcli binary
-              uses: actions-rs/cargo@v1
-              with:
-                  use-cross: true
-                  command: build
-                  args: --release --manifest-path lcli/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
             - name: Move cross-built ARM binaries into Docker scope
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
-                  mv ./target/aarch64-unknown-linux-gnu/release/lcli ./bin;
             - name: Build Docker Buildx
               run: |
                   export DOCKER_BUILDKIT=1;
