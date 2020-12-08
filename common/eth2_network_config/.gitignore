@@ -1,0 +1,5 @@
+testnet*/*
+schlesi-*
+witti-*
+/altona*
+built_in_testnet_configs/*/genesis.ssz

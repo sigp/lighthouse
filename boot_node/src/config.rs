@@ -1,4 +1,4 @@
-use beacon_node::{get_data_dir, get_eth2_testnet_config, set_network_config};
+use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
 use clap::ArgMatches;
 use eth2_libp2p::discv5::{enr::CombinedKey, Enr};
 use eth2_libp2p::{
@@ -28,24 +28,16 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
     fn try_from(matches: &ArgMatches<'_>) -> Result<Self, Self::Error> {
         let data_dir = get_data_dir(matches);
 
-        // Try and grab testnet config from input CLI params
-        let eth2_testnet_config = {
-            if matches.is_present("network") {
-                Some(get_eth2_testnet_config(&matches)?)
-            } else {
-                None
-            }
-        };
+        // Try and grab network config from input CLI params
+        let eth2_network_config = get_eth2_network_config(&matches)?;
 
         // Try and obtain bootnodes
 
         let boot_nodes = {
             let mut boot_nodes = Vec::new();
 
-            if let Some(testnet_config) = eth2_testnet_config.as_ref() {
-                if let Some(enr) = &testnet_config.boot_enr {
-                    boot_nodes.extend_from_slice(enr);
-                }
+            if let Some(enr) = &eth2_network_config.boot_enr {
+                boot_nodes.extend_from_slice(enr);
             }
 
             if let Some(nodes) = matches.value_of("boot-nodes") {
@@ -80,16 +72,16 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         let local_key = CombinedKey::from_libp2p(&private_key)?;
 
         // build the enr_fork_id and add it to the local_enr if it exists
-        let enr_fork = if let Some(config) = eth2_testnet_config.as_ref() {
-            let spec = config
+        let enr_fork = {
+            let spec = eth2_network_config
                 .yaml_config
                 .as_ref()
-                .ok_or("The testnet directory must contain a spec config")?
+                .ok_or("The network directory must contain a spec config")?
                 .apply_to_chain_spec::<T>(&T::default_spec())
                 .ok_or("The loaded config is not compatible with the current spec")?;
 
-            if config.beacon_state_is_known() {
-                let genesis_state = config.beacon_state::<T>()?;
+            if eth2_network_config.beacon_state_is_known() {
+                let genesis_state = eth2_network_config.beacon_state::<T>()?;
 
                 slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
                 let enr_fork = spec.enr_fork_id(
@@ -105,12 +97,6 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                 );
                 None
             }
-        } else {
-            slog::warn!(
-                logger,
-                "No testnet config provided. Not setting an eth2 field"
-            );
-            None
         };
 
         // Build the local ENR

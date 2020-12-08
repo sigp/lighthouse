@@ -1,8 +1,8 @@
-use beacon_node::ProductionBeaconNode;
+use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -118,7 +118,6 @@ fn main() {
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
-                .default_value(DEFAULT_HARDCODED_TESTNET)
                 .takes_value(true)
                 .global(true)
 
@@ -135,7 +134,7 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = load_testnet_config(&matches).and_then(|testnet_config| {
+    let result = get_eth2_network_config(&matches).and_then(|testnet_config| {
         let eth_spec_id = testnet_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
@@ -174,22 +173,10 @@ fn main() {
     }
 }
 
-fn load_testnet_config(matches: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    if matches.is_present("testnet-dir") {
-        clap_utils::parse_testnet_dir(matches, "testnet-dir")?
-            .ok_or_else(|| "Unable to load testnet dir".to_string())
-    } else if matches.is_present("network") {
-        clap_utils::parse_hardcoded_network(matches, "network")?
-            .ok_or_else(|| "Unable to load hard coded network config".to_string())
-    } else {
-        Err("No --network or --testnet-dir flags provided, cannot start.".to_string())
-    }
-}
-
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
-    testnet_config: Eth2TestnetConfig,
+    testnet_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -215,7 +202,7 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_testnet_config(Some(testnet_config))?
+        .optional_eth2_network_config(Some(testnet_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
@@ -248,15 +235,15 @@ fn run<E: EthSpec>(
     let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
     let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
 
-    let testnet_name = match (optional_testnet, optional_testnet_dir) {
+    let network_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
-        (None, None) => DEFAULT_HARDCODED_TESTNET.to_string(),
+        (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
-        eprintln!("Running account manager for {} network", testnet_name);
+        eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 
@@ -268,7 +255,7 @@ fn run<E: EthSpec>(
     info!(
         log,
         "Configured for network";
-        "name" => &testnet_name
+        "name" => &network_name
     );
 
     match matches.subcommand() {

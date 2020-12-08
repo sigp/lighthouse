@@ -12,7 +12,7 @@ use beacon_chain::{
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, get_eth2_testnet_config, set_network_config};
+pub use config::{get_config, get_data_dir, get_eth2_network_config, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::Slasher;

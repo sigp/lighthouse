@@ -7,7 +7,7 @@ use eth2::{
     BeaconNodeHttpClient, Url,
 };
 use eth2_keystore::Keystore;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
@@ -99,7 +99,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
     stdin_inputs: bool,
-    testnet_config: &Eth2TestnetConfig,
+    testnet_config: &Eth2NetworkConfig,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = testnet_config
