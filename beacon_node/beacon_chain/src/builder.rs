@@ -1,11 +1,8 @@
-use crate::beacon_chain::{
-    BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
-};
+use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
@@ -248,20 +245,12 @@ where
                     .to_string()
             })?;
 
-        let persisted_fork_choice = store
-            .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)
-            .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
-            .ok_or("No persisted fork choice present in database.")?;
-
-        let fc_store = BeaconForkChoiceStore::from_persisted(
-            persisted_fork_choice.fork_choice_store,
-            store.clone(),
-        )
-        .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
-
         let fork_choice =
-            ForkChoice::from_persisted(persisted_fork_choice.fork_choice, fc_store)
-                .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?;
+            BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
+                store.clone(),
+            )
+            .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
+            .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
             .get_item::<SignedBeaconBlock<TEthSpec>>(&chain.genesis_block_root)
