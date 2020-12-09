@@ -1764,7 +1764,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     crit!(
                         self.log,
                         "No stored fork choice found to restore from";
-                        "warning" => "The database is likely corrupt now"
+                        "warning" => "The database is likely corrupt now, consider --purge-db"
                     );
                 }
             }
