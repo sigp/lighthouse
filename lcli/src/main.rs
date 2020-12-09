@@ -2,14 +2,12 @@
 extern crate log;
 mod change_genesis_time;
 mod check_deposit_data;
-mod deploy_deposit_contract;
 mod eth1_genesis;
 mod generate_bootnode_enr;
 mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
-mod refund_deposit_contract;
 mod skip_slots;
 mod transition_blocks;
 
@@ -35,9 +33,7 @@ fn main() {
 
     let matches = App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
-        .about(
-            "Performs various testing-related tasks, including defining testnets.",
-        )
+        .about("Performs various testing-related tasks, including defining testnets.")
         .arg(
             Arg::with_name("spec")
                 .short("s")
@@ -46,7 +42,7 @@ fn main() {
                 .takes_value(true)
                 .required(true)
                 .possible_values(&["minimal", "mainnet"])
-                .default_value("mainnet")
+                .default_value("mainnet"),
         )
         .arg(
             Arg::with_name("testnet-dir")
@@ -87,7 +83,9 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("skip-slots")
-                .about("Performs a state transition from some state across some number of skip slots")
+                .about(
+                    "Performs a state transition from some state across some number of skip slots",
+                )
                 .arg(
                     Arg::with_name("pre-state")
                         .value_name("BEACON_STATE")
@@ -157,76 +155,8 @@ fn main() {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("deploy-deposit-contract")
-                .about(
-                    "Deploy a testing eth1 deposit contract.",
-                )
-                .arg(
-                    Arg::with_name("eth1-ipc")
-                        .long("eth1-ipc")
-                        .short("e")
-                        .value_name("ETH1_IPC_PATH")
-                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
-                        .takes_value(true)
-                        .required(true)
-                )
-                .arg(
-                    Arg::with_name("from-address")
-                        .long("from-address")
-                        .short("f")
-                        .value_name("FROM_ETH1_ADDRESS")
-                        .help("The address that will submit the contract creation. Must be unlocked.")
-                        .takes_value(true)
-                        .required(true)
-                )
-                .arg(
-                    Arg::with_name("confirmations")
-                        .value_name("INTEGER")
-                        .long("confirmations")
-                        .takes_value(true)
-                        .default_value("3")
-                        .help("The number of block confirmations before declaring the contract deployed."),
-                )
-        )
-        .subcommand(
-            SubCommand::with_name("refund-deposit-contract")
-                .about(
-                    "Calls the steal() function on a testnet eth1 contract.",
-                )
-                .arg(
-                    Arg::with_name("eth1-ipc")
-                        .long("eth1-ipc")
-                        .short("e")
-                        .value_name("ETH1_IPC_PATH")
-                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
-                        .takes_value(true)
-                        .required(true)
-                )
-                .arg(
-                    Arg::with_name("from-address")
-                        .long("from-address")
-                        .short("f")
-                        .value_name("FROM_ETH1_ADDRESS")
-                        .help("The address that will submit the contract creation. Must be unlocked.")
-                        .takes_value(true)
-                        .required(true)
-                )
-                .arg(
-                    Arg::with_name("contract-address")
-                        .long("contract-address")
-                        .short("c")
-                        .value_name("CONTRACT_ETH1_ADDRESS")
-                        .help("The address of the contract to be refunded. Its owner must match
-                            --from-address.")
-                        .takes_value(true)
-                        .required(true)
-                )
-        )
-        .subcommand(
             SubCommand::with_name("eth1-genesis")
-                .about(
-                    "Listens to the eth1 chain and finds the genesis beacon state",
-                )
+                .about("Listens to the eth1 chain and finds the genesis beacon state")
                 .arg(
                     Arg::with_name("eth1-endpoint")
                         .short("e")
@@ -241,16 +171,16 @@ fn main() {
                         .value_name("HTTP_SERVER_LIST")
                         .takes_value(true)
                         .conflicts_with("eth1-endpoint")
-                        .help("One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
+                        .help(
+                            "One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
                                 If multiple endpoints are given the endpoints are used as \
-                                fallback in the given order."),
-                )
+                                fallback in the given order.",
+                        ),
+                ),
         )
         .subcommand(
             SubCommand::with_name("interop-genesis")
-                .about(
-                    "Produces an interop-compatible genesis state using deterministic keypairs",
-                )
+                .about("Produces an interop-compatible genesis state using deterministic keypairs")
                 .arg(
                     Arg::with_name("validator-count")
                         .long("validator-count")
@@ -273,9 +203,11 @@ fn main() {
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
-                        .help("Used to avoid reply attacks between testnets. Recommended to set to
-                              non-default."),
-                )
+                        .help(
+                            "Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default.",
+                        ),
+                ),
         )
         .subcommand(
             SubCommand::with_name("change-genesis-time")
@@ -297,7 +229,7 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("The value for state.genesis_time."),
-                )
+                ),
         )
         .subcommand(
             SubCommand::with_name("new-testnet")
@@ -317,8 +249,10 @@ fn main() {
                         .long("min-genesis-time")
                         .value_name("UNIX_SECONDS")
                         .takes_value(true)
-                        .help("The minimum permitted genesis time. For non-eth1 testnets will be
-                              the genesis time. Defaults to now."),
+                        .help(
+                            "The minimum permitted genesis time. For non-eth1 testnets will be
+                              the genesis time. Defaults to now.",
+                        ),
                 )
                 .arg(
                     Arg::with_name("min-genesis-active-validator-count")
@@ -374,8 +308,10 @@ fn main() {
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
-                        .help("Used to avoid reply attacks between testnets. Recommended to set to
-                              non-default."),
+                        .help(
+                            "Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default.",
+                        ),
                 )
                 .arg(
                     Arg::with_name("deposit-contract-address")
@@ -391,15 +327,15 @@ fn main() {
                         .value_name("ETH1_BLOCK_NUMBER")
                         .takes_value(true)
                         .default_value("0")
-                        .help("The block the deposit contract was deployed. Setting this is a huge
-                              optimization for nodes, please do it."),
-                )
+                        .help(
+                            "The block the deposit contract was deployed. Setting this is a huge
+                              optimization for nodes, please do it.",
+                        ),
+                ),
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")
-                .about(
-                    "Checks the integrity of some deposit data.",
-                )
+                .about("Checks the integrity of some deposit data.")
                 .arg(
                     Arg::with_name("deposit-amount")
                         .index(1)
@@ -414,15 +350,15 @@ fn main() {
                         .value_name("HEX")
                         .takes_value(true)
                         .required(true)
-                        .help("A 0x-prefixed hex string of the deposit data. Should include the
-                            function signature."),
-                )
+                        .help(
+                            "A 0x-prefixed hex string of the deposit data. Should include the
+                            function signature.",
+                        ),
+                ),
         )
         .subcommand(
             SubCommand::with_name("generate-bootnode-enr")
-                .about(
-                    "Generates an ENR address to be used as a pre-genesis boot node.",
-                )
+                .about("Generates an ENR address to be used as a pre-genesis boot node.")
                 .arg(
                     Arg::with_name("ip")
                         .long("ip")
@@ -445,7 +381,9 @@ fn main() {
                         .value_name("TCP_PORT")
                         .takes_value(true)
                         .required(true)
-                        .help("The TCP port to be included in the ENR and used for application comms"),
+                        .help(
+                            "The TCP port to be included in the ENR and used for application comms",
+                        ),
                 )
                 .arg(
                     Arg::with_name("output-dir")
@@ -461,15 +399,15 @@ fn main() {
                         .value_name("HEX")
                         .takes_value(true)
                         .required(true)
-                        .help("Used to avoid reply attacks between testnets. Recommended to set to
-                              non-default."),
-                )
+                        .help(
+                            "Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default.",
+                        ),
+                ),
         )
         .subcommand(
             SubCommand::with_name("insecure-validators")
-                .about(
-                    "Produces validator directories with INSECURE, deterministic keypairs.",
-                )
+                .about("Produces validator directories with INSECURE, deterministic keypairs.")
                 .arg(
                     Arg::with_name("count")
                         .long("count")
@@ -490,7 +428,7 @@ fn main() {
                         .value_name("SECRETS_DIR")
                         .takes_value(true)
                         .help("The directory for storing secrets."),
-                )
+                ),
         )
         .get_matches();
 
@@ -571,14 +509,6 @@ fn run<T: EthSpec>(
         }
         ("pretty-hex", Some(matches)) => {
             run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
-        }
-        ("deploy-deposit-contract", Some(matches)) => {
-            deploy_deposit_contract::run::<T>(env, matches)
-                .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
-        }
-        ("refund-deposit-contract", Some(matches)) => {
-            refund_deposit_contract::run::<T>(env, matches)
-                .map_err(|e| format!("Failed to run refund-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),

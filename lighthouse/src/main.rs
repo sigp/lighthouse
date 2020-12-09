@@ -38,8 +38,10 @@ fn main() {
         .long_version(
             format!(
                 "{}\n\
-                 BLS Library: {}",
-                 VERSION.replace("Lighthouse/", ""), bls_library_name()
+                 BLS Library: {}\n\
+                 Specs: mainnet (true), minimal ({}), v0.12.3 ({})",
+                 VERSION.replace("Lighthouse/", ""), bls_library_name(),
+                 cfg!(feature = "spec-minimal"), cfg!(feature = "spec-v12"),
             ).as_str()
         )
         .arg(
@@ -151,10 +153,21 @@ fn main() {
         }
 
         match eth_spec_id {
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
+            #[cfg(feature = "spec-minimal")]
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
+            #[cfg(feature = "spec-v12")]
             EthSpecId::V012Legacy => {
                 run(EnvironmentBuilder::v012_legacy(), &matches, testnet_config)
+            }
+            #[cfg(any(not(feature = "spec-minimal"), not(feature = "spec-v12")))]
+            other => {
+                eprintln!(
+                    "Eth spec `{}` is not supported by this build of Lighthouse",
+                    other
+                );
+                eprintln!("You must compile with a feature flag to enable this spec variant");
+                exit(1);
             }
         }
     });

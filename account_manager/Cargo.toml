@@ -20,7 +20,7 @@ eth2_ssz_derive = "0.1.0"
 hex = "0.4.2"
 rayon = "1.4.1"
 eth2_network_config = { path = "../common/eth2_network_config" }
-futures = { version = "0.3.7", features = ["compat"] }
+futures = "0.3.7"
 clap_utils = { path = "../common/clap_utils" }
 directory = { path = "../common/directory" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }

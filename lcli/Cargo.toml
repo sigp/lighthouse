@@ -20,9 +20,8 @@ types = { path = "../consensus/types" }
 state_processing = { path = "../consensus/state_processing" }
 eth2_ssz = "0.1.2"
 regex = "1.3.9"
-futures = { version = "0.3.7", features = ["compat"] }
+futures = "0.3.7"
 environment = { path = "../lighthouse/environment" }
-web3 = "0.11.0"
 eth2_network_config = { path = "../common/eth2_network_config" }
 dirs = "3.0.1"
 genesis = { path = "../beacon_node/genesis" }

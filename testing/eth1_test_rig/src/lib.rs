@@ -10,10 +10,10 @@ mod ganache;
 use deposit_contract::{
     encode_eth1_tx_data, testnet, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS,
 };
-use futures::compat::Future01CompatExt;
 use ganache::GanacheInstance;
 use std::time::Duration;
 use tokio::time::sleep;
+use tokio_compat_02::FutureExt;
 use types::DepositData;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
 use web3::contract::{Contract, Options};
