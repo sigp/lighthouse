@@ -39,6 +39,7 @@ fn basic() {
             let now = web3
                 .eth()
                 .block_number()
+                .compat()
                 .await
                 .map(|v| v.as_u64())
                 .expect("should get block number");

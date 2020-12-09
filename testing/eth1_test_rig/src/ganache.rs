@@ -4,6 +4,7 @@ use std::io::BufReader;
 use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+use tokio_compat_02::FutureExt;
 use web3::{transports::Http, Transport, Web3};
 
 /// How long we will wait for ganache to indicate that it is ready.
@@ -145,6 +146,7 @@ impl GanacheInstance {
         self.web3
             .transport()
             .execute("evm_increaseTime", vec![json!(increase_by)])
+            .compat()
             .await
             .map(|_json_value| ())
             .map_err(|e| format!("Failed to increase time on EVM (is this ganache?): {:?}", e))
@@ -155,6 +157,7 @@ impl GanacheInstance {
         self.web3
             .eth()
             .block_number()
+            .compat()
             .await
             .map(|v| v.as_u64())
             .map_err(|e| format!("Failed to get block number: {:?}", e))
@@ -165,6 +168,7 @@ impl GanacheInstance {
         self.web3
             .transport()
             .execute("evm_mine", vec![])
+            .compat()
             .await
             .map(|_| ())
             .map_err(|_| {

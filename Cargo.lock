@@ -1865,6 +1865,7 @@ dependencies = [
  "futures 0.3.8",
  "serde_json",
  "tokio 0.3.5",
+ "tokio-compat-02",
  "types",
  "web3",
 ]

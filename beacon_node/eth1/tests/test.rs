@@ -89,6 +89,7 @@ async fn blocking_deposit_count(eth1: &GanacheEth1Instance, block_number: u64) -
 async fn get_block_number(web3: &Web3<Http>) -> u64 {
     web3.eth()
         .block_number()
+        .compat()
         .await
         .map(|v| v.as_u64())
         .expect("should get block number")
