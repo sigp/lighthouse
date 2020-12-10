@@ -392,8 +392,43 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
                         if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
-                            slog::warn!(self.log, "Could not publish message";
-                                        "error" => ?e);
+                            let topic_hash: Topic = topic.clone().into();
+                            let topic_hash: TopicHash = topic_hash.into();
+                            let peers_on_subnet_gs: Vec<PeerId> = self
+                                .gossipsub
+                                .all_peers()
+                                .filter_map(|(k, v)| {
+                                    if v.contains(&&topic_hash) {
+                                        Some(k.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                            slog::warn!(
+                                self.log,
+                                "Could not publish message";
+                                "error" => ?e,
+                                "peers_on_subnet_gs" => ?peers_on_subnet_gs,
+                                "topic" => ?topic
+                            );
+
+                            if let GossipKind::Attestation(s) = topic.kind() {
+                                let peers_on_subnet_pm: Vec<PeerId> = self
+                                    .network_globals
+                                    .peers
+                                    .read()
+                                    .good_peers_on_subnet(s.clone())
+                                    .cloned()
+                                    .collect();
+                                slog::warn!(
+                                    self.log,
+                                    "Peers on subnet peer manager";
+                                    "peers_on_subnet_pm" => ?peers_on_subnet_pm,
+                                    "subnet_id" => ?s,
+                                )
+                            }
 
                             // add to metrics
                             match topic.kind() {

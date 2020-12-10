@@ -248,19 +248,22 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .extend_peers_on_subnet(s.subnet_id, min_ttl);
                 }
                 // Already have target number of peers, no need for subnet discovery
-                let peers_on_subnet = self
+                // Determine if we have sufficient peers, which may make this discovery unnecessary.
+                let peers_on_subnet: Vec<PeerId> = self
                     .network_globals
                     .peers
                     .read()
                     .good_peers_on_subnet(s.subnet_id)
-                    .count();
-                if peers_on_subnet >= TARGET_SUBNET_PEERS {
-                    trace!(
+                    .cloned()
+                    .collect();
+                if peers_on_subnet.len() >= TARGET_SUBNET_PEERS {
+                    debug!(
                         self.log,
                         "Discovery query ignored";
                         "subnet_id" => ?s.subnet_id,
                         "reason" => "Already connected to desired peers",
-                        "connected_peers_on_subnet" => peers_on_subnet,
+                        "connected_peers_on_subnet" => ?peers_on_subnet,
+                        "count" => peers_on_subnet.len(),
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     );
                     false

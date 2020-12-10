@@ -636,26 +636,29 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .into_iter()
             .filter(|subnet_query| {
                 // Determine if we have sufficient peers, which may make this discovery unnecessary.
-                let peers_on_subnet = self
+                let peers_on_subnet: Vec<PeerId> = self
                     .network_globals
                     .peers
                     .read()
                     .good_peers_on_subnet(subnet_query.subnet_id)
-                    .count();
+                    .cloned()
+                    .collect();
 
-                if peers_on_subnet >= TARGET_SUBNET_PEERS {
+                if peers_on_subnet.len() >= TARGET_SUBNET_PEERS {
                     debug!(self.log, "Discovery ignored";
                         "reason" => "Already connected to desired peers",
-                        "connected_peers_on_subnet" => peers_on_subnet,
+                        "connected_peers_on_subnet" => ?peers_on_subnet,
+                        "count" => peers_on_subnet.len(),
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     );
                     return false;
                 }
 
-                let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
+                let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet.len();
                 debug!(self.log, "Discovery query started for subnet";
                     "subnet_id" => *subnet_query.subnet_id,
-                    "connected_peers_on_subnet" => peers_on_subnet,
+                    "connected_peers_on_subnet" => ?peers_on_subnet,
+                    "count" => peers_on_subnet.len(),
                     "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     "peers_to_find" => target_peers,
                     "attempt" => subnet_query.retries,
