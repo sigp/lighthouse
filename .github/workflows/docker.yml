@@ -44,20 +44,20 @@ jobs:
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
-            - name: Install emulation dependencies
-              run: |
-                  docker run --privileged --rm tonistiigi/binfmt --install arm64
             - name: Set Env
               if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
               run: |
                   echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
+            # Install dependencies for emulation. Have to create a new builder to pick up emulation support.
             - name: Build ARM64 dockerfile (with push)
               run: |
+                  docker run --privileged --rm tonistiigi/binfmt --install arm64
+                  docker buildx create --use --name cross-builder
                   docker buildx build \
                       --platform=linux/arm64 \
                       --file ./Dockerfile.cross . \
-                      --tag ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX}
-                  docker push {IMAGE_NAME}:latest-arm64${TAG_SUFFIX}
+                      --tag ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX} \
+                      --push
     build-docker-amd64:
         runs-on: ubuntu-18.04
         needs: [extract-branch-name]
