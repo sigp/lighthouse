@@ -1,5 +1,5 @@
 name: docker
-#test
+
 on:
     push:
         branches:
@@ -48,20 +48,16 @@ jobs:
               if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
               run: |
                   echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
+            # Install dependencies for emulation. Have to create a new builder to pick up emulation support.
             - name: Build ARM64 dockerfile (with push)
               run: |
                   docker run --privileged --rm tonistiigi/binfmt --install arm64
-                  docker version
-                  docker buildx ls
-                  docker buildx inspect --bootstrap
                   docker buildx create --use --name cross-builder
-                  docker buildx ls
-                  docker buildx inspect --bootstrap
                   docker buildx build \
                       --platform=linux/arm64 \
                       --file ./Dockerfile.cross . \
                       --tag ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX}
-                  docker push {IMAGE_NAME}:latest-arm64${TAG_SUFFIX}
+                  docker push ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX}
     build-docker-amd64:
         runs-on: ubuntu-18.04
         needs: [extract-branch-name]
