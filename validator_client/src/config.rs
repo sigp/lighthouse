@@ -2,7 +2,7 @@ use crate::{http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use directory::{
-    get_testnet_name, DEFAULT_HARDCODED_TESTNET, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
+    get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
 };
 use eth2::types::Graffiti;
@@ -44,12 +44,12 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        // WARNING: these directory defaults should be always overrided with parameters
-        // from cli for specific networks.
+        // WARNING: these directory defaults should be always overwritten with parameters from cli
+        // for specific networks.
         let base_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
-            .join(DEFAULT_HARDCODED_TESTNET);
+            .join(DEFAULT_HARDCODED_NETWORK);
         let validator_dir = base_dir.join(DEFAULT_VALIDATOR_DIR);
         let secrets_dir = base_dir.join(DEFAULT_SECRET_DIR);
         Self {
@@ -91,13 +91,13 @@ impl Config {
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_testnet_name(cli_args))
+                .join(get_network_dir(cli_args))
                 .join(DEFAULT_VALIDATOR_DIR)
         });
 
         config.secrets_dir = secrets_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_testnet_name(cli_args))
+                .join(get_network_dir(cli_args))
                 .join(DEFAULT_SECRET_DIR)
         });
 

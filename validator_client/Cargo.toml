@@ -32,7 +32,7 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 slog-async = "2.5.0"
 slog-term = "2.6.0"
 tokio = { version = "0.3.2", features = ["time"] }
-futures = { version = "0.3.7", features = ["compat"] }
+futures = "0.3.7"
 dirs = "3.0.1"
 directory = { path = "../common/directory" }
 lockfile = { path = "../common/lockfile" }
