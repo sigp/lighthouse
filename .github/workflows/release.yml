@@ -1,0 +1,361 @@
+name:   Build Release Suite
+
+on:
+    push:
+        tags:
+            - v*
+
+env:
+    REPO_NAME: sigp/lighthouse
+
+jobs:
+    extract-version:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Extract version
+              run: echo "::set-output name=VERSION::$(echo ${GITHUB_REF#refs/tags/})"
+              id: extract_version
+        outputs:
+            VERSION: ${{ steps.extract_version.outputs.VERSION }}
+
+    build:
+        name:   Build Release
+        strategy:
+            matrix:
+                arch: [aarch64-unknown-linux-gnu,
+                       aarch64-unknown-linux-gnu-portable,
+                       x86_64-unknown-linux-gnu,
+                       x86_64-unknown-linux-gnu-portable,
+                       x86_64-apple-darwin,
+                       x86_64-apple-darwin-portable]
+                include:
+                    -   arch: aarch64-unknown-linux-gnu
+                        platform: ubuntu-latest
+                    -   arch: aarch64-unknown-linux-gnu-portable
+                        platform: ubuntu-latest
+                    -   arch: x86_64-unknown-linux-gnu
+                        platform: ubuntu-latest
+                    -   arch: x86_64-unknown-linux-gnu-portable
+                        platform: ubuntu-latest
+                    -   arch: x86_64-apple-darwin
+                        platform: macos-latest
+                    -   arch: x86_64-apple-darwin-portable
+                        platform: macos-latest
+
+        runs-on:    ${{ matrix.platform }}
+        needs: extract-version
+        steps:
+            - name: Checkout sources
+              uses: actions/checkout@v2
+            - name: Build toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  # This uses the minimal supported version of rust
+                  profile:  minimal
+                  override: true
+
+            # ==============================
+            #       Setup Caches
+            # ==============================
+
+            - name: Cache cargo x86_64
+              if:   startsWith(matrix.arch, 'x86_64')
+              uses: actions/cache@v2
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/cargo/git
+                      target/release
+                  key:  ${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            - name: Cache cargo aarch64
+              if:   startsWith(matrix.arch, 'aarch64')
+              uses: actions/cache@v2
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/cargo/git
+                      target/aarch64-unknown-linux-gnu/release
+                  key:  ${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+            # ==============================
+            #       Builds
+            # ==============================
+
+            - name: Build Lighthouse for ${{matrix.arch}}
+              if:   startsWith(matrix.arch, 'aarch64') && endsWith(matrix.arch, 'portable')
+              uses: actions-rs/cargo@v1
+              with:
+                  use-cross: true
+                  command: build
+                  args: --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
+
+            - name: Build Lighthouse for ${{matrix.arch}}
+              if:   startsWith(matrix.arch, 'aarch64') && !endsWith(matrix.arch, 'portable')
+              uses: actions-rs/cargo@v1
+              with:
+                  use-cross: true
+                  command: build
+                  args: --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu
+
+            - name: Move cross-compiled binary
+              if:  startsWith(matrix.arch, 'aarch64')
+              run: mv target/aarch64-unknown-linux-gnu/release/lighthouse ~/.cargo/bin/lighthouse
+
+            - name: Build Lighthouse for ${{matrix.arch}}
+              if:   startsWith(matrix.arch, 'x86_64')
+              env:
+                  PORTABLE: ${{ endsWith(matrix.arch, 'portable') }}
+              run:  make
+
+            - name: Configure GPG and create artifacts
+              run: |
+                  export GPG_TTY=$(tty)
+                  echo "${{ secrets.GPG_SIGNING_KEY }}" | gpg --batch --import
+                  mkdir artifacts
+                  mv ~/.cargo/bin/lighthouse ./artifacts
+                  cd artifacts
+                  tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse
+                  gpg --passphrase "${{ secrets.GPG_PASSPHRASE }}" --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  mv *tar.gz* ..
+
+            # =======================================================================
+            # Upload artifacts
+            # This is required to share artifacts between different jobs
+            # =======================================================================
+
+            - name:  Upload artifact
+              uses:  actions/upload-artifact@v2
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+
+            - name: Upload signature
+              uses: actions/upload-artifact@v2
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+
+            # ==============================
+            #       Clean before caching
+            # ==============================
+
+            - name: Prepare build directory for cache x86_64
+              if:   startsWith(matrix.arch, 'x86_64')
+              run:  |
+                  find ./target/release -maxdepth 1 -type f -delete;
+                  rm -f  ./target/.rustc_info.json;
+                  rm -rf ~/.cargo/registry/index/;
+
+            - name: Prepare build directory for cache aarch64
+              if:   startsWith(matrix.arch, 'aarch64')
+              run:  |
+                  find ./target/aarch64-unknown-linux-gnu/release -maxdepth 1 -type f -delete;
+                  rm -f  ./target/aarch64-unknown-linux-gnu/.rustc_info.json;
+                  rm -rf ~/.cargo/registry/index/;
+
+    draft-release:
+        name:   Draft Release
+        needs:  [build, extract-version]
+        runs-on: ubuntu-latest
+        env:
+            VERSION:  ${{ needs.extract-version.outputs.VERSION }}
+        steps:
+            # This is necessary for generating the changelog. It has to come before "Download Artifacts" or else it deletes the artifacts.
+            - name: Checkout sources
+              uses: actions/checkout@v2
+              with:
+                  fetch-depth: 0
+
+            # ==============================
+            #       Download artifacts
+            # ==============================
+
+            - name: Download artifacts
+              uses: actions/download-artifact@v2
+
+            # ==============================
+            #       Create release draft
+            # ==============================
+
+            - name: Generate Full Changelog
+              id: changelog
+              run: echo "::set-output name=CHANGELOG::$(git log --pretty=format:"%s" $(git describe --tags --abbrev=0 ${{ env.VERSION }}^)..${{ env.VERSION }})"
+
+            - name: Create Release Draft
+              id:   create_release_draft
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+              with:
+                  tag_name: ${{ needs.extract-version.outputs.VERSION }}
+                  release_name: <Rick and Morty character>
+                  body: |
+                      ## Summary
+
+                      <summary>
+
+                      ## All Changes
+
+                      ${{ steps.changelog.outputs.CHANGELOG }}
+
+                      ## Binaries
+
+                      [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation-binaries.html)
+
+                      The binaries are signed with Sigma Prime's PGP key: `${{ secrets.GPG_PUBLIC_KEY }}`
+
+                      | System | Architecture | Binary | PGP Signature |
+                      |:---:|:---:|:---:|:---|
+                      | <img src="https://simpleicons.org/icons/apple.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc) |
+                      | <img src="https://simpleicons.org/icons/apple.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz.asc) |
+                      | <img src="https://simpleicons.org/icons/linux.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
+                      | <img src="https://simpleicons.org/icons/linux.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz.asc) |
+                      | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
+                      | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc) |
+                      | | | | |
+                      | **System** | **Option** | - | **Resource** |
+                      | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | - | TODO |
+
+                  draft:    true
+
+            # ====================================
+            #     Upload Binary Assets to Release
+            # ====================================
+
+            # Unfortunately, each asset has to be done in a separate step
+            - name: Upload Release Asset - MacOS
+              id:   upload_release_asset_macos
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz
+                  asset_content_type:   application/gzip
+
+            - name: Upload Release Asset - MacOS portable
+              id:   upload_release_asset_macos_portable
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz
+                  asset_content_type:   application/gzip
+
+            - name: Upload Release Asset - Linux
+              id:   upload_release_asset_linux
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz
+                  asset_content_type:   application/gzip
+
+            - name: Upload Release Asset - Linux portable
+              id:   upload_release_asset_linux_portable
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz
+                  asset_content_type:   application/gzip
+
+            - name: Upload Release Asset - Linux aarch64
+              id:   upload_release_asset_linux_aarch64
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz
+                  asset_name:   lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz
+                  asset_content_type:   application/gzip
+
+            - name: Upload Release Asset - Linux aarch64 portable
+              id:   upload_release_asset_linux_aarch64_portable
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz
+                  asset_name:   lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz
+                  asset_content_type:   application/gzip
+
+            # =======================================
+            #     Upload Signature Assets to Release
+            # =======================================
+
+            - name: Upload Release Asset - MacOS PGP signature
+              id:   upload_release_asset_macos_sig
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc
+                  asset_content_type:   text/plain
+
+            - name: Upload Release Asset - MacOS portable PGP signature
+              id:   upload_release_asset_macos_portable_sig
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz.asc/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz.asc
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz.asc
+                  asset_content_type:   text/plain
+
+            - name: Upload Release Asset - Linux PGP signature
+              id:   upload_release_asset_linux_sig
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc
+                  asset_content_type:   text/plain
+
+            - name: Upload Release Asset - Linux portable PGP signature
+              id:   upload_release_asset_linux_portable_sig
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz.asc/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz.asc
+                  asset_name:   lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz.asc
+                  asset_content_type:   text/plain
+
+            - name: Upload Release Asset - Linux aarch64 PGP signature
+              id:   upload_release_asset_linux_aarch64_sig
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc
+                  asset_name:   lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc
+                  asset_content_type:   text/plain
+
+            - name: Upload Release Asset - Linux aarch64 portable PGP signature
+              id:   upload_release_asset_linux_aarch64_portable_sig
+              uses: actions/upload-release-asset@v1.0.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url:   ${{ steps.create_release_draft.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+                  asset_path:   ./lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc
+                  asset_name:   lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc
+                  asset_content_type:   text/plain
