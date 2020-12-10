@@ -682,6 +682,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // https://github.com/sigp/lighthouse/issues/1039
 
                 // TODO: Maintain this attestation and re-process once sync completes
+                // TODO: We then score based on whether we can download the block and re-process.
                 debug!(
                     self.log,
                     "Attestation for unknown block";
@@ -701,10 +702,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "msg" => "UnknownBlockHash"
                         )
                     });
-                // We still penalize the peer slightly. We don't want this to be a recurring
-                // behaviour.
-                self.gossip_penalize_peer(peer_id.clone(), PeerAction::HighToleranceError);
-
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
