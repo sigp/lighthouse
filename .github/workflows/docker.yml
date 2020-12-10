@@ -44,15 +44,13 @@ jobs:
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
-            - name: Install emulation dependencies
-              run: |
-                  docker run --privileged --rm tonistiigi/binfmt --install arm64
             - name: Set Env
               if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
               run: |
                   echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
             - name: Build ARM64 dockerfile (with push)
               run: |
+                  docker run --privileged --rm tonistiigi/binfmt --install arm64
                   docker buildx build \
                       --platform=linux/arm64 \
                       --file ./Dockerfile.cross . \
