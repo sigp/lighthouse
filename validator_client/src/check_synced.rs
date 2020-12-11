@@ -8,9 +8,9 @@ const SYNC_TOLERANCE: u64 = 4;
 
 /// Returns
 ///
-///  `Ok(())`                               if the beacon node is synced and ready for action,
-///  `Err(RecoverableNodeError::Offline)`   if the beacon node is unreachable,
-///  `Err(RecoverableNodeError::OutOfSync)` if the beacon node indicates that it is syncing **AND**
+///  `Ok(())`                           if the beacon node is synced and ready for action,
+///  `Err(CandidateError::Offline)`     if the beacon node is unreachable,
+///  `Err(CandidateError::NotSynced)`   if the beacon node indicates that it is syncing **AND**
 ///                                         it is more than `SYNC_TOLERANCE` behind the highest
 ///                                         known slot.
 ///
