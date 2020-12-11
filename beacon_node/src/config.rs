@@ -375,6 +375,8 @@ pub fn get_config<E: EthSpec>(
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
 
+        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
+
         client_config.slasher = Some(slasher_config);
     }
 
