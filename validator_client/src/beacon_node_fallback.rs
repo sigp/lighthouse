@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, EthSpec};
+use futures::future;
 
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
 /// nodes.
@@ -40,8 +41,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
     let future = async move {
         loop {
-            // We don't care about the outcome of this function.
-            let _ = beacon_nodes.update_unready_candidates().await;
+            beacon_nodes.update_unready_candidates().await;
 
             let sleep_time = beacon_nodes
                 .slot_clock
@@ -329,6 +329,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// We do not poll nodes that are synced to avoid sending additional requests when everything is
     /// going smoothly.
     pub async fn update_unready_candidates(&self) {
+        let mut futures = Vec::new();
         for candidate in &self.candidates {
             // There is a potential race condition between having the read lock and the write
             // lock. The worst case of this race is running `try_become_ready` twice, which is
@@ -340,11 +341,13 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 // There exists a race-condition that could result in `refresh_status` being called
                 // when the status does not require refreshing anymore. This deemed is an
                 // acceptable inefficiency.
-                let _ = candidate
-                    .refresh_status(self.slot_clock.as_ref(), &self.spec, &self.log)
-                    .await;
+                futures.push(candidate
+                    .refresh_status(self.slot_clock.as_ref(), &self.spec, &self.log));
             }
         }
+
+        //run all updates concurrently and ignore results
+        let _ = future::join_all(futures).await;
     }
 
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
