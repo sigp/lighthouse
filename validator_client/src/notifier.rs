@@ -28,7 +28,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
             let num_available = duties_service.beacon_nodes.num_available().await;
             let num_synced = duties_service.beacon_nodes.num_synced().await;
             let num_total = duties_service.beacon_nodes.num_total().await;
-            if num_available > 0 {
+            if num_synced > 0 {
                 info!(
                     log,
                     "Connected to beacon node(s)";
@@ -39,7 +39,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
             } else {
                 error!(
                     log,
-                    "No available beacon nodes";
+                    "No synced beacon nodes";
                     "total" => num_total,
                     "available" => num_available,
                     "synced" => num_synced,

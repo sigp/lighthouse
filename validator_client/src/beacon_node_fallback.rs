@@ -1,3 +1,7 @@
+//! Allows for a list of `BeaconNodeHttpClient` to appear as a single entity which will exhibits
+//! "fallback" behaviour; it will try a request on all of the nodes until one or none of them
+//! succeed.
+
 use crate::check_synced::check_synced;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 use environment::RuntimeContext;
@@ -13,8 +17,18 @@ use std::time::Duration;
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, EthSpec};
 
+/// The number of seconds *prior* to slot start that we will try and update the state of fallback
+/// nodes.
+///
+/// Ideally this should be somewhere between 2/3rds through the slot and the end of it. If we set it
+/// too early, we risk switching nodes between the time of publishing an attestation and publishing
+/// an aggregate; this may result in a missed aggregation. If we set this time too late, we risk not
+/// having the correct nodes up and running prior to the start of the slot.
 const SLOT_LOOKAHEAD: Duration = Duration::from_secs(1);
 
+/// Starts a service that will routinely try and update the status of the provided `beacon_nodes`.
+///
+/// See `SLOT_LOOKAHEAD` for information about when this should run.
 pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     context: RuntimeContext<E>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
@@ -49,13 +63,32 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     Ok(())
 }
 
+/// Indicates if a beacon node must be synced before some action is performed on it.
 #[derive(PartialEq, Clone, Copy)]
 pub enum RequireSynced {
     Yes,
     No,
 }
 
-pub struct AllErrored<E>(pub Vec<(String, E)>);
+#[derive(Debug)]
+pub enum Error<E> {
+    /// The node was unavailable and we didn't attempt to contact it.
+    Unavailable(CandidateError),
+    /// We attempted to contact the node but it failed.
+    RequestFailed(E),
+}
+
+impl<E> Error<E> {
+    pub fn request_failure(&self) -> Option<&E> {
+        match self {
+            Error::RequestFailed(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+/// The list of errors encountered whilst attempting to perform a query.
+pub struct AllErrored<E>(pub Vec<(String, Error<E>)>);
 
 impl<E: Debug> fmt::Display for AllErrored<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -69,6 +102,7 @@ impl<E: Debug> fmt::Display for AllErrored<E> {
     }
 }
 
+/// Reasons why a candidate might not be ready.
 #[derive(Debug, Clone, Copy)]
 pub enum CandidateError {
     Uninitialized,
@@ -77,6 +111,8 @@ pub enum CandidateError {
     NotSynced,
 }
 
+/// Represents a `BeaconNodeHttpClient` inside a `BeaconNodeFallback` that may or may not be used
+/// for a query.
 pub struct CandidateBeaconNode<E> {
     beacon_node: BeaconNodeHttpClient,
     status: RwLock<Result<(), CandidateError>>,
@@ -84,6 +120,7 @@ pub struct CandidateBeaconNode<E> {
 }
 
 impl<E: EthSpec> CandidateBeaconNode<E> {
+    /// Instantiate a new node.
     pub fn new(beacon_node: BeaconNodeHttpClient) -> Self {
         Self {
             beacon_node,
@@ -92,18 +129,23 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         }
     }
 
-    pub async fn is_ready(&self, synced: RequireSynced) -> bool {
+    /// Returns the status of `self`.
+    ///
+    /// If `RequiredSynced::No`, any `NotSynced` node will be ignored and mapped to `Ok(())`.
+    pub async fn status(&self, synced: RequireSynced) -> Result<(), CandidateError> {
         match *self.status.read().await {
-            Ok(()) => true,
-            Err(CandidateError::NotSynced) if synced == RequireSynced::No => true,
-            _ => false,
+            Err(CandidateError::NotSynced) if synced == RequireSynced::No => Ok(()),
+            other => other,
         }
     }
 
+    /// Indicate that `self` is offline.
     pub async fn set_offline(&self) {
         *self.status.write().await = Err(CandidateError::Offline)
     }
 
+    /// Perform some queries against the node to determine if it is a good candidate, updating
+    /// `self.status` and returning that result.
     pub async fn refresh_status<T: SlotClock>(
         &self,
         slot_clock: Option<&T>,
@@ -125,6 +167,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         *status
     }
 
+    /// Checks if the node is reachable.
     async fn is_online(&self, log: &Logger) -> Result<(), CandidateError> {
         let result = self
             .beacon_node
@@ -155,6 +198,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         }
     }
 
+    /// Checks if the node has the correct specification.
     async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
         let yaml_config = self
             .beacon_node
@@ -214,8 +258,9 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     }
 }
 
-/// Holds possibly multiple beacon nodes structured as fallbacks. Before a beacon node is used the
-/// first time it gets checked if it uses the same spec as the validator client.
+/// A collection of `CandidateBeaconNode` that can be used to perform requests with "fallback"
+/// behaviour, where the failure of one candidate results in the next candidate receiving an
+/// identical query.
 pub struct BeaconNodeFallback<T, E> {
     candidates: Vec<CandidateBeaconNode<E>>,
     slot_clock: Option<T>,
@@ -233,43 +278,56 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         }
     }
 
+    /// Used to update the slot clock post-instantiation.
+    ///
+    /// This is the result of a chicken-and-egg issue where `Self` needs a slot clock for some
+    /// operations, but `Self` is required to obtain the slot clock since we need the genesis time
+    /// from a beacon node.
     pub fn set_slot_clock(&mut self, slot_clock: T) {
         self.slot_clock = Some(slot_clock);
     }
 
+    /// The count of candidates, regardless of their state.
     pub async fn num_total(&self) -> usize {
         self.candidates.len()
     }
 
+    /// The count of synced and ready candidates.
     pub async fn num_synced(&self) -> usize {
         let mut n = 0;
         for candidate in &self.candidates {
-            if candidate.is_ready(RequireSynced::Yes).await {
+            if candidate.status(RequireSynced::Yes).await.is_ok() {
                 n += 1
             }
         }
         n
     }
 
+    /// The count of candidates that are online and compatible, but not necessarily synced.
     pub async fn num_available(&self) -> usize {
         let mut n = 0;
         for candidate in &self.candidates {
-            if candidate.is_ready(RequireSynced::No).await {
+            if candidate.status(RequireSynced::No).await.is_ok() {
                 n += 1
             }
         }
         n
     }
 
+    /// Loop through any `self.candidates` that we don't think are online, compatible or synced and
+    /// poll them to see if their status has changed.
+    ///
+    /// We do not poll nodes that are synced to avoid sending additional requests when everything is
+    /// going smoothly.
     pub async fn update_unready_candidates(&self) {
         for candidate in &self.candidates {
             // There is a potential race condition between having the read lock and the write
             // lock. The worst case of this race is running `try_become_ready` twice, which is
             // acceptable.
             //
-            // Note: `is_ready` is always set to false here. This forces us to recheck the sync
+            // Note: `RequireSynced` is always set to false here. This forces us to recheck the sync
             // status of nodes that were previously not-synced.
-            if !candidate.is_ready(RequireSynced::Yes).await {
+            if candidate.status(RequireSynced::Yes).await.is_err() {
                 // There exists a race-condition that could result in `refresh_status` being called
                 // when the status does not require refreshing anymore. This deemed is an
                 // acceptable inefficiency.
@@ -280,6 +338,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         }
     }
 
+    /// Run `func` against each candidate in `self`, returning immediately if a result is found.
+    /// Otherwise, return all the errors encountered along the way.
+    ///
+    /// First this function will try all nodes with a suitable status. If no candidates are suitable
+    /// or all the requests fail, it will try updating the status of all unsuitable nodes and
+    /// re-running `func` again.
     pub async fn first_success<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
@@ -294,7 +358,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // First pass: try `func` on all ready candidates.
         for candidate in &self.candidates {
-            if candidate.is_ready(require_synced).await {
+            if let Err(e) = candidate.status(require_synced).await {
+                // This client was not ready on the first pass, we might try it again later.
+                to_retry.push(candidate);
+                errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
+            } else {
                 inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
 
                 // There exists a race condition where `func` may be called when the candidate is
@@ -308,27 +376,29 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
                         candidate.set_offline().await;
-                        errors.push((candidate.beacon_node.to_string(), e));
+                        errors.push((candidate.beacon_node.to_string(), Error::RequestFailed(e)));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
                     }
                 }
-            } else {
-                // This client was not ready on the first pass, we might try it again later.
-                to_retry.push(candidate);
             }
         }
 
         // Second pass: try again, attempting to make non-ready clients become ready.
         for candidate in to_retry {
-            let became_ready = {
-                candidate.is_ready(require_synced).await
-                    || candidate
+            // If the candidate hasn't luckily transferred into the correct state in the meantime,
+            // force an update of the state.
+            let new_status = match candidate.status(require_synced).await {
+                Ok(()) => Ok(()),
+                Err(_) => {
+                    candidate
                         .refresh_status(self.slot_clock.as_ref(), &self.spec, &self.log)
                         .await
-                        .is_ok()
+                }
             };
 
-            if became_ready {
+            if let Err(e) = new_status {
+                errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
+            } else {
                 inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
 
                 // There exists a race condition where `func` may be called when the candidate is
@@ -342,7 +412,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
                         candidate.set_offline().await;
-                        errors.push((candidate.beacon_node.to_string(), e));
+                        errors.push((candidate.beacon_node.to_string(), Error::RequestFailed(e)));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
                     }
                 }

@@ -433,7 +433,8 @@ async fn init_from_beacon_node<E: EthSpec>(
                 if errors
                     .0
                     .iter()
-                    .any(|(_, e)| e.status() == Some(StatusCode::NOT_FOUND))
+                    .filter_map(|(_, e)| e.request_failure())
+                    .any(|e| e.status() == Some(StatusCode::NOT_FOUND))
                 {
                     info!(
                         context.log(),
