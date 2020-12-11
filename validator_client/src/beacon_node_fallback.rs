@@ -6,7 +6,7 @@ use crate::check_synced::check_synced;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
-use slog::{error, info, Logger};
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -173,7 +173,6 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             .beacon_node
             .get_node_version()
             .await
-            .map_err(|e| format!("{:?}", e))
             .map(|body| body.data.version);
 
         match result {
@@ -181,17 +180,17 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 info!(
                     log,
                     "Connected to beacon node";
-                    "endpoint" => %self.beacon_node,
                     "version" => version,
+                    "endpoint" => %self.beacon_node,
                 );
                 Ok(())
             }
             Err(e) => {
-                error!(
+                warn!(
                     log,
-                    "Unable to connect to beacon node";
+                    "Offline beacon node";
+                    "error" => %e,
                     "endpoint" => %self.beacon_node,
-                    "error" => e,
                 );
                 Err(CandidateError::Offline)
             }
@@ -208,8 +207,8 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 error!(
                     log,
                     "Unable to read spec from beacon node";
+                    "error" => %e,
                     "endpoint" => %self.beacon_node,
-                    "error" => ?e,
                 );
                 CandidateError::Offline
             })?

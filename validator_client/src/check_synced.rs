@@ -28,7 +28,7 @@ pub async fn check_synced<T: SlotClock>(
                 warn!(
                     log,
                     "Unable connect to beacon node";
-                    "error" => e.to_string()
+                    "error" => %e
                 )
             }
 
@@ -49,9 +49,9 @@ pub async fn check_synced<T: SlotClock>(
             warn!(
                 log,
                 "Beacon node is syncing";
-                "msg" => "not receiving new duties",
                 "sync_distance" => resp.data.sync_distance.as_u64(),
                 "head_slot" => resp.data.head_slot.as_u64(),
+                "endpoint" => %beacon_node,
             );
         }
 
@@ -64,6 +64,7 @@ pub async fn check_synced<T: SlotClock>(
                     "msg" => "check the system time on this host and the beacon node",
                     "beacon_node_slot" => remote_slot,
                     "local_slot" => local_slot,
+                    "endpoint" => %beacon_node,
                 );
             }
         }
