@@ -8,5 +8,3 @@ edition = "2018"
 
 [dependencies]
 itertools = "0.9.0"
-tokio = { version = "0.3.5", features = ["time"] }
-futures = "0.3.8"

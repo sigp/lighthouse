@@ -13,9 +13,6 @@ use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{EthSpec, Fork};
 
-#[cfg(test)]
-use types::ChainSpec;
-
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
 
@@ -71,11 +68,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
     }
 }
 
-/*
 #[cfg(test)]
 #[allow(dead_code)]
 impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
-    pub fn testing_only(spec: ChainSpec, log: Logger) -> Self {
+    pub fn testing_only(spec: types::ChainSpec, log: Logger) -> Self {
+        use crate::beacon_node_fallback::CandidateBeaconNode;
+
+        let slot_clock = slot_clock::TestingSlotClock::new(
+            types::Slot::new(0),
+            std::time::Duration::from_secs(42),
+            std::time::Duration::from_secs(42),
+        );
+        let candidates = vec![CandidateBeaconNode::new(eth2::BeaconNodeHttpClient::new(
+            eth2::Url::parse("http://127.0.0.1").unwrap(),
+        ))];
+        let mut beacon_nodes = BeaconNodeFallback::new(candidates, spec, log.clone());
+        beacon_nodes.set_slot_clock(slot_clock.clone());
+
         Self {
             fork: Some(types::Fork::default()),
             slot_clock: Some(slot_clock::TestingSlotClock::new(
@@ -83,18 +92,11 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
                 std::time::Duration::from_secs(42),
                 std::time::Duration::from_secs(42),
             )),
-            beacon_nodes: Some(BeaconNodeFallback::new(
-                Fallback::new(vec![(
-                    eth2::BeaconNodeHttpClient::new(eth2::Url::parse("http://127.0.0.1").unwrap()),
-                    Default::default(),
-                )]),
-                UnrecoverableErrorChecker::new(spec, log.clone()),
-            )),
+            beacon_nodes: Some(Arc::new(beacon_nodes)),
             log: Some(log),
         }
     }
 }
-*/
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {

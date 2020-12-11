@@ -1,9 +1,11 @@
-use crate::eth1_fallback::{EndpointError, Eth1Fallback};
 use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
-    http::{get_block, get_block_number, get_deposit_logs_in_range, BlockQuery, Eth1Id},
+    http::{
+        get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
+        BlockQuery, Eth1Id,
+    },
     inner::{DepositUpdater, Inner},
 };
 use fallback::{Fallback, FallbackError};
@@ -12,9 +14,11 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::fmt::Debug;
+use std::future::Future;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, EthSpec, Unsigned};
 
@@ -23,7 +27,7 @@ pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
 /// Indicates the default eth1 chain id we use for the deposit contract.
 pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
 
-pub const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
+const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
 /// Timeout when doing a eth_blockNumber call.
 const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
@@ -36,6 +40,151 @@ const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 
 
 /// A factor used to reduce the eth1 follow distance to account for discrepancies in the block time.
 const ETH1_BLOCK_TIME_TOLERANCE_FACTOR: u64 = 4;
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum EndpointError {
+    NotReachable,
+    WrongNetworkId,
+    WrongChainId,
+    FarBehind,
+}
+
+type EndpointState = Result<(), EndpointError>;
+
+type EndpointWithState = (String, TRwLock<Option<EndpointState>>);
+
+/// A cache structure to lazily check usability of endpoints. An endpoint is usable if it is
+/// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
+/// is not usable.
+pub struct EndpointsCache {
+    pub fallback: Fallback<EndpointWithState>,
+    pub config_network_id: Eth1Id,
+    pub config_chain_id: Eth1Id,
+    pub log: Logger,
+}
+
+impl EndpointsCache {
+    /// Checks the usability of an endpoint. Results get cached and therefore only the first call
+    /// for each endpoint does the real check.
+    async fn state(&self, endpoint: &EndpointWithState) -> EndpointState {
+        if let Some(result) = *endpoint.1.read().await {
+            return result;
+        }
+        let mut value = endpoint.1.write().await;
+        if let Some(result) = *value {
+            return result;
+        }
+        crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[&endpoint.0]);
+        let state = endpoint_state(
+            &endpoint.0,
+            &self.config_network_id,
+            &self.config_chain_id,
+            &self.log,
+        )
+        .await;
+        *value = Some(state);
+        if state.is_err() {
+            crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_ERRORS, &[&endpoint.0]);
+        }
+        state
+    }
+
+    pub async fn first_success<'a, F, O, R>(
+        &'a self,
+        func: F,
+    ) -> Result<O, FallbackError<SingleEndpointError>>
+    where
+        F: Fn(&'a str) -> R,
+        R: Future<Output = Result<O, SingleEndpointError>>,
+    {
+        let func = &func;
+        self.fallback
+            .first_success(|endpoint| async move {
+                match self.state(endpoint).await {
+                    Ok(()) => {
+                        let endpoint_str = &endpoint.0;
+                        crate::metrics::inc_counter_vec(
+                            &crate::metrics::ENDPOINT_REQUESTS,
+                            &[endpoint_str],
+                        );
+                        match func(&endpoint.0).await {
+                            Ok(t) => Ok(t),
+                            Err(t) => {
+                                crate::metrics::inc_counter_vec(
+                                    &crate::metrics::ENDPOINT_ERRORS,
+                                    &[endpoint_str],
+                                );
+                                if let SingleEndpointError::EndpointError(e) = &t {
+                                    *endpoint.1.write().await = Some(Err(*e));
+                                }
+                                Err(t)
+                            }
+                        }
+                    }
+                    Err(e) => Err(SingleEndpointError::EndpointError(e)),
+                }
+            })
+            .await
+    }
+}
+
+/// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
+/// chain id. Otherwise it returns `Err`.
+async fn endpoint_state(
+    endpoint: &str,
+    config_network_id: &Eth1Id,
+    config_chain_id: &Eth1Id,
+    log: &Logger,
+) -> EndpointState {
+    let error_connecting = |_| {
+        warn!(
+            log,
+            "Error connecting to eth1 node. Trying fallback ...";
+            "endpoint" => endpoint,
+        );
+        EndpointError::NotReachable
+    };
+    let network_id = get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+        .await
+        .map_err(error_connecting)?;
+    if &network_id != config_network_id {
+        warn!(
+            log,
+            "Invalid eth1 network id. Please switch to correct network id. Trying \
+             fallback ...";
+            "endpoint" => endpoint,
+            "expected" => format!("{:?}",config_network_id),
+            "received" => format!("{:?}",network_id),
+        );
+        return Err(EndpointError::WrongNetworkId);
+    }
+    let chain_id = get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+        .await
+        .map_err(error_connecting)?;
+    // Eth1 nodes return chain_id = 0 if the node is not synced
+    // Handle the special case
+    if chain_id == Eth1Id::Custom(0) {
+        warn!(
+            log,
+            "Remote eth1 node is not synced";
+            "endpoint" => endpoint,
+        );
+        return Err(EndpointError::FarBehind);
+    }
+    if &chain_id != config_chain_id {
+        warn!(
+            log,
+            "Invalid eth1 chain id. Please switch to correct chain id. Trying \
+             fallback ...";
+            "endpoint" => endpoint,
+            "expected" => format!("{:?}",config_chain_id),
+            "received" => format!("{:?}", chain_id),
+        );
+        Err(EndpointError::WrongChainId)
+    } else {
+        Ok(())
+    }
+}
 
 /// Enum for the two internal (maybe different) cached heads for cached deposits and for the block
 /// cache.
@@ -127,12 +276,6 @@ pub enum SingleEndpointError {
     GetDepositCountFailed(String),
     /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
-}
-
-impl From<EndpointError> for SingleEndpointError {
-    fn from(e: EndpointError) -> Self {
-        Self::EndpointError(e)
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -441,21 +584,21 @@ impl Service {
         self.inner.config.write().lowest_cached_block_number = block_number;
     }
 
-    pub fn init_fallback(&self) -> Eth1Fallback {
+    pub fn init_endpoints(&self) -> EndpointsCache {
         let endpoints = self.config().endpoints.clone();
         let config_network_id = self.config().network_id.clone();
         let config_chain_id = self.config().chain_id.clone();
-        Eth1Fallback::new(
-            Fallback::new(
+        EndpointsCache {
+            fallback: Fallback::new(
                 endpoints
                     .into_iter()
-                    .map(|s| (s, Default::default()))
+                    .map(|s| (s, TRwLock::new(None)))
                     .collect(),
             ),
             config_network_id,
             config_chain_id,
-            self.log.clone(),
-        )
+            log: self.log.clone(),
+        }
     }
 
     /// Update the deposit and block cache, returning an error if either fail.
@@ -469,7 +612,7 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
-        let endpoints = self.init_fallback();
+        let endpoints = self.init_endpoints();
         let node_far_behind_seconds = self.inner.config.read().node_far_behind_seconds;
 
         let process_single_err = |e: &FallbackError<SingleEndpointError>| {
@@ -492,7 +635,7 @@ impl Service {
                     }
                 }
             }
-            endpoints.format_err(&e)
+            endpoints.fallback.map_format_error(|s| &s.0, &e)
         };
 
         let process_err = |e: Error| match &e {
@@ -640,7 +783,7 @@ impl Service {
     pub async fn update_deposit_cache(
         &self,
         new_block_numbers: Option<Option<RangeInclusive<u64>>>,
-        endpoints: &Eth1Fallback,
+        endpoints: &EndpointsCache,
     ) -> Result<DepositCacheUpdateOutcome, Error> {
         let deposit_contract_address = self.config().deposit_contract_address.clone();
 
@@ -796,7 +939,7 @@ impl Service {
     pub async fn update_block_cache(
         &self,
         new_block_numbers: Option<Option<RangeInclusive<u64>>>,
-        endpoints: &Eth1Fallback,
+        endpoints: &EndpointsCache,
     ) -> Result<BlockCacheUpdateOutcome, Error> {
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
