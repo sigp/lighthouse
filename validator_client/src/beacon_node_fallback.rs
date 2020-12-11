@@ -105,6 +105,14 @@ pub enum CandidateError {
     NotSynced,
 }
 
+fn consider_required_sync(status: Result<(), CandidateError>, require_synced: bool)
+                              -> Result<(), CandidateError> {
+    match status {
+        Err(CandidateError::NotSynced) if !require_synced => Ok(()),
+        other => other,
+    }
+}
+
 /// Represents a `BeaconNodeHttpClient` inside a `BeaconNodeFallback` that may or may not be used
 /// for a query.
 pub struct CandidateBeaconNode<E> {
@@ -127,10 +135,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     ///
     /// If `require_synced == false`, any `NotSynced` node will be ignored and mapped to `Ok(())`.
     pub async fn status(&self, require_synced: bool) -> Result<(), CandidateError> {
-        match *self.status.read().await {
-            Err(CandidateError::NotSynced) if !require_synced => Ok(()),
-            other => other,
-        }
+        consider_required_sync(*self.status.read().await, require_synced)
     }
 
     /// Indicate that `self` is offline.
@@ -392,7 +397,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 }
             };
 
-            if let Err(e) = new_status {
+            if let Err(e) = consider_required_sync(new_status, require_synced) {
                 errors.insert(candidate.beacon_node.to_string(), Error::Unavailable(e));
             } else {
                 inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
