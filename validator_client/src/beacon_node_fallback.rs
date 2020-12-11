@@ -17,6 +17,7 @@ use std::time::Duration;
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, EthSpec};
 use futures::future;
+use std::collections::HashMap;
 
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
 /// nodes.
@@ -81,7 +82,7 @@ impl<E> Error<E> {
 }
 
 /// The list of errors encountered whilst attempting to perform a query.
-pub struct AllErrored<E>(pub Vec<(String, Error<E>)>);
+pub struct AllErrored<E>(pub HashMap<String, Error<E>>);
 
 impl<E: Debug> fmt::Display for AllErrored<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -348,7 +349,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
     {
-        let mut errors = vec![];
+        let mut errors = HashMap::new();
         let mut to_retry = vec![];
 
         // First pass: try `func` on all ready candidates.
@@ -356,7 +357,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             if let Err(e) = candidate.status(require_synced).await {
                 // This client was not ready on the first pass, we might try it again later.
                 to_retry.push(candidate);
-                errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
+                errors.insert(candidate.beacon_node.to_string(), Error::Unavailable(e));
             } else {
                 inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
 
@@ -371,7 +372,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
                         candidate.set_offline().await;
-                        errors.push((candidate.beacon_node.to_string(), Error::RequestFailed(e)));
+                        errors.insert(candidate.beacon_node.to_string(), Error::RequestFailed(e));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
                     }
                 }
@@ -392,7 +393,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             };
 
             if let Err(e) = new_status {
-                errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
+                errors.insert(candidate.beacon_node.to_string(), Error::Unavailable(e));
             } else {
                 inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
 
@@ -407,7 +408,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
                         candidate.set_offline().await;
-                        errors.push((candidate.beacon_node.to_string(), Error::RequestFailed(e)));
+                        errors.insert(candidate.beacon_node.to_string(), Error::RequestFailed(e));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
                     }
                 }
