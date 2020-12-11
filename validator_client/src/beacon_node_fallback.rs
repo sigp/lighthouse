@@ -33,7 +33,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     context: RuntimeContext<E>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
 ) -> Result<(), &'static str> {
-    let executor = context.executor.clone();
+    let executor = context.executor;
     if beacon_nodes.slot_clock.is_none() {
         return Err("Cannot start fallback updater without slot clock");
     }
@@ -52,7 +52,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
                     till_next_slot.checked_sub(SLOT_LOOKAHEAD)
                 })
-                .unwrap_or(Duration::from_secs(1));
+                .unwrap_or_else(|| Duration::from_secs(1));
 
             sleep(sleep_time).await
         }
