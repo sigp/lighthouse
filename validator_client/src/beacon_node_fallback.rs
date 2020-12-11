@@ -364,9 +364,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         let mut errors = HashMap::new();
         let mut to_retry = vec![];
 
-        // First pass: try `func` on all ready candidates.
+        // First pass: try `func` on all ready and synced candidates.
         for candidate in &self.candidates {
-            if let Err(e) = candidate.status(require_synced).await {
+            if let Err(e) = candidate.status(true).await {
                 // This client was not ready on the first pass, we might try it again later.
                 to_retry.push(candidate);
                 errors.insert(candidate.beacon_node.to_string(), Error::Unavailable(e));
@@ -391,7 +391,8 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             }
         }
 
-        // Second pass: try again, attempting to make non-ready clients become ready.
+        // Second pass: try again, attempting to make non-ready clients become ready + try unsynced
+        // ones if `require_synced == false`.
         for candidate in to_retry {
             // If the candidate hasn't luckily transferred into the correct state in the meantime,
             // force an update of the state.
