@@ -1,5 +1,8 @@
 use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
-use crate::peer_manager::{score::PeerAction, ConnectionDirection, PeerManager, PeerManagerEvent};
+use crate::peer_manager::{
+    score::{PeerAction, ReportSource},
+    ConnectionDirection, PeerManager, PeerManagerEvent,
+};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetDiscovery};
@@ -427,6 +430,25 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         message_id: MessageId,
         validation_result: MessageAcceptance,
     ) {
+        if let Some(result) = match validation_result {
+            MessageAcceptance::Accept => None,
+            MessageAcceptance::Ignore => Some("ignore"),
+            MessageAcceptance::Reject => Some("reject"),
+        } {
+            if let Some(client) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(propagation_source)
+                .map(|info| info.client.kind.as_static_ref())
+            {
+                metrics::inc_counter_vec(
+                    &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
+                    &[client, result],
+                )
+            }
+        }
+
         if let Err(e) = self.gossipsub.report_message_validation_result(
             &message_id,
             propagation_source,
@@ -469,16 +491,16 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Peer management functions */
 
     /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        self.peer_manager.report_peer(peer_id, action)
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
+        self.peer_manager.report_peer(peer_id, action, source)
     }
 
     /// Disconnects from a peer providing a reason.
     ///
     /// This will send a goodbye, disconnect and then ban the peer.
     /// This is fatal for a peer, and should be used in unrecoverable circumstances.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
-        self.peer_manager.goodbye_peer(peer_id, reason);
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
+        self.peer_manager.goodbye_peer(peer_id, reason, source);
     }
 
     /// Returns an iterator over all enr entries in the DHT.

@@ -105,7 +105,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
-            .one_every(Protocol::Ping, Duration::from_secs(5))
+            .n_every(Protocol::Ping, 2, Duration::from_secs(10))
             .n_every(Protocol::Status, 5, Duration::from_secs(15))
             .one_every(Protocol::Goodbye, Duration::from_secs(10))
             .n_every(
@@ -261,7 +261,7 @@ where
                         (conn_id, *id),
                         RPCCodedResponse::Error(
                             RPCResponseErrorCode::RateLimited,
-                            format!("Rate limited: wait {:?}", wait_time).into(),
+                            format!("Wait {:?}", wait_time).into(),
                         ),
                     );
                 }

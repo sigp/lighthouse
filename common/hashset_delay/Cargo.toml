@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 futures = "0.3.7"
-tokio-util = { version = "0.4.0", features = ["time"] }
+tokio-util = { version = "0.5.0", features = ["time"] }
 
 [dev-dependencies]
 tokio = { version = "0.3.2", features = ["time", "rt-multi-thread", "macros"] }

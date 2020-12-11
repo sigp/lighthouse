@@ -8,7 +8,7 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response,
 };
 use eth2_libp2p::{types::GossipKind, BehaviourEvent, MessageId, NetworkGlobals, PeerId};
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
@@ -75,11 +75,16 @@ pub enum NetworkMessage<T: EthSpec> {
         udp_socket: Option<SocketAddr>,
     },
     /// Reports a peer to the peer manager for performing an action.
-    ReportPeer { peer_id: PeerId, action: PeerAction },
+    ReportPeer {
+        peer_id: PeerId,
+        action: PeerAction,
+        source: ReportSource,
+    },
     /// Disconnect an ban a peer, providing a reason.
     GoodbyePeer {
         peer_id: PeerId,
         reason: GoodbyeReason,
+        source: ReportSource,
     },
 }
 
@@ -381,8 +386,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                 metrics::expose_publish_metrics(&messages);
                                 service.libp2p.swarm.publish(messages);
                         }
-                        NetworkMessage::ReportPeer { peer_id, action } => service.libp2p.report_peer(&peer_id, action),
-                        NetworkMessage::GoodbyePeer { peer_id, reason } => service.libp2p.goodbye_peer(&peer_id, reason),
+                        NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
+                        NetworkMessage::GoodbyePeer { peer_id, reason, source } => service.libp2p.goodbye_peer(&peer_id, reason, source),
                         NetworkMessage::Subscribe { subscriptions } => {
                             if let Err(e) = service
                                 .attestation_service

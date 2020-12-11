@@ -42,6 +42,7 @@ pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use zeroize_hash::ZeroizeHash;
 
 use blst::BLST_ERROR as BlstError;
+#[cfg(feature = "milagro")]
 use milagro_bls::AmclError;
 
 pub type Hash256 = ethereum_types::H256;
@@ -49,6 +50,7 @@ pub type Hash256 = ethereum_types::H256;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     /// An error was raised from the Milagro BLS library.
+    #[cfg(feature = "milagro")]
     MilagroError(AmclError),
     /// An error was raised from the Supranational BLST BLS library.
     BlstError(BlstError),
@@ -62,6 +64,7 @@ pub enum Error {
     InvalidZeroSecretKey,
 }
 
+#[cfg(feature = "milagro")]
 impl From<AmclError> for Error {
     fn from(e: AmclError) -> Error {
         Error::MilagroError(e)
@@ -122,6 +125,7 @@ macro_rules! define_mod {
     };
 }
 
+#[cfg(feature = "milagro")]
 define_mod!(milagro_implementations, crate::impls::milagro::types);
 define_mod!(blst_implementations, crate::impls::blst::types);
 #[cfg(feature = "fake_crypto")]

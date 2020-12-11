@@ -5,8 +5,7 @@ mod tests {
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
     use eth2_libp2p::Enr;
-    //use slog::{o, Drain, Level, Logger};
-    use slog::Logger;
+    use slog::{o, Drain, Level, Logger};
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
@@ -14,26 +13,27 @@ mod tests {
     use tokio::runtime::Runtime;
     use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
 
-    fn get_logger() -> Logger {
-        /* For emitting logs during the tests
-        let drain = {
-            let decorator = slog_term::TermDecorator::new().build();
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            let drain = slog_async::Async::new(drain).chan_size(2048).build();
-            drain.filter_level(Level::Debug)
-        };
+    fn get_logger(actual_log: bool) -> Logger {
+        if actual_log {
+            let drain = {
+                let decorator = slog_term::TermDecorator::new().build();
+                let decorator =
+                    logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+                let drain = slog_term::FullFormat::new(decorator).build().fuse();
+                let drain = slog_async::Async::new(drain).chan_size(2048).build();
+                drain.filter_level(Level::Debug)
+            };
 
-        Logger::root(drain.fuse(), o!())
-        */
-        let builder = NullLoggerBuilder;
-        builder.build().expect("should build logger")
+            Logger::root(drain.fuse(), o!())
+        } else {
+            let builder = NullLoggerBuilder;
+            builder.build().expect("should build logger")
+        }
     }
 
     #[test]
     fn test_dht_persistence() {
-        let log = get_logger();
+        let log = get_logger(false);
 
         let beacon_chain = Arc::new(
             BeaconChainHarness::new_with_store_config(
@@ -73,6 +73,8 @@ mod tests {
             let _ = NetworkService::start(beacon_chain.clone(), &config, executor)
                 .await
                 .unwrap();
+            // Allow the network task to spawn on the executor before shutting down.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             drop(signal);
         });
 
