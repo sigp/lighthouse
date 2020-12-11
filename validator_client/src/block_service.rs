@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback};
+use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;

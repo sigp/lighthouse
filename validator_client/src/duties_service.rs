@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback};
+use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, validator_duty::ValidatorDuty,
     validator_store::ValidatorStore,

@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback};
+use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,

@@ -421,9 +421,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(false, |node| async move {
-                node.get_beacon_genesis().await
-            })
+            .first_success(false, |node| async move { node.get_beacon_genesis().await })
             .await
         {
             Ok(genesis) => break genesis.data,
