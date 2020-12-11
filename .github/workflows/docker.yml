@@ -13,7 +13,7 @@ env:
 
 jobs:
     extract-branch-name:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-18.04
         steps:
             - name: Extract branch name
               run: echo "::set-output name=BRANCH_NAME::$(echo ${GITHUB_REF#refs/heads/})"
@@ -21,8 +21,11 @@ jobs:
         outputs:
             BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
     build-docker-arm64:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-18.04
         needs: [extract-branch-name]
+        # We need to enable experimental docker features in order to use `docker buildx`
+        env:
+            DOCKER_CLI_EXPERIMENTAL: enabled
         steps:
             - uses: actions/checkout@v2
             - name: Dockerhub login
@@ -41,30 +44,22 @@ jobs:
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
-            - name: Build Docker Buildx
-              run: |
-                  export DOCKER_BUILDKIT=1;
-                  docker build --platform=local -o . git://github.com/docker/buildx;
-                  mkdir -p ~/.docker/cli-plugins;
-                  mv buildx ~/.docker/cli-plugins/docker-buildx;
-            - name: Create Docker Builder
-              run: |
-                  docker run --rm --privileged multiarch/qemu-user-static --reset -p yes;
-                  docker context create builder;
-                  docker buildx create --use --name lighthouse builder;
             - name: Set Env
               if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
               run: |
                   echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
+            # Install dependencies for emulation. Have to create a new builder to pick up emulation support.
             - name: Build ARM64 dockerfile (with push)
               run: |
+                  docker run --privileged --rm tonistiigi/binfmt --install arm64
+                  docker buildx create --use --name cross-builder
                   docker buildx build \
                       --platform=linux/arm64 \
-                      --output "type=image,push=true" \
                       --file ./Dockerfile.cross . \
-                      --tag ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX}
+                      --tag ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX} \
+                      --push
     build-docker-amd64:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-18.04
         needs: [extract-branch-name]
         steps:
             - uses: actions/checkout@v2
@@ -83,8 +78,11 @@ jobs:
                       --file ./Dockerfile .
                   docker push ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX}
     build-docker-multiarch:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-18.04
         needs: [build-docker-arm64, build-docker-amd64, extract-branch-name]
+        # We need to enable experimental docker features in order to use `docker manifest`
+        env:
+            DOCKER_CLI_EXPERIMENTAL: enabled
         steps:
             - name: Dockerhub login
               run: |
@@ -94,9 +92,7 @@ jobs:
               run: |
                   echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
             - name: Create and push multiarch manifest
-                # We need to enable experimental docker features in order to use `docker manifest`
               run: |
-                  export DOCKER_CLI_EXPERIMENTAL=enabled;
                   docker manifest create ${IMAGE_NAME}:latest${TAG_SUFFIX} \
                       --amend ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX} \
                       --amend ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX};
