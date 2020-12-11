@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback};
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
@@ -338,7 +338,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let attestation_data = self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
+            .first_success(false, |beacon_node| async move {
                 beacon_node
                     .get_validator_attestation_data(slot, committee_index)
                     .await
@@ -416,7 +416,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let attestations_slice = attestations.as_slice();
         match self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
+            .first_success(false, |beacon_node| async move {
                 beacon_node
                     .post_beacon_pool_attestations(attestations_slice)
                     .await
@@ -468,7 +468,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let attestation_data_ref = &attestation_data;
         let aggregated_attestation = self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
+            .first_success(false, |beacon_node| async move {
                 beacon_node
                     .get_validator_aggregate_attestation(
                         attestation_data_ref.slot,
@@ -526,7 +526,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let signed_aggregate_and_proofs_slice = signed_aggregate_and_proofs.as_slice();
             match self
                 .beacon_nodes
-                .first_success(RequireSynced::No, |beacon_node| async move {
+                .first_success(false, |beacon_node| async move {
                     beacon_node
                         .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
                         .await

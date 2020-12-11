@@ -63,13 +63,6 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     Ok(())
 }
 
-/// Indicates if a beacon node must be synced before some action is performed on it.
-#[derive(PartialEq, Clone, Copy)]
-pub enum RequireSynced {
-    Yes,
-    No,
-}
-
 #[derive(Debug)]
 pub enum Error<E> {
     /// The node was unavailable and we didn't attempt to contact it.
@@ -131,10 +124,10 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
     /// Returns the status of `self`.
     ///
-    /// If `RequiredSynced::No`, any `NotSynced` node will be ignored and mapped to `Ok(())`.
-    pub async fn status(&self, synced: RequireSynced) -> Result<(), CandidateError> {
+    /// If `require_synced == false`, any `NotSynced` node will be ignored and mapped to `Ok(())`.
+    pub async fn status(&self, require_synced: bool) -> Result<(), CandidateError> {
         match *self.status.read().await {
-            Err(CandidateError::NotSynced) if synced == RequireSynced::No => Ok(()),
+            Err(CandidateError::NotSynced) if !require_synced => Ok(()),
             other => other,
         }
     }
@@ -295,7 +288,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_synced(&self) -> usize {
         let mut n = 0;
         for candidate in &self.candidates {
-            if candidate.status(RequireSynced::Yes).await.is_ok() {
+            if candidate.status(true).await.is_ok() {
                 n += 1
             }
         }
@@ -306,7 +299,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_available(&self) -> usize {
         let mut n = 0;
         for candidate in &self.candidates {
-            if candidate.status(RequireSynced::No).await.is_ok() {
+            if candidate.status(false).await.is_ok() {
                 n += 1
             }
         }
@@ -324,9 +317,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             // lock. The worst case of this race is running `try_become_ready` twice, which is
             // acceptable.
             //
-            // Note: `RequireSynced` is always set to false here. This forces us to recheck the sync
+            // Note: `require_synced` is always set to true here. This forces us to recheck the sync
             // status of nodes that were previously not-synced.
-            if candidate.status(RequireSynced::Yes).await.is_err() {
+            if candidate.status(true).await.is_err() {
                 // There exists a race-condition that could result in `refresh_status` being called
                 // when the status does not require refreshing anymore. This deemed is an
                 // acceptable inefficiency.
@@ -345,7 +338,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// re-running `func` again.
     pub async fn first_success<'a, F, O, Err, R>(
         &'a self,
-        require_synced: RequireSynced,
+        require_synced: bool,
         func: F,
     ) -> Result<O, AllErrored<Err>>
     where

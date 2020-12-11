@@ -19,7 +19,7 @@ pub use cli::cli_app;
 pub use config::Config;
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode,
 };
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
@@ -421,7 +421,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |node| async move {
+            .first_success(false, |node| async move {
                 node.get_beacon_genesis().await
             })
             .await
@@ -510,7 +510,7 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 ) -> Result<(), String> {
     loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
+            .first_success(false, |beacon_node| async move {
                 beacon_node.get_lighthouse_staking().await
             })
             .await

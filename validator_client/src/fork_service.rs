@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback};
 use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
@@ -178,7 +178,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let fork = self
             .inner
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
+            .first_success(false, |beacon_node| async move {
                 beacon_node
                     .get_beacon_states_fork(StateId::Head)
                     .await

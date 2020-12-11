@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback};
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, validator_duty::ValidatorDuty,
     validator_store::ValidatorStore,
@@ -585,12 +585,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     ) -> Result<(), String> {
         let log = self.context.log();
 
-        let maybe_require_synced = if self.allow_unsynced_beacon_node {
-            RequireSynced::No
-        } else {
-            RequireSynced::Yes
-        };
-
         let mut new_validator = 0;
         let mut new_epoch = 0;
         let mut new_proposal_slots = 0;
@@ -614,7 +608,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let pubkeys_ref = &pubkeys;
         let remote_duties: Vec<ValidatorDuty> = match self
             .beacon_nodes
-            .first_success(maybe_require_synced, |beacon_node| async move {
+            .first_success(!self.allow_unsynced_beacon_node, |beacon_node| async move {
                 ValidatorDuty::download(
                     &beacon_node,
                     current_epoch,
@@ -725,7 +719,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         } else {
             let validator_subscriptions_ref = &validator_subscriptions;
             self.beacon_nodes
-                .first_success(RequireSynced::No, |beacon_node| async move {
+                .first_success(false, |beacon_node| async move {
                     beacon_node
                         .post_validator_beacon_committee_subscriptions(validator_subscriptions_ref)
                         .await
