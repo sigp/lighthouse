@@ -54,7 +54,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let total_validator_count = validators_per_node * node_count;
 
-    spec.milliseconds_per_slot /= speed_up_factor;
+    spec.seconds_per_slot /= speed_up_factor;
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
@@ -68,7 +68,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         + genesis_delay;
     let genesis_instant = Instant::now() + genesis_delay;
 
-    let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
 
     let context = env.core_context();
 

@@ -12,7 +12,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let duties_service = client.duties_service.clone();
     let allow_unsynced_beacon_node = client.config.allow_unsynced_beacon_node;
 
-    let slot_duration = Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot);
+    let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
     let duration_to_next_slot = duties_service
         .slot_clock
         .duration_to_next_slot()

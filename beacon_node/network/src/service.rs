@@ -269,7 +269,7 @@ fn spawn_service<T: BeaconChainTypes>(
                 _ = service.metrics_update.next() => {
                     // update various network metrics
                     metric_update_counter +=1;
-                    if metric_update_counter* 1000 % T::EthSpec::default_spec().milliseconds_per_slot == 0 {
+                    if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
                         // if a slot has occurred, reset the metrics
                         let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT
                             .as_ref()

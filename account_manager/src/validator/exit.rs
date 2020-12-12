@@ -257,7 +257,7 @@ fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<
     let slot_clock = SystemTimeSlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_time),
-        Duration::from_millis(spec.milliseconds_per_slot),
+        Duration::from_secs(spec.seconds_per_slot),
     );
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
