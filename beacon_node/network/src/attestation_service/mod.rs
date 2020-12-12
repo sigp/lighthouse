@@ -32,7 +32,7 @@ const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150;
 // 30 mins at a 12s slot time
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
-/// Note: The time is calculated as `time = milliseconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
+/// Note: The time is calculated as `time = seconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
 const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 /// The default number of slots before items in hash delay sets used by this class should expire.
 ///  36s at 12s slot time

@@ -360,7 +360,7 @@ impl Config {
     pub fn set_block_cache_truncation<E: EthSpec>(&mut self, spec: &ChainSpec) {
         // Compute the number of eth1 blocks in an eth1 voting period.
         let seconds_per_voting_period =
-            E::SlotsPerEth1VotingPeriod::to_u64() * spec.milliseconds_per_slot / 1000;
+            E::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
 
         // Compute the number of extra blocks we store prior to the voting period start blocks.
@@ -1200,8 +1200,7 @@ mod tests {
         let len = config.block_cache_truncation.unwrap();
 
         let seconds_per_voting_period =
-            <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64()
-                * (spec.milliseconds_per_slot / 1000);
+            <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
         let reduce_follow_distance_blocks =
             config.follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;
