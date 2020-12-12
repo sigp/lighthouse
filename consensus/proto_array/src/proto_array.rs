@@ -127,7 +127,8 @@ impl ProtoArray {
         // A second time, iterate backwards through all indices in `self.nodes`.
         //
         // We _must_ perform these functions separate from the weight-updating loop above to ensure
-        // that we have a fully coherent set of weights before calculating parents.
+        // that we have a fully coherent set of weights before updating parent
+        // best-child/descendant.
         for node_index in (0..self.nodes.len()).rev() {
             let node = self
                 .nodes
