@@ -4,6 +4,7 @@
 pub mod metrics;
 
 use crate::{DutiesService, ValidatorStore};
+use eth2::BeaconNodeHttpClient;
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,7 @@ use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::EthSpec;
 use warp::{http::Response, Filter};
 
@@ -38,6 +40,8 @@ pub struct Shared<T: EthSpec> {
     pub validator_store: Option<ValidatorStore<SystemTimeSlotClock, T>>,
     pub duties_service: Option<DutiesService<SystemTimeSlotClock, T>>,
     pub genesis_time: Option<u64>,
+    pub beacon_node: Option<BeaconNodeHttpClient>,
+    pub executor: Option<TaskExecutor>,
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
