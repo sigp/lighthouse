@@ -263,7 +263,7 @@ async fn get_validator_balances_by_public_key(
     let validator_data = beacon_node
         .get_beacon_states_validator_balances(StateId::Finalized, Some(ids.as_slice()))
         .await
-        .map_err(|e| format!("Failed to encode prometheus info: {:?}", e))?
+        .map_err(|e| format!("Failed in API call to get validator balance: {:?}", e))?
         .map(|result| result.data);
 
     match validator_data {
