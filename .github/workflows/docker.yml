@@ -40,7 +40,7 @@ jobs:
               uses: actions/cache@v2
               with:
                   path: target/aarch64-unknown-linux-gnu/release
-                  key: ${{ runner.os }}-target-aarch64-release-${{ hashFiles('**/Cargo.lock') }}
+                  key: ${{ runner.os }}-target-aarch64-release-portable-${{ hashFiles('**/Cargo.lock') }}
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin

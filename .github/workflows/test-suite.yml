@@ -11,6 +11,7 @@ on:
 env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
+  PORTABLE: true
 jobs:
   cargo-fmt:
     name: cargo-fmt
@@ -39,7 +40,7 @@ jobs:
       uses: actions/cache@v2
       with:
           path: target/release
-          key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-release-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache-cli
@@ -64,7 +65,7 @@ jobs:
       uses: actions/cache@v2
       with:
           path: target/debug
-          key: ${{ runner.os }}-target-debug-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-debug-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache-cli
@@ -117,7 +118,7 @@ jobs:
       uses: actions/cache@v2
       with:
           path: target/release
-          key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-release-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim that starts from an eth1 contract
@@ -140,7 +141,7 @@ jobs:
       uses: actions/cache@v2
       with:
           path: target/release
-          key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-release-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim without an eth1 connection
