@@ -61,7 +61,7 @@ jobs:
               ~/.cargo/registry/cache/
               ~/.cargo/git/db/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Cache target debug dir
+    - name: Cache target debug directory
       uses: actions/cache@v2
       with:
           path: target/debug
