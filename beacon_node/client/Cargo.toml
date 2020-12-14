@@ -15,7 +15,7 @@ network = { path = "../network" }
 timer = { path = "../timer" }
 eth2_libp2p = { path = "../eth2_libp2p" }
 parking_lot = "0.11.0"
-prometheus = "0.10.0"
+prometheus = "0.11.0"
 types = { path = "../../consensus/types" }
 tree_hash = "0.1.1"
 eth2_config = { path = "../../common/eth2_config" }

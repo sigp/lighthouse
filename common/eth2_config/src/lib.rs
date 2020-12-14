@@ -5,13 +5,13 @@ use types::{ChainSpec, EthSpecId};
 
 // A macro is used to define this constant so it can be used with `include_bytes!`.
 #[macro_export]
-macro_rules! testnets_dir {
+macro_rules! predefined_networks_dir {
     () => {
-        "built_in_testnet_configs"
+        "built_in_network_configs"
     };
 }
 
-pub const TESTNETS_DIR: &str = testnets_dir!();
+pub const PREDEFINED_NETWORKS_DIR: &str = predefined_networks_dir!();
 pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
@@ -57,7 +57,7 @@ impl Eth2Config {
 
 /// A directory that can be built by downloading files via HTTP.
 ///
-/// Used by the `eth2_testnet_config` crate to initialize testnet directories during build and
+/// Used by the `eth2_network_config` crate to initialize the network directories during build and
 /// access them at runtime.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Eth2NetArchiveAndDirectory<'a> {
@@ -73,7 +73,7 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
             .expect("should know manifest dir")
             .parse::<PathBuf>()
             .expect("should parse manifest dir as path")
-            .join(TESTNETS_DIR)
+            .join(PREDEFINED_NETWORKS_DIR)
             .join(self.unique_id)
     }
 
@@ -94,7 +94,7 @@ macro_rules! define_net {
                 genesis_is_known: $genesis_is_known,
             };
 
-            // A wrapper around `std::include_bytes` which includes a file from a specific testnet
+            // A wrapper around `std::include_bytes` which includes a file from a specific network
             // directory. Used by upstream crates to import files at compile time.
             #[macro_export]
             macro_rules! $macro_title {
@@ -102,7 +102,7 @@ macro_rules! define_net {
                     include_bytes!(concat!(
                         $base_dir,
                         "/",
-                        testnets_dir!(),
+                        predefined_networks_dir!(),
                         "/",
                         $name,
                         "/",

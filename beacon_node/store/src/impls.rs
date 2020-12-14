@@ -15,7 +15,7 @@ impl<T: EthSpec> StoreItem for SignedBeaconBlock<T> {
 
         metrics::stop_timer(timer);
         metrics::inc_counter(&metrics::BEACON_BLOCK_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::BEACON_BLOCK_WRITE_BYTES, bytes.len() as i64);
+        metrics::inc_counter_by(&metrics::BEACON_BLOCK_WRITE_BYTES, bytes.len() as u64);
 
         bytes
     }
@@ -28,7 +28,7 @@ impl<T: EthSpec> StoreItem for SignedBeaconBlock<T> {
 
         metrics::stop_timer(timer);
         metrics::inc_counter(&metrics::BEACON_BLOCK_READ_COUNT);
-        metrics::inc_counter_by(&metrics::BEACON_BLOCK_READ_BYTES, len as i64);
+        metrics::inc_counter_by(&metrics::BEACON_BLOCK_READ_BYTES, len as u64);
 
         result
     }

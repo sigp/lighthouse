@@ -25,12 +25,12 @@ lazy_static = "1.4.0"
 warp_utils = { path = "../../common/warp_utils" }
 slot_clock = { path = "../../common/slot_clock" }
 eth2_ssz = { path = "../../consensus/ssz" }
-bs58 = "0.3.1"
+bs58 = "0.4.0"
 futures = "0.3.8"
 
 [dev-dependencies]
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { git = "https://github.com/sigp/discv5", rev = "f117b3ca56fa3dca2317270434634ff7106d391a", features = ["libp2p"] }
+discv5 = { version = "0.1.0-beta.2", features = ["libp2p"] }
 tokio-compat-02 = "0.1"

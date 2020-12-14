@@ -32,7 +32,7 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 slog-async = "2.5.0"
 slog-term = "2.6.0"
 tokio = { version = "0.3.2", features = ["time"] }
-futures = { version = "0.3.7", features = ["compat"] }
+futures = "0.3.7"
 dirs = "3.0.1"
 directory = { path = "../common/directory" }
 lockfile = { path = "../common/lockfile" }
@@ -58,8 +58,8 @@ warp = { git = "https://github.com/sigp/warp ", branch = "lighthouse" }
 hyper = "0.13.8"
 serde_utils = { path = "../consensus/serde_utils" }
 libsecp256k1 = "0.3.5"
-ring = "0.16.12"
+ring = "0.16.19"
 rand = "0.7.3"
-scrypt = { version = "0.3.1", default-features = false }
+scrypt = { version = "0.5.0", default-features = false }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
