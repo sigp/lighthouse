@@ -287,8 +287,7 @@ async fn deploy_deposit_contract(
             gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
             ..Options::default()
         })
-        .execute(bytecode, (), deploy_address)
-        .map_err(|e| format!("Failed to execute deployment: {:?}", e))?;
+        .execute(bytecode, (), deploy_address);
 
     pending_contract
         .compat()
