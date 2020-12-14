@@ -58,24 +58,38 @@ jobs:
             #       Setup Caches
             # ==============================
 
-            - name: Cache cargo x86_64
-              if:   startsWith(matrix.arch, 'x86_64')
+            - name: Cache cargo directory
               uses: actions/cache@v2
               with:
                   path: |
-                      ~/.cargo/registry
-                      ~/cargo/git
-                      target/release
-                  key:  ${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-            - name: Cache cargo aarch64
-              if:   startsWith(matrix.arch, 'aarch64')
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            - name: Cache target release directory
+              if:   startsWith(matrix.arch, 'x86_64') && !endsWith(matrix.arch, 'portable')
               uses: actions/cache@v2
               with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/cargo/git
-                      target/aarch64-unknown-linux-gnu/release
-                  key:  ${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+                  path: target/release
+                  key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+            - name: Cache portable target release directory
+              if:   startsWith(matrix.arch, 'x86_64') && endsWith(matrix.arch, 'portable')
+              uses: actions/cache@v2
+              with:
+                  path: target/release
+                  key: ${{ runner.os }}-target-release-portable-${{ hashFiles('**/Cargo.lock') }}
+            - name: Cache target aarch64 release directory
+              if: startsWith(matrix.arch, 'aarch64') && !endsWith(matrix.arch, 'portable')
+              uses: actions/cache@v2
+              with:
+                  path: target/aarch64-unknown-linux-gnu/release
+                  key: ${{ runner.os }}-target-aarch64-release-${{ hashFiles('**/Cargo.lock') }}
+            - name: Cache target portable aarch64 release directory
+              if: startsWith(matrix.arch, 'aarch64') && endsWith(matrix.arch, 'portable')
+              uses: actions/cache@v2
+              with:
+                  path: target/aarch64-unknown-linux-gnu/release
+                  key: ${{ runner.os }}-target-aarch64-release-portable-${{ hashFiles('**/Cargo.lock') }}
 
             # ==============================
             #       Builds
@@ -101,11 +115,13 @@ jobs:
               if:  startsWith(matrix.arch, 'aarch64')
               run: mv target/aarch64-unknown-linux-gnu/release/lighthouse ~/.cargo/bin/lighthouse
 
-            - name: Build Lighthouse for ${{matrix.arch}}
-              if:   startsWith(matrix.arch, 'x86_64')
-              env:
-                  PORTABLE: ${{ endsWith(matrix.arch, 'portable') }}
-              run:  make
+            - name: Build Lighthouse for ${{matrix.arch}} portable
+              if:   startsWith(matrix.arch, 'x86_64') && endsWith(matrix.arch, 'portable')
+              run:  cargo install --path lighthouse --force --locked --features portable
+
+            - name: Build Lighthouse for ${{matrix.arch}} modern
+              if:   startsWith(matrix.arch, 'x86_64') && !endsWith(matrix.arch, 'portable')
+              run:  cargo install --path lighthouse --force --locked --features modern
 
             - name: Configure GPG and create artifacts
               run: |
@@ -134,24 +150,6 @@ jobs:
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
-
-            # ==============================
-            #       Clean before caching
-            # ==============================
-
-            - name: Prepare build directory for cache x86_64
-              if:   startsWith(matrix.arch, 'x86_64')
-              run:  |
-                  find ./target/release -maxdepth 1 -type f -delete;
-                  rm -f  ./target/.rustc_info.json;
-                  rm -rf ~/.cargo/registry/index/;
-
-            - name: Prepare build directory for cache aarch64
-              if:   startsWith(matrix.arch, 'aarch64')
-              run:  |
-                  find ./target/aarch64-unknown-linux-gnu/release -maxdepth 1 -type f -delete;
-                  rm -f  ./target/aarch64-unknown-linux-gnu/.rustc_info.json;
-                  rm -rf ~/.cargo/registry/index/;
 
     draft-release:
         name:   Draft Release
