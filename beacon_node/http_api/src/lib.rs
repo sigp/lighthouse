@@ -2321,6 +2321,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::FinalizedCheckpoint => {
                                     event_handler.subscribe_finalized()
                                 }
+                                api_types::EventTopic::ChainReorg => {
+                                    event_handler.subscribe_reorgs()
+                                }
                             };
                             stream_map.insert(topic.to_string(), Box::pin(receiver.into_stream()));
                         }

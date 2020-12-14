@@ -27,7 +27,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
+use eth2::types::{EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -419,6 +419,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(std::iter::once(Ok((block_root, block.slot())))
             .chain(iter)
             .map(|result| result.map_err(|e| e.into())))
+    }
+
+    /// Find the slot block root
+    pub fn find_reorg_slot(&self, state: &BeaconState<T::EthSpec>) -> Result<Option<Slot>, Error> {
+        process_results(self.rev_iter_block_roots()?, |mut iter| {
+            iter.find(|(ancestor_block_root, slot)| {
+                *ancestor_block_root
+                    == state
+                        .get_block_root(*slot)
+                        .map(|root| *root)
+                        .unwrap_or_else(|_| Hash256::random())
+            })
+            .map(|(_, ancestor_slot)| ancestor_slot)
+        })
     }
 
     /// Traverse backwards from `block_root` to find the root of the ancestor block at `slot`.
@@ -2050,7 +2064,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map(|root| *root)
                 .unwrap_or_else(|_| Hash256::random());
 
+        let mut reorg_distance = Slot::new(0);
+
         if is_reorg {
+            match self.find_reorg_slot(&new_head.beacon_state) {
+                Ok(Some(slot)) => reorg_distance = current_head.slot - slot,
+                //TODO: entirely new chain? is this possible
+                Ok(None) => {}
+                Err(e) => {
+                    warn!(
+                        self.log,
+                        "Could not find re-org depth";
+                        "error" => format!("{:?}", e),
+                    );
+                }
+            }
+
             metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
             warn!(
                 self.log,
@@ -2060,6 +2089,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "new_head_parent" => format!("{}", new_head.beacon_block.parent_root()),
                 "new_head" => format!("{}", beacon_block_root),
                 "new_slot" => new_head.beacon_block.slot(),
+                "reorg_distance" => reorg_distance,
             );
         } else {
             debug!(
@@ -2199,6 +2229,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Unable to find current target root, cannot register head event"
                     );
                 }
+            }
+
+            if is_reorg && event_handler.has_reorg_subscribers() {
+                event_handler.register(EventKind::ChainReorg(SseChainReorg {
+                    slot: head_slot,
+                    depth: reorg_distance.as_u64(),
+                    old_head_block: current_head.block_root,
+                    old_head_state: current_head.state_root,
+                    new_head_block: beacon_block_root,
+                    new_head_state: state_root,
+                    epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                }));
             }
         }
 
