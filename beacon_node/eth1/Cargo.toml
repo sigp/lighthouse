@@ -7,7 +7,7 @@ edition = "2018"
 [dev-dependencies]
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 toml = "0.5.6"
-web3 = "0.13.0"
+web3 = "0.14.0"
 sloggers = "1.0.1"
 environment = { path = "../../lighthouse/environment" }
 tokio-compat-02 = "0.1"
