@@ -28,19 +28,15 @@ pub fn do_sign_request<E: EthSpec, T: RemoteSignerObject>(
     test_client: &RemoteSignerHttpConsumer,
     test_input: RemoteSignerTestData<E, T>,
 ) -> Result<String, Error> {
-    let mut runtime = Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = Builder::new_multi_thread().enable_all().build().unwrap();
 
-    runtime.block_on(test_client.sign(
+    runtime.block_on(tokio_compat_02::FutureExt::compat(test_client.sign(
         &test_input.public_key,
         test_input.bls_domain,
         test_input.data,
         test_input.fork,
         test_input.genesis_validators_root,
-    ))
+    )))
 }
 
 #[derive(Serialize)]
