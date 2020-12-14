@@ -538,6 +538,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 } else {
                     debug!(self.log, "Received old metadata";
                         "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                    // Updating metadata even in this case to prevent storing
+                    // incorrect  `metadata.attnets` for a peer
+                    peer_info.meta_data = Some(meta_data);
                 }
             } else {
                 // we have no meta-data for this peer, update
