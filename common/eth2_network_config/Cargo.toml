@@ -4,12 +4,6 @@ version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
-build = "build.rs"
-
-[build-dependencies]
-zip = "0.5.8"
-eth2_config = { path = "../eth2_config"}
-
 [dev-dependencies]
 tempdir = "0.3.7"
 
