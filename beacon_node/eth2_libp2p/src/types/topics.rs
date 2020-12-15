@@ -299,11 +299,11 @@ mod tests {
     #[test]
     fn test_subnet_id_from_topic_hash() {
         let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_block/ssz_snappy");
-        assert!(subnet_id_from_topic_hash(topic_hash).is_none());
+        assert!(subnet_id_from_topic_hash(&topic_hash).is_none());
 
         let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_attestation_42/ssz_snappy");
         assert_eq!(
-            subnet_id_from_topic_hash(topic_hash),
+            subnet_id_from_topic_hash(&topic_hash),
             Some(SubnetId::new(42))
         );
     }
