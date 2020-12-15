@@ -246,7 +246,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet(subnet_id) && info.is_good_gossipsub_peer()
+                info.is_connected()
+                    && info.on_subnet_metadata(subnet_id)
+                    && info.on_subnet_gossipsub(subnet_id)
+                    && info.is_good_gossipsub_peer()
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -357,7 +360,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let log = &self.log;
         self.peers.iter_mut()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet(subnet_id)
+                // TODO(pawan): should log a message or have a metric for when metadata and gossipsub diverge
+                info.is_connected() && info.on_subnet_metadata(subnet_id) && info.on_subnet_gossipsub(subnet_id)
             })
             .for_each(|(peer_id,info)| {
                 if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {

@@ -5,7 +5,10 @@ use crate::peer_manager::{
 };
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
-use crate::types::{GossipEncoding, GossipKind, GossipTopic, MessageData, SubnetDiscovery};
+use crate::types::{
+    subnet_id_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, MessageData,
+    SubnetDiscovery,
+};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -102,6 +105,8 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     },
     /// Subscribed to peer for given topic
     PeerSubscribed(PeerId, TopicHash),
+    /// Unsubscribed to peer for given topic
+    PeerUnsubscribed(PeerId, TopicHash),
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
 }
@@ -700,9 +705,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
+                if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
+                    self.peer_manager.add_subscription(&peer_id, subnet_id);
+                }
                 self.add_event(BehaviourEvent::PeerSubscribed(peer_id, topic));
             }
-            GossipsubEvent::Unsubscribed { .. } => {}
+            GossipsubEvent::Unsubscribed { peer_id, topic } => {
+                if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
+                    self.peer_manager.remove_subscription(&peer_id, subnet_id);
+                }
+                self.add_event(BehaviourEvent::PeerUnsubscribed(peer_id, topic));
+            }
         }
     }
 
