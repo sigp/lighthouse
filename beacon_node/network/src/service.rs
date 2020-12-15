@@ -466,7 +466,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             },
                             BehaviourEvent::PeerDisconnected(peer_id) => {
                                 // Remove all subscriptions from peerdb for the disconnected peer.
-                                service.libp2p.peer_manager().remove_all_subscriptions(&peer_id);
+                                service.libp2p.swarm.peer_manager().remove_all_subscriptions(&peer_id);
                                 let _ = service
                                     .router_send
                                     .send(RouterMessage::PeerDisconnected(peer_id))
@@ -546,7 +546,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 }
                             }
                             BehaviourEvent::PeerSubscribed(_, _) => {},
-                            BehaviourEvent::PeerUnsubscribed(peer_id, topic) => {},
+                            BehaviourEvent::PeerUnsubscribed(_, _) => {},
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
