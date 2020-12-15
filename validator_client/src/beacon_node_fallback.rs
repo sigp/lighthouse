@@ -374,6 +374,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     {
         let mut errors = vec![];
         let mut to_retry = vec![];
+        let mut retry_unsynced = vec![];
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         //
@@ -401,33 +402,32 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             }};
         }
 
-        // Check all candidates for their status, running `func` if they are suitable.
-        //
-        // We use a macro here for consistency with `try_candidate`.
-        macro_rules! try_all_candidates {
-            ($require_synced: expr) => {
-                for candidate in &self.candidates {
-                    if let Err(e) = candidate.status($require_synced).await {
-                        // This client was not ready on the first pass, we might try it again later.
-                        to_retry.push(candidate);
-                        errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
-                    } else {
-                        try_func!(candidate);
-                    }
-                }
-            };
-        }
-
         // First pass: try `func` on all synced and ready candidates.
         //
         // This ensures that we always choose a synced node if it is available.
-        try_all_candidates!(RequireSynced::Yes);
+        for candidate in &self.candidates {
+            match candidate.status(RequireSynced::Yes).await {
+                Err(e@CandidateError::NotSynced) if require_synced == false => {
+                    // This client is unsynced we will try it after trying all synced clients
+                    retry_unsynced.push(candidate);
+                    errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
+                }
+                Err(e) => {
+                    // This client was not ready on the first pass, we might try it again later.
+                    to_retry.push(candidate);
+                    errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
+                }
+                _ => try_func!(candidate)
+            }
+        }
 
-        // Second pass: try `func` on ready but not necessarily synced candidates.
+        // Second pass: try `func` on ready unsynced candidates
         //
         // This second pass only runs if we permit unsynced candidates.
         if require_synced == false {
-            try_all_candidates!(RequireSynced::No);
+            for candidate in retry_unsynced {
+                try_func!(candidate);
+            }
         }
 
         // Third pass: try again, attempting to make non-ready clients become ready.
