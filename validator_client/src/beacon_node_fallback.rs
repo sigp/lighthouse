@@ -70,6 +70,16 @@ pub enum RequireSynced {
     No,
 }
 
+impl PartialEq<bool> for RequireSynced {
+    fn eq(&self, other: &bool) -> bool {
+        if *other {
+            *self == RequireSynced::Yes
+        } else {
+            *self == RequireSynced::No
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Error<E> {
     /// The node was unavailable and we didn't attempt to contact it.
@@ -134,7 +144,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     /// If `RequiredSynced::No`, any `NotSynced` node will be ignored and mapped to `Ok(())`.
     pub async fn status(&self, synced: RequireSynced) -> Result<(), CandidateError> {
         match *self.status.read().await {
-            Err(CandidateError::NotSynced) if synced == RequireSynced::No => Ok(()),
+            Err(CandidateError::NotSynced) if synced == false => Ok(()),
             other => other,
         }
     }
@@ -355,18 +365,17 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         let mut errors = vec![];
         let mut to_retry = vec![];
 
-        // First pass: try `func` on all ready candidates.
-        for candidate in &self.candidates {
-            if let Err(e) = candidate.status(require_synced).await {
-                // This client was not ready on the first pass, we might try it again later.
-                to_retry.push(candidate);
-                errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
-            } else {
-                inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
+        // Run `func` using a `candidate`, returning the value or capturing errors.
+        //
+        // We use a macro instead of a closure here since it is not trivial to move `func` into a
+        // closure.
+        macro_rules! try_func {
+            ($candidate: ident) => {{
+                inc_counter_vec(&ENDPOINT_REQUESTS, &[$candidate.beacon_node.as_ref()]);
 
                 // There exists a race condition where `func` may be called when the candidate is
                 // actually not ready. We deem this an acceptable inefficiency.
-                match func(&candidate.beacon_node).await {
+                match func(&$candidate.beacon_node).await {
                     Ok(val) => return Ok(val),
                     Err(e) => {
                         // If we have an error on this function, make the client as not-ready.
@@ -374,15 +383,44 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // There exists a race condition where the candidate may have been marked
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
-                        candidate.set_offline().await;
-                        errors.push((candidate.beacon_node.to_string(), Error::RequestFailed(e)));
-                        inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
+                        $candidate.set_offline().await;
+                        errors.push(($candidate.beacon_node.to_string(), Error::RequestFailed(e)));
+                        inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
                     }
                 }
-            }
+            }};
         }
 
-        // Second pass: try again, attempting to make non-ready clients become ready.
+        // Check all candidates for their status, running `func` if they are suitable.
+        //
+        // We use a macro here for consistency with `try_candidate`.
+        macro_rules! try_all_candidates {
+            ($require_synced: expr) => {
+                for candidate in &self.candidates {
+                    if let Err(e) = candidate.status($require_synced).await {
+                        // This client was not ready on the first pass, we might try it again later.
+                        to_retry.push(candidate);
+                        errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
+                    } else {
+                        try_func!(candidate);
+                    }
+                }
+            };
+        }
+
+        // First pass: try `func` on all synced and ready candidates.
+        //
+        // This ensures that we always choose a synced node if it is available.
+        try_all_candidates!(RequireSynced::Yes);
+
+        // Second pass: try `func` on ready but not necessarily synced candidates.
+        //
+        // This second pass only runs if we permit unsynced candidates.
+        if require_synced == false {
+            try_all_candidates!(RequireSynced::No);
+        }
+
+        // Third pass: try again, attempting to make non-ready clients become ready.
         for candidate in to_retry {
             // If the candidate hasn't luckily transferred into the correct state in the meantime,
             // force an update of the state.
@@ -395,25 +433,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 }
             };
 
-            if let Err(e) = new_status {
-                errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
-            } else {
-                inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
-
-                // There exists a race condition where `func` may be called when the candidate is
-                // actually not ready. We deem this an acceptable inefficiency.
-                match func(&candidate.beacon_node).await {
-                    Ok(val) => return Ok(val),
-                    Err(e) => {
-                        // If we have an error on this function, make the client as not-ready.
-                        //
-                        // There exists a race condition where the candidate may have been marked
-                        // as ready between the `func` call and now. We deem this an acceptable
-                        // inefficiency.
-                        candidate.set_offline().await;
-                        errors.push((candidate.beacon_node.to_string(), Error::RequestFailed(e)));
-                        inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
-                    }
+            match new_status {
+                Ok(()) => try_func!(candidate),
+                Err(CandidateError::NotSynced) if require_synced == false => try_func!(candidate),
+                Err(e) => {
+                    errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
                 }
             }
         }
