@@ -219,8 +219,8 @@ async fn get_remote_head_and_new_block_ranges(
             service.log,
             "Eth1 endpoint is not synced";
             "endpoint" => endpoint,
-            "action" => "trying fallback";
-            "last_seen_block_unix_timestamp" => remote_head_block.timestamp
+            "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
+            "action" => "trying fallback"
         );
         return Err(SingleEndpointError::EndpointError(EndpointError::FarBehind));
     }
@@ -230,7 +230,7 @@ async fn get_remote_head_and_new_block_ranges(
             warn!(
                 service.log,
                 "Eth1 endpoint is not synced";
-                "endpoint" => endpoint
+                "endpoint" => endpoint,
                 "action" => "trying fallbacks"
             );
         }
