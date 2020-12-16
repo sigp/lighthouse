@@ -94,8 +94,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 validator_store: None,
                 genesis_time: None,
                 duties_service: None,
-                beacon_node: None,
-                executor: None,
             };
 
             let ctx: Arc<http_metrics::Context<T>> = Arc::new(http_metrics::Context {
@@ -259,14 +257,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_node(beacon_node.clone())
             .runtime_context(context.service_context("duties".into()))
             .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
+            .track_validator_balances(config.http_metrics.enabled)
             .build()?;
 
         // Update the metrics server.
         if let Some(ctx) = &http_metrics_ctx {
             ctx.shared.write().validator_store = Some(validator_store.clone());
             ctx.shared.write().duties_service = Some(duties_service.clone());
-            ctx.shared.write().beacon_node = Some(beacon_node.clone());
-            ctx.shared.write().executor = Some(context.executor.clone());
         }
 
         let block_service = BlockServiceBuilder::new()

@@ -21,6 +21,18 @@ struct LocalValidator {
     voting_keypair: Keypair,
 }
 
+#[derive(Clone)]
+pub struct ValidatorBalance {
+    pub index: u64,
+    pub balance: u64,
+    pub public_key: String,
+}
+
+pub struct EpochBalances {
+    pub epoch: Epoch, // Epoch when the balances are calculated
+    pub balances: Vec<ValidatorBalance>,
+}
+
 /// We derive our own `PartialEq` to avoid doing equality checks between secret keys.
 ///
 /// It's nice to avoid secret key comparisons from a security perspective, but it's also a little
@@ -51,6 +63,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     temp_dir: Option<Arc<TempDir>>,
     fork_service: ForkService<T>,
     _phantom: PhantomData<E>,
+    validator_balances: Arc<RwLock<EpochBalances>>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
@@ -71,6 +84,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             temp_dir: None,
             fork_service,
             _phantom: PhantomData,
+            validator_balances: Arc::new(RwLock::new(EpochBalances {
+                epoch: Epoch::new(0),
+                balances: vec![],
+            })),
         }
     }
 
@@ -367,5 +384,30 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             self.genesis_validators_root,
             &self.spec,
         ))
+    }
+
+    /// If a new epoch has started since we last calculated
+    /// validator balances
+    pub fn is_new_epoch(&self, current_epoch: Epoch) -> bool {
+        let result = self.validator_balances.read().epoch < current_epoch;
+        if result {
+            self.validator_balances.write().epoch = current_epoch;
+        }
+
+        result
+    }
+
+    /// Read pre-calculated validator balances
+    pub fn get_validator_balances(&self) -> Vec<ValidatorBalance> {
+        self.validator_balances.read().balances.to_vec()
+    }
+
+    /// Put calculated validator balances
+    pub fn put_validator_balances(&self, new_balances: &mut Vec<ValidatorBalance>) {
+        self.validator_balances.write().balances.clear();
+        self.validator_balances
+            .write()
+            .balances
+            .append(new_balances);
     }
 }

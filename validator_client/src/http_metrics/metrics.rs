@@ -1,12 +1,7 @@
 use super::Context;
-use bls::PublicKey;
-use eth2::types::{StateId, ValidatorId};
-use eth2::BeaconNodeHttpClient;
-use parking_lot::RwLock;
-use slog::{error, info};
 use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{Epoch, EthSpec, PublicKeyBytes};
+use types::EthSpec;
 
 pub const SUCCESS: &str = "success";
 pub const SLASHABLE: &str = "slashable";
@@ -20,16 +15,6 @@ pub const CURRENT_EPOCH: &str = "current_epoch";
 pub const NEXT_EPOCH: &str = "next_epoch";
 
 pub use lighthouse_metrics::*;
-
-pub struct BalanceMetrics {
-    pub index: u64,
-    pub balance: u64,
-    pub public_key: String,
-}
-pub struct EpochBalances {
-    pub last_epoch: Epoch,
-    pub metrics: Vec<BalanceMetrics>,
-}
 
 lazy_static::lazy_static! {
     pub static ref GENESIS_DISTANCE: Result<IntGauge> = try_create_int_gauge(
@@ -100,10 +85,6 @@ lazy_static::lazy_static! {
         "Validator account balance",
         &["public_key", "index"]
     );
-    pub static ref SAVED_BALANCES: RwLock<EpochBalances> = RwLock::new(EpochBalances{
-        metrics: Vec::new(),
-        last_epoch: Epoch::new(0),
-    });
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(
@@ -111,11 +92,6 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
 ) -> std::result::Result<String, String> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
-
-    let mut task_executor = None;
-    let mut beacon_cli = None;
-    let mut current_epoch = Epoch::new(0);
-    let mut pubkeys = Vec::new();
 
     {
         let shared = ctx.shared.read();
@@ -140,15 +116,21 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 initialized_validators.num_total() as i64,
             );
 
-            initialized_validators
-                .iter_voting_pubkeys()
-                .for_each(|x| pubkeys.push(x.clone()));
-            pubkeys.dedup();
+            validator_store
+                .get_validator_balances()
+                .iter()
+                .for_each(|x| {
+                    set_int_gauge(
+                        &VALIDATOR_BALANCES,
+                        &[&x.public_key, &x.index.to_string()],
+                        x.balance as i64,
+                    );
+                });
         }
 
         if let Some(duties_service) = &shared.duties_service {
             if let Some(slot) = duties_service.slot_clock.now() {
-                current_epoch = slot.epoch(T::slots_per_epoch());
+                let current_epoch = slot.epoch(T::slots_per_epoch());
                 let next_epoch = current_epoch + 1;
 
                 set_int_gauge(
@@ -168,79 +150,6 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 );
             }
         }
-
-        if let Some(c) = &shared.executor {
-            task_executor = Some(c.clone());
-        }
-
-        if let Some(c) = &shared.beacon_node {
-            beacon_cli = Some(c.clone());
-        }
-    }
-
-    // We update validator balances if:
-    // 1. We received API request to report metrics
-    // 2. Validator balances not yet calculated on current epoch
-    let mut need_update = false;
-    {
-        let saved = SAVED_BALANCES.read();
-        saved.metrics.iter().for_each(|x| {
-            let result = set_int_gauge(
-                &VALIDATOR_BALANCES,
-                &[&x.public_key, &x.index.to_string()],
-                x.balance as i64,
-            );
-
-            info!(ctx.log,
-            "Read data";
-            "pubkey" => &x.public_key,
-            "Epoch" => saved.last_epoch,
-            "index" => x.index,
-            "balance" => x.balance,
-            "result" => result
-            );
-        });
-        if saved.last_epoch < current_epoch {
-            need_update = true;
-        }
-    }
-
-    // If need update, we still return the previous balances to avoid blocking Prometheus API call.
-    // Spawn an async task to load the new balances. Prometheus will pick them up in next cycle.
-    if need_update {
-        if let Some(executor) = task_executor {
-            if let Some(cli) = beacon_cli {
-                let thread_log = ctx.log.clone();
-                executor.spawn(
-                    async move {
-                        // Update epoch first - so if prometheus calls us again before we finish querying beacon node,
-                        // we will not enter this logic twice
-                        SAVED_BALANCES.write().last_epoch = current_epoch;
-
-                        let mut futures = Vec::new();
-                        for x in pubkeys {
-                            futures.push(get_validator_balances_by_public_key(x, cli.clone()));
-                        }
-
-                        let mut results = Vec::new();
-                        for f in futures {
-                            match f.await {
-                                Ok(c) => results.push(c),
-                                Err(e) => error!(
-                                thread_log,
-                                "Cannot get validator balance";
-                                "error" => e
-                                ),
-                            }
-                        }
-
-                        SAVED_BALANCES.write().metrics.clear();
-                        SAVED_BALANCES.write().metrics.append(&mut results);
-                    },
-                    "validator_balances",
-                );
-            }
-        }
     }
 
     warp_utils::metrics::scrape_health_metrics();
@@ -250,42 +159,4 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
         .unwrap();
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
-}
-
-// Beacon API allows querying multiple public keys altogether, but not so we desire, we
-// want to know which balance is for which public key, so query one by one
-async fn get_validator_balances_by_public_key(
-    pubkey: PublicKey,
-    beacon_node: BeaconNodeHttpClient,
-) -> std::result::Result<BalanceMetrics, String> {
-    let validator_id = ValidatorId::PublicKey(PublicKeyBytes::from(&pubkey));
-    let ids = vec![validator_id];
-    let validator_data = beacon_node
-        .get_beacon_states_validator_balances(StateId::Finalized, Some(ids.as_slice()))
-        .await
-        .map_err(|e| format!("Failed in API call to get validator balance: {:?}", e))?
-        .map(|result| result.data);
-
-    match validator_data {
-        Some(data) => {
-            if !data.is_empty() {
-                let v = &data[0];
-                let metrics = BalanceMetrics {
-                    index: v.index,
-                    public_key: pubkey.to_string(),
-                    balance: v.balance,
-                };
-
-                Ok(metrics)
-            } else {
-                Err(String::from(
-                    "No data returned from validator balance query",
-                ))
-            }
-        }
-
-        None => Err(String::from(
-            "No data returned from validator balance query",
-        )),
-    }
 }

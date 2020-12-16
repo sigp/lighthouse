@@ -1,8 +1,10 @@
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, is_synced::is_synced,
-    validator_duty::ValidatorDuty, validator_store::ValidatorStore,
+    validator_duty::ValidatorDuty, validator_store::ValidatorBalance,
+    validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
+use eth2::types::{StateId, ValidatorId};
 use eth2::BeaconNodeHttpClient;
 use futures::channel::mpsc::Sender;
 use futures::{SinkExt, StreamExt};
@@ -330,6 +332,7 @@ pub struct DutiesServiceBuilder<T, E: EthSpec> {
     beacon_node: Option<BeaconNodeHttpClient>,
     context: Option<RuntimeContext<E>>,
     allow_unsynced_beacon_node: bool,
+    track_validator_balances: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
@@ -340,6 +343,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
             beacon_node: None,
             context: None,
             allow_unsynced_beacon_node: false,
+            track_validator_balances: false,
         }
     }
 
@@ -369,6 +373,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
         self
     }
 
+    /// Set to `true` to track validator balances.
+    pub fn track_validator_balances(mut self, track_validator_balances: bool) -> Self {
+        self.track_validator_balances = track_validator_balances;
+        self
+    }
+
     pub fn build(self) -> Result<DutiesService<T, E>, String> {
         Ok(DutiesService {
             inner: Arc::new(Inner {
@@ -386,6 +396,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
                     .context
                     .ok_or("Cannot build DutiesService without runtime_context")?,
                 allow_unsynced_beacon_node: self.allow_unsynced_beacon_node,
+                track_validator_balances: self.track_validator_balances,
             }),
         })
     }
@@ -401,6 +412,8 @@ pub struct Inner<T, E: EthSpec> {
     /// If true, the duties service will poll for duties from the beacon node even if it is not
     /// synced.
     allow_unsynced_beacon_node: bool,
+    /// If true, duties service will track validator balances
+    track_validator_balances: bool,
 }
 
 /// Maintains a store of the duties for all voting validators in the `validator_store`.
@@ -543,17 +556,22 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         // Update duties for the current epoch, but keep running if there's an error:
         // block production or the next epoch update could still succeed.
-        if let Err(e) = self
+        let pubkeys = match self
             .clone()
             .update_epoch(current_epoch, current_epoch, spec)
             .await
         {
-            error!(
+            Err(e) => {
+                error!(
                 log,
                 "Failed to get current epoch duties";
                 "http_error" => format!("{:?}", e)
-            );
-        }
+                );
+
+                vec![]
+            }
+            Ok(c) => c,
+        };
 
         // Notify the block service to produce a block.
         if let Err(e) = block_service_tx
@@ -582,6 +600,57 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 "http_error" => format!("{:?}", e)
             );
         }
+
+        // Update validator balances
+        if self.track_validator_balances && self.validator_store.is_new_epoch(current_epoch) {
+            let mut balances = match self
+                .beacon_node
+                .get_beacon_states_validator_balances(
+                    StateId::Finalized,
+                    Some(
+                        pubkeys
+                            .iter()
+                            .filter_map(|x| x.1)
+                            .map(ValidatorId::Index)
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                    ),
+                )
+                .await
+            {
+                Err(e) => {
+                    error!(
+                    log,
+                    "Failed to query validator valances";
+                    "http_error" => format!("{:?}", e),
+                    );
+
+                    vec![]
+                }
+                Ok(c) => {
+                    let idx2key = pubkeys
+                        .iter()
+                        .filter(|x| x.1.is_some())
+                        .map(|x| (x.1.unwrap(), x.0.clone()))
+                        .collect::<HashMap<u64, PublicKey>>();
+
+                    c.unwrap()
+                        .data
+                        .iter()
+                        .map(|x| ValidatorBalance {
+                            index: x.index,
+                            public_key: match idx2key.get(&x.index) {
+                                Some(k) => k.to_string(),
+                                None => String::from(""),
+                            },
+                            balance: x.balance,
+                        })
+                        .collect::<Vec<_>>()
+                }
+            };
+
+            self.validator_store.put_validator_balances(&mut balances);
+        }
     }
 
     /// Attempt to download the duties of all managed validators for the given `request_epoch`. The
@@ -591,7 +660,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         current_epoch: Epoch,
         request_epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<(PublicKey, Option<u64>)>, String> {
         let log = self.context.log();
 
         let mut new_validator = 0;
@@ -618,7 +687,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             &self.beacon_node,
             current_epoch,
             request_epoch,
-            pubkeys,
+            pubkeys.clone(),
             &log,
         )
         .await
@@ -731,7 +800,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             );
         }
 
-        Ok(())
+        // pubkeys can be reused
+        Ok(pubkeys)
     }
 }
 
