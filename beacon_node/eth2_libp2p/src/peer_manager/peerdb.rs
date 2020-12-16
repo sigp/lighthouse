@@ -243,25 +243,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Gives an iterator of all peers on a given subnet.
     pub fn good_peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
-        let log = &self.log;
         self.peers
             .iter()
-            .filter(move |(peer_id, info)| {
-                let metadata_subscription = info.on_subnet_metadata(subnet_id);
-                let gs_subscription = info.on_subnet_gossipsub(subnet_id);
-                // Note: should ideally never hit this condition
-                if metadata_subscription != gs_subscription {
-                    debug!(
-                        log,
-                        "Metadata subscription and gossipsub subscription are different";
-                        "peer_id" => %peer_id,
-                        "subnet_id" => ?subnet_id,
-                    );
-                }
+            .filter(move |(_, info)| {
                 // We check both the metadata and gossipsub data as we only want to count long-lived subscribed peers
                 info.is_connected()
-                    && metadata_subscription
-                    && gs_subscription
+                    && info.on_subnet_metadata(subnet_id)
+                    && info.on_subnet_gossipsub(subnet_id)
                     && info.is_good_gossipsub_peer()
             })
             .map(|(peer_id, _)| peer_id)
@@ -372,19 +360,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn extend_peers_on_subnet(&mut self, subnet_id: SubnetId, min_ttl: Instant) {
         let log = &self.log;
         self.peers.iter_mut()
-            .filter(move |(peer_id, info)| {
-                let metadata_subscription = info.on_subnet_metadata(subnet_id);
-                let gs_subscription = info.on_subnet_gossipsub(subnet_id);
-                // Note: should ideally never hit this condition
-                if metadata_subscription != gs_subscription {
-                    debug!(
-                        log,
-                        "Metadata subscription and gossipsub subscription are different";
-                        "peer_id" => %peer_id,
-                        "subnet_id" => ?subnet_id,
-                    );
-                }
-                info.is_connected() && metadata_subscription && gs_subscription
+            .filter(move |(_, info)| {
+                info.is_connected() && info.on_subnet_metadata(subnet_id) && info.on_subnet_gossipsub(subnet_id)
             })
             .for_each(|(peer_id,info)| {
                 if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
