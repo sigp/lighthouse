@@ -246,6 +246,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
+                // We check both the metadata and gossipsub data as we only want to count long-lived subscribed peers
                 info.is_connected()
                     && info.on_subnet_metadata(subnet_id)
                     && info.on_subnet_gossipsub(subnet_id)
