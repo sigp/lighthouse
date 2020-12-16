@@ -82,7 +82,7 @@ lazy_static::lazy_static! {
     );
     pub static ref VALIDATOR_BALANCES: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "vc_validator_balances_wei",
-        "Validator account balance",
+        "Validator account balances",
         &["public_key", "index"]
     );
 }
