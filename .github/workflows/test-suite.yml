@@ -3,7 +3,7 @@ name: test-suite
 on:
   push:
     branches:
-      - master
+      - unstable
       - staging
       - trying
       - 'pr/*'
@@ -11,6 +11,7 @@ on:
 env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
+  PORTABLE: true
 jobs:
   cargo-fmt:
     name: cargo-fmt
@@ -27,6 +28,19 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Cache cargo directory
+      uses: actions/cache@v2
+      with:
+          path: |
+              ~/.cargo/registry/index/
+              ~/.cargo/registry/cache/
+              ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache target release directory
+      uses: actions/cache@v2
+      with:
+          path: target/release
+          key: ${{ runner.os }}-target-release-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache-cli
@@ -39,6 +53,19 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Cache cargo directory
+      uses: actions/cache@v2
+      with:
+          path: |
+              ~/.cargo/registry/index/
+              ~/.cargo/registry/cache/
+              ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache target debug directory
+      uses: actions/cache@v2
+      with:
+          path: target/debug
+          key: ${{ runner.os }}-target-debug-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache-cli
@@ -79,6 +106,19 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Cache cargo directory
+      uses: actions/cache@v2
+      with:
+          path: |
+              ~/.cargo/registry/index/
+              ~/.cargo/registry/cache/
+              ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache target release directory
+      uses: actions/cache@v2
+      with:
+          path: target/release
+          key: ${{ runner.os }}-target-release-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim that starts from an eth1 contract
@@ -89,6 +129,19 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Cache cargo directory
+      uses: actions/cache@v2
+      with:
+          path: |
+              ~/.cargo/registry/index/
+              ~/.cargo/registry/cache/
+              ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache target release directory
+      uses: actions/cache@v2
+      with:
+          path: target/release
+          key: ${{ runner.os }}-target-release-portable-${{ hashFiles('**/Cargo.lock') }}
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim without an eth1 connection
