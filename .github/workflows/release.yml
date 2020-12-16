@@ -185,7 +185,6 @@ jobs:
             - name: Create Release Draft
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
               run: |
                   body=$(cat <<- ENDBODY
                   <Rick and Morty character>
@@ -202,7 +201,7 @@ jobs:
 
                   [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation-binaries.html)
 
-                  The binaries are signed with Sigma Prime's PGP key: `"$GPG_PUBLIC_KEY"`
+                  The binaries are signed with Sigma Prime's PGP key: `${{ secrets.GPG_PUBLIC_KEY }}`
 
                   | System | Architecture | Binary | PGP Signature |
                   |:---:|:---:|:---:|:---|
@@ -214,7 +213,7 @@ jobs:
                   | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc) |
                   | | | | |
                   | **System** | **Option** | - | **Resource** |
-                  | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | - | TODO |
+                  | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | - | [sigp/lighthouse](https://hub.docker.com/r/sigp/lighthouse) |
                   ENDBODY
                   )
                   assets=()
