@@ -124,14 +124,17 @@ jobs:
               run:  cargo install --path lighthouse --force --locked --features modern
 
             - name: Configure GPG and create artifacts
+              env:
+                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
               run: |
                   export GPG_TTY=$(tty)
-                  echo "${{ secrets.GPG_SIGNING_KEY }}" | gpg --batch --import
+                  echo "$GPG_SIGNING_KEY" | gpg --batch --import
                   mkdir artifacts
                   mv ~/.cargo/bin/lighthouse ./artifacts
                   cd artifacts
                   tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse
-                  gpg --passphrase "${{ secrets.GPG_PASSPHRASE }}" --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   mv *tar.gz* ..
 
             # =======================================================================
@@ -182,6 +185,7 @@ jobs:
             - name: Create Release Draft
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
               run: |
                   body=$(cat <<- ENDBODY
                   <Rick and Morty character>
@@ -198,7 +202,7 @@ jobs:
 
                   [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation-binaries.html)
 
-                  The binaries are signed with Sigma Prime's PGP key: `${{ secrets.GPG_PUBLIC_KEY }}`
+                  The binaries are signed with Sigma Prime's PGP key: `"$GPG_PUBLIC_KEY"`
 
                   | System | Architecture | Binary | PGP Signature |
                   |:---:|:---:|:---:|:---|
