@@ -1090,6 +1090,7 @@ dependencies = [
  "serde_derive",
  "serde_yaml",
  "slasher",
+ "slasher_service",
  "slog",
  "slog-async",
  "sloggers",
@@ -5884,7 +5885,6 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
- "directory",
  "eth2_ssz",
  "eth2_ssz_derive",
  "flate2",
@@ -5901,12 +5901,26 @@ dependencies = [
  "serde_derive",
  "slog",
  "sloggers",
- "slot_clock",
- "task_executor",
  "tempdir",
- "tokio 0.3.5",
  "tree_hash",
  "tree_hash_derive",
+ "types",
+]
+
+[[package]]
+name = "slasher_service"
+version = "0.1.0"
+dependencies = [
+ "beacon_chain",
+ "directory",
+ "eth2_libp2p",
+ "network",
+ "slasher",
+ "slog",
+ "slot_clock",
+ "state_processing",
+ "task_executor",
+ "tokio 0.3.5",
  "types",
 ]
 

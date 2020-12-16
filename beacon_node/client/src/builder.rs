@@ -13,7 +13,8 @@ use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
-use slasher::{Slasher, SlasherServer};
+use slasher::Slasher;
+use slasher_service::SlasherService;
 use slog::{debug, info, warn};
 use ssz::Decode;
 use std::net::TcpListener;
@@ -348,22 +349,21 @@ where
     /// Immediately start the slasher service.
     ///
     /// Error if no slasher is configured.
-    pub fn start_slasher_server(&self) -> Result<(), String> {
+    pub fn start_slasher_service(&self) -> Result<(), String> {
+        let beacon_chain = self
+            .beacon_chain
+            .clone()
+            .ok_or("slasher service requires a beacon chain")?;
+        let network_send = self
+            .network_send
+            .clone()
+            .ok_or("slasher service requires a network sender")?;
         let context = self
             .runtime_context
             .as_ref()
             .ok_or("slasher requires a runtime_context")?
-            .service_context("slasher_server_ctxt".into());
-        let slasher = self
-            .slasher
-            .clone()
-            .ok_or("slasher server requires a slasher")?;
-        let slot_clock = self
-            .slot_clock
-            .clone()
-            .ok_or("slasher server requires a slot clock")?;
-        SlasherServer::run(slasher, slot_clock, &context.executor);
-        Ok(())
+            .service_context("slasher_service_ctxt".into());
+        SlasherService::new(beacon_chain, network_send).run(&context.executor)
     }
 
     /// Immediately starts the service that periodically logs information each slot.
@@ -470,7 +470,7 @@ where
         };
 
         if self.slasher.is_some() {
-            self.start_slasher_server()?;
+            self.start_slasher_service()?;
         }
 
         Ok(Client {
