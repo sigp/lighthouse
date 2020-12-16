@@ -195,8 +195,11 @@ impl From<SubnetId> for GossipKind {
 
 /// Get subnet id from an attestation subnet topic hash.
 pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<SubnetId> {
-    let parts: Vec<&str> = topic_hash.as_str().split('/').collect();
-    parts.get(3).map(|s| committee_topic_index(*s)).flatten()
+    let gossip_topic = GossipTopic::decode(topic_hash.as_str()).ok()?;
+    if let GossipKind::Attestation(subnet_id) = gossip_topic.kind() {
+        return Some(*subnet_id);
+    }
+    None
 }
 
 // Determines if a string is a committee topic.

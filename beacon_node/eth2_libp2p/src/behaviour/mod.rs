@@ -103,10 +103,6 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         /// The message itself.
         message: PubsubMessage<TSpec>,
     },
-    /// Subscribed to peer for given topic
-    PeerSubscribed(PeerId, TopicHash),
-    /// Unsubscribed to peer for given topic
-    PeerUnsubscribed(PeerId, TopicHash),
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
 }
@@ -673,13 +669,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
                     self.peer_manager.add_subscription(&peer_id, subnet_id);
                 }
-                self.add_event(BehaviourEvent::PeerSubscribed(peer_id, topic));
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
                     self.peer_manager.remove_subscription(&peer_id, subnet_id);
                 }
-                self.add_event(BehaviourEvent::PeerUnsubscribed(peer_id, topic));
             }
         }
     }
@@ -1114,6 +1108,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     // This gets called once there are no more active connections.
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
         // If the application/behaviour layers thinks this peer has connected inform it of the disconnect.
+
+        // Remove all subnet subscriptions from peerdb for the disconnected peer.
+        self.peer_manager().remove_all_subscriptions(&peer_id);
 
         if self
             .network_globals
