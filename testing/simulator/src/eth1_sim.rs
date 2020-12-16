@@ -9,6 +9,7 @@ use node_test_rig::{
     ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
+use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use types::{Epoch, EthSpec, MainnetEthSpec};
@@ -57,6 +58,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let total_validator_count = validators_per_node * node_count;
 
     spec.milliseconds_per_slot /= speed_up_factor;
+    //currently lighthouse only supports slot lengths that are multiples of seconds
+    spec.milliseconds_per_slot = max(1000, spec.milliseconds_per_slot / 1000 * 1000);
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;

@@ -2,11 +2,11 @@ use crate::checks::{epoch_delay, verify_all_finalized_at};
 use crate::local_network::LocalNetwork;
 use clap::ArgMatches;
 use futures::prelude::*;
-use node_test_rig::ClientConfig;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
-    ValidatorFiles,
+    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorFiles,
 };
+use node_test_rig::{testing_validator_config, ClientConfig};
+use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{Epoch, EthSpec};
@@ -54,6 +54,8 @@ fn syncing_sim(
     let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
 
     spec.milliseconds_per_slot /= speed_up_factor;
+    //currently lighthouse only supports slot lengths that are multiples of seconds
+    spec.milliseconds_per_slot = max(1000, spec.milliseconds_per_slot / 1000 * 1000);
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
@@ -92,7 +94,7 @@ fn syncing_sim(
          * Add a validator client which handles all validators from the genesis state.
          */
         network
-            .add_validator_client(ValidatorConfig::default(), 0, validator_files)
+            .add_validator_client(testing_validator_config(), 0, validator_files)
             .await?;
 
         // Check all syncing strategies one after other.
@@ -129,7 +131,14 @@ fn syncing_sim(
         Ok::<(), String>(())
     };
 
-    env.runtime().block_on(main_future)
+    env.runtime()
+        .block_on(tokio_compat_02::FutureExt::compat(main_future))
+        .unwrap();
+
+    env.fire_signal();
+    env.shutdown_on_idle();
+
+    Ok(())
 }
 
 pub async fn pick_strategy<E: EthSpec>(

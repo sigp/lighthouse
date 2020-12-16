@@ -146,6 +146,16 @@ jobs:
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
+  syncing-simulator-ubuntu:
+    name: syncing-simulator-ubuntu
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install ganache-cli
+        run: sudo npm install -g ganache-cli
+      - name: Run the syncing simulator
+        run: cargo run --release --bin simulator syncing-sim
   check-benchmarks:
     name: check-benchmarks
     runs-on: ubuntu-latest
