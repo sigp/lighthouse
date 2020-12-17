@@ -28,19 +28,6 @@ jobs:
             DOCKER_CLI_EXPERIMENTAL: enabled
         steps:
             - uses: actions/checkout@v2
-            - name: Cache cargo directory
-              uses: actions/cache@v2
-              with:
-                  path: |
-                      ~/.cargo/registry/index/
-                      ~/.cargo/registry/cache/
-                      ~/.cargo/git/db/
-                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-            - name: Cache target aarch64 release directory
-              uses: actions/cache@v2
-              with:
-                  path: target/aarch64-unknown-linux-gnu/release
-                  key: ${{ runner.os }}-target-aarch64-release-portable-${{ hashFiles('**/Cargo.lock') }}
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
