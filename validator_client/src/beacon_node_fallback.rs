@@ -6,6 +6,7 @@ use crate::check_synced::check_synced;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
+use futures::future;
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
@@ -16,7 +17,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, EthSpec};
-use futures::future;
 
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
 /// nodes.
@@ -257,14 +257,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     ) -> Result<(), CandidateError> {
         if let Some(slot_clock) = slot_clock {
             match check_synced(&self.beacon_node, slot_clock, Some(log)).await {
-                r@Err(CandidateError::NotSynced) => {
+                r @ Err(CandidateError::NotSynced) => {
                     warn!(
                         log,
                         "Beacon node is not synced";
                         "endpoint" => %self.beacon_node,
                     );
                     r
-                },
+                }
                 result => result,
             }
         } else {
@@ -348,8 +348,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 // There exists a race-condition that could result in `refresh_status` being called
                 // when the status does not require refreshing anymore. This deemed is an
                 // acceptable inefficiency.
-                futures.push(candidate
-                    .refresh_status(self.slot_clock.as_ref(), &self.spec, &self.log));
+                futures.push(candidate.refresh_status(
+                    self.slot_clock.as_ref(),
+                    &self.spec,
+                    &self.log,
+                ));
             }
         }
 
@@ -407,7 +410,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         // This ensures that we always choose a synced node if it is available.
         for candidate in &self.candidates {
             match candidate.status(RequireSynced::Yes).await {
-                Err(e@CandidateError::NotSynced) if require_synced == false => {
+                Err(e @ CandidateError::NotSynced) if require_synced == false => {
                     // This client is unsynced we will try it after trying all synced clients
                     retry_unsynced.push(candidate);
                     errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
@@ -417,7 +420,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                     to_retry.push(candidate);
                     errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
                 }
-                _ => try_func!(candidate)
+                _ => try_func!(candidate),
             }
         }
 
