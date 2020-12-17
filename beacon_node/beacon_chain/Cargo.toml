@@ -61,3 +61,4 @@ regex = "1.3.9"
 exit-future = "0.2.0"
 slasher = { path = "../../slasher" }
 eth2 = { path = "../../common/eth2" }
+strum = { version = "0.20", features = ["derive"] }

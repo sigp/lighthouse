@@ -597,6 +597,7 @@ dependencies = [
  "smallvec",
  "state_processing",
  "store",
+ "strum",
  "task_executor",
  "tempfile",
  "tokio 0.3.5",
@@ -2022,6 +2023,7 @@ dependencies = [
  "slog-term",
  "smallvec",
  "snap",
+ "strum",
  "task_executor",
  "tempdir",
  "tiny-keccak 2.0.2",
@@ -4221,6 +4223,7 @@ dependencies = [
  "smallvec",
  "state_processing",
  "store",
+ "strum",
  "task_executor",
  "tempfile",
  "tokio 0.3.5",
@@ -6290,6 +6293,27 @@ name = "strsim"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6446ced80d6c486436db5c078dde11a9f73d42b57fb273121e160b84f63d894c"
+
+[[package]]
+name = "strum"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7318c509b5ba57f18533982607f24070a55d353e90d4cae30c467cdb2ad5ac5c"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee8bc6b87a5112aeeab1f4a9f7ab634fe6cbefc4850006df31267f4cfb9e3149"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "subtle"
