@@ -413,6 +413,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 Err(e @ CandidateError::NotSynced) if require_synced == false => {
                     // This client is unsynced we will try it after trying all synced clients
                     retry_unsynced.push(candidate);
+                    to_retry.push(candidate);
                     errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
                 }
                 Err(e) => {
@@ -424,9 +425,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             }
         }
 
-        // Second pass: try `func` on ready unsynced candidates
+        // Second pass: try `func` on ready unsynced candidates. This only runs if we permit
+        // unsynced candidates.
         //
-        // This second pass only runs if we permit unsynced candidates.
+        // Due to async race-conditions, it is possible that we will send a request to a candidate
+        // that has been set to an offline/unready status. This is acceptable.
         if require_synced == false {
             for candidate in retry_unsynced {
                 try_func!(candidate);
