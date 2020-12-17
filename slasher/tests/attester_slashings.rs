@@ -205,7 +205,7 @@ fn parallel_slasher_test(
         .into_par_iter()
         .try_for_each(|attestation| {
             slasher.accept_attestation(attestation.clone());
-            slasher.process_queued(current_epoch)
+            slasher.process_queued(current_epoch).map(|_| ())
         })
         .expect("parallel processing shouldn't race");
 

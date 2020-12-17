@@ -79,7 +79,7 @@ fn pruning_with_map_full() {
             0,
         ));
         match slasher.process_queued(current_epoch) {
-            Ok(()) => break,
+            Ok(_) => break,
             Err(Error::DatabaseError(lmdb::Error::MapFull)) => {
                 current_epoch += 1;
             }

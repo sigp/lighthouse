@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 tokio = { version = "0.3.2", features = ["time"] }
 tokio-compat-02 = "0.1"
-web3 = "0.13.0"
+web3 = "0.14.0"
 futures = "0.3.7"
 types = { path = "../../consensus/types"}
 serde_json = "1.0.58"

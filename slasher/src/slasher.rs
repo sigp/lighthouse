@@ -1,3 +1,4 @@
+use crate::batch_stats::{AttestationStats, BatchStats, BlockStats};
 use crate::metrics::{
     self, SLASHER_NUM_ATTESTATIONS_DEFERRED, SLASHER_NUM_ATTESTATIONS_DROPPED,
     SLASHER_NUM_ATTESTATIONS_VALID, SLASHER_NUM_BLOCKS_PROCESSED,
@@ -18,12 +19,12 @@ use types::{
 #[derive(Debug)]
 pub struct Slasher<E: EthSpec> {
     db: SlasherDB<E>,
-    pub(crate) attestation_queue: AttestationQueue<E>,
-    pub(crate) block_queue: BlockQueue,
+    attestation_queue: AttestationQueue<E>,
+    block_queue: BlockQueue,
     attester_slashings: Mutex<HashSet<AttesterSlashing<E>>>,
     proposer_slashings: Mutex<HashSet<ProposerSlashing>>,
     config: Arc<Config>,
-    pub(crate) log: Logger,
+    log: Logger,
 }
 
 impl<E: EthSpec> Slasher<E> {
@@ -60,6 +61,10 @@ impl<E: EthSpec> Slasher<E> {
         &self.config
     }
 
+    pub fn log(&self) -> &Logger {
+        &self.log
+    }
+
     /// Accept an attestation from the network and queue it for processing.
     pub fn accept_attestation(&self, attestation: IndexedAttestation<E>) {
         self.attestation_queue.queue(attestation);
@@ -71,17 +76,23 @@ impl<E: EthSpec> Slasher<E> {
     }
 
     /// Apply queued blocks and attestations to the on-disk database, and detect slashings!
-    pub fn process_queued(&self, current_epoch: Epoch) -> Result<(), Error> {
+    pub fn process_queued(&self, current_epoch: Epoch) -> Result<BatchStats, Error> {
         let mut txn = self.db.begin_rw_txn()?;
-        self.process_blocks(&mut txn)?;
-        self.process_attestations(current_epoch, &mut txn)?;
+        let block_stats = self.process_blocks(&mut txn)?;
+        let attestation_stats = self.process_attestations(current_epoch, &mut txn)?;
         txn.commit()?;
-        Ok(())
+        Ok(BatchStats {
+            block_stats,
+            attestation_stats,
+        })
     }
 
     /// Apply queued blocks to the on-disk database.
-    pub fn process_blocks(&self, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
+    ///
+    /// Return the number of blocks
+    pub fn process_blocks(&self, txn: &mut RwTransaction<'_>) -> Result<BlockStats, Error> {
         let blocks = self.block_queue.dequeue();
+        let num_processed = blocks.len();
         let mut slashings = vec![];
 
         metrics::set_gauge(&SLASHER_NUM_BLOCKS_PROCESSED, blocks.len() as i64);
@@ -94,6 +105,7 @@ impl<E: EthSpec> Slasher<E> {
             }
         }
 
+        let num_slashings = slashings.len();
         if !slashings.is_empty() {
             info!(
                 self.log,
@@ -103,7 +115,10 @@ impl<E: EthSpec> Slasher<E> {
             self.proposer_slashings.lock().extend(slashings);
         }
 
-        Ok(())
+        Ok(BlockStats {
+            num_processed,
+            num_slashings,
+        })
     }
 
     /// Apply queued attestations to the on-disk database.
@@ -111,8 +126,9 @@ impl<E: EthSpec> Slasher<E> {
         &self,
         current_epoch: Epoch,
         txn: &mut RwTransaction<'_>,
-    ) -> Result<(), Error> {
+    ) -> Result<AttestationStats, Error> {
         let snapshot = self.attestation_queue.dequeue();
+        let num_processed = snapshot.len();
 
         // Filter attestations for relevance.
         let (snapshot, deferred, num_dropped) = self.validate(snapshot, current_epoch);
@@ -144,7 +160,7 @@ impl<E: EthSpec> Slasher<E> {
         for (subqueue_id, subqueue) in grouped_attestations.subqueues.into_iter().enumerate() {
             self.process_batch(txn, subqueue_id, subqueue.attestations, current_epoch)?;
         }
-        Ok(())
+        Ok(AttestationStats { num_processed })
     }
 
     /// Process a batch of attestations for a range of validator indices.

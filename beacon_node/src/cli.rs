@@ -435,6 +435,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("slasher-broadcast")
+                .long("slasher-broadcast")
+                .help("Broadcast slashings found by the slasher to the rest of the network \
+                       [disabled by default].")
+                .requires("slasher")
+        )
+        .arg(
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(

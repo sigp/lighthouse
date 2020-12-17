@@ -7,3 +7,4 @@ flamegraph.svg
 perf.data*
 *.tar.gz
 /bin
+genesis.ssz
