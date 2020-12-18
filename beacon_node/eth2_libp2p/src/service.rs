@@ -128,7 +128,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             // sets up the libp2p connection limits
             let limits = ConnectionLimits::default()
                 .with_max_pending_incoming(Some(5))
-                .with_max_pending_outgoing(Some(5))
+                .with_max_pending_outgoing(Some(16))
                 .with_max_established_incoming(Some((config.target_peers as f64 * 1.2) as u32))
                 .with_max_established_outgoing(Some((config.target_peers as f64 * 1.2) as u32))
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
