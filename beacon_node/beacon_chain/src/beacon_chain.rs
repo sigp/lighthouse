@@ -425,14 +425,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The maximum depth this will search is `SLOTS_PER_HISTORICAL_ROOT`, and if that depth is reached
     /// the slot at that depth will be returned.
     pub fn find_reorg_slot(&self, state: &BeaconState<T::EthSpec>) -> Result<Option<Slot>, Error> {
-        process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.enumerate().find(|(i, ancestor_block_root, &slot)| {
-                i == T::EthSpec::slots_per_historical_root() - 1 ||
-                state
-                    .get_block_root(*slot)
-                    .map_or(true, |root| root != ancestor_block_root)
-            })
-            .map(|(_, _, ancestor_slot)| ancestor_slot)
+        process_results(self.rev_iter_block_roots()?, |iter| {
+            iter.enumerate()
+                .find(|(i, (ancestor_block_root, slot))| {
+                    *i == T::EthSpec::slots_per_historical_root() - 1
+                        || state
+                            .get_block_root(*slot)
+                            .map_or(true, |root| root != ancestor_block_root)
+                })
+                .map(|(_, (_, ancestor_slot))| ancestor_slot)
         })
     }
 
@@ -2061,7 +2062,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let is_reorg = new_head
             .beacon_state
             .get_block_root(current_head.slot)
-            .map_or(true, |root| root != current_head.block_root);
+            .map_or(true, |root| *root != current_head.block_root);
 
         let mut reorg_distance = Slot::new(0);
 
