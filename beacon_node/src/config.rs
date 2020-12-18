@@ -170,6 +170,11 @@ pub fn get_config<E: EthSpec>(
 
     // Defines the URL to reach the eth1 node.
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
+        warn!(
+            log,
+            "The --eth1-endpoint flag is deprecated";
+            "msg" => "please use --eth1-endpoints instead"
+        );
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = vec![val.to_string()];
     } else if let Some(val) = cli_args.value_of("eth1-endpoints") {

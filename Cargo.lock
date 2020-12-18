@@ -7141,6 +7141,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "exit-future",
+ "fallback",
  "futures 0.3.8",
  "hex",
  "hyper 0.13.9",

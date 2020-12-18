@@ -6,7 +6,6 @@ use parking_lot::RwLock;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
-use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use tempdir::TempDir;
@@ -49,8 +48,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
-    fork_service: ForkService<T>,
-    _phantom: PhantomData<E>,
+    fork_service: ForkService<T, E>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
@@ -59,7 +57,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
-        fork_service: ForkService<T>,
+        fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Self {
         Self {
@@ -70,7 +68,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             log,
             temp_dir: None,
             fork_service,
-            _phantom: PhantomData,
         }
     }
 

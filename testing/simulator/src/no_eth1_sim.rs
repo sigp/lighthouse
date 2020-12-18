@@ -103,7 +103,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let add_validators_fut = async {
             for (i, files) in validator_files.into_iter().enumerate() {
                 network
-                    .add_validator_client(testing_validator_config(), i, files)
+                    .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
                     .await?;
             }
 
