@@ -413,7 +413,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 Err(e @ CandidateError::NotSynced) if require_synced == false => {
                     // This client is unsynced we will try it after trying all synced clients
                     retry_unsynced.push(candidate);
-                    to_retry.push(candidate);
                     errors.push((candidate.beacon_node.to_string(), Error::Unavailable(e)));
                 }
                 Err(e) => {
