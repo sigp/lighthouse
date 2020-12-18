@@ -285,6 +285,27 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.status_peers.insert(peer_id.clone());
     }
 
+    /// Adds a gossipsub subscription to a peer in the peerdb.
+    pub fn add_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            info.subnets.insert(subnet_id);
+        }
+    }
+
+    /// Removes a gossipsub subscription to a peer in the peerdb.
+    pub fn remove_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            info.subnets.remove(&subnet_id);
+        }
+    }
+
+    /// Removes all gossipsub subscriptions to a peer in the peerdb.
+    pub fn remove_all_subscriptions(&self, peer_id: &PeerId) {
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            info.subnets = Default::default();
+        }
+    }
+
     /* Notifications from the Swarm */
 
     /// Updates the state of the peer as disconnected.
@@ -541,6 +562,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 } else {
                     debug!(self.log, "Received old metadata";
                         "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                    // Updating metadata even in this case to prevent storing
+                    // incorrect  `metadata.attnets` for a peer
+                    peer_info.meta_data = Some(meta_data);
                 }
             } else {
                 // we have no meta-data for this peer, update
