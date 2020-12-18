@@ -83,6 +83,18 @@ pub struct BeaconNodeHttpClient {
     server: Url,
 }
 
+impl fmt::Display for BeaconNodeHttpClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.server.fmt(f)
+    }
+}
+
+impl AsRef<str> for BeaconNodeHttpClient {
+    fn as_ref(&self) -> &str {
+        self.server.as_str()
+    }
+}
+
 impl BeaconNodeHttpClient {
     pub fn new(server: Url) -> Self {
         Self {
@@ -848,7 +860,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_blocks<T: EthSpec>(
         &self,
         slot: Slot,
-        randao_reveal: SignatureBytes,
+        randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<GenericResponse<BeaconBlock<T>>, Error> {
         let mut path = self.eth_path()?;

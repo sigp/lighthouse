@@ -56,7 +56,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             epoch: slot * TSpec::slots_per_epoch() as u32,
             beacon_attestation_subnet_weight,
             max_positive_score,
-            decay_interval: slot,
+            decay_interval: max(Duration::from_secs(1), slot),
             decay_to_zero: 0.01,
             mesh_n: gs_config.mesh_n(),
             max_committees_per_slot: chain_spec.max_committees_per_slot,

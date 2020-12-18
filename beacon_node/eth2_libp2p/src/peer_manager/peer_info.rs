@@ -38,6 +38,8 @@ pub struct PeerInfo<T: EthSpec> {
     /// The ENR subnet bitfield of the peer. This may be determined after it's initial
     /// connection.
     pub meta_data: Option<MetaData<T>>,
+    /// Subnets the peer is connected to.
+    pub subnets: HashSet<SubnetId>,
     /// The time we would like to retain this peer. After this time, the peer is no longer
     /// necessary.
     #[serde(skip)]
@@ -60,6 +62,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             connection_status: Default::default(),
             listening_addresses: Vec::new(),
             seen_addresses: HashSet::new(),
+            subnets: HashSet::new(),
             sync_status: PeerSyncStatus::Unknown,
             meta_data: None,
             min_ttl: None,
@@ -80,12 +83,17 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    /// Returns if the peer is subscribed to a given `SubnetId`
-    pub fn on_subnet(&self, subnet_id: SubnetId) -> bool {
+    /// Returns if the peer is subscribed to a given `SubnetId` from the metadata attnets field.
+    pub fn on_subnet_metadata(&self, subnet_id: SubnetId) -> bool {
         if let Some(meta_data) = &self.meta_data {
             return meta_data.attnets.get(*subnet_id as usize).unwrap_or(false);
         }
         false
+    }
+
+    /// Returns if the peer is subscribed to a given `SubnetId` from the gossipsub subscriptions.
+    pub fn on_subnet_gossipsub(&self, subnet_id: SubnetId) -> bool {
+        self.subnets.contains(&subnet_id)
     }
 
     /// Returns the seen IP addresses of the peer.

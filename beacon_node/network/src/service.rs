@@ -465,13 +465,13 @@ fn spawn_service<T: BeaconChainTypes>(
                                 // We currently do not perform any action here.
                             },
                             BehaviourEvent::PeerDisconnected(peer_id) => {
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::PeerDisconnected(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send peer disconnect to router");
-                                });
-                            },
+                                let _ = service
+                                    .router_send
+                                    .send(RouterMessage::PeerDisconnected(peer_id))
+                                    .map_err(|_| {
+                                        debug!(service.log, "Failed to send peer disconnect to router");
+                                    });
+                                },
                             BehaviourEvent::RequestReceived{peer_id, id, request} => {
                                 let _ = service
                                     .router_send
@@ -543,7 +543,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     }
                                 }
                             }
-                            BehaviourEvent::PeerSubscribed(_, _) => {},
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
