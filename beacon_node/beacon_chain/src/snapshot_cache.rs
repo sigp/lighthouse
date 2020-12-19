@@ -1,6 +1,6 @@
 use crate::BeaconSnapshot;
 use std::cmp;
-use types::{Epoch, EthSpec, Hash256};
+use types::{beacon_state::CloneConfig, Epoch, EthSpec, Hash256};
 
 /// The default size of the cache.
 pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
@@ -69,13 +69,16 @@ impl<T: EthSpec> SnapshotCache<T> {
             .map(|i| self.snapshots.remove(i))
     }
 
-    /// If there is a snapshot with `block_root`, clone it (with only the committee caches) and
-    /// return the clone.
-    pub fn get_cloned(&self, block_root: Hash256) -> Option<BeaconSnapshot<T>> {
+    /// If there is a snapshot with `block_root`, clone it and return the clone.
+    pub fn get_cloned(
+        &self,
+        block_root: Hash256,
+        clone_config: CloneConfig,
+    ) -> Option<BeaconSnapshot<T>> {
         self.snapshots
             .iter()
             .find(|snapshot| snapshot.beacon_block_root == block_root)
-            .map(|snapshot| snapshot.clone_with_only_committee_caches())
+            .map(|snapshot| snapshot.clone_with(clone_config))
     }
 
     /// Removes all snapshots from the queue that are less than or equal to the finalized epoch.
