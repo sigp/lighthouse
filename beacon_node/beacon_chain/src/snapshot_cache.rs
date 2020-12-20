@@ -168,11 +168,13 @@ mod test {
             cache.try_remove(Hash256::from_low_u64_be(1)).is_none(),
             "the snapshot with the lowest slot should have been removed during the insert function"
         );
-        assert!(cache.get_cloned(Hash256::from_low_u64_be(1)).is_none());
+        assert!(cache
+            .get_cloned(Hash256::from_low_u64_be(1), CloneConfig::none())
+            .is_none());
 
         assert!(
             cache
-                .get_cloned(Hash256::from_low_u64_be(0))
+                .get_cloned(Hash256::from_low_u64_be(0), CloneConfig::none())
                 .expect("the head should still be in the cache")
                 .beacon_block_root
                 == Hash256::from_low_u64_be(0),
