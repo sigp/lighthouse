@@ -1747,27 +1747,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Producing a block requires the tree hash cache, so clone a full state corresponding to
         // the head from the snapshot cache. Unfortunately we can't move the snapshot out of the
         // cache (which would be fast), because we need to re-process the block after it has been
-        // signed.
+        // signed. If we miss the cache or we're producing a block that conflicts with the head,
+        // fall back to getting the head from `slot - 1`.
         let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
-        let head_block_root = self
+        let head_info = self
             .head_info()
-            .map_err(BlockProductionError::UnableToGetHeadInfo)?
-            .block_root;
-        let state = if let Some(snapshot) = self
-            .snapshot_cache
-            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|snapshot_cache| {
-                snapshot_cache.get_cloned(head_block_root, CloneConfig::all())
-            }) {
-            snapshot.beacon_state
+            .map_err(BlockProductionError::UnableToGetHeadInfo)?;
+        let state = if head_info.slot < slot {
+            // Normal case: proposing a block atop the current head. Use the snapshot cache.
+            if let Some(snapshot) = self
+                .snapshot_cache
+                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                .and_then(|snapshot_cache| {
+                    snapshot_cache.get_cloned(head_info.block_root, CloneConfig::all())
+                })
+            {
+                snapshot.beacon_state
+            } else {
+                warn!(
+                    self.log,
+                    "Block production cache miss";
+                    "message" => "this block is more likely to be orphaned",
+                    "slot" => slot,
+                );
+                self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
+            }
         } else {
             warn!(
                 self.log,
-                "Block production cache miss";
+                "Producing block that conflicts with head";
                 "message" => "this block is more likely to be orphaned",
                 "slot" => slot,
             );
-            self.state_at_slot(slot, StateSkipConfig::WithStateRoots)
+            self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
         };
         drop(state_load_timer);
