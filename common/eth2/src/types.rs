@@ -772,6 +772,7 @@ impl fmt::Display for EventTopic {
 pub enum Accept {
     Json,
     Ssz,
+    Any,
 }
 
 impl fmt::Display for Accept {
@@ -779,6 +780,7 @@ impl fmt::Display for Accept {
         match self {
             Accept::Ssz => write!(f, "application/octet-stream"),
             Accept::Json => write!(f, "application/json"),
+            Accept::Any => write!(f, "*/*"),
         }
     }
 }
@@ -790,6 +792,7 @@ impl FromStr for Accept {
         match s {
             "application/octet-stream" => Ok(Accept::Ssz),
             "application/json" => Ok(Accept::Json),
+            "*/*" => Ok(Accept::Any),
             _ => Err("accept header cannot be parsed.".to_string()),
         }
     }
