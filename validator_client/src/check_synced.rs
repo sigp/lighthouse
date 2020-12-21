@@ -1,3 +1,4 @@
+use crate::beacon_node_fallback::CandidateError;
 use eth2::BeaconNodeHttpClient;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -5,33 +6,33 @@ use slot_clock::SlotClock;
 /// A distance in slots.
 const SYNC_TOLERANCE: u64 = 4;
 
-/// Returns `true` if the beacon node is synced and ready for action.
+/// Returns
 ///
-/// Returns `false` if:
-///
-///  - The beacon node is unreachable.
-///  - The beacon node indicates that it is syncing **AND** it is more than `SYNC_TOLERANCE` behind
-///  the highest known slot.
+///  `Ok(())`                           if the beacon node is synced and ready for action,
+///  `Err(CandidateError::Offline)`     if the beacon node is unreachable,
+///  `Err(CandidateError::NotSynced)`   if the beacon node indicates that it is syncing **AND**
+///                                         it is more than `SYNC_TOLERANCE` behind the highest
+///                                         known slot.
 ///
 ///  The second condition means the even if the beacon node thinks that it's syncing, we'll still
 ///  try to use it if it's close enough to the head.
-pub async fn is_synced<T: SlotClock>(
+pub async fn check_synced<T: SlotClock>(
     beacon_node: &BeaconNodeHttpClient,
     slot_clock: &T,
     log_opt: Option<&Logger>,
-) -> bool {
+) -> Result<(), CandidateError> {
     let resp = match beacon_node.get_node_syncing().await {
         Ok(resp) => resp,
         Err(e) => {
             if let Some(log) = log_opt {
-                error!(
+                warn!(
                     log,
                     "Unable connect to beacon node";
-                    "error" => e.to_string()
+                    "error" => %e
                 )
             }
 
-            return false;
+            return Err(CandidateError::Offline);
         }
     };
 
@@ -48,9 +49,9 @@ pub async fn is_synced<T: SlotClock>(
             warn!(
                 log,
                 "Beacon node is syncing";
-                "msg" => "not receiving new duties",
                 "sync_distance" => resp.data.sync_distance.as_u64(),
                 "head_slot" => resp.data.head_slot.as_u64(),
+                "endpoint" => %beacon_node,
             );
         }
 
@@ -63,10 +64,15 @@ pub async fn is_synced<T: SlotClock>(
                     "msg" => "check the system time on this host and the beacon node",
                     "beacon_node_slot" => remote_slot,
                     "local_slot" => local_slot,
+                    "endpoint" => %beacon_node,
                 );
             }
         }
     }
 
-    is_synced
+    if is_synced {
+        Ok(())
+    } else {
+        Err(CandidateError::NotSynced)
+    }
 }
