@@ -144,6 +144,31 @@ impl BeaconNodeHttpClient {
         }
     }
 
+    /// Perform a HTTP GET request using an 'accept' header, returning `None` on a 404 error.
+    async fn get_opt_with_accept_header<T: DeserializeOwned, U: IntoUrl>(
+        &self,
+        url: U,
+        accept_header: Accept,
+    ) -> Result<Option<T>, Error> {
+        let response = self
+            .client
+            .get(url)
+            .header(ACCEPT, accept_header.to_string())
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        match ok_or_error(response).await {
+            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
+            Err(err) => {
+                if err.status() == Some(StatusCode::NOT_FOUND) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
     /// Perform a HTTP POST request.
     async fn post<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
         let response = self
@@ -811,6 +836,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_states<T: EthSpec>(
         &self,
         state_id: StateId,
+        accept_header: Accept,
     ) -> Result<Option<GenericResponse<BeaconState<T>>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -821,7 +847,7 @@ impl BeaconNodeHttpClient {
             .push("states")
             .push(&state_id.to_string());
 
-        self.get_opt(path).await
+        self.get_opt_with_accept_header(path, accept_header).await
     }
 
     /// `GET debug/beacon/heads`

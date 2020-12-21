@@ -3,6 +3,7 @@
 
 use crate::Error as ServerError;
 use eth2_libp2p::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
+pub use reqwest::header::ACCEPT;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;

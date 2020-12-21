@@ -1374,9 +1374,15 @@ impl ApiTester {
 
     pub async fn test_get_debug_beacon_states(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let result = self
+            let result_ssz = self
                 .client
-                .get_debug_beacon_states(state_id)
+                .get_debug_beacon_states(state_id, Accept::Ssz)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+            let result_json = self
+                .client
+                .get_debug_beacon_states(state_id, Accept::Json)
                 .await
                 .unwrap()
                 .map(|res| res.data);
@@ -1384,7 +1390,8 @@ impl ApiTester {
             let mut expected = self.get_state(state_id);
             expected.as_mut().map(|state| state.drop_all_caches());
 
-            assert_eq!(result, expected, "{:?}", state_id);
+            assert_eq!(result_ssz, expected, "{:?}", state_id);
+            assert_eq!(result_json, expected, "{:?}", state_id);
         }
 
         self

@@ -1,5 +1,5 @@
 use crate::local_network::LocalNetwork;
-use node_test_rig::eth2::types::StateId;
+use node_test_rig::eth2::types::{Accept, StateId};
 use std::time::Duration;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 
@@ -95,7 +95,7 @@ async fn verify_validator_count<E: EthSpec>(
         let mut validator_counts = Vec::new();
         for remote_node in network.remote_nodes()? {
             let vc = remote_node
-                .get_debug_beacon_states::<E>(StateId::Head)
+                .get_debug_beacon_states::<E>(StateId::Head, Accept::Json)
                 .await
                 .map(|body| body.unwrap().data)
                 .map_err(|e| format!("Get state root via http failed: {:?}", e))?

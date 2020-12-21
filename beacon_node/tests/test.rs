@@ -5,7 +5,7 @@
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
-    eth2::types::StateId,
+    eth2::types::{Accept, StateId},
     testing_client_config, LocalBeaconNode,
 };
 use tokio_compat_02::FutureExt;
@@ -46,7 +46,7 @@ fn http_server_genesis_state() {
         .runtime()
         .block_on(
             remote_node
-                .get_debug_beacon_states(StateId::Slot(Slot::new(0)))
+                .get_debug_beacon_states(StateId::Slot(Slot::new(0)), Accept::Json)
                 .compat(),
         )
         .expect("should fetch state from http api")
