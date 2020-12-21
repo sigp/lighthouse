@@ -43,7 +43,7 @@ impl Into<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
 #[serde(transparent)]
 pub struct GraffitiString(String);
 
