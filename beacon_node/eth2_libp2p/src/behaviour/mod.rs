@@ -1027,8 +1027,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                     trace!(self.log, "Disconnecting newly connected peer"; "peer_id" => %peer_id, "reason" => %goodbye_reason)
                 }
             }
-            self.peers_to_dc
-                .push_back((peer_id.clone(), Some(goodbye_reason)));
+            self.peers_to_dc.push_back((*peer_id, Some(goodbye_reason)));
             // NOTE: We don't inform the peer manager that this peer is disconnecting. It is simply
             // rejected with a goodbye.
             return;
@@ -1040,13 +1039,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.peer_manager
                     .connect_ingoing(&peer_id, send_back_addr.clone());
-                self.add_event(BehaviourEvent::PeerConnected(peer_id.clone()));
+                self.add_event(BehaviourEvent::PeerConnected(*peer_id));
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming");
             }
             ConnectedPoint::Dialer { address } => {
                 self.peer_manager
                     .connect_outgoing(&peer_id, address.clone());
-                self.add_event(BehaviourEvent::PeerDialed(peer_id.clone()));
+                self.add_event(BehaviourEvent::PeerDialed(*peer_id));
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Dialed");
             }
         }
@@ -1121,7 +1120,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             // Both these cases, the peer has been previously registered in the sub protocols and
             // potentially the application layer.
             // Inform the application.
-            self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
+            self.add_event(BehaviourEvent::PeerDisconnected(*peer_id));
             // Inform the behaviour.
             delegate_to_behaviours!(self, inject_disconnected, peer_id);
 

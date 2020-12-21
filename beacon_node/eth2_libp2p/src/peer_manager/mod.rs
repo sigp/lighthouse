@@ -956,7 +956,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 //disconnected in update_peer_scores
                 .filter(|(_, info)| info.score_state() == ScoreState::Healthy)
             {
-                disconnecting_peers.push((*peer_id).clone());
+                disconnecting_peers.push(**peer_id);
             }
         }
 

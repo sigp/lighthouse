@@ -134,7 +134,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
-                SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
+                SwarmBuilder::new(transport, behaviour, local_peer_id)
                     .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
                     .connection_event_buffer_size(64)
                     .connection_limits(limits)
@@ -154,7 +154,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         match Swarm::listen_on(&mut swarm, listen_multiaddr.clone()) {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
-                log_address.push(Protocol::P2p(local_peer_id.clone().into()));
+                log_address.push(Protocol::P2p(local_peer_id.into()));
                 info!(log, "Listening established"; "address" => %log_address);
             }
             Err(err) => {
