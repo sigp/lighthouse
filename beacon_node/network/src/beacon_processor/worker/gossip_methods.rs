@@ -588,10 +588,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => %beacon_block_root,
                     "type" => ?attestation_type,
                 );
-                // We still penalize the peer slightly. We don't want this to be a recurring
-                // behaviour.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
-
+                // This is an allowed behaviour.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
                 return;
@@ -602,7 +599,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer is not necessarily faulty.
                  */
-                trace!(
+                debug!(
                     self.log,
                     "Prior attestation known";
                     "peer_id" => %peer_id,
@@ -624,6 +621,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                debug!(
+                    self.log,
+                    "Validation Index too high";
+                    "peer_id" => %peer_id,
+                    "block" => %beacon_block_root,
+                    "type" => ?attestation_type,
+                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
