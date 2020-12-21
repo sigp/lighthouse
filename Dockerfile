@@ -1,12 +1,12 @@
 FROM rust:1.47.0 AS builder
-RUN apt-get update && apt-get install -y cmake
+RUN apt-get update && apt upgrade -y && apt-get install -y cmake
 COPY . lighthouse
 ARG PORTABLE
 ENV PORTABLE $PORTABLE
 RUN cd lighthouse && make
 
 FROM debian:buster-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt upgrade -y && apt-get install -y --no-install-recommends \
   libssl-dev \
   ca-certificates \
   && apt-get clean \
