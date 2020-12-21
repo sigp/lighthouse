@@ -424,14 +424,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Iterate through the current chain to find the slot intersecting with the given beacon state.
     /// The maximum depth this will search is `SLOTS_PER_HISTORICAL_ROOT`, and if that depth is reached
     /// the slot at that depth will be returned.
-    pub fn find_reorg_slot(&self, state: &BeaconState<T::EthSpec>) -> Result<Option<Slot>, Error> {
+    pub fn find_reorg_slot(
+        &self,
+        new_state: &BeaconState<T::EthSpec>,
+        new_block_root: &Hash256,
+    ) -> Result<Option<Slot>, Error> {
         process_results(self.rev_iter_block_roots()?, |iter| {
             iter.enumerate()
-                .find(|(i, (ancestor_block_root, slot))| {
-                    *i == T::EthSpec::slots_per_historical_root() - 1
-                        || state
+                .find(|(depth, (ancestor_block_root, slot))| {
+                    // return with the slot at a depth of `SLOTS_PER_HISTORICAL_ROOT` - 1
+                    // this makes sure we don't load any new state
+                    *depth == T::EthSpec::slots_per_historical_root() - 1
+                        // It's necessary to check the new head root separately
+                        // because it's not included in `BeaconState::get_block_root`
+                        || new_block_root == ancestor_block_root
+                        || new_state
                             .get_block_root(*slot)
-                            .map_or(true, |root| root != ancestor_block_root)
+                            .map_or(false, |root| {
+                                root == ancestor_block_root
+                            })
                 })
                 .map(|(_, (_, ancestor_slot))| ancestor_slot)
         })
@@ -2009,9 +2020,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut reorg_distance = Slot::new(0);
 
         if is_reorg {
-            match self.find_reorg_slot(&new_head.beacon_state) {
+            match self.find_reorg_slot(&new_head.beacon_state, &new_head.beacon_block_root) {
                 Ok(Some(slot)) => reorg_distance = current_head.slot - slot,
-                //TODO: entirely new chain? is this possible
+                // This means there is no intersection between the old and new chains in the past
+                // `SLOTS_PER_HISTORICAL_ROOT` slots. And the current chain length is less than
+                // `SLOTS_PER_HISTORICAL_ROOT`. Default to a reorg distance of 0.
                 Ok(None) => {}
                 Err(e) => {
                     warn!(

@@ -9,6 +9,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
+    StateSkipConfig,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -135,6 +136,49 @@ fn iterators() {
         *state_roots.first().expect("should have some state roots"),
         (head.beacon_state_root, head.beacon_state.slot),
         "first state root and slot should be for the head state"
+    );
+}
+
+#[test]
+fn find_reorgs() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_historical_root() + 1;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        // No need to produce attestations for this test.
+        AttestationStrategy::SomeValidators(vec![]),
+    );
+
+    let head_state = harness.chain.head_beacon_state().unwrap();
+    let head_slot = head_state.slot;
+    let genesis_state = harness
+        .chain
+        .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
+        .unwrap();
+
+    // because genesis is more than `SLOTS_PER_HISTORICAL_ROOT` away, this should return with the
+    // slot at a depth of `SLOTS_PER_HISTORICAL_ROOT` - 1.
+    assert_eq!(
+        harness
+            .chain
+            .find_reorg_slot(&genesis_state, &harness.chain.genesis_block_root)
+            .unwrap()
+            .unwrap(),
+        head_slot - Slot::new(MinimalEthSpec::slots_per_historical_root() as u64 - 1)
+    );
+    assert_eq!(
+        harness
+            .chain
+            .find_reorg_slot(
+                &head_state,
+                &harness.chain.head_beacon_block().unwrap().canonical_root()
+            )
+            .unwrap()
+            .unwrap(),
+        head_slot
     );
 }
 

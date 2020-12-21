@@ -1,9 +1,7 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 
 use beacon_chain::{
-    test_utils::{
-        test_logger, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-    },
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig,
 };
 use discv5::enr::{CombinedKey, EnrBuilder};
