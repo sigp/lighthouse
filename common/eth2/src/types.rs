@@ -768,6 +768,33 @@ impl fmt::Display for EventTopic {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Accept {
+    Json,
+    Ssz,
+}
+
+impl fmt::Display for Accept {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Accept::Ssz => write!(f, "application/octet-stream"),
+            Accept::Json => write!(f, "application/json"),
+        }
+    }
+}
+
+impl FromStr for Accept {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "application/octet-stream" => Ok(Accept::Ssz),
+            "application/json" => Ok(Accept::Json),
+            _ => Err("accept header cannot be parsed.".to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

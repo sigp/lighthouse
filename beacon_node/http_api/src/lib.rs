@@ -43,6 +43,7 @@ use types::{
 };
 use warp::http::StatusCode;
 use warp::sse::ServerSentEvent;
+use warp::Reply;
 use warp::{http::Response, Filter, Stream};
 use warp_utils::reject::ServerSentEventError;
 use warp_utils::task::{blocking_json_task, blocking_task};
@@ -1242,16 +1243,35 @@ pub fn serve<T: BeaconChainTypes>(
             ))
         }))
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(chain_filter.clone())
-        .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
-            blocking_task(move || {
-                state_id.map_state(&chain, |state| {
-                    Ok(warp::reply::json(&api_types::GenericResponseRef::from(
-                        &state,
-                    )))
+        .and_then(
+            |state_id: StateId,
+             accept_header: Option<api_types::Accept>,
+             chain: Arc<BeaconChain<T>>| {
+                blocking_task(move || match accept_header {
+                    Some(api_types::Accept::Ssz) => {
+                        let state = state_id.state(&chain)?;
+                        Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(state.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            })
+                    }
+                    _ => state_id.map_state(&chain, |state| {
+                        Ok(
+                            warp::reply::json(&api_types::GenericResponseRef::from(&state))
+                                .into_response(),
+                        )
+                    }),
                 })
-            })
-        });
+            },
+        );
 
     // GET debug/beacon/heads
     let get_debug_beacon_heads = eth1_v1
