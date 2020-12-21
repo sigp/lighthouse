@@ -50,6 +50,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
+use types::beacon_state::CloneConfig;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -542,7 +543,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
     pub fn head(&self) -> Result<BeaconSnapshot<T::EthSpec>, Error> {
-        self.with_head(|head| Ok(head.clone_with_only_committee_caches()))
+        self.with_head(|head| Ok(head.clone_with(CloneConfig::committee_caches_only())))
     }
 
     /// Apply a function to the canonical head without cloning it.
@@ -784,37 +785,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             iter.find(|(_, slot)| *slot == target_slot)
                 .map(|(root, _)| root)
         })
-    }
-
-    /// Returns the block proposer for a given slot.
-    ///
-    /// Information is read from the present `beacon_state` shuffling, only information from the
-    /// present epoch is available.
-    pub fn block_proposer(&self, slot: Slot) -> Result<usize, Error> {
-        let epoch = |slot: Slot| slot.epoch(T::EthSpec::slots_per_epoch());
-        let head_state = &self.head()?.beacon_state;
-
-        let mut state = if epoch(slot) == epoch(head_state.slot) {
-            self.head()?.beacon_state
-        } else {
-            // The block proposer shuffling is not affected by the state roots, so we don't need to
-            // calculate them.
-            self.state_at_slot(slot, StateSkipConfig::WithoutStateRoots)?
-        };
-
-        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-        if epoch(state.slot) != epoch(slot) {
-            return Err(Error::InvariantViolated(format!(
-                "Epochs in consistent in proposer lookup: state: {}, requested: {}",
-                epoch(state.slot),
-                epoch(slot)
-            )));
-        }
-
-        state
-            .get_beacon_proposer_index(slot, &self.spec)
-            .map_err(Into::into)
     }
 
     /// Returns the attestation duties for a given validator index.
@@ -1771,9 +1741,49 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
-        let state = self
-            .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-            .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
+        let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
+
+        // Producing a block requires the tree hash cache, so clone a full state corresponding to
+        // the head from the snapshot cache. Unfortunately we can't move the snapshot out of the
+        // cache (which would be fast), because we need to re-process the block after it has been
+        // signed. If we miss the cache or we're producing a block that conflicts with the head,
+        // fall back to getting the head from `slot - 1`.
+        let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
+        let head_info = self
+            .head_info()
+            .map_err(BlockProductionError::UnableToGetHeadInfo)?;
+        let state = if head_info.slot < slot {
+            // Normal case: proposing a block atop the current head. Use the snapshot cache.
+            if let Some(snapshot) = self
+                .snapshot_cache
+                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                .and_then(|snapshot_cache| {
+                    snapshot_cache.get_cloned(head_info.block_root, CloneConfig::all())
+                })
+            {
+                snapshot.beacon_state
+            } else {
+                warn!(
+                    self.log,
+                    "Block production cache miss";
+                    "message" => "this block is more likely to be orphaned",
+                    "slot" => slot,
+                );
+                self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
+            }
+        } else {
+            warn!(
+                self.log,
+                "Producing block that conflicts with head";
+                "message" => "this block is more likely to be orphaned",
+                "slot" => slot,
+            );
+            self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
+        };
+        drop(state_load_timer);
 
         self.produce_block_on_state(state, slot, randao_reveal, validator_graffiti)
     }
@@ -1793,14 +1803,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
-        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
-        let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
-
         let eth1_chain = self
             .eth1_chain
             .as_ref()
             .ok_or(BlockProductionError::NoEth1ChainConnection)?;
 
+        let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
         // If required, transition the new state to the present slot.
         //
         // Note: supplying some `state_root` when it it is known would be a cheap and easy
@@ -1808,6 +1816,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         while state.slot < produce_at_slot {
             per_slot_processing(&mut state, None, &self.spec)?;
         }
+        drop(slot_timer);
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
@@ -1844,6 +1853,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Iterate through the naive aggregation pool and ensure all the attestations from there
         // are included in the operation pool.
+        let unagg_import_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
             if let Err(e) = self.op_pool.insert_attestation(
                 attestation.clone(),
@@ -1859,12 +1870,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
         }
+        drop(unagg_import_timer);
 
         // Override the beacon node's graffiti with graffiti from the validator, if present.
         let graffiti = match validator_graffiti {
             Some(graffiti) => graffiti,
             None => self.graffiti,
         };
+
+        let attestation_packing_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
+        let attestations = self
+            .op_pool
+            .get_attestations(&state, attestation_filter, &self.spec)
+            .map_err(BlockProductionError::OpPoolError)?
+            .into();
+        drop(attestation_packing_timer);
 
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
@@ -1878,11 +1899,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     graffiti,
                     proposer_slashings: proposer_slashings.into(),
                     attester_slashings: attester_slashings.into(),
-                    attestations: self
-                        .op_pool
-                        .get_attestations(&state, attestation_filter, &self.spec)
-                        .map_err(BlockProductionError::OpPoolError)?
-                        .into(),
+                    attestations,
                     deposits,
                     voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
                 },
@@ -1891,6 +1908,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signature: Signature::empty(),
         };
 
+        let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
         per_block_processing(
             &mut state,
             &block,
@@ -1898,13 +1916,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BlockSignatureStrategy::NoVerification,
             &self.spec,
         )?;
+        drop(process_timer);
 
+        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_ROOT_TIMES);
         let state_root = state.update_tree_hash_cache()?;
+        drop(state_root_timer);
 
         block.message.state_root = state_root;
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
-        metrics::stop_timer(timer);
 
         trace!(
             self.log,
@@ -1950,7 +1970,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_head = self
             .snapshot_cache
             .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|snapshot_cache| snapshot_cache.get_cloned(beacon_block_root))
+            .and_then(|snapshot_cache| {
+                snapshot_cache.get_cloned(beacon_block_root, CloneConfig::committee_caches_only())
+            })
             .map::<Result<_, Error>, _>(Ok)
             .unwrap_or_else(|| {
                 let beacon_block = self
