@@ -713,7 +713,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // The sent block is not the correct block, remove the head block and downvote
             // the peer
             let _ = parent_request.downloaded_blocks.pop();
-            let peer = parent_request.last_submitted_peer.clone();
+            let peer = parent_request.last_submitted_peer;
 
             warn!(self.log, "Peer sent invalid parent.";
                 "peer_id" => %peer,

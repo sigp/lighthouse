@@ -126,11 +126,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         // ignore status responses if we are shutting down
         if let Ok(status_message) = status_message(&self.chain) {
             // Say status back.
-            self.network.send_response(
-                peer_id.clone(),
-                Response::Status(status_message),
-                request_id,
-            );
+            self.network
+                .send_response(peer_id, Response::Status(status_message), request_id);
         }
 
         self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))

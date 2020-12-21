@@ -61,7 +61,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
 
     /// Returns the local libp2p PeerID.
     pub fn local_peer_id(&self) -> PeerId {
-        self.peer_id.read().clone()
+        *self.peer_id.read()
     }
 
     /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.

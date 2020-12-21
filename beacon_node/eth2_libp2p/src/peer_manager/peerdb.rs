@@ -557,7 +557,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             {
                 self.banned_peers_count
                     .remove_banned_peer(info.seen_addresses());
-                Some(id.clone())
+                Some(*id)
             } else {
                 // If there is no minimum, this is a coding error.
                 crit!(
@@ -584,7 +584,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     _ => None,
                 })
                 .min_by_key(|(_, since)| *since)
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| *id)
             {
                 debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop);
                 self.peers.remove(&to_drop);
