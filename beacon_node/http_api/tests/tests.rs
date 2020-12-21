@@ -2075,7 +2075,7 @@ impl ApiTester {
 
         let expected_reorg = EventKind::ChainReorg(SseChainReorg {
             slot: self.next_block.slot(),
-            depth: 0,
+            depth: 1,
             old_head_block: self.next_block.canonical_root(),
             old_head_state: self.next_block.state_root(),
             new_head_block: self.reorg_block.canonical_root(),
