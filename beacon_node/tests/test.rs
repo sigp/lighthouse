@@ -5,7 +5,7 @@
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
-    eth2::types::{Accept, StateId},
+    eth2::types::StateId,
     testing_client_config, LocalBeaconNode,
 };
 use tokio_compat_02::FutureExt;
