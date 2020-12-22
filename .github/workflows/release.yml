@@ -84,6 +84,9 @@ jobs:
               run:  cargo install --path lighthouse --force --locked --features modern
 
             - name: Configure GPG and create artifacts
+              env:
+                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
               run: |
                   export GPG_TTY=$(tty)
                   echo "$GPG_SIGNING_KEY" | gpg --batch --import
