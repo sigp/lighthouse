@@ -18,6 +18,12 @@ pub enum Error {
 }
 
 /// Struct to load validator graffitis from file.
+/// The graffiti file is expected to have the following structure
+///
+/// default: Lighthouse
+/// public_key1: graffiti1
+/// public_key2: graffiti2
+/// ...
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraffitiFile {
     graffiti_path: PathBuf,
@@ -34,17 +40,23 @@ impl GraffitiFile {
         }
     }
 
-    pub fn graffiti(&mut self, public_key: &PublicKey) -> Option<Graffiti> {
+    /// Loads the graffiti file and populates the default graffiti and `graffitis` hashmap.
+    /// Returns the graffiti corresponding to the given public key if present, else returns the
+    /// default graffiti.
+    ///
+    /// Returns `None` if loading from the graffiti file fails.
+    pub fn load_graffiti(&mut self, public_key: &PublicKey) -> Option<Graffiti> {
         self.read_graffiti_file().ok();
-        self.graffitis.get(public_key).map(|g| *g)
+        self.graffitis
+            .get(public_key)
+            .copied()
+            .or(Some(self.default))
     }
 
-    /// Reads from a graffiti file with a format as
+    /// Reads from a graffiti file with the specified format and populates the default value
+    /// and the hashmap.
     ///
-    /// default: hi
-    /// v1: foo
-    /// v2: bar
-    /// ...
+    /// Returns an error if the file does not exist, or if the format is invalid.
     pub fn read_graffiti_file(&mut self) -> Result<(), Error> {
         let file = File::open(self.graffiti_path.as_path()).map_err(Error::InvalidFile)?;
         let reader = BufReader::new(file);
@@ -54,7 +66,7 @@ impl GraffitiFile {
         // Parse default
         if let Some(default_line) = lines.next() {
             let line = default_line.map_err(|_| Error::InvalidLine)?;
-            let tokens: Vec<&str> = line.split(":").collect();
+            let tokens: Vec<&str> = line.split(':').collect();
             if tokens.len() > 2 {
                 return Err(Error::InvalidLine);
             }
@@ -68,7 +80,7 @@ impl GraffitiFile {
         // Parse remaining public keys
         for line in lines {
             let line = line.map_err(|_| Error::InvalidLine)?;
-            let tokens: Vec<&str> = line.split(":").collect();
+            let tokens: Vec<&str> = line.split(':').collect();
             if tokens.len() > 2 {
                 return Err(Error::InvalidLine);
             }
@@ -79,7 +91,7 @@ impl GraffitiFile {
                 )
                 .map_err(|_| Error::InvalidPublicKey)?,
                 GraffitiString::from_str(tokens[1].trim())
-                    .map_err(|e| Error::InvalidGraffiti(e))?
+                    .map_err(Error::InvalidGraffiti)?
                     .into(),
             );
         }

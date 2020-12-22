@@ -241,16 +241,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let graffiti = self
             .graffiti_file
             .clone()
-            .as_mut()
-            .map(|g| g.graffiti(&validator_pubkey))
+            .map(|mut g| g.load_graffiti(&validator_pubkey))
             .flatten()
             .or_else(|| self.validator_store.graffiti(&validator_pubkey))
             .or(self.graffiti);
-
-        // let graffiti = self
-        //     .validator_store
-        //     .graffiti(&validator_pubkey)
-        //     .or(self.graffiti);
 
         let randao_reveal_ref = &randao_reveal;
         let self_ref = &self;
