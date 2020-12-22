@@ -61,6 +61,7 @@ jobs:
                       --push
     build-docker-amd64:
         runs-on: ubuntu-18.04
+        environment: protected
         needs: [extract-branch-name]
         steps:
             - uses: actions/checkout@v2
