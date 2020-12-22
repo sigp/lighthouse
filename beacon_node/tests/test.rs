@@ -46,7 +46,7 @@ fn http_server_genesis_state() {
         .runtime()
         .block_on(
             remote_node
-                .get_debug_beacon_states(StateId::Slot(Slot::new(0)), Accept::Json)
+                .get_debug_beacon_states(StateId::Slot(Slot::new(0)))
                 .compat(),
         )
         .expect("should fetch state from http api")

@@ -147,9 +147,13 @@ impl BeaconNodeHttpClient {
 
     /// Perform a HTTP GET request using an 'accept' header, returning `None` on a 404 error.
     pub async fn get_bytes_opt_accept_header<U: IntoUrl>(
-        &self, url: U, accept_header: Accept,
+        &self,
+        url: U,
+        accept_header: Accept,
     ) -> Result<Option<Vec<u8>>, Error> {
-        let response = self.client.get(url)
+        let response = self
+            .client
+            .get(url)
             .header(ACCEPT, accept_header.to_string())
             .send()
             .await
@@ -867,7 +871,8 @@ impl BeaconNodeHttpClient {
             .push("states")
             .push(&state_id.to_string());
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz).await?
+        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+            .await?
             .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
             .transpose()
     }
