@@ -43,6 +43,7 @@ jobs:
                         platform: macos-latest
 
         runs-on:    ${{ matrix.platform }}
+        environment: protected
         needs: extract-version
         steps:
             - name: Checkout sources
@@ -185,6 +186,7 @@ jobs:
             - name: Create Release Draft
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GPG_PUBLIC_KEY: 15E66D941F697E28F49381F426416DC3F30674B0
               run: |
                   body=$(cat <<- ENDBODY
                   <Rick and Morty character>
@@ -201,7 +203,7 @@ jobs:
 
                   [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation-binaries.html)
 
-                  The binaries are signed with Sigma Prime's PGP key: `15E66D941F697E28F49381F426416DC3F30674B0`
+                  The binaries are signed with Sigma Prime's PGP key: `${{ env.GPG_PUBLIC_KEY }}`
 
                   | System | Architecture | Binary | PGP Signature |
                   |:---:|:---:|:---:|:---|

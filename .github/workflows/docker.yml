@@ -22,6 +22,7 @@ jobs:
             BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
     build-docker-arm64:
         runs-on: ubuntu-latest
+        environment: protected
         needs: [extract-branch-name]
         steps:
             - uses: actions/checkout@v2
