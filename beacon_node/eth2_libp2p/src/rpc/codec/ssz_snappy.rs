@@ -94,18 +94,19 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if self.len.is_none() {
+        let length = if let Some(length) = self.len {
+            length
+        } else {
             // Decode the length of the uncompressed bytes from an unsigned varint
             // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
                     self.len = Some(length);
+                    length
                 }
                 None => return Ok(None), // need more bytes to decode length
             }
         };
-
-        let length = self.len.expect("length should be Some");
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
@@ -245,18 +246,19 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if self.len.is_none() {
+        let length = if let Some(length) = self.len {
+            length
+        } else {
             // Decode the length of the uncompressed bytes from an unsigned varint
             // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
                     self.len = Some(length as usize);
+                    length
                 }
                 None => return Ok(None), // need more bytes to decode length
             }
         };
-
-        let length = self.len.expect("length should be Some");
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
@@ -323,17 +325,18 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
         &mut self,
         src: &mut BytesMut,
     ) -> Result<Option<Self::CodecErrorType>, RPCError> {
-        if self.len.is_none() {
+        let length = if let Some(length) = self.len {
+            length
+        } else {
             // Decode the length of the uncompressed bytes from an unsigned varint
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
                     self.len = Some(length as usize);
+                    length
                 }
                 None => return Ok(None), // need more bytes to decode length
             }
         };
-
-        let length = self.len.expect("length should be Some");
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `ErrorType`.
