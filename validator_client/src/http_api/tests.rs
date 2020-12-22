@@ -341,6 +341,7 @@ impl ApiTester {
                     .unwrap()
                     .into(),
                 keystore,
+                graffiti: None,
             };
 
             self.client
@@ -357,6 +358,7 @@ impl ApiTester {
                 .unwrap()
                 .into(),
             keystore,
+            graffiti: None,
         };
 
         let response = self

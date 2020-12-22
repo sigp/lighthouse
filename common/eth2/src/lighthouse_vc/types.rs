@@ -62,4 +62,5 @@ pub struct KeystoreValidatorsPostRequest {
     pub password: ZeroizeString,
     pub enable: bool,
     pub keystore: Keystore,
+    pub graffiti: Option<GraffitiString>,
 }
