@@ -1376,13 +1376,12 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result_ssz = self
                 .client
-                .get_debug_beacon_states(state_id, Accept::Ssz)
+                .get_debug_beacon_states_ssz(state_id)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+                .unwrap();
             let result_json = self
                 .client
-                .get_debug_beacon_states(state_id, Accept::Json)
+                .get_debug_beacon_states(state_id)
                 .await
                 .unwrap()
                 .map(|res| res.data);
