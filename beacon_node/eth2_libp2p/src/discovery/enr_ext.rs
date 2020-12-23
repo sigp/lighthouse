@@ -241,7 +241,7 @@ impl CombinedKeyExt for CombinedKey {
 pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, String> {
     // A libp2p peer id byte representation should be 2 length bytes + 4 protobuf bytes + compressed pk bytes
     // if generated from a PublicKey with Identity multihash.
-    let pk_bytes = &peer_id.as_bytes()[2..];
+    let pk_bytes = &peer_id.to_bytes()[2..];
 
     match PublicKey::from_protobuf_encoding(pk_bytes).map_err(|e| {
         format!(

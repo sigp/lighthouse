@@ -1,8 +1,7 @@
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, TopicHash};
 use libp2p::gossipsub::{
-    GenericGossipsubConfig, IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds,
-    TopicScoreParams,
+    GossipsubConfig, IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams,
 };
 use std::cmp::max;
 use std::collections::HashMap;
@@ -37,10 +36,7 @@ pub struct PeerScoreSettings<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
-    pub fn new<T>(
-        chain_spec: &ChainSpec,
-        gs_config: &GenericGossipsubConfig<T>,
-    ) -> PeerScoreSettings<TSpec> {
+    pub fn new(chain_spec: &ChainSpec, gs_config: &GossipsubConfig) -> PeerScoreSettings<TSpec> {
         let slot = Duration::from_millis(chain_spec.milliseconds_per_slot);
         let beacon_attestation_subnet_weight = 1.0 / chain_spec.attestation_subnet_count as f64;
         let max_positive_score = (MAX_IN_MESH_SCORE + MAX_FIRST_MESSAGE_DELIVERIES_SCORE)

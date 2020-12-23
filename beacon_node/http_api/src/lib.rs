@@ -1389,7 +1389,7 @@ pub fn serve<T: BeaconChainTypes>(
             |requested_peer_id: String, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 blocking_json_task(move || {
                     let peer_id = PeerId::from_bytes(
-                        bs58::decode(requested_peer_id.as_str())
+                        &bs58::decode(requested_peer_id.as_str())
                             .into_vec()
                             .map_err(|e| {
                                 warp_utils::reject::custom_bad_request(format!(

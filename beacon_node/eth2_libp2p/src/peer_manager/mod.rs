@@ -136,7 +136,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// Returns true if the peer was accepted into the database.
     pub fn dial_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.events.push(PeerManagerEvent::Dial(peer_id.clone()));
+        self.events.push(PeerManagerEvent::Dial(*peer_id));
         self.connect_peer(peer_id, ConnectingType::Dialing)
     }
 
@@ -174,7 +174,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         {
             // update the state of the peer.
             self.events
-                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone(), reason));
+                .push(PeerManagerEvent::DisconnectPeer(*peer_id, reason));
         }
     }
 
@@ -282,7 +282,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A STATUS message has been received from a peer. This resets the status timer.
     pub fn peer_statusd(&mut self, peer_id: &PeerId) {
-        self.status_peers.insert(peer_id.clone());
+        self.status_peers.insert(*peer_id);
     }
 
     /// Adds a gossipsub subscription to a peer in the peerdb.
@@ -495,10 +495,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             debug!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
             match peer_info.connection_direction {
                 Some(ConnectionDirection::Incoming) => {
-                    self.inbound_ping_peers.insert(peer_id.clone());
+                    self.inbound_ping_peers.insert(*peer_id);
                 }
                 Some(ConnectionDirection::Outgoing) => {
-                    self.outbound_ping_peers.insert(peer_id.clone());
+                    self.outbound_ping_peers.insert(*peer_id);
                 }
                 None => {
                     warn!(self.log, "Received a ping from a peer with an unknown connection direction"; "peer_id" => %peer_id);
@@ -510,15 +510,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 if meta_data.seq_number < seq {
                     debug!(self.log, "Requesting new metadata from peer";
                         "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
-                    self.events
-                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                    self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
                 // if we don't know the meta-data, request it
                 debug!(self.log, "Requesting first metadata from peer";
                     "peer_id" => %peer_id);
-                self.events
-                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
         } else {
             crit!(self.log, "Received a PING from an unknown peer";
@@ -536,15 +534,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 if meta_data.seq_number < seq {
                     debug!(self.log, "Requesting new metadata from peer";
                         "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
-                    self.events
-                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                    self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
                 // if we don't know the meta-data, request it
                 debug!(self.log, "Requesting first metadata from peer";
                     "peer_id" => %peer_id);
-                self.events
-                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
         } else {
             crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => %peer_id);
@@ -677,7 +673,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     && !peers.is_connected_or_dialing(peer_id)
                     && !peers.is_banned(peer_id)
                 {
-                    Some(peer_id.clone())
+                    Some(*peer_id)
                 } else {
                     None
                 }
@@ -755,18 +751,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 ConnectingType::IngoingConnected { multiaddr } => {
                     peerdb.connect_ingoing(peer_id, multiaddr, enr);
                     // start a timer to ping inbound peers.
-                    self.inbound_ping_peers.insert(peer_id.clone());
+                    self.inbound_ping_peers.insert(*peer_id);
                 }
                 ConnectingType::OutgoingConnected { multiaddr } => {
                     peerdb.connect_outgoing(peer_id, multiaddr, enr);
                     // start a timer for to ping outbound peers.
-                    self.outbound_ping_peers.insert(peer_id.clone());
+                    self.outbound_ping_peers.insert(*peer_id);
                 }
             }
         }
 
         // start a ping and status timer for the peer
-        self.status_peers.insert(peer_id.clone());
+        self.status_peers.insert(*peer_id);
 
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -806,7 +802,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             match info.score_state() {
                 ScoreState::Banned => {
                     debug!(log, "Peer has been banned"; "peer_id" => %peer_id, "score" => %info.score());
-                    to_ban_peers.push(peer_id.clone());
+                    to_ban_peers.push(*peer_id);
                 }
                 ScoreState::Disconnected => {
                     debug!(log, "Peer transitioned to disconnect state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
@@ -815,18 +811,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         // Change the state to inform that we are disconnecting the peer.
                         info.disconnecting(false);
                         events.push(PeerManagerEvent::DisconnectPeer(
-                            peer_id.clone(),
+                            *peer_id,
                             GoodbyeReason::BadScore,
                         ));
                     } else if info.is_banned() {
-                        to_unban_peers.push(peer_id.clone());
+                        to_unban_peers.push(*peer_id);
                     }
                 }
                 ScoreState::Healthy => {
                     debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
                     // unban the peer if it was previously banned.
                     if info.is_banned() {
-                        to_unban_peers.push(peer_id.clone());
+                        to_unban_peers.push(*peer_id);
                     }
                 }
             }
@@ -885,7 +881,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if peer_db.disconnect_and_ban(peer_id) {
                 // The peer was currently connected, so we start a disconnection.
                 self.events.push(PeerManagerEvent::DisconnectPeer(
-                    peer_id.clone(),
+                    *peer_id,
                     GoodbyeReason::BadScore,
                 ));
             }
@@ -960,7 +956,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 //disconnected in update_peer_scores
                 .filter(|(_, info)| info.score_state() == ScoreState::Healthy)
             {
-                disconnecting_peers.push((*peer_id).clone());
+                disconnecting_peers.push(**peer_id);
             }
         }
 
@@ -996,7 +992,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         loop {
             match self.inbound_ping_peers.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(peer_id))) => {
-                    self.inbound_ping_peers.insert(peer_id.clone());
+                    self.inbound_ping_peers.insert(peer_id);
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -1009,7 +1005,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         loop {
             match self.outbound_ping_peers.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(peer_id))) => {
-                    self.outbound_ping_peers.insert(peer_id.clone());
+                    self.outbound_ping_peers.insert(peer_id);
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -1024,7 +1020,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             loop {
                 match self.status_peers.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(peer_id))) => {
-                        self.status_peers.insert(peer_id.clone());
+                        self.status_peers.insert(peer_id);
                         self.events.push(PeerManagerEvent::Status(peer_id))
                     }
                     Poll::Ready(Some(Err(e))) => {
