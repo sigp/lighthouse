@@ -1,0 +1,186 @@
+name:   Release Suite
+
+on:
+    push:
+        tags:
+            - v*
+
+env:
+    REPO_NAME: sigp/lighthouse
+
+jobs:
+    extract-version:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Extract version
+              run: echo "::set-output name=VERSION::$(echo ${GITHUB_REF#refs/tags/})"
+              id: extract_version
+        outputs:
+            VERSION: ${{ steps.extract_version.outputs.VERSION }}
+
+    build:
+        name:   Build Release
+        strategy:
+            matrix:
+                arch: [aarch64-unknown-linux-gnu,
+                       aarch64-unknown-linux-gnu-portable,
+                       x86_64-unknown-linux-gnu,
+                       x86_64-unknown-linux-gnu-portable,
+                       x86_64-apple-darwin,
+                       x86_64-apple-darwin-portable]
+                include:
+                    -   arch: aarch64-unknown-linux-gnu
+                        platform: ubuntu-latest
+                    -   arch: aarch64-unknown-linux-gnu-portable
+                        platform: ubuntu-latest
+                    -   arch: x86_64-unknown-linux-gnu
+                        platform: ubuntu-latest
+                    -   arch: x86_64-unknown-linux-gnu-portable
+                        platform: ubuntu-latest
+                    -   arch: x86_64-apple-darwin
+                        platform: macos-latest
+                    -   arch: x86_64-apple-darwin-portable
+                        platform: macos-latest
+
+        runs-on:    ${{ matrix.platform }}
+        environment: protected
+        needs: extract-version
+        steps:
+            - name: Checkout sources
+              uses: actions/checkout@v2
+            - name: Build toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  profile:  minimal
+                  override: true
+
+            # ==============================
+            #       Builds
+            # ==============================
+
+            - name: Build Lighthouse for ${{matrix.arch}}
+              if:   startsWith(matrix.arch, 'aarch64') && endsWith(matrix.arch, 'portable')
+              run:  |
+                cargo install cross
+                make build-aarch64-portable
+
+            - name: Build Lighthouse for ${{matrix.arch}}
+              if:   startsWith(matrix.arch, 'aarch64') && !endsWith(matrix.arch, 'portable')
+              run:  |
+                cargo install cross
+                make build-aarch64
+
+            - name: Move cross-compiled binary
+              if:  startsWith(matrix.arch, 'aarch64')
+              run: mv target/aarch64-unknown-linux-gnu/release/lighthouse ~/.cargo/bin/lighthouse
+
+            - name: Build Lighthouse for ${{matrix.arch}} portable
+              if:   startsWith(matrix.arch, 'x86_64') && endsWith(matrix.arch, 'portable')
+              run:  cargo install --path lighthouse --force --locked --features portable
+
+            - name: Build Lighthouse for ${{matrix.arch}} modern
+              if:   startsWith(matrix.arch, 'x86_64') && !endsWith(matrix.arch, 'portable')
+              run:  cargo install --path lighthouse --force --locked --features modern
+
+            - name: Configure GPG and create artifacts
+              env:
+                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+              run: |
+                  export GPG_TTY=$(tty)
+                  echo "$GPG_SIGNING_KEY" | gpg --batch --import
+                  mkdir artifacts
+                  mv ~/.cargo/bin/lighthouse ./artifacts
+                  cd artifacts
+                  tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse
+                  echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  mv *tar.gz* ..
+
+            # =======================================================================
+            # Upload artifacts
+            # This is required to share artifacts between different jobs
+            # =======================================================================
+
+            - name:  Upload artifact
+              uses:  actions/upload-artifact@v2
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+
+            - name: Upload signature
+              uses: actions/upload-artifact@v2
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+
+    draft-release:
+        name:   Draft Release
+        needs:  [build, extract-version]
+        runs-on: ubuntu-latest
+        env:
+            VERSION:  ${{ needs.extract-version.outputs.VERSION }}
+        steps:
+            # This is necessary for generating the changelog. It has to come before "Download Artifacts" or else it deletes the artifacts.
+            - name: Checkout sources
+              uses: actions/checkout@v2
+              with:
+                  fetch-depth: 0
+
+            # ==============================
+            #       Download artifacts
+            # ==============================
+
+            - name: Download artifacts
+              uses: actions/download-artifact@v2
+
+            # ==============================
+            #       Create release draft
+            # ==============================
+
+            - name: Generate Full Changelog
+              id: changelog
+              run: echo "::set-output name=CHANGELOG::$(git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 ${{ env.VERSION }}^)..${{ env.VERSION }})"
+
+            - name: Create Release Draft
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+              # The formatting here is borrowed from OpenEthereum: https://github.com/openethereum/openethereum/blob/main/.github/workflows/build.yml
+              run: |
+                  body=$(cat <<- "ENDBODY"
+                  <Rick and Morty character>
+
+                  ## Summary
+
+                  Add a summary.
+
+                  ## All Changes
+
+                  ${{ steps.changelog.outputs.CHANGELOG }}
+
+                  ## Binaries
+
+                  [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation-binaries.html)
+
+                  The binaries are signed with Sigma Prime's PGP key: `15E66D941F697E28F49381F426416DC3F30674B0`
+
+                  | System | Architecture | Binary | PGP Signature |
+                  |:---:|:---:|:---:|:---|
+                  | <img src="https://simpleicons.org/icons/apple.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc) |
+                  | <img src="https://simpleicons.org/icons/apple.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz.asc) |
+                  | <img src="https://simpleicons.org/icons/linux.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
+                  | <img src="https://simpleicons.org/icons/linux.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz.asc) |
+                  | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
+                  | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc) |
+                  | | | | |
+                  | **System** | **Option** | - | **Resource** |
+                  | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | - | [sigp/lighthouse](https://hub.docker.com/r/sigp/lighthouse) |
+                  ENDBODY
+                  )
+                  assets=()
+                  for asset in ./lighthouse-*.tar.gz*; do
+                      assets+=("-a" "$asset/$asset")
+                  done
+                  tag_name="${{ env.VERSION }}"
+                  echo "$body" | hub release create --draft "${assets[@]}" -F "-" "$tag_name"
