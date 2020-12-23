@@ -85,7 +85,7 @@ impl DataTransform for SnappyTransform {
             ));
         }
         let mut encoder = Encoder::new();
-        encoder.compress_vec(&data)
+        encoder.compress_vec(&data).map_err(Into::into)
     }
 }
 
