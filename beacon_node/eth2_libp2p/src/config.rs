@@ -114,11 +114,10 @@ impl Default for Config {
         };
 
         fn prefix(prefix: [u8; 4], data: &[u8]) -> Vec<u8> {
-            prefix
-                .to_vec()
-                .into_iter()
-                .chain(data.iter().cloned())
-                .collect()
+            let mut vec = Vec::with_capacity(prefix.len() + data.len());
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(data);
+            vec
         }
 
         let gossip_message_id = |message: &GossipsubMessage| {
