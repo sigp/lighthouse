@@ -256,17 +256,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         log: &Logger,
     ) -> Result<(), CandidateError> {
         if let Some(slot_clock) = slot_clock {
-            match check_synced(&self.beacon_node, slot_clock, Some(log)).await {
-                r @ Err(CandidateError::NotSynced) => {
-                    warn!(
-                        log,
-                        "Beacon node is not synced";
-                        "endpoint" => %self.beacon_node,
-                    );
-                    r
-                }
-                result => result,
-            }
+            check_synced(&self.beacon_node, slot_clock, Some(log)).await
         } else {
             // Skip this check if we don't supply a slot clock.
             Ok(())
