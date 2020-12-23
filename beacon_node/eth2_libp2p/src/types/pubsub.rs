@@ -78,16 +78,14 @@ impl DataTransform for SnappyTransform {
     ) -> Result<Vec<u8>, std::io::Error> {
         // Currently we are not employing topic-based compression. Everything is expected to be
         // snappy compressed.
-        let mut encoder = Encoder::new();
-        let compressed_data = encoder.compress_vec(&data)?;
-
-        if compressed_data.len() > self.max_size_per_message {
+        if data.len() > self.max_size_per_message {
             return Err(Error::new(
                 ErrorKind::InvalidData,
                 "ssz_snappy Encoded data > GOSSIP_MAX_SIZE",
             ));
         }
-        Ok(compressed_data)
+        let mut encoder = Encoder::new();
+        encoder.compress_vec(&data)
     }
 }
 
