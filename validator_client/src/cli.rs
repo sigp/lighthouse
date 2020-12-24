@@ -1,4 +1,3 @@
-use crate::config::DEFAULT_BEACON_NODE;
 use clap::{App, Arg};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -23,7 +22,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("beacon-nodes")
                 .value_name("NETWORK_ADDRESSES")
                 .help("Comma-separated addresses to one or more beacon node HTTP APIs")
-                .default_value(&DEFAULT_BEACON_NODE)
                 .takes_value(true),
         )
         // This argument is deprecated, use `--beacon-nodes` instead.
