@@ -670,7 +670,9 @@ impl Service {
             let outcome = self
                 .update_deposit_cache(Some(new_block_numbers_deposit), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 deposit cache: {:?}", process_err(e)))?;
+                .map_err(|e| {
+                    format!("Failed to update eth1 deposit cache: {:?}", process_err(e))
+                })?;
 
             trace!(
                 self.log,
