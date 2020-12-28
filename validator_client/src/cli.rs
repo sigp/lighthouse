@@ -21,7 +21,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("beacon-nodes")
                 .long("beacon-nodes")
                 .value_name("NETWORK_ADDRESSES")
-                .help("Comma-separated addresses to one or more beacon node HTTP APIs")
+                .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
+                       Default is http://localhost:5052."
+                )
                 .takes_value(true),
         )
         // This argument is deprecated, use `--beacon-nodes` instead.
