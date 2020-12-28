@@ -4,6 +4,7 @@ use crate::{
 };
 use byteorder::{BigEndian, ByteOrder};
 use lmdb::{Cursor, Database, DatabaseFlags, Environment, RwTransaction, Transaction, WriteFlags};
+use serde::Deserialize;
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use types::{
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
-const CURRENT_SCHEMA_VERSION: u64 = 1;
+pub const CURRENT_SCHEMA_VERSION: u64 = 2;
 
 /// Metadata about the slashing database itself.
 const METADATA_DB: &str = "metadata";
@@ -209,15 +210,7 @@ impl<E: EthSpec> SlasherDB<E> {
 
         let mut txn = db.begin_rw_txn()?;
 
-        if let Some(schema_version) = db.load_schema_version(&mut txn)? {
-            if schema_version != CURRENT_SCHEMA_VERSION {
-                return Err(Error::IncompatibleSchemaVersion {
-                    database_schema_version: schema_version,
-                    software_schema_version: CURRENT_SCHEMA_VERSION,
-                });
-            }
-        }
-        db.store_schema_version(&mut txn)?;
+        db.migrate(&mut txn)?;
 
         if let Some(on_disk_config) = db.load_config(&mut txn)? {
             if !db.config.is_compatible(&on_disk_config) {
@@ -227,7 +220,7 @@ impl<E: EthSpec> SlasherDB<E> {
                 });
             }
         }
-        db.store_config(&mut txn)?;
+        db.store_config(&db.config, &mut txn)?;
         txn.commit()?;
 
         Ok(db)
@@ -263,7 +256,14 @@ impl<E: EthSpec> SlasherDB<E> {
         Ok(())
     }
 
-    pub fn load_config(&self, txn: &mut RwTransaction<'_>) -> Result<Option<Config>, Error> {
+    /// Load a config from disk.
+    ///
+    /// This is generic in order to allow loading of configs for different schema versions.
+    /// Care should be taken to ensure it is only called for `Config`-like `T`.
+    pub fn load_config<'a, T: Deserialize<'a>>(
+        &self,
+        txn: &'a mut RwTransaction<'_>,
+    ) -> Result<Option<T>, Error> {
         Ok(txn
             .get(self.metadata_db, &METADATA_CONFIG_KEY)
             .optional()?
@@ -271,11 +271,11 @@ impl<E: EthSpec> SlasherDB<E> {
             .transpose()?)
     }
 
-    pub fn store_config(&self, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
+    pub fn store_config(&self, config: &Config, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
         txn.put(
             self.metadata_db,
             &METADATA_CONFIG_KEY,
-            &bincode::serialize(self.config.as_ref())?,
+            &bincode::serialize(config)?,
             Self::write_flags(),
         )?;
         Ok(())
