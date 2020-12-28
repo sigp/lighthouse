@@ -9,6 +9,7 @@ pub mod config;
 mod database;
 mod error;
 pub mod metrics;
+mod migrate;
 mod slasher;
 pub mod test_utils;
 mod utils;
