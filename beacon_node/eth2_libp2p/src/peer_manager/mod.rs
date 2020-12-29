@@ -43,9 +43,9 @@ const STATUS_INTERVAL: u64 = 300;
 /// within this time frame (Seconds)
 /// This is asymmetric to avoid simultaneous pings.
 /// The interval for outbound connections.
-const PING_INTERVAL_OUTBOUND: u64 = 30;
+const PING_INTERVAL_OUTBOUND: u64 = 15;
 /// The interval for inbound connections.
-const PING_INTERVAL_INBOUND: u64 = 35;
+const PING_INTERVAL_INBOUND: u64 = 20;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
 /// requests. This defines the interval in seconds.
