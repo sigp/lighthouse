@@ -23,6 +23,7 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_monitor::ValidatorMonitor;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
@@ -242,6 +243,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) graffiti: Graffiti,
     /// Optional slasher.
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    /// Provides monitoring of a set of explicitly defined validators.
+    pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
@@ -1554,6 +1557,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
             .import_new_pubkeys(&state)?;
+
+        // Allow the validator monitor to learn about new validator indices.
+        self.validator_monitor
+            .write()
+            .update_validator_indices(&state);
 
         // For the current and next epoch of this state, ensure we have the shuffling from this
         // block in our cache.

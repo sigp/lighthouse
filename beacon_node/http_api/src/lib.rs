@@ -944,6 +944,12 @@ pub fn serve<T: BeaconChainTypes>(
                             }
                         };
 
+                        // Ensure the validator monitor can register events.
+                        chain
+                            .validator_monitor
+                            .write()
+                            .register_api_attestation(attestation.indexed_attestation());
+
                         publish_pubsub_message(
                             &network_tx,
                             PubsubMessage::Attestation(Box::new((

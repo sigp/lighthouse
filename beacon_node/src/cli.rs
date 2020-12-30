@@ -451,4 +451,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("WSS_CHECKPOINT")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("monitor-validators")
+                .long("monitor-validators")
+                .help("A comma separated list of 0x-prefixed validator public keys. \
+                        These validators will receive special monitoring and additional \
+                        logging.")
+                .value_name("PUBKEYS")
+                .takes_value(true)
+        )
 }

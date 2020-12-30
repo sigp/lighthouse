@@ -81,6 +81,12 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
+        // Ensure the validator monitor can register events.
+        self.chain
+            .validator_monitor
+            .write()
+            .register_gossip_attestation(attestation.indexed_attestation());
+
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);

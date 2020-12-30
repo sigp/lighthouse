@@ -6,6 +6,7 @@ use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_monitor::ValidatorMonitor;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
@@ -26,8 +27,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, Signature, SignedBeaconBlock,
-    Slot,
+    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKey, Signature,
+    SignedBeaconBlock, Slot,
 };
 
 pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
@@ -88,6 +89,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     log: Option<Logger>,
     graffiti: Graffiti,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    validator_monitor: Option<ValidatorMonitor<T::EthSpec>>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -126,6 +128,7 @@ where
             log: None,
             graffiti: Graffiti::default(),
             slasher: None,
+            validator_monitor: None,
         }
     }
 
@@ -170,8 +173,9 @@ where
     /// Sets the logger.
     ///
     /// Should generally be called early in the build chain.
-    pub fn logger(mut self, logger: Logger) -> Self {
-        self.log = Some(logger);
+    pub fn logger(mut self, log: Logger) -> Self {
+        self.validator_monitor = Some(ValidatorMonitor::new(log.clone()));
+        self.log = Some(log);
         self
     }
 
@@ -391,6 +395,18 @@ where
         self
     }
 
+    /// Register some validators for additional monitoring.
+    ///
+    /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
+    pub fn monitor_validators(mut self, validators: Vec<PublicKey>) -> Result<Self, String> {
+        let validator_monitor = self
+            .validator_monitor
+            .as_mut()
+            .ok_or("No validator monitor")?;
+        validator_monitor.add_validator_pubkeys(validators);
+        Ok(self)
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -418,6 +434,9 @@ where
         let genesis_state_root = self
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
+        let validator_monitor = self
+            .validator_monitor
+            .ok_or("Cannot build without a validator monitor")?;
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -538,6 +557,7 @@ where
             log: log.clone(),
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
+            validator_monitor: RwLock::new(validator_monitor),
         };
 
         let head = beacon_chain

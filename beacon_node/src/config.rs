@@ -12,7 +12,8 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
+use std::str::FromStr;
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKey, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -383,6 +384,15 @@ pub fn get_config<E: EthSpec>(
         slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
 
         client_config.slasher = Some(slasher_config);
+    }
+
+    if let Some(monitor_validators) = cli_args.value_of("monitor-validators") {
+        let pubkeys = monitor_validators
+            .split(",")
+            .map(PublicKey::from_str)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Invalid --monitor-validators value: {:?}", e))?;
+        client_config.monitor_validators.extend_from_slice(&pubkeys);
     }
 
     Ok(client_config)
