@@ -73,11 +73,15 @@ jobs:
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu-portable
               if:   matrix.arch == 'x86_64-unknown-linux-gnu-portable'
-              run:  make make build-x86_64-portable
+              run:  |
+                cargo install cross
+                make build-x86_64-portable
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
-              run:  make build-x86_64
+              run:  |
+                cargo install cross
+                make build-x86_64
 
             - name: Move cross-compiled binary
               if:  startsWith(matrix.arch, 'aarch64')
