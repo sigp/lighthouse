@@ -43,7 +43,6 @@ jobs:
                         platform: macos-latest
 
         runs-on:    ${{ matrix.platform }}
-        environment: protected
         needs: extract-version
         steps:
             - name: Checkout sources

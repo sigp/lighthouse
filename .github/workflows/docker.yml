@@ -22,7 +22,6 @@ jobs:
             BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
     build-docker-arm64:
         runs-on: ubuntu-18.04
-        environment: protected
         needs: [extract-branch-name]
         # We need to enable experimental docker features in order to use `docker buildx`
         env:
@@ -61,7 +60,6 @@ jobs:
                       --push
     build-docker-amd64:
         runs-on: ubuntu-18.04
-        environment: protected
         needs: [extract-branch-name]
         steps:
             - uses: actions/checkout@v2
