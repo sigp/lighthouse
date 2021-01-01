@@ -71,9 +71,8 @@ impl Epoch {
     pub fn end_slot(self, slots_per_epoch: u64) -> Slot {
         Slot::from(
             self.0
-                .saturating_add(1)
                 .saturating_mul(slots_per_epoch)
-                .saturating_sub(1),
+                .saturating_add(slots_per_epoch - 1)
         )
     }
 
