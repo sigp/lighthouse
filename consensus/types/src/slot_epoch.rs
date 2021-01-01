@@ -72,7 +72,7 @@ impl Epoch {
         Slot::from(
             self.0
                 .saturating_mul(slots_per_epoch)
-                .saturating_add(slots_per_epoch - 1)
+                .saturating_add(slots_per_epoch - 1),
         )
     }
 
