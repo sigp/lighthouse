@@ -145,6 +145,17 @@ mod epoch_tests {
     }
 
     #[test]
+    fn end_slot_boundary_test() {
+        let slots_per_epoch = 32;
+
+        // The last epoch which can be represented by u64.
+        let epoch = Epoch::new(u64::max_value() / slots_per_epoch);
+
+        // A slot number on the epoch should be equal to u64::max_value.
+        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(u64::max_value()));
+    }
+
+    #[test]
     fn position() {
         let slots_per_epoch = 8;
 
