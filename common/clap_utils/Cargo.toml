@@ -11,5 +11,5 @@ clap = "2.33.3"
 hex = "0.4.2"
 dirs = "3.0.1"
 types = { path = "../../consensus/types" }
-eth2_testnet_config = { path = "../eth2_testnet_config" }
+eth2_network_config = { path = "../eth2_network_config" }
 eth2_ssz = "0.1.2"

@@ -4,7 +4,7 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
@@ -33,18 +33,14 @@ pub fn get_config<E: EthSpec>(
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
-        fs::remove_dir_all(
-            client_config
-                .get_db_path()
-                .ok_or_else(|| "Failed to get db_path".to_string())?,
-        )
-        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        fs::remove_dir_all(client_config.get_db_path().ok_or("Failed to get db_path")?)
+            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
         // Remove the freezer db.
         fs::remove_dir_all(
             client_config
                 .get_freezer_db_path()
-                .ok_or_else(|| "Failed to get freezer db path".to_string())?,
+                .ok_or("Failed to get freezer db path")?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
@@ -155,26 +151,6 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Websocket server
-     */
-
-    if cli_args.is_present("ws") {
-        client_config.websocket_server.enabled = true;
-    }
-
-    if let Some(address) = cli_args.value_of("ws-address") {
-        client_config.websocket_server.listen_address = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "ws-address is not a valid IPv4 address.")?;
-    }
-
-    if let Some(port) = cli_args.value_of("ws-port") {
-        client_config.websocket_server.port = port
-            .parse::<u16>()
-            .map_err(|_| "ws-port is not a valid u16.")?;
-    }
-
-    /*
      * Eth1
      */
 
@@ -194,6 +170,11 @@ pub fn get_config<E: EthSpec>(
 
     // Defines the URL to reach the eth1 node.
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
+        warn!(
+            log,
+            "The --eth1-endpoint flag is deprecated";
+            "msg" => "please use --eth1-endpoints instead"
+        );
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = vec![val.to_string()];
     } else if let Some(val) = cli_args.value_of("eth1-endpoints") {
@@ -205,6 +186,10 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.blocks_per_log_query = val
             .parse()
             .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
+    }
+
+    if cli_args.is_present("eth1-purge-cache") {
+        client_config.eth1.purge_cache = true;
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
@@ -254,17 +239,16 @@ pub fn get_config<E: EthSpec>(
             unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
-        client_config.websocket_server.port = 0;
     }
 
     /*
-     * Load the eth2 testnet dir to obtain some additional config values.
+     * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_testnet_config = get_eth2_testnet_config(&cli_args)?;
+    let eth2_network_config = get_eth2_network_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
-        eth2_testnet_config.deposit_contract_deploy_block;
+        eth2_network_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
@@ -281,11 +265,11 @@ pub fn get_config<E: EthSpec>(
         "address" => &client_config.eth1.deposit_contract_address
     );
 
-    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+    if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state_bytes) = eth2_testnet_config.genesis_state_bytes {
+    if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.
@@ -305,6 +289,8 @@ pub fn get_config<E: EthSpec>(
         }
 
         graffiti.as_bytes()
+    } else if cli_args.is_present("private") {
+        b""
     } else {
         lighthouse_version::VERSION.as_bytes()
     };
@@ -317,10 +303,10 @@ pub fn get_config<E: EthSpec>(
         let mut split = wss_checkpoint.split(':');
         let root_str = split
             .next()
-            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+            .ok_or("Improperly formatted weak subjectivity checkpoint")?;
         let epoch_str = split
             .next()
-            .ok_or_else(|| "Improperly formatted weak subjectivity checkpoint".to_string())?;
+            .ok_or("Improperly formatted weak subjectivity checkpoint")?;
 
         if !root_str.starts_with("0x") {
             return Err(
@@ -393,6 +379,8 @@ pub fn get_config<E: EthSpec>(
         {
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
+
+        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
 
         client_config.slasher = Some(slasher_config);
     }
@@ -553,7 +541,7 @@ pub fn set_network_config(
                     resolved_addrs
                         .next()
                         .map(|a| a.ip())
-                        .ok_or_else(|| "Resolved dns addr contains no entries".to_string())?
+                        .ok_or("Resolved dns addr contains no entries")?
                 } else {
                     return Err(format!("Failed to parse enr-address: {}", enr_address));
                 };
@@ -577,6 +565,10 @@ pub fn set_network_config(
         config.upnp_enabled = false;
     }
 
+    if cli_args.is_present("private") {
+        config.private = true;
+    }
+
     Ok(())
 }
 
@@ -593,26 +585,25 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .or_else(|| {
             dirs::home_dir().map(|home| {
                 home.join(DEFAULT_ROOT_DIR)
-                    .join(directory::get_testnet_name(cli_args))
+                    .join(directory::get_network_dir(cli_args))
                     .join(DEFAULT_BEACON_NODE_DIR)
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.
+/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_testnet_config(cli_args: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    let optional_testnet_config = if cli_args.is_present("network") {
+pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
+    let optional_network_config = if cli_args.is_present("network") {
         clap_utils::parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        return Err(
-            "No --network or --testnet-dir flags provided, cannot load config.".to_string(),
-        );
+        // if neither is present, assume the default network
+        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
-    optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
+    optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }
 
 /// A bit of hack to find an unused port.

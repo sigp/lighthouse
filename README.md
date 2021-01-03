@@ -73,7 +73,7 @@ Sign up to the [Lighthouse Development Updates](https://mailchi.mp/3d9df0417779/
 mailing list for email notifications about releases, network status and other important information.
 
 Encrypt sensitive messages using our [PGP
-key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=dcf37e025d6c9d42ea795b119e7c6cf9988604be).
+key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=15e66d941f697e28f49381f426416dc3f30674b0).
 
 ## Donations
 

@@ -961,7 +961,7 @@ impl Drop for SendOnDrop {
                 self.log,
                 "Unable to free worker";
                 "msg" => "did not free worker, shutdown may be underway",
-                "error" => e.to_string()
+                "error" => %e
             )
         }
     }

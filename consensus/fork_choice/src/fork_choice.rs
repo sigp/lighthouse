@@ -312,7 +312,7 @@ where
         let block = self
             .proto_array
             .get_block(&block_root)
-            .ok_or_else(|| Error::MissingProtoArrayBlock(block_root))?;
+            .ok_or(Error::MissingProtoArrayBlock(block_root))?;
 
         match block.slot.cmp(&ancestor_slot) {
             Ordering::Greater => Ok(self
@@ -618,7 +618,7 @@ where
         let block = self
             .proto_array
             .get_block(&indexed_attestation.data.beacon_block_root)
-            .ok_or_else(|| InvalidAttestation::UnknownHeadBlock {
+            .ok_or(InvalidAttestation::UnknownHeadBlock {
                 beacon_block_root: indexed_attestation.data.beacon_block_root,
             })?;
 

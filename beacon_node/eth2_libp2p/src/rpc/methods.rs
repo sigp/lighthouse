@@ -262,6 +262,8 @@ pub enum RPCResponseErrorCode {
     RateLimited,
     InvalidRequest,
     ServerError,
+    /// Error spec'd to indicate that a peer does not have blocks on a requested range.
+    ResourceUnavailable,
     Unknown,
 }
 
@@ -285,6 +287,8 @@ impl<T: EthSpec> RPCCodedResponse<T> {
         let code = match response_code {
             1 => RPCResponseErrorCode::InvalidRequest,
             2 => RPCResponseErrorCode::ServerError,
+            3 => RPCResponseErrorCode::ResourceUnavailable,
+            139 => RPCResponseErrorCode::RateLimited,
             _ => RPCResponseErrorCode::Unknown,
         };
         RPCCodedResponse::Error(code, err)
@@ -317,8 +321,9 @@ impl RPCResponseErrorCode {
         match self {
             RPCResponseErrorCode::InvalidRequest => 1,
             RPCResponseErrorCode::ServerError => 2,
+            RPCResponseErrorCode::ResourceUnavailable => 3,
             RPCResponseErrorCode::Unknown => 255,
-            RPCResponseErrorCode::RateLimited => 128,
+            RPCResponseErrorCode::RateLimited => 139,
         }
     }
 }
@@ -327,6 +332,7 @@ impl std::fmt::Display for RPCResponseErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
             RPCResponseErrorCode::InvalidRequest => "The request was invalid",
+            RPCResponseErrorCode::ResourceUnavailable => "Resource unavailable",
             RPCResponseErrorCode::ServerError => "Server error occurred",
             RPCResponseErrorCode::Unknown => "Unknown error occurred",
             RPCResponseErrorCode::RateLimited => "Rate limited",
@@ -399,11 +405,11 @@ impl slog::KV for StatusMessage {
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         use slog::Value;
-        serializer.emit_str("fork_digest", &format!("{:?}", self.fork_digest))?;
+        serializer.emit_arguments("fork_digest", &format_args!("{:?}", self.fork_digest))?;
         Value::serialize(&self.finalized_epoch, record, "finalized_epoch", serializer)?;
-        serializer.emit_str("finalized_root", &self.finalized_root.to_string())?;
+        serializer.emit_arguments("finalized_root", &format_args!("{}", self.finalized_root))?;
         Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
-        serializer.emit_str("head_root", &self.head_root.to_string())?;
+        serializer.emit_arguments("head_root", &format_args!("{}", self.head_root))?;
         slog::Result::Ok(())
     }
 }

@@ -287,14 +287,14 @@ fn compute_deltas(
 
         // If the validator was not included in the _old_ balances (i.e., it did not exist yet)
         // then say its balance was zero.
-        let old_balance = old_balances.get(val_index).copied().unwrap_or_else(|| 0);
+        let old_balance = old_balances.get(val_index).copied().unwrap_or(0);
 
         // If the validators vote is not known in the _new_ balances, then use a balance of zero.
         //
         // It is possible that there is a vote for an unknown validator if we change our justified
         // state to a new state with a higher epoch that is on a different fork because that fork may have
         // on-boarded less validators than the prior fork.
-        let new_balance = new_balances.get(val_index).copied().unwrap_or_else(|| 0);
+        let new_balance = new_balances.get(val_index).copied().unwrap_or(0);
 
         if vote.current_root != vote.next_root || old_balance != new_balance {
             // We ignore the vote if it is not known in `indices`. We assume that it is outside
@@ -302,9 +302,9 @@ fn compute_deltas(
             if let Some(current_delta_index) = indices.get(&vote.current_root).copied() {
                 let delta = deltas
                     .get(current_delta_index)
-                    .ok_or_else(|| Error::InvalidNodeDelta(current_delta_index))?
+                    .ok_or(Error::InvalidNodeDelta(current_delta_index))?
                     .checked_sub(old_balance as i64)
-                    .ok_or_else(|| Error::DeltaOverflow(current_delta_index))?;
+                    .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
                 // Array access safe due to check on previous line.
                 deltas[current_delta_index] = delta;
@@ -315,9 +315,9 @@ fn compute_deltas(
             if let Some(next_delta_index) = indices.get(&vote.next_root).copied() {
                 let delta = deltas
                     .get(next_delta_index)
-                    .ok_or_else(|| Error::InvalidNodeDelta(next_delta_index))?
+                    .ok_or(Error::InvalidNodeDelta(next_delta_index))?
                     .checked_add(new_balance as i64)
-                    .ok_or_else(|| Error::DeltaOverflow(next_delta_index))?;
+                    .ok_or(Error::DeltaOverflow(next_delta_index))?;
 
                 // Array access safe due to check on previous line.
                 deltas[next_delta_index] = delta;

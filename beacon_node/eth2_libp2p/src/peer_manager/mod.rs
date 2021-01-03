@@ -11,7 +11,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::multiaddr::Protocol as MProtocol;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error, warn};
+use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::{
     net::SocketAddr,
@@ -27,12 +27,13 @@ pub use libp2p::core::{identity::Keypair, Multiaddr};
 pub mod client;
 mod peer_info;
 mod peer_sync_status;
+#[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 mod peerdb;
 pub(crate) mod score;
 
 pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
-use score::{PeerAction, ScoreState};
+use score::{PeerAction, ReportSource, ScoreState};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -135,7 +136,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// Returns true if the peer was accepted into the database.
     pub fn dial_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.events.push(PeerManagerEvent::Dial(peer_id.clone()));
+        self.events.push(PeerManagerEvent::Dial(*peer_id));
         self.connect_peer(peer_id, ConnectingType::Dialing)
     }
 
@@ -144,7 +145,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// All instant disconnections are fatal and we ban the associated peer.
     ///
     /// This will send a goodbye and disconnect the peer if it is connected or dialing.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         // get the peer info
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
@@ -154,6 +155,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // Goodbye's are fatal
             info.apply_peer_action_to_score(PeerAction::Fatal);
+            metrics::inc_counter_vec(
+                &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
+                &[
+                    info.client.kind.as_static_ref(),
+                    PeerAction::Fatal.as_static_str(),
+                    source.into(),
+                ],
+            );
         }
 
         // Update the peerdb and peer state accordingly
@@ -165,14 +174,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         {
             // update the state of the peer.
             self.events
-                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone(), reason));
+                .push(PeerManagerEvent::DisconnectPeer(*peer_id, reason));
         }
     }
 
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
         // Helper function to avoid any potential deadlocks.
         let mut to_ban_peers = Vec::with_capacity(1);
         let mut to_unban_peers = Vec::with_capacity(1);
@@ -182,6 +191,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(info) = peer_db.peer_info_mut(peer_id) {
                 let previous_state = info.score_state();
                 info.apply_peer_action_to_score(action);
+                metrics::inc_counter_vec(
+                    &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
+                    &[
+                        info.client.kind.as_static_ref(),
+                        action.as_static_str(),
+                        source.into(),
+                    ],
+                );
+
                 Self::handle_score_transitions(
                     previous_state,
                     peer_id,
@@ -192,7 +210,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     &self.log,
                 );
                 if previous_state == info.score_state() {
-                    debug!(self.log, "Peer score adjusted"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
+                    debug!(self.log, "Peer score adjusted"; "peer_id" => %peer_id, "score" => %info.score());
                 }
             }
         } // end write lock
@@ -237,10 +255,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .good_peers_on_subnet(s.subnet_id)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
-                    debug!(
+                    trace!(
                         self.log,
                         "Discovery query ignored";
-                        "subnet_id" => format!("{:?}",s.subnet_id),
+                        "subnet_id" => ?s.subnet_id,
                         "reason" => "Already connected to desired peers",
                         "connected_peers_on_subnet" => peers_on_subnet,
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
@@ -264,7 +282,28 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A STATUS message has been received from a peer. This resets the status timer.
     pub fn peer_statusd(&mut self, peer_id: &PeerId) {
-        self.status_peers.insert(peer_id.clone());
+        self.status_peers.insert(*peer_id);
+    }
+
+    /// Adds a gossipsub subscription to a peer in the peerdb.
+    pub fn add_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            info.subnets.insert(subnet_id);
+        }
+    }
+
+    /// Removes a gossipsub subscription to a peer in the peerdb.
+    pub fn remove_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            info.subnets.remove(&subnet_id);
+        }
+    }
+
+    /// Removes all gossipsub subscriptions to a peer in the peerdb.
+    pub fn remove_all_subscriptions(&self, peer_id: &PeerId) {
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            info.subnets = Default::default();
+        }
     }
 
     /* Notifications from the Swarm */
@@ -351,7 +390,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    /// An error has occured in the RPC.
+    /// An error has occurred in the RPC.
     ///
     /// This adjusts a peer's score based on the error.
     pub fn handle_rpc_error(
@@ -365,6 +404,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let score = self.network_globals.peers.read().score(peer_id);
         debug!(self.log, "RPC Error"; "protocol" => %protocol, "err" => %err, "client" => %client,
             "peer_id" => %peer_id, "score" => %score, "direction" => ?direction);
+        metrics::inc_counter_vec(
+            &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,
+            &[
+                client.kind.as_static_ref(),
+                err.as_static_str(),
+                direction.as_static_str(),
+            ],
+        );
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -386,9 +433,22 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
             RPCError::ErrorResponse(code, _) => match code {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
+                RPCResponseErrorCode::ResourceUnavailable => {
+                    // NOTE: This error only makes sense for the `BlocksByRange` and `BlocksByRoot`
+                    // protocols. For the time being, there is no reason why a peer should send
+                    // this error.
+                    PeerAction::Fatal
+                }
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
-                RPCResponseErrorCode::RateLimited => PeerAction::LowToleranceError,
+                RPCResponseErrorCode::RateLimited => match protocol {
+                    Protocol::Ping => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
+                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::Goodbye => PeerAction::LowToleranceError,
+                    Protocol::MetaData => PeerAction::LowToleranceError,
+                    Protocol::Status => PeerAction::LowToleranceError,
+                },
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -421,17 +481,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 },
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
-            RPCError::RateLimited => match protocol {
-                Protocol::Ping => PeerAction::MidToleranceError,
-                Protocol::BlocksByRange => PeerAction::HighToleranceError,
-                Protocol::BlocksByRoot => PeerAction::HighToleranceError,
-                Protocol::Goodbye => PeerAction::LowToleranceError,
-                Protocol::MetaData => PeerAction::LowToleranceError,
-                Protocol::Status => PeerAction::LowToleranceError,
-            },
         };
 
-        self.report_peer(peer_id, peer_action);
+        self.report_peer(peer_id, peer_action, ReportSource::RPC);
     }
 
     /// A ping request has been received.
@@ -440,13 +492,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
             // reset the to-ping timer for this peer
-            debug!(self.log, "Received a ping request"; "peer_id" => peer_id.to_string(), "seq_no" => seq);
+            debug!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
             match peer_info.connection_direction {
                 Some(ConnectionDirection::Incoming) => {
-                    self.inbound_ping_peers.insert(peer_id.clone());
+                    self.inbound_ping_peers.insert(*peer_id);
                 }
                 Some(ConnectionDirection::Outgoing) => {
-                    self.outbound_ping_peers.insert(peer_id.clone());
+                    self.outbound_ping_peers.insert(*peer_id);
                 }
                 None => {
                     warn!(self.log, "Received a ping from a peer with an unknown connection direction"; "peer_id" => %peer_id);
@@ -457,20 +509,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(meta_data) = &peer_info.meta_data {
                 if meta_data.seq_number < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
-                    self.events
-                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
+                    self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
                 // if we don't know the meta-data, request it
                 debug!(self.log, "Requesting first metadata from peer";
-                    "peer_id" => peer_id.to_string());
-                self.events
-                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                    "peer_id" => %peer_id);
+                self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
         } else {
             crit!(self.log, "Received a PING from an unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
         }
     }
 
@@ -483,19 +533,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(meta_data) = &peer_info.meta_data {
                 if meta_data.seq_number < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
-                    self.events
-                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
+                    self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
                 // if we don't know the meta-data, request it
                 debug!(self.log, "Requesting first metadata from peer";
-                    "peer_id" => peer_id.to_string());
-                self.events
-                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                    "peer_id" => %peer_id);
+                self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
         } else {
-            crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => peer_id.to_string());
+            crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => %peer_id);
         }
     }
 
@@ -505,21 +553,24 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(known_meta_data) = &peer_info.meta_data {
                 if known_meta_data.seq_number < meta_data.seq_number {
                     debug!(self.log, "Updating peer's metadata";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
                     peer_info.meta_data = Some(meta_data);
                 } else {
                     debug!(self.log, "Received old metadata";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                    // Updating metadata even in this case to prevent storing
+                    // incorrect  `metadata.attnets` for a peer
+                    peer_info.meta_data = Some(meta_data);
                 }
             } else {
                 // we have no meta-data for this peer, update
                 debug!(self.log, "Obtained peer's metadata";
-                    "peer_id" => peer_id.to_string(), "new_seq_no" => meta_data.seq_number);
+                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number);
                 peer_info.meta_data = Some(meta_data);
             }
         } else {
             crit!(self.log, "Received METADATA from an unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
         }
     }
 
@@ -622,7 +673,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     && !peers.is_connected_or_dialing(peer_id)
                     && !peers.is_banned(peer_id)
                 {
-                    Some(peer_id.clone())
+                    Some(*peer_id)
                 } else {
                     None
                 }
@@ -639,6 +690,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
     /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
     /// proves resource constraining, we should switch to multiaddr dialling here.
+    #[allow(clippy::mutable_key_type)]
     fn peers_discovered(&mut self, results: HashMap<PeerId, Option<Instant>>) {
         let mut to_dial_peers = Vec::new();
 
@@ -670,7 +722,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
         for peer_id in to_dial_peers {
-            debug!(self.log, "Dialing discovered peer"; "peer_id"=> peer_id.to_string());
+            debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
             self.dial_peer(&peer_id);
         }
     }
@@ -686,7 +738,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.is_banned(&peer_id) {
                 // don't connect if the peer is banned
-                slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => peer_id.to_string());
+                slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
             }
 
             let enr = self.discovery.enr_of_peer(peer_id);
@@ -699,18 +751,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 ConnectingType::IngoingConnected { multiaddr } => {
                     peerdb.connect_ingoing(peer_id, multiaddr, enr);
                     // start a timer to ping inbound peers.
-                    self.inbound_ping_peers.insert(peer_id.clone());
+                    self.inbound_ping_peers.insert(*peer_id);
                 }
                 ConnectingType::OutgoingConnected { multiaddr } => {
                     peerdb.connect_outgoing(peer_id, multiaddr, enr);
                     // start a timer for to ping outbound peers.
-                    self.outbound_ping_peers.insert(peer_id.clone());
+                    self.outbound_ping_peers.insert(*peer_id);
                 }
             }
         }
 
         // start a ping and status timer for the peer
-        self.status_peers.insert(peer_id.clone());
+        self.status_peers.insert(*peer_id);
 
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -749,28 +801,28 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if previous_state != info.score_state() {
             match info.score_state() {
                 ScoreState::Banned => {
-                    debug!(log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string());
-                    to_ban_peers.push(peer_id.clone());
+                    debug!(log, "Peer has been banned"; "peer_id" => %peer_id, "score" => %info.score());
+                    to_ban_peers.push(*peer_id);
                 }
                 ScoreState::Disconnected => {
-                    debug!(log, "Peer transitioned to disconnect state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
+                    debug!(log, "Peer transitioned to disconnect state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
                     // disconnect the peer if it's currently connected or dialing
                     if info.is_connected_or_dialing() {
                         // Change the state to inform that we are disconnecting the peer.
                         info.disconnecting(false);
                         events.push(PeerManagerEvent::DisconnectPeer(
-                            peer_id.clone(),
+                            *peer_id,
                             GoodbyeReason::BadScore,
                         ));
                     } else if info.is_banned() {
-                        to_unban_peers.push(peer_id.clone());
+                        to_unban_peers.push(*peer_id);
                     }
                 }
                 ScoreState::Healthy => {
-                    debug!(log, "Peer transitioned to healthy state"; "peer_id" => peer_id.to_string(), "score" => info.score().to_string(), "past_state" => previous_state.to_string());
+                    debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
                     // unban the peer if it was previously banned.
                     if info.is_banned() {
-                        to_unban_peers.push(peer_id.clone());
+                        to_unban_peers.push(*peer_id);
                     }
                 }
             }
@@ -829,7 +881,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if peer_db.disconnect_and_ban(peer_id) {
                 // The peer was currently connected, so we start a disconnection.
                 self.events.push(PeerManagerEvent::DisconnectPeer(
-                    peer_id.clone(),
+                    *peer_id,
                     GoodbyeReason::BadScore,
                 ));
             }
@@ -904,7 +956,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 //disconnected in update_peer_scores
                 .filter(|(_, info)| info.score_state() == ScoreState::Healthy)
             {
-                disconnecting_peers.push((*peer_id).clone());
+                disconnecting_peers.push(**peer_id);
             }
         }
 
@@ -940,7 +992,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         loop {
             match self.inbound_ping_peers.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(peer_id))) => {
-                    self.inbound_ping_peers.insert(peer_id.clone());
+                    self.inbound_ping_peers.insert(peer_id);
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -953,7 +1005,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         loop {
             match self.outbound_ping_peers.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(peer_id))) => {
-                    self.outbound_ping_peers.insert(peer_id.clone());
+                    self.outbound_ping_peers.insert(peer_id);
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -968,7 +1020,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             loop {
                 match self.status_peers.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(peer_id))) => {
-                        self.status_peers.insert(peer_id.clone());
+                        self.status_peers.insert(peer_id);
                         self.events.push(PeerManagerEvent::Status(peer_id))
                     }
                     Poll::Ready(Some(Err(e))) => {

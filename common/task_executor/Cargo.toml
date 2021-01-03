@@ -5,9 +5,10 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2.22", features = ["rt-threaded", "macros", "blocking"] }
+tokio = { version = "0.3.2", features = ["rt"] }
 slog = "2.5.2"
-futures = "0.3.5"
+futures = "0.3.7"
 exit-future = "0.2.0"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
+tokio-compat-02 = "0.1"

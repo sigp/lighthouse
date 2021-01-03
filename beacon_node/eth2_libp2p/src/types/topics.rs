@@ -1,4 +1,4 @@
-use libp2p::gossipsub::IdentTopic as Topic;
+use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde_derive::{Deserialize, Serialize};
 use types::SubnetId;
 
@@ -193,6 +193,15 @@ impl From<SubnetId> for GossipKind {
 
 // helper functions
 
+/// Get subnet id from an attestation subnet topic hash.
+pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<SubnetId> {
+    let gossip_topic = GossipTopic::decode(topic_hash.as_str()).ok()?;
+    if let GossipKind::Attestation(subnet_id) = gossip_topic.kind() {
+        return Some(*subnet_id);
+    }
+    None
+}
+
 // Determines if a string is a committee topic.
 fn committee_topic_index(topic: &str) -> Option<SubnetId> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
@@ -288,5 +297,17 @@ mod tests {
         assert!(GossipTopic::decode("").is_err());
         // Empty parts
         assert!(GossipTopic::decode("////").is_err());
+    }
+
+    #[test]
+    fn test_subnet_id_from_topic_hash() {
+        let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_block/ssz_snappy");
+        assert!(subnet_id_from_topic_hash(&topic_hash).is_none());
+
+        let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_attestation_42/ssz_snappy");
+        assert_eq!(
+            subnet_id_from_topic_hash(&topic_hash),
+            Some(SubnetId::new(42))
+        );
     }
 }

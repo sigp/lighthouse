@@ -47,7 +47,7 @@ impl Chunk {
         self.data
             .get(cell_index)
             .map(|distance| epoch + u64::from(*distance))
-            .ok_or_else(|| Error::ChunkIndexOutOfBounds(cell_index))
+            .ok_or(Error::ChunkIndexOutOfBounds(cell_index))
     }
 
     pub fn set_target(
@@ -75,7 +75,7 @@ impl Chunk {
         let cell = self
             .data
             .get_mut(cell_index)
-            .ok_or_else(|| Error::ChunkIndexOutOfBounds(cell_index))?;
+            .ok_or(Error::ChunkIndexOutOfBounds(cell_index))?;
         *cell = target_distance;
         Ok(())
     }
@@ -620,7 +620,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     metrics::inc_counter_vec_by(
         &SLASHER_NUM_CHUNKS_UPDATED,
         &[T::name()],
-        updated_chunks.len() as i64,
+        updated_chunks.len() as u64,
     );
 
     for (chunk_index, chunk) in updated_chunks {

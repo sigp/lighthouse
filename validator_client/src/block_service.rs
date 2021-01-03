@@ -1,6 +1,7 @@
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
-use eth2::{types::Graffiti, BeaconNodeHttpClient};
+use eth2::types::Graffiti;
 use futures::channel::mpsc::Receiver;
 use futures::{StreamExt, TryFutureExt};
 use slog::{crit, debug, error, info, trace, warn};
@@ -13,7 +14,7 @@ use types::{EthSpec, PublicKey, Slot};
 pub struct BlockServiceBuilder<T, E: EthSpec> {
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
-    beacon_node: Option<BeaconNodeHttpClient>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
 }
@@ -23,7 +24,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         Self {
             validator_store: None,
             slot_clock: None,
-            beacon_node: None,
+            beacon_nodes: None,
             context: None,
             graffiti: None,
         }
@@ -39,8 +40,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_node(mut self, beacon_node: BeaconNodeHttpClient) -> Self {
-        self.beacon_node = Some(beacon_node);
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+        self.beacon_nodes = Some(beacon_nodes);
         self
     }
 
@@ -59,16 +60,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             inner: Arc::new(Inner {
                 validator_store: self
                     .validator_store
-                    .ok_or_else(|| "Cannot build BlockService without validator_store")?,
+                    .ok_or("Cannot build BlockService without validator_store")?,
                 slot_clock: self
                     .slot_clock
-                    .ok_or_else(|| "Cannot build BlockService without slot_clock")?,
-                beacon_node: self
-                    .beacon_node
-                    .ok_or_else(|| "Cannot build BlockService without beacon_node")?,
+                    .ok_or("Cannot build BlockService without slot_clock")?,
+                beacon_nodes: self
+                    .beacon_nodes
+                    .ok_or("Cannot build BlockService without beacon_node")?,
                 context: self
                     .context
-                    .ok_or_else(|| "Cannot build BlockService without runtime_context")?,
+                    .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
             }),
         })
@@ -79,7 +80,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 pub struct Inner<T, E: EthSpec> {
     validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
-    beacon_node: BeaconNodeHttpClient,
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
 }
@@ -188,21 +189,22 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        proposers.into_iter().for_each(|validator_pubkey| {
+        for validator_pubkey in proposers {
             let service = self.clone();
             let log = log.clone();
-            self.inner.context.executor.runtime_handle().spawn(
+            self.inner.context.executor.spawn(
                 service
                     .publish_block(slot, validator_pubkey)
-                    .map_err(move |e| {
+                    .unwrap_or_else(move |e| {
                         crit!(
                             log,
                             "Error whilst producing block";
                             "message" => e
-                        )
+                        );
                     }),
+                "block service",
             );
-        });
+        }
 
         Ok(())
     }
@@ -216,29 +218,42 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let current_slot = self
             .slot_clock
             .now()
-            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?;
+            .ok_or("Unable to determine current slot from clock")?;
 
         let randao_reveal = self
             .validator_store
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
-            .ok_or_else(|| "Unable to produce randao reveal".to_string())?;
+            .ok_or("Unable to produce randao reveal")?
+            .into();
 
-        let block = self
-            .beacon_node
-            .get_validator_blocks(slot, randao_reveal.into(), self.graffiti.as_ref())
-            .await
-            .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
-            .data;
-
+        let randao_reveal_ref = &randao_reveal;
+        let self_ref = &self;
+        let validator_pubkey_ref = &validator_pubkey;
         let signed_block = self
-            .validator_store
-            .sign_block(&validator_pubkey, block, current_slot)
-            .ok_or_else(|| "Unable to sign block".to_string())?;
+            .beacon_nodes
+            .first_success(RequireSynced::No, |beacon_node| async move {
+                let block = beacon_node
+                    .get_validator_blocks(slot, randao_reveal_ref, self_ref.graffiti.as_ref())
+                    .await
+                    .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
+                    .data;
 
-        self.beacon_node
-            .post_beacon_blocks(&signed_block)
+                let signed_block = self_ref
+                    .validator_store
+                    .sign_block(validator_pubkey_ref, block, current_slot)
+                    .ok_or("Unable to sign block")?;
+
+                beacon_node
+                    .post_beacon_blocks(&signed_block)
+                    .await
+                    .map_err(|e| {
+                        format!("Error from beacon node when publishing block: {:?}", e)
+                    })?;
+
+                Ok::<_, String>(signed_block)
+            })
             .await
-            .map_err(|e| format!("Error from beacon node when publishing block: {:?}", e))?;
+            .map_err(|e| e.to_string())?;
 
         info!(
             log,

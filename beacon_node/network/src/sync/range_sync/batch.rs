@@ -102,11 +102,11 @@ impl<T: EthSpec> BatchInfo<T> {
         );
 
         for attempt in &self.failed_processing_attempts {
-            peers.insert(attempt.peer_id.clone());
+            peers.insert(attempt.peer_id);
         }
 
         for download in &self.failed_download_attempts {
-            peers.insert(download.clone());
+            peers.insert(*download);
         }
 
         peers
@@ -391,7 +391,7 @@ impl<T: EthSpec> slog::KV for BatchInfo<T> {
         )?;
         serializer.emit_usize("downloaded", self.failed_download_attempts.len())?;
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
-        serializer.emit_str("state", &format!("{:?}", self.state))?;
+        serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }
 }

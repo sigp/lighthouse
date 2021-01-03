@@ -6,9 +6,10 @@ use node_test_rig::{
     ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
+use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::time::{delay_until, Instant};
+use tokio::time::{sleep_until, Instant};
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
@@ -55,6 +56,8 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let total_validator_count = validators_per_node * node_count;
 
     spec.milliseconds_per_slot /= speed_up_factor;
+    //currently lighthouse only supports slot lengths that are multiples of seconds
+    spec.milliseconds_per_slot = max(1000, spec.milliseconds_per_slot / 1000 * 1000);
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
@@ -100,7 +103,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let add_validators_fut = async {
             for (i, files) in validator_files.into_iter().enumerate() {
                 network
-                    .add_validator_client(testing_validator_config(), i, files)
+                    .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
                     .await?;
             }
 
@@ -111,7 +114,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * The processes that will run checks on the network as it runs.
          */
         let checks_fut = async {
-            delay_until(genesis_instant).await;
+            sleep_until(genesis_instant).await;
 
             let (finalization, block_prod) = futures::join!(
                 // Check that the chain finalizes at the first given opportunity.
@@ -156,6 +159,11 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    env.runtime().block_on(main_future).unwrap();
+    env.runtime()
+        .block_on(tokio_compat_02::FutureExt::compat(main_future))
+        .unwrap();
+
+    env.fire_signal();
+    env.shutdown_on_idle();
     Ok(())
 }

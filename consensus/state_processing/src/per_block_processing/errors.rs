@@ -223,8 +223,6 @@ pub enum AttesterSlashingInvalid {
     IndexedAttestation2Invalid(BlockOperationError<IndexedAttestationInvalid>),
     /// The validator index is unknown. One cannot slash one who does not exist.
     UnknownValidator(u64),
-    /// The specified validator has already been withdrawn.
-    ValidatorAlreadyWithdrawn(u64),
     /// There were no indices able to be slashed.
     NoSlashableIndices,
 }

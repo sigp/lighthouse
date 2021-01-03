@@ -3,13 +3,15 @@ mod metrics;
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use slog::{debug, o, trace};
-use tokio::runtime::Handle;
+use std::sync::Weak;
+use tokio::runtime::Runtime;
+use tokio_compat_02::FutureExt;
 
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
 pub struct TaskExecutor {
     /// The handle to the runtime on which tasks are spawned
-    handle: Handle,
+    runtime: Weak<Runtime>,
     /// The receiver exit future which on receiving shuts down the task
     exit: exit_future::Exit,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -27,13 +29,13 @@ impl TaskExecutor {
     /// Note: this function is mainly useful in tests. A `TaskExecutor` should be normally obtained from
     /// a [`RuntimeContext`](struct.RuntimeContext.html)
     pub fn new(
-        handle: Handle,
+        runtime: Weak<Runtime>,
         exit: exit_future::Exit,
         log: slog::Logger,
         signal_tx: Sender<&'static str>,
     ) -> Self {
         Self {
-            handle,
+            runtime,
             exit,
             signal_tx,
             log,
@@ -43,7 +45,7 @@ impl TaskExecutor {
     /// Clones the task executor adding a service name.
     pub fn clone_with_name(&self, service_name: String) -> Self {
         TaskExecutor {
-            handle: self.handle.clone(),
+            runtime: self.runtime.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
             log: self.log.new(o!("service" => service_name)),
@@ -61,7 +63,7 @@ impl TaskExecutor {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
             let int_gauge_1 = int_gauge.clone();
-            let future = future::select(Box::pin(task), exit).then(move |either| {
+            let future = future::select(Box::pin(task.compat()), exit).then(move |either| {
                 match either {
                     future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
                     future::Either::Right(_) => {
@@ -73,7 +75,11 @@ impl TaskExecutor {
             });
 
             int_gauge.inc();
-            self.handle.spawn(future);
+            if let Some(runtime) = self.runtime.upgrade() {
+                runtime.spawn(future);
+            } else {
+                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+            }
         }
     }
 
@@ -93,13 +99,19 @@ impl TaskExecutor {
     ) {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             let int_gauge_1 = int_gauge.clone();
-            let future = task.then(move |_| {
-                int_gauge_1.dec();
-                futures::future::ready(())
-            });
+            let future = task
+                .then(move |_| {
+                    int_gauge_1.dec();
+                    futures::future::ready(())
+                })
+                .compat();
 
             int_gauge.inc();
-            self.handle.spawn(future);
+            if let Some(runtime) = self.runtime.upgrade() {
+                runtime.spawn(future);
+            } else {
+                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+            }
         }
     }
 
@@ -109,7 +121,6 @@ impl TaskExecutor {
     where
         F: FnOnce() + Send + 'static,
     {
-        let exit = self.exit.clone();
         let log = self.log.clone();
 
         if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
@@ -117,31 +128,128 @@ impl TaskExecutor {
             {
                 let int_gauge_1 = int_gauge.clone();
                 let timer = metric.start_timer();
-                let join_handle = self.handle.spawn_blocking(task);
+                let join_handle = if let Some(runtime) = self.runtime.upgrade() {
+                    runtime.spawn_blocking(task)
+                } else {
+                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                    return;
+                };
 
-                let future = future::select(join_handle, exit).then(move |either| {
-                    match either {
-                        future::Either::Left(_) => {
-                            trace!(log, "Blocking task completed"; "task" => name)
-                        }
-                        future::Either::Right(_) => {
-                            debug!(log, "Blocking task shutdown, exit received"; "task" => name)
-                        }
-                    }
+                let future = async move {
+                    match join_handle.await {
+                        Ok(_) => trace!(log, "Blocking task completed"; "task" => name),
+                        Err(e) => debug!(log, "Blocking task failed"; "error" => %e),
+                    };
                     timer.observe_duration();
                     int_gauge_1.dec();
-                    futures::future::ready(())
-                });
+                };
 
                 int_gauge.inc();
-                self.handle.spawn(future);
+                if let Some(runtime) = self.runtime.upgrade() {
+                    runtime.spawn(future);
+                } else {
+                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                }
             }
         }
     }
+    /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit` returning an optional
+    /// join handle to the future.
+    /// The task is canceled when the corresponding exit_future `Signal` is fired/dropped.
+    ///
+    /// This function generates prometheus metrics on number of tasks and task duration.
+    pub fn spawn_handle<R: Send + 'static>(
+        &self,
+        task: impl Future<Output = R> + Send + 'static,
+        name: &'static str,
+    ) -> Option<tokio::task::JoinHandle<Option<R>>> {
+        let exit = self.exit.clone();
+        let log = self.log.clone();
 
-    /// Returns the underlying runtime handle.
-    pub fn runtime_handle(&self) -> Handle {
-        self.handle.clone()
+        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
+            // Task is shutdown before it completes if `exit` receives
+            let int_gauge_1 = int_gauge.clone();
+            let future = future::select(Box::pin(task), exit).then(move |either| {
+                let result = match either {
+                    future::Either::Left((task, _)) => {
+                        trace!(log, "Async task completed"; "task" => name);
+                        Some(task)
+                    }
+                    future::Either::Right(_) => {
+                        debug!(log, "Async task shutdown, exit received"; "task" => name);
+                        None
+                    }
+                };
+                int_gauge_1.dec();
+                futures::future::ready(result)
+            });
+
+            int_gauge.inc();
+            if let Some(runtime) = self.runtime.upgrade() {
+                Some(runtime.spawn(future.compat()))
+            } else {
+                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future returning
+    /// a join handle to the future.
+    /// If the runtime doesn't exist, this will return None.
+    /// The Future returned behaves like the standard JoinHandle which can return an error if the
+    /// task failed.
+    /// This function generates prometheus metrics on number of tasks and task duration.
+    pub fn spawn_blocking_handle<F, R>(
+        &self,
+        task: F,
+        name: &'static str,
+    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>>>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let log = self.log.clone();
+
+        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
+            if let Some(int_gauge) = metrics::get_int_gauge(&metrics::BLOCKING_TASKS_COUNT, &[name])
+            {
+                let int_gauge_1 = int_gauge;
+                let timer = metric.start_timer();
+                let join_handle = if let Some(runtime) = self.runtime.upgrade() {
+                    runtime.spawn_blocking(task)
+                } else {
+                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                    return None;
+                };
+
+                Some(async move {
+                    let result = match join_handle.await {
+                        Ok(result) => {
+                            trace!(log, "Blocking task completed"; "task" => name);
+                            Ok(result)
+                        }
+                        Err(e) => {
+                            debug!(log, "Blocking task ended unexpectedly"; "error" => %e);
+                            Err(e)
+                        }
+                    };
+                    timer.observe_duration();
+                    int_gauge_1.dec();
+                    result
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn runtime(&self) -> Weak<Runtime> {
+        self.runtime.clone()
     }
 
     /// Returns a copy of the `exit_future::Exit`.

@@ -98,6 +98,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("private")
+                .long("private")
+                .help("Prevents sending various client identification information.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("enr-udp-port")
                 .long("enr-udp-port")
                 .value_name("PORT")
@@ -226,29 +232,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
         )
-        /* Websocket related arguments */
-        .arg(
-            Arg::with_name("ws")
-                .long("ws")
-                .help("Enable the websocket server. Disabled by default.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("ws-address")
-                .long("ws-address")
-                .value_name("ADDRESS")
-                .help("Set the listen address for the websocket server.")
-                .default_value("127.0.0.1")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("ws-port")
-                .long("ws-port")
-                .value_name("PORT")
-                .help("Set the listen TCP port for the websocket server.")
-                .default_value("5053")
-                .takes_value(true),
-        )
 
         /*
          * Standard staking flags
@@ -297,6 +280,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        given order. Also enables the --eth1 flag. \
                        Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("eth1-purge-cache")
+                .long("eth1-purge-cache")
+                .value_name("PURGE-CACHE")
+                .help("Purges the eth1 block and deposit caches")
+                .takes_value(false)
         )
         .arg(
             Arg::with_name("eth1-blocks-per-log-query")
@@ -443,6 +433,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("NUM_VALIDATORS")
                 .requires("slasher")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-broadcast")
+                .long("slasher-broadcast")
+                .help("Broadcast slashings found by the slasher to the rest of the network \
+                       [disabled by default].")
+                .requires("slasher")
         )
         .arg(
             Arg::with_name("wss-checkpoint")

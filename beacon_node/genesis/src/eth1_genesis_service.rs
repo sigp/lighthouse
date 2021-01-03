@@ -12,7 +12,7 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
 
 /// The number of blocks that are pulled per request whilst waiting for genesis.
@@ -151,7 +151,7 @@ impl Eth1GenesisService {
                         "valid_deposits" => eth1_service.get_raw_valid_signature_count(),
                     );
 
-                    delay_for(update_interval).await;
+                    sleep(update_interval).await;
 
                     continue;
                 }
@@ -231,9 +231,9 @@ impl Eth1GenesisService {
             // We assume that if we imported a large chunk of blocks then we're some distance from
             // the head and we should sync faster.
             if blocks_imported >= BLOCKS_PER_GENESIS_POLL {
-                delay_for(Duration::from_millis(50)).await;
+                sleep(Duration::from_millis(50)).await;
             } else {
-                delay_for(update_interval).await;
+                sleep(update_interval).await;
             }
         }
     }

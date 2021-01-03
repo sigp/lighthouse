@@ -10,4 +10,4 @@ edition = "2018"
 clap = "2.33.3"
 clap_utils = {path = "../clap_utils"}
 dirs = "3.0.1"
-eth2_testnet_config = { path = "../eth2_testnet_config" }
+eth2_network_config = { path = "../eth2_network_config" }

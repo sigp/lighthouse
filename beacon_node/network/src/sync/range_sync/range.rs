@@ -88,7 +88,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }
     }
 
-    pub fn state(&self) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, String> {
+    pub fn state(
+        &self,
+    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
         self.chains.state()
     }
 

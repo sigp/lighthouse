@@ -8,6 +8,7 @@ pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
 pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
+pub const DEFAULT_BROADCAST: bool = false;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -20,6 +21,8 @@ pub struct Config {
     pub update_period: u64,
     /// Maximum size of the LMDB database in megabytes.
     pub max_db_size_mbs: usize,
+    /// Whether to broadcast slashings found to the network.
+    pub broadcast: bool,
 }
 
 impl Config {
@@ -31,6 +34,7 @@ impl Config {
             history_length: DEFAULT_HISTORY_LENGTH,
             update_period: DEFAULT_UPDATE_PERIOD,
             max_db_size_mbs: DEFAULT_MAX_DB_SIZE,
+            broadcast: DEFAULT_BROADCAST,
         }
     }
 

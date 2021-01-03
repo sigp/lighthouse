@@ -170,7 +170,7 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
 
         let len = initial_bitfield
             .highest_set_bit()
-            .ok_or_else(|| Error::MissingLengthInformation)?;
+            .ok_or(Error::MissingLengthInformation)?;
 
         // The length bit should be in the last byte, or else it means we have too many bytes.
         if len / 8 + 1 != bytes_len {
@@ -286,7 +286,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
             let byte = self
                 .bytes
                 .get_mut(i / 8)
-                .ok_or_else(|| Error::OutOfBounds { i, len })?;
+                .ok_or(Error::OutOfBounds { i, len })?;
 
             if value {
                 *byte |= 1 << (i % 8)
@@ -308,7 +308,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
             let byte = self
                 .bytes
                 .get(i / 8)
-                .ok_or_else(|| Error::OutOfBounds { i, len: self.len })?;
+                .ok_or(Error::OutOfBounds { i, len: self.len })?;
 
             Ok(*byte & 1 << (i % 8) > 0)
         } else {

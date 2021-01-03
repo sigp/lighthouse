@@ -64,7 +64,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         let listen_addr = self
             .client
             .http_api_listen_addr()
-            .ok_or_else(|| "A remote beacon node must have a http server".to_string())?;
+            .ok_or("A remote beacon node must have a http server")?;
 
         let beacon_node_url: Url = format!("http://{}:{}", listen_addr.ip(), listen_addr.port())
             .parse()
@@ -86,10 +86,9 @@ pub fn testing_client_config() -> ClientConfig {
     // Setting ports to `0` means that the OS will choose some available port.
     client_config.network.libp2p_port = 0;
     client_config.network.discovery_port = 0;
+    client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
-    client_config.websocket_server.enabled = true;
-    client_config.websocket_server.port = 0;
 
     client_config.dummy_eth1_backend = true;
 

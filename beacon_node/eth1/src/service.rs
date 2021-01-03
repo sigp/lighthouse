@@ -1,15 +1,15 @@
 use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
-    deposit_cache::Error as DepositCacheError,
+    deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
     http::{
         get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
-        BlockQuery, Eth1Id, Log,
+        BlockQuery, Eth1Id,
     },
     inner::{DepositUpdater, Inner},
 };
 use fallback::{Fallback, FallbackError};
-use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
+use futures::{future::TryFutureExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -34,7 +34,7 @@ const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getBlockByNumber call.
 const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
-const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
+const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 60_000;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 CONNECTION";
 
@@ -139,8 +139,9 @@ async fn endpoint_state(
     let error_connecting = |_| {
         warn!(
             log,
-            "Error connecting to eth1 node. Trying fallback ...";
+            "Error connecting to eth1 node endpoint";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks"
         );
         EndpointError::NotReachable
     };
@@ -150,9 +151,9 @@ async fn endpoint_state(
     if &network_id != config_network_id {
         warn!(
             log,
-            "Invalid eth1 network id. Please switch to correct network id. Trying \
-             fallback ...";
+            "Invalid eth1 network id on endpoint. Please switch to correct network id";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_network_id),
             "received" => format!("{:?}",network_id),
         );
@@ -168,15 +169,16 @@ async fn endpoint_state(
             log,
             "Remote eth1 node is not synced";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks"
         );
         return Err(EndpointError::FarBehind);
     }
     if &chain_id != config_chain_id {
         warn!(
             log,
-            "Invalid eth1 chain id. Please switch to correct chain id. Trying \
-             fallback ...";
+            "Invalid eth1 chain id. Please switch to correct chain id on endpoint";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_chain_id),
             "received" => format!("{:?}", chain_id),
         );
@@ -215,16 +217,22 @@ async fn get_remote_head_and_new_block_ranges(
     if remote_head_block.timestamp + node_far_behind_seconds < now {
         warn!(
             service.log,
-            "Eth1 endpoint is far behind. Trying fallback ...";
+            "Eth1 endpoint is not synced";
             "endpoint" => endpoint,
-            "last_seen_block_unix_timestamp" => remote_head_block.timestamp
+            "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
+            "action" => "trying fallback"
         );
         return Err(SingleEndpointError::EndpointError(EndpointError::FarBehind));
     }
 
     let handle_remote_not_synced = |e| {
         if let SingleEndpointError::RemoteNotSynced { .. } = e {
-            warn!(service.log, "Eth1 node not synced. Trying fallback..."; "endpoint" => endpoint);
+            warn!(
+                service.log,
+                "Eth1 endpoint is not synced";
+                "endpoint" => endpoint,
+                "action" => "trying fallbacks"
+            );
         }
         e
     };
@@ -343,6 +351,8 @@ pub struct Config {
     pub max_log_requests_per_update: Option<usize>,
     /// The maximum number of log requests per update.
     pub max_blocks_per_update: Option<usize>,
+    /// If set to true, the eth1 caches are wiped clean when the eth1 service starts.
+    pub purge_cache: bool,
 }
 
 impl Config {
@@ -384,8 +394,9 @@ impl Default for Config {
             block_cache_truncation: Some(4_096),
             auto_update_interval_millis: 7_000,
             blocks_per_log_query: 1_000,
-            max_log_requests_per_update: None,
-            max_blocks_per_update: None,
+            max_log_requests_per_update: Some(100),
+            max_blocks_per_update: Some(8_192),
+            purge_cache: false,
         }
     }
 }
@@ -659,7 +670,9 @@ impl Service {
             let outcome = self
                 .update_deposit_cache(Some(new_block_numbers_deposit), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
+                .map_err(|e| {
+                    format!("Failed to update eth1 deposit cache: {:?}", process_err(e))
+                })?;
 
             trace!(
                 self.log,
@@ -675,7 +688,7 @@ impl Service {
             let outcome = self
                 .update_block_cache(Some(new_block_numbers_block_cache), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
+                .map_err(|e| format!("Failed to update eth1 block cache: {:?}", process_err(e)))?;
 
             trace!(
                 self.log,
@@ -808,8 +821,8 @@ impl Service {
                 .chunks(blocks_per_log_query)
                 .take(max_log_requests_per_update)
                 .map(|vec| {
-                    let first = vec.first().cloned().unwrap_or_else(|| 0);
-                    let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
+                    let first = vec.first().cloned().unwrap_or(0);
+                    let last = vec.last().map(|n| n + 1).unwrap_or(0);
                     first..last
                 })
                 .collect::<Vec<Range<u64>>>()
@@ -817,38 +830,40 @@ impl Service {
             Vec::new()
         };
 
+        let mut logs_imported: usize = 0;
         let deposit_contract_address_ref: &str = &deposit_contract_address;
-        let logs: Vec<(Range<u64>, Vec<Log>)> =
-            stream::try_unfold(block_number_chunks.into_iter(), |mut chunks| async {
-                match chunks.next() {
-                    Some(chunk) => {
-                        let chunk_ref = &chunk;
-                        endpoints
-                            .first_success(|e| async move {
-                                get_deposit_logs_in_range(
-                                    e,
-                                    deposit_contract_address_ref,
-                                    chunk_ref.clone(),
-                                    Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
-                                )
-                                .await
-                                .map_err(SingleEndpointError::GetDepositLogsFailed)
-                            })
-                            .await
-                            .map(|logs| Some(((chunk, logs), chunks)))
-                    }
-                    None => Ok(None),
-                }
-            })
-            .try_collect()
-            .await
-            .map_err(Error::FallbackError)?;
+        for block_range in block_number_chunks.into_iter() {
+            if block_range.is_empty() {
+                debug!(
+                    self.log,
+                    "No new blocks to scan for logs";
+                );
+                continue;
+            }
 
-        let mut logs_imported = 0;
-        for (block_range, log_chunk) in logs.iter() {
+            /*
+             * Step 1. Download logs.
+             */
+            let block_range_ref = &block_range;
+            let logs = endpoints
+                .first_success(|e| async move {
+                    get_deposit_logs_in_range(
+                        e,
+                        &deposit_contract_address_ref,
+                        block_range_ref.clone(),
+                        Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
+                    )
+                    .await
+                    .map_err(SingleEndpointError::GetDepositLogsFailed)
+                })
+                .await
+                .map_err(Error::FallbackError)?;
+
+            /*
+             * Step 2. Import logs to cache.
+             */
             let mut cache = self.deposits().write();
-            log_chunk
-                .iter()
+            logs.iter()
                 .map(|raw_log| {
                     raw_log.to_deposit_log(self.inner.spec()).map_err(|error| {
                         Error::FailedToParseDepositLog {
@@ -864,12 +879,13 @@ impl Service {
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .map(|deposit_log| {
-                    cache
+                    if let DepositCacheInsertOutcome::Inserted = cache
                         .cache
                         .insert_log(deposit_log)
-                        .map_err(Error::FailedToInsertDeposit)?;
-
-                    logs_imported += 1;
+                        .map_err(Error::FailedToInsertDeposit)?
+                    {
+                        logs_imported += 1;
+                    }
 
                     Ok(())
                 })
@@ -881,12 +897,18 @@ impl Service {
                 // node to choose an invalid genesis state or propose an invalid block.
                 .collect::<Result<_, _>>()?;
 
+            debug!(
+                self.log,
+                "Imported deposit logs chunk";
+                "logs" => logs.len(),
+            );
+
             cache.last_processed_block = Some(block_range.end.saturating_sub(1));
 
             metrics::set_gauge(&metrics::DEPOSIT_CACHE_LEN, cache.cache.len() as i64);
             metrics::set_gauge(
                 &metrics::HIGHEST_PROCESSED_DEPOSIT_BLOCK,
-                cache.last_processed_block.unwrap_or_else(|| 0) as i64,
+                cache.last_processed_block.unwrap_or(0) as i64,
             );
         }
 
@@ -976,8 +998,9 @@ impl Service {
         } else {
             Vec::new()
         };
-        // Download the range of blocks and sequentially import them into the cache.
-        // Last processed block in deposit cache
+
+        // This value is used to prevent the block cache from importing a block that is not yet in
+        // the deposit cache.
         let latest_in_cache = self
             .inner
             .deposit_cache
@@ -990,34 +1013,26 @@ impl Service {
             .filter(|x| *x <= latest_in_cache)
             .take(max_blocks_per_update)
             .collect::<Vec<_>>();
+
+        debug!(
+            self.log,
+            "Downloading eth1 blocks";
+            "first" => ?required_block_numbers.first(),
+            "last" => ?required_block_numbers.last(),
+        );
+
         // Produce a stream from the list of required block numbers and return a future that
         // consumes the it.
 
-        let eth1_blocks: Vec<Eth1Block> = stream::try_unfold(
-            required_block_numbers.into_iter(),
-            |mut block_numbers| async {
-                match block_numbers.next() {
-                    Some(block_number) => {
-                        match endpoints
-                            .first_success(|e| async move {
-                                download_eth1_block(e, self.inner.clone(), Some(block_number)).await
-                            })
-                            .await
-                        {
-                            Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
-                            Err(e) => Err(e),
-                        }
-                    }
-                    None => Ok(None),
-                }
-            },
-        )
-        .try_collect()
-        .await
-        .map_err(Error::FallbackError)?;
-
         let mut blocks_imported = 0;
-        for eth1_block in eth1_blocks {
+        for block_number in required_block_numbers {
+            let eth1_block = endpoints
+                .first_success(|e| async move {
+                    download_eth1_block(e, self.inner.clone(), Some(block_number)).await
+                })
+                .await
+                .map_err(Error::FallbackError)?;
+
             self.inner
                 .block_cache
                 .write()
@@ -1034,7 +1049,7 @@ impl Service {
                     .block_cache
                     .read()
                     .latest_block_timestamp()
-                    .unwrap_or_else(|| 0) as i64,
+                    .unwrap_or(0) as i64,
             );
 
             blocks_imported += 1;

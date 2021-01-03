@@ -11,6 +11,7 @@ HTTP Path | Description |
 [`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
 [`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
 [`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic.
+[`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
 [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
 
 ## `GET /lighthouse/version`
@@ -312,6 +313,74 @@ Typical Responses | 200
         ]
     }
 }
+```
+
+## `POST /lighthouse/validators/keystore`
+
+Import a keystore into the validator client.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators/keystore`
+Method | POST
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200
+
+### Example Request Body
+
+```json
+{
+  "enable": true,
+  "password": "mypassword",
+  "keystore": {
+    "crypto": {
+      "kdf": {
+        "function": "scrypt",
+        "params": {
+          "dklen": 32,
+          "n": 262144,
+          "r": 8,
+          "p": 1,
+          "salt": "445989ec2f332bb6099605b4f1562c0df017488d8d7fb3709f99ebe31da94b49"
+        },
+        "message": ""
+      },
+      "checksum": {
+        "function": "sha256",
+        "params": {
+          
+        },
+        "message": "abadc1285fd38b24a98ac586bda5b17a8f93fc1ff0778803dc32049578981236"
+      },
+      "cipher": {
+        "function": "aes-128-ctr",
+        "params": {
+          "iv": "65abb7e1d02eec9910d04299cc73efbe"
+        },
+        "message": "6b7931a4447be727a3bb5dc106d9f3c1ba50671648e522f213651d13450b6417"
+      }
+    },
+    "uuid": "5cf2a1fb-dcd6-4095-9ebf-7e4ee0204cab",
+    "path": "m/12381/3600/0/0/0",
+    "pubkey": "b0d2f05014de27c6d7981e4a920799db1c512ee7922932be6bf55729039147cf35a090bd4ab378fe2d133c36cbbc9969",
+    "version": 4,
+    "description": ""
+  }
+}
+```
+
+### Example Response Body
+```json
+{
+  "data": {
+    "enabled": true,
+    "description": "",
+    "voting_pubkey": "0xb0d2f05014de27c6d7981e4a920799db1c512ee7922932be6bf55729039147cf35a090bd4ab378fe2d133c36cbbc9969"
+  }
+}
+
 ```
 
 ## `POST /lighthouse/validators/mnemonic`

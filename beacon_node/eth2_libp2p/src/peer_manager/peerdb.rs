@@ -246,7 +246,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet(subnet_id) && info.is_good_gossipsub_peer()
+                // We check both the metadata and gossipsub data as we only want to count long-lived subscribed peers
+                info.is_connected()
+                    && info.on_subnet_metadata(subnet_id)
+                    && info.on_subnet_gossipsub(subnet_id)
+                    && info.is_good_gossipsub_peer()
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -318,7 +322,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// A peer is being dialed.
     pub fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
         info.enr = enr;
 
         if info.is_disconnected() {
@@ -337,7 +341,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Update min ttl of a peer.
     pub fn update_min_ttl(&mut self, peer_id: &PeerId, min_ttl: Instant) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
 
         // only update if the ttl is longer
         if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
@@ -347,7 +351,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .checked_duration_since(Instant::now())
                 .map(|duration| duration.as_secs())
                 .unwrap_or_else(|| 0);
-            debug!(self.log, "Updating the time a peer is required for"; "peer_id" => peer_id.to_string(), "future_min_ttl_secs" => min_ttl_secs);
+            debug!(self.log, "Updating the time a peer is required for"; "peer_id" => %peer_id, "future_min_ttl_secs" => min_ttl_secs);
         }
     }
 
@@ -357,7 +361,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let log = &self.log;
         self.peers.iter_mut()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet(subnet_id)
+                info.is_connected() && info.on_subnet_metadata(subnet_id) && info.on_subnet_gossipsub(subnet_id)
             })
             .for_each(|(peer_id,info)| {
                 if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
@@ -378,7 +382,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         enr: Option<Enr>,
         direction: ConnectionDirection,
     ) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
         info.enr = enr;
 
         if info.is_disconnected() {
@@ -455,9 +459,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     // peer's score to be a banned state.
     pub fn disconnect_and_ban(&mut self, peer_id: &PeerId) -> bool {
         let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
+        let info = self.peers.entry(*peer_id).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
             PeerInfo::default()
         });
 
@@ -474,8 +478,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         // Check and verify all the connection states
         match info.connection_status() {
             PeerConnectionStatus::Disconnected { .. } => {
-                // It should not be possible to ban a peer that is already disconnected.
-                error!(log_ref, "Banning a disconnected peer"; "peer_id" => %peer_id);
+                // It is possible to ban a peer that has a disconnected score, if there are many
+                // events that score it poorly and are processed after it has disconnected.
+                debug!(log_ref, "Banning a disconnected peer"; "peer_id" => %peer_id);
                 self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
                 info.ban();
                 self.banned_peers_count
@@ -512,9 +517,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// If this is called for a banned peer, it will error.
     pub fn unban(&mut self, peer_id: &PeerId) -> Result<(), &'static str> {
         let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
+        let info = self.peers.entry(*peer_id).or_insert_with(|| {
             warn!(log_ref, "UnBanning unknown peer";
-                "peer_id" => peer_id.to_string());
+                "peer_id" => %peer_id);
             PeerInfo::default()
         });
 
@@ -552,7 +557,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             {
                 self.banned_peers_count
                     .remove_banned_peer(info.seen_addresses());
-                Some(id.clone())
+                Some(*id)
             } else {
                 // If there is no minimum, this is a coding error.
                 crit!(
@@ -563,7 +568,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 self.banned_peers_count = BannedPeersCount::new();
                 None
             } {
-                debug!(self.log, "Removing old banned peer"; "peer_id" => to_drop.to_string());
+                debug!(self.log, "Removing old banned peer"; "peer_id" => %to_drop);
                 self.peers.remove(&to_drop);
             }
         }
@@ -579,9 +584,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     _ => None,
                 })
                 .min_by_key(|(_, since)| *since)
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| *id)
             {
-                debug!(self.log, "Removing old disconnected peer"; "peer_id" => to_drop.to_string());
+                debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop);
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease
@@ -595,7 +600,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if let Some(peer_info) = self.peers.get_mut(peer_id) {
             peer_info.meta_data = Some(meta_data);
         } else {
-            warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => peer_id.to_string());
+            warn!(self.log, "Tried to add meta data for a non-existent peer"; "peer_id" => %peer_id);
         }
     }
 }

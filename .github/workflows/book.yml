@@ -8,6 +8,7 @@ on:
 jobs:
   build-and-upload-to-s3:
     runs-on: ubuntu-18.04
+    environment: protected
     steps:
       - uses: actions/checkout@master
 

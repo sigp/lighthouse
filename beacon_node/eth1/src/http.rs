@@ -83,9 +83,9 @@ pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id,
     let response_body = send_rpc_request(endpoint, "net_version", json!([]), timeout).await?;
     Eth1Id::from_str(
         response_result(&response_body)?
-            .ok_or_else(|| "No result was returned for network id".to_string())?
+            .ok_or("No result was returned for network id")?
             .as_str()
-            .ok_or_else(|| "Data was not string")?,
+            .ok_or("Data was not string")?,
     )
 }
 
@@ -94,9 +94,9 @@ pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, S
     let response_body = send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
     hex_to_u64_be(
         response_result(&response_body)?
-            .ok_or_else(|| "No result was returned for chain id".to_string())?
+            .ok_or("No result was returned for chain id")?
             .as_str()
-            .ok_or_else(|| "Data was not string")?,
+            .ok_or("Data was not string")?,
     )
     .map(Into::into)
 }
@@ -115,9 +115,9 @@ pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, 
     let response_body = send_rpc_request(endpoint, "eth_blockNumber", json!([]), timeout).await?;
     hex_to_u64_be(
         response_result(&response_body)?
-            .ok_or_else(|| "No result field was returned for block number".to_string())?
+            .ok_or("No result field was returned for block number")?
             .as_str()
-            .ok_or_else(|| "Data was not string")?,
+            .ok_or("Data was not string")?,
     )
     .map_err(|e| format!("Failed to get block number: {}", e))
 }
@@ -142,11 +142,11 @@ pub async fn get_block(
     let response_body = send_rpc_request(endpoint, "eth_getBlockByNumber", params, timeout).await?;
     let hash = hex_to_bytes(
         response_result(&response_body)?
-            .ok_or_else(|| "No result field was returned for block".to_string())?
+            .ok_or("No result field was returned for block")?
             .get("hash")
-            .ok_or_else(|| "No hash for block")?
+            .ok_or("No hash for block")?
             .as_str()
-            .ok_or_else(|| "Block hash was not string")?,
+            .ok_or("Block hash was not string")?,
     )?;
     let hash = if hash.len() == 32 {
         Ok(Hash256::from_slice(&hash))
@@ -156,20 +156,20 @@ pub async fn get_block(
 
     let timestamp = hex_to_u64_be(
         response_result(&response_body)?
-            .ok_or_else(|| "No result field was returned for timestamp".to_string())?
+            .ok_or("No result field was returned for timestamp")?
             .get("timestamp")
-            .ok_or_else(|| "No timestamp for block")?
+            .ok_or("No timestamp for block")?
             .as_str()
-            .ok_or_else(|| "Block timestamp was not string")?,
+            .ok_or("Block timestamp was not string")?,
     )?;
 
     let number = hex_to_u64_be(
         response_result(&response_body)?
-            .ok_or_else(|| "No result field was returned for number".to_string())?
+            .ok_or("No result field was returned for number")?
             .get("number")
-            .ok_or_else(|| "No number for block")?
+            .ok_or("No number for block")?
             .as_str()
-            .ok_or_else(|| "Block number was not string")?,
+            .ok_or("Block number was not string")?,
     )?;
 
     if number <= usize::max_value() as u64 {
@@ -287,7 +287,7 @@ async fn call(
             let hex = result
                 .as_str()
                 .map(|s| s.to_string())
-                .ok_or_else(|| "'result' value was not a string".to_string())?;
+                .ok_or("'result' value was not a string")?;
 
             Ok(Some(hex_to_bytes(&hex)?))
         }
@@ -322,23 +322,23 @@ pub async fn get_deposit_logs_in_range(
 
     let response_body = send_rpc_request(endpoint, "eth_getLogs", params, timeout).await?;
     response_result(&response_body)?
-        .ok_or_else(|| "No result field was returned for deposit logs".to_string())?
+        .ok_or("No result field was returned for deposit logs")?
         .as_array()
         .cloned()
-        .ok_or_else(|| "'result' value was not an array".to_string())?
+        .ok_or("'result' value was not an array")?
         .into_iter()
         .map(|value| {
             let block_number = value
                 .get("blockNumber")
-                .ok_or_else(|| "No block number field in log")?
+                .ok_or("No block number field in log")?
                 .as_str()
-                .ok_or_else(|| "Block number was not string")?;
+                .ok_or("Block number was not string")?;
 
             let data = value
                 .get("data")
-                .ok_or_else(|| "No block number field in log")?
+                .ok_or("No block number field in log")?
                 .as_str()
-                .ok_or_else(|| "Data was not string")?;
+                .ok_or("Data was not string")?;
 
             Ok(Log {
                 block_number: hex_to_u64_be(&block_number)?,
@@ -389,7 +389,7 @@ pub async fn send_rpc_request(
     let encoding = response
         .headers()
         .get(CONTENT_TYPE)
-        .ok_or_else(|| "No content-type header in response".to_string())?
+        .ok_or("No content-type header in response")?
         .to_str()
         .map(|s| s.to_string())
         .map_err(|e| format!("Failed to parse content-type header: {}", e))?;
@@ -443,8 +443,8 @@ fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
 
 /// Removes the `0x` prefix from some bytes. Returns an error if the prefix is not present.
 fn strip_prefix(hex: &str) -> Result<&str, String> {
-    if hex.starts_with("0x") {
-        Ok(&hex[2..])
+    if let Some(stripped) = hex.strip_prefix("0x") {
+        Ok(stripped)
     } else {
         Err("Hex string did not start with `0x`".to_string())
     }

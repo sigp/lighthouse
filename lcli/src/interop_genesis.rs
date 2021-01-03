@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use clap_utils::parse_ssz_optional;
 use environment::Environment;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use genesis::interop_genesis_state;
 use ssz::Encode;
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use types::{test_utils::generate_deterministic_keypairs, EthSpec};
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let validator_count = matches
         .value_of("validator-count")
-        .ok_or_else(|| "validator-count not specified")?
+        .ok_or("validator-count not specified")?
         .parse::<usize>()
         .map_err(|e| format!("Unable to parse validator-count: {}", e))?;
 
@@ -28,7 +28,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     let testnet_dir = matches
         .value_of("testnet-dir")
-        .ok_or_else(|| ())
+        .ok_or(())
         .and_then(|dir| dir.parse::<PathBuf>().map_err(|_| ()))
         .unwrap_or_else(|_| {
             dirs::home_dir()
@@ -36,12 +36,12 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .expect("should locate home directory")
         });
 
-    let mut eth2_testnet_config = Eth2TestnetConfig::load(testnet_dir.clone())?;
+    let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
-    let mut spec = eth2_testnet_config
+    let mut spec = eth2_network_config
         .yaml_config
         .as_ref()
-        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+        .ok_or("The testnet directory must contain a spec config")?
         .apply_to_chain_spec::<T>(&env.core_context().eth2_config.spec)
         .ok_or_else(|| {
             format!(
@@ -57,8 +57,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let keypairs = generate_deterministic_keypairs(validator_count);
     let genesis_state = interop_genesis_state::<T>(&keypairs, genesis_time, &spec)?;
 
-    eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
-    eth2_testnet_config.force_write_to_file(testnet_dir)?;
+    eth2_network_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
+    eth2_network_config.force_write_to_file(testnet_dir)?;
 
     Ok(())
 }

@@ -7,8 +7,8 @@ pub use crate::{
 use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
-    events::NullEventHandler,
-    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, StateSkipConfig,
+    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
+    StateSkipConfig,
 };
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
@@ -42,14 +42,8 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
-pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> = Witness<
-    TestingSlotClock,
-    CachingEth1Backend<TEthSpec>,
-    TEthSpec,
-    NullEventHandler<TEthSpec>,
-    THotStore,
-    TColdStore,
->;
+pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
+    Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
 
 pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
@@ -188,7 +182,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
 
         let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log)
+            .logger(log.clone())
             .custom_spec(spec.clone())
             .store(Arc::new(store))
             .store_migrator_config(MigratorConfig::default().blocking())
@@ -200,11 +194,11 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
-            .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(log, 1)))
             .build()
             .expect("should build");
 
@@ -246,7 +240,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
-            .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
@@ -288,7 +281,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .expect("should resume beacon chain from db")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
-            .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)

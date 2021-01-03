@@ -5,9 +5,7 @@ use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{
-    MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
-};
+use eth2_libp2p::{MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response};
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
@@ -128,11 +126,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         // ignore status responses if we are shutting down
         if let Ok(status_message) = status_message(&self.chain) {
             // Say status back.
-            self.network.send_response(
-                peer_id.clone(),
-                Response::Status(status_message),
-                request_id,
-            );
+            self.network
+                .send_response(peer_id, Response::Status(status_message), request_id);
         }
 
         self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))
@@ -179,7 +174,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         trace!(
             self.log,
             "Received BlocksByRange Response";
-            "peer" => peer_id.to_string(),
+            "peer" => %peer_id,
         );
 
         if let RequestId::Sync(id) = request_id {
@@ -206,7 +201,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         trace!(
             self.log,
             "Received BlocksByRoot Response";
-            "peer" => peer_id.to_string(),
+            "peer" => %peer_id,
         );
 
         if let RequestId::Sync(id) = request_id {
@@ -356,20 +351,9 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
 
     /// Sends a message to the network task.
     fn inform_network(&mut self, msg: NetworkMessage<T>) {
-        let msg_r = &format!("{:?}", msg);
-        self.network_send
-            .send(msg)
-            .unwrap_or_else(|e| warn!(self.log, "Could not send message to the network service"; "error" => %e, "message" => msg_r))
-    }
-
-    /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
-    pub fn _goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.inform_network(NetworkMessage::GoodbyePeer { peer_id, reason });
-    }
-
-    /// Reports a peer's action, adjusting the peer's score.
-    pub fn _report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
-        self.inform_network(NetworkMessage::ReportPeer { peer_id, action });
+        self.network_send.send(msg).unwrap_or_else(
+            |e| warn!(self.log, "Could not send message to the network service"; "error" => %e),
+        )
     }
 
     /// Sends a request to the network task.

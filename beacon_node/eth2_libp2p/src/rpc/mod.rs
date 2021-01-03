@@ -105,7 +105,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
-            .one_every(Protocol::Ping, Duration::from_secs(5))
+            .n_every(Protocol::Ping, 2, Duration::from_secs(10))
             .n_every(Protocol::Status, 5, Duration::from_secs(15))
             .one_every(Protocol::Goodbye, Duration::from_secs(10))
             .n_every(
@@ -187,10 +187,10 @@ where
     // Use connection established/closed instead of these currently
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
-        debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
+        debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
         let rpc_event = RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
-            peer_id: peer_id.clone(),
+            peer_id: *peer_id,
             handler: NotifyHandler::Any,
             event: rpc_event,
         });
@@ -253,7 +253,7 @@ where
                 }
                 Err(RateLimitedErr::TooSoon(wait_time)) => {
                     debug!(self.log, "Request exceeds the rate limit";
-                        "request" => req.to_string(), "peer_id" => peer_id.to_string(), "wait_time_ms" => wait_time.as_millis());
+                        "request" => %req, "peer_id" => %peer_id, "wait_time_ms" => wait_time.as_millis());
                     // send an error code to the peer.
                     // the handler upon receiving the error code will send it back to the behaviour
                     self.send_response(
@@ -261,7 +261,7 @@ where
                         (conn_id, *id),
                         RPCCodedResponse::Error(
                             RPCResponseErrorCode::RateLimited,
-                            format!("Rate limited: wait {:?}", wait_time).into(),
+                            format!("Wait {:?}", wait_time).into(),
                         ),
                     );
                 }

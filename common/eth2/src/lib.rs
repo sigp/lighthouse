@@ -13,14 +13,16 @@ pub mod lighthouse_vc;
 pub mod types;
 
 use self::types::*;
+use eth2_libp2p::PeerId;
+use futures::Stream;
+use futures_util::StreamExt;
+pub use reqwest;
 use reqwest::{IntoUrl, Response};
+pub use reqwest::{StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
-
-use eth2_libp2p::PeerId;
-pub use reqwest;
-pub use reqwest::{StatusCode, Url};
+use std::iter::Iterator;
 
 #[derive(Debug)]
 pub enum Error {
@@ -42,6 +44,8 @@ pub enum Error {
     MissingSignatureHeader,
     /// The server returned an invalid JSON response.
     InvalidJson(serde_json::Error),
+    /// The server returned an invalid server-sent event.
+    InvalidServerSentEvent(String),
     /// The server returned an invalid SSZ response.
     InvalidSsz(ssz::DecodeError),
 }
@@ -59,6 +63,7 @@ impl Error {
             Error::InvalidSignatureHeader => None,
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
+            Error::InvalidServerSentEvent(_) => None,
             Error::InvalidSsz(_) => None,
         }
     }
@@ -76,6 +81,18 @@ impl fmt::Display for Error {
 pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
     server: Url,
+}
+
+impl fmt::Display for BeaconNodeHttpClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.server.fmt(f)
+    }
+}
+
+impl AsRef<str> for BeaconNodeHttpClient {
+    fn as_ref(&self) -> &str {
+        self.server.as_str()
+    }
 }
 
 impl BeaconNodeHttpClient {
@@ -826,7 +843,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_duties_proposer(
         &self,
         epoch: Epoch,
-    ) -> Result<GenericResponse<Vec<ProposerData>>, Error> {
+    ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
@@ -843,7 +860,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_blocks<T: EthSpec>(
         &self,
         slot: Slot,
-        randao_reveal: SignatureBytes,
+        randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<GenericResponse<BeaconBlock<T>>, Error> {
         let mut path = self.eth_path()?;
@@ -913,7 +930,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         indices: &[u64],
-    ) -> Result<GenericResponse<Vec<AttesterData>>, Error> {
+    ) -> Result<DutiesResponse<Vec<AttesterData>>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
@@ -965,6 +982,36 @@ impl BeaconNodeHttpClient {
         self.post(path, &subscriptions).await?;
 
         Ok(())
+    }
+
+    /// `GET events?topics`
+    pub async fn get_events<T: EthSpec>(
+        &self,
+        topic: &[EventTopic],
+    ) -> Result<impl Stream<Item = Result<EventKind<T>, Error>>, Error> {
+        let mut path = self.eth_path()?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("events");
+
+        let topic_string = topic
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        path.query_pairs_mut().append_pair("topics", &topic_string);
+
+        Ok(self
+            .client
+            .get(path)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?
+            .bytes_stream()
+            .map(|next| match next {
+                Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
+                Err(e) => Err(Error::Reqwest(e)),
+            }))
     }
 }
 

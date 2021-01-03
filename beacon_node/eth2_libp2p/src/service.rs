@@ -6,12 +6,14 @@ use crate::multiaddr::Protocol;
 use crate::rpc::{GoodbyeReason, MetaData, RPCResponseErrorCode, RequestId};
 use crate::types::{error, EnrBitfield, GossipKind};
 use crate::EnrExt;
-use crate::{NetworkConfig, NetworkGlobals, PeerAction};
+use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use futures::prelude::*;
 use libp2p::core::{
-    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
+    connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
+    transport::Boxed,
 };
 use libp2p::{
+    bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
@@ -27,7 +29,7 @@ use types::{ChainSpec, EnrForkId, EthSpec};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
-const MAX_CONNECTIONS_PER_PEER: usize = 1;
+const MAX_CONNECTIONS_PER_PEER: u32 = 1;
 /// The filename to store our local metadata.
 pub const METADATA_FILENAME: &str = "metadata";
 
@@ -48,10 +50,10 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
 pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
     pub swarm: Swarm<Behaviour<TSpec>>,
-
+    /// The bandwidth logger for the underlying libp2p transport.
+    pub bandwidth: Arc<BandwidthSinks>,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
-
     /// The libp2p logger handle.
     pub log: Logger,
 }
@@ -92,18 +94,19 @@ impl<TSpec: EthSpec> Service<TSpec> {
             &log,
         ));
 
-        info!(log, "Libp2p Service"; "peer_id" => enr.peer_id().to_string());
+        info!(log, "Libp2p Service"; "peer_id" => %enr.peer_id());
         let discovery_string = if config.disable_discovery {
             "None".into()
         } else {
             config.discovery_port.to_string()
         };
-        debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
+        debug!(log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
-        let mut swarm = {
+        let (mut swarm, bandwidth) = {
             // Set up the transport - tcp/ws with noise and mplex
-            let transport = build_transport(local_keypair.clone())
+            let (transport, bandwidth) = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(
                 &local_keypair,
@@ -121,14 +124,24 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     self.0.spawn(f, "libp2p");
                 }
             }
-            SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
-                .notify_handler_buffer_size(std::num::NonZeroUsize::new(32).expect("Not zero"))
-                .connection_event_buffer_size(64)
-                .incoming_connection_limit(10)
-                .outgoing_connection_limit(config.target_peers * 2)
-                .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
-                .executor(Box::new(Executor(executor)))
-                .build()
+
+            // sets up the libp2p connection limits
+            let limits = ConnectionLimits::default()
+                .with_max_pending_incoming(Some(5))
+                .with_max_pending_outgoing(Some(16))
+                .with_max_established_incoming(Some((config.target_peers as f64 * 1.2) as u32))
+                .with_max_established_outgoing(Some((config.target_peers as f64 * 1.2) as u32))
+                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
+
+            (
+                SwarmBuilder::new(transport, behaviour, local_peer_id)
+                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                    .connection_event_buffer_size(64)
+                    .connection_limits(limits)
+                    .executor(Box::new(Executor(executor)))
+                    .build(),
+                bandwidth,
+            )
         };
 
         // listen on the specified address
@@ -141,15 +154,15 @@ impl<TSpec: EthSpec> Service<TSpec> {
         match Swarm::listen_on(&mut swarm, listen_multiaddr.clone()) {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
-                log_address.push(Protocol::P2p(local_peer_id.clone().into()));
-                info!(log, "Listening established"; "address" => format!("{}", log_address));
+                log_address.push(Protocol::P2p(local_peer_id.into()));
+                info!(log, "Listening established"; "address" => %log_address);
             }
             Err(err) => {
                 crit!(
                     log,
                     "Unable to listen on libp2p address";
-                    "error" => format!("{:?}", err),
-                    "listen_multiaddr" => format!("{}", listen_multiaddr),
+                    "error" => ?err,
+                    "listen_multiaddr" => %listen_multiaddr,
                 );
                 return Err("Libp2p was unable to listen on the given listen address.".into());
             }
@@ -160,10 +173,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             // strip the p2p protocol if it exists
             strip_peer_id(&mut multiaddr);
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
-                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => %multiaddr),
                 Err(err) => debug!(
                     log,
-                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "error" => format!("{:?}", err)
+                    "Could not connect to peer"; "address" => %multiaddr, "error" => ?err
                 ),
             };
         };
@@ -211,16 +224,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
             if swarm.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());
             } else {
-                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
+                warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
             }
         }
 
         if !subscribed_topics.is_empty() {
-            info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
+            info!(log, "Subscribed to topics"; "topics" => ?subscribed_topics);
         }
 
         let service = Service {
             local_peer_id,
+            bandwidth,
             swarm,
             log,
         };
@@ -245,13 +259,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 
     /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        self.swarm.report_peer(peer_id, action);
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
+        self.swarm.report_peer(peer_id, action, source);
     }
 
     /// Disconnect and ban a peer, providing a reason.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
-        self.swarm.goodbye_peer(peer_id, reason);
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
+        self.swarm.goodbye_peer(peer_id, reason, source);
     }
 
     /// Sends a response to a peer's request.
@@ -273,7 +287,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     endpoint: _,
                     num_established,
                 } => {
-                    debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => format!("{:?}", cause), "connections" => num_established);
+                    trace!(self.log, "Connection closed"; "peer_id" => %peer_id, "cause" => ?cause, "connections" => num_established);
                 }
                 SwarmEvent::NewListenAddr(multiaddr) => {
                     return Libp2pEvent::NewListenAddr(multiaddr)
@@ -282,14 +296,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     local_addr,
                     send_back_addr,
                 } => {
-                    debug!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
+                    trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr)
                 }
                 SwarmEvent::IncomingConnectionError {
                     local_addr,
                     send_back_addr,
                     error,
                 } => {
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
+                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error)
                 }
                 SwarmEvent::BannedPeer { .. } => {
                     // We do not ban peers at the swarm layer, so this should never occur.
@@ -300,38 +314,42 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     error,
                     attempts_remaining,
                 } => {
-                    debug!(self.log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining);
+                    debug!(self.log, "Failed to dial address"; "peer_id" => %peer_id, "address" => %address, "error" => %error, "attempts_remaining" => attempts_remaining);
                 }
                 SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
-                    debug!(self.log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string());
+                    debug!(self.log, "Peer not known at dialed address"; "address" => %address, "error" => %error);
                 }
                 SwarmEvent::ExpiredListenAddr(multiaddr) => {
-                    debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
+                    debug!(self.log, "Listen address expired"; "multiaddr" => %multiaddr)
                 }
                 SwarmEvent::ListenerClosed { addresses, reason } => {
-                    crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason));
+                    crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
                     if Swarm::listeners(&self.swarm).count() == 0 {
                         return Libp2pEvent::ZeroListeners;
                     }
                 }
                 SwarmEvent::ListenerError { error } => {
                     // this is non fatal, but we still check
-                    warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()));
+                    warn!(self.log, "Listener error"; "error" => ?error);
                     if Swarm::listeners(&self.swarm).count() == 0 {
                         return Libp2pEvent::ZeroListeners;
                     }
                 }
                 SwarmEvent::Dialing(peer_id) => {
-                    debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
+                    debug!(self.log, "Dialing peer"; "peer_id" => %peer_id);
                 }
             }
         }
     }
 }
 
+type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
+
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
 /// mplex as the multiplexing layer.
-fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
+fn build_transport(
+    local_private_key: Keypair,
+) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
     let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
@@ -340,28 +358,33 @@ fn build_transport(local_private_key: Keypair) -> std::io::Result<Boxed<(PeerId,
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
 
+    let (transport, bandwidth) = BandwidthLogging::new(transport);
+
     // mplex config
     let mut mplex_config = libp2p::mplex::MplexConfig::new();
-    mplex_config.max_buffer_len(256);
-    mplex_config.max_buffer_len_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
+    mplex_config.set_max_buffer_size(256);
+    mplex_config.set_max_buffer_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
 
     // Authentication
-    Ok(transport
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            libp2p::yamux::Config::default(),
-            mplex_config,
-        ))
-        .timeout(Duration::from_secs(10))
-        .boxed())
+    Ok((
+        transport
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(generate_noise_config(&local_private_key))
+            .multiplex(core::upgrade::SelectUpgrade::new(
+                libp2p::yamux::YamuxConfig::default(),
+                mplex_config,
+            ))
+            .timeout(Duration::from_secs(10))
+            .boxed(),
+        bandwidth,
+    ))
 }
 
 // Useful helper functions for debugging. Currently not used in the client.
 #[allow(dead_code)]
 fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
-    let hex_bytes = if hex_bytes.starts_with("0x") {
-        hex_bytes[2..].to_string()
+    let hex_bytes = if let Some(stripped) = hex_bytes.strip_prefix("0x") {
+        stripped.to_string()
     } else {
         hex_bytes.to_string()
     };
@@ -477,7 +500,7 @@ fn load_or_build_metadata<E: EthSpec>(
                     debug!(
                         log,
                         "Metadata from file could not be decoded";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                     );
                 }
             }

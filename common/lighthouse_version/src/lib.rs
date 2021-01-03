@@ -9,8 +9,8 @@ use target_info::Target;
 ///
 /// `Lighthouse/v0.2.0-1419501f2+`
 pub const VERSION: &str = git_version!(
-    args = ["--always", "--dirty=+"],
-    prefix = "Lighthouse/v1.0.1-",
+    args = ["--always", "--dirty=+", "--abbrev=7"],
+    prefix = "Lighthouse/v1.0.6-",
     fallback = "unknown"
 );
 

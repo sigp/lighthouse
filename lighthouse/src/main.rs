@@ -1,12 +1,13 @@
-use beacon_node::ProductionBeaconNode;
+use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
+use tokio_compat_02::FutureExt;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -37,8 +38,10 @@ fn main() {
         .long_version(
             format!(
                 "{}\n\
-                 BLS Library: {}",
-                 VERSION.replace("Lighthouse/", ""), bls_library_name()
+                 BLS Library: {}\n\
+                 Specs: mainnet (true), minimal ({}), v0.12.3 ({})",
+                 VERSION.replace("Lighthouse/", ""), bls_library_name(),
+                 cfg!(feature = "spec-minimal"), cfg!(feature = "spec-v12"),
             ).as_str()
         )
         .arg(
@@ -117,7 +120,6 @@ fn main() {
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
                 .conflicts_with("testnet-dir")
-                .default_value(DEFAULT_HARDCODED_TESTNET)
                 .takes_value(true)
                 .global(true)
 
@@ -134,7 +136,7 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = load_testnet_config(&matches).and_then(|testnet_config| {
+    let result = get_eth2_network_config(&matches).and_then(|testnet_config| {
         let eth_spec_id = testnet_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
@@ -151,10 +153,21 @@ fn main() {
         }
 
         match eth_spec_id {
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
+            #[cfg(feature = "spec-minimal")]
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
+            #[cfg(feature = "spec-v12")]
             EthSpecId::V012Legacy => {
                 run(EnvironmentBuilder::v012_legacy(), &matches, testnet_config)
+            }
+            #[cfg(any(not(feature = "spec-minimal"), not(feature = "spec-v12")))]
+            other => {
+                eprintln!(
+                    "Eth spec `{}` is not supported by this build of Lighthouse",
+                    other
+                );
+                eprintln!("You must compile with a feature flag to enable this spec variant");
+                exit(1);
             }
         }
     });
@@ -173,22 +186,10 @@ fn main() {
     }
 }
 
-fn load_testnet_config(matches: &ArgMatches) -> Result<Eth2TestnetConfig, String> {
-    if matches.is_present("testnet-dir") {
-        clap_utils::parse_testnet_dir(matches, "testnet-dir")?
-            .ok_or_else(|| "Unable to load testnet dir".to_string())
-    } else if matches.is_present("network") {
-        clap_utils::parse_hardcoded_network(matches, "network")?
-            .ok_or_else(|| "Unable to load hard coded network config".to_string())
-    } else {
-        Err("No --network or --testnet-dir flags provided, cannot start.".to_string())
-    }
-}
-
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
-    testnet_config: Eth2TestnetConfig,
+    testnet_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -199,7 +200,7 @@ fn run<E: EthSpec>(
 
     let debug_level = matches
         .value_of("debug-level")
-        .ok_or_else(|| "Expected --debug-level flag".to_string())?;
+        .ok_or("Expected --debug-level flag")?;
 
     let log_format = matches.value_of("log-format");
 
@@ -214,7 +215,7 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_testnet_config(Some(testnet_config))?
+        .optional_eth2_network_config(Some(testnet_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
@@ -247,15 +248,15 @@ fn run<E: EthSpec>(
     let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
     let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
 
-    let testnet_name = match (optional_testnet, optional_testnet_dir) {
+    let network_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
-        (None, None) => DEFAULT_HARDCODED_TESTNET.to_string(),
+        (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
-        eprintln!("Running account manager for {} network", testnet_name);
+        eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 
@@ -267,7 +268,7 @@ fn run<E: EthSpec>(
     info!(
         log,
         "Configured for network";
-        "name" => &testnet_name
+        "name" => &network_name
     );
 
     match matches.subcommand() {
@@ -280,16 +281,19 @@ fn run<E: EthSpec>(
                 &context.eth2_config().spec,
                 context.log().clone(),
             )?;
-            environment.runtime().spawn(async move {
-                if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                    crit!(log, "Failed to start beacon node"; "reason" => e);
-                    // Ignore the error since it always occurs during normal operation when
-                    // shutting down.
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send("Failed to start beacon node");
+            environment.runtime().spawn(
+                async move {
+                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                        crit!(log, "Failed to start beacon node"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send("Failed to start beacon node");
+                    }
                 }
-            });
+                .compat(),
+            );
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
@@ -297,23 +301,26 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(&matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-            environment.runtime().spawn(async move {
-                let run = async {
-                    ProductionValidatorClient::new(context, config)
-                        .await?
-                        .start_service()?;
+            environment.runtime().spawn(
+                async move {
+                    let run = async {
+                        ProductionValidatorClient::new(context, config)
+                            .await?
+                            .start_service()?;
 
-                    Ok::<(), String>(())
-                };
-                if let Err(e) = run.await {
-                    crit!(log, "Failed to start validator client"; "reason" => e);
-                    // Ignore the error since it always occurs during normal operation when
-                    // shutting down.
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send("Failed to start validator client");
+                        Ok::<(), String>(())
+                    };
+                    if let Err(e) = run.await {
+                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send("Failed to start validator client");
+                    }
                 }
-            });
+                .compat(),
+            );
         }
         ("remote_signer", Some(matches)) => {
             if let Err(e) = remote_signer::run(&mut environment, matches) {

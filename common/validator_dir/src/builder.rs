@@ -138,7 +138,7 @@ impl<'a> Builder<'a> {
     pub fn build(self) -> Result<ValidatorDir, Error> {
         let (voting_keystore, voting_password) = self
             .voting_keystore
-            .ok_or_else(|| Error::UninitializedVotingKeystore)?;
+            .ok_or(Error::UninitializedVotingKeystore)?;
 
         let dir = self
             .base_validators_dir

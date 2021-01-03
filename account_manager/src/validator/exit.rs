@@ -7,11 +7,12 @@ use eth2::{
     BeaconNodeHttpClient, Url,
 };
 use eth2_keystore::Keystore;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio_compat_02::FutureExt;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
 
 pub const CMD: &str = "exit";
@@ -58,7 +59,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<E: EthSpec>(matches: &ArgMatches, mut env: Environment<E>) -> Result<(), String> {
+pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
     let keystore_path: PathBuf = clap_utils::parse_required(matches, KEYSTORE_FLAG)?;
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
@@ -76,14 +77,17 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, mut env: Environment<E>) -> Res
         .clone()
         .expect("network should have a valid config");
 
-    env.runtime().block_on(publish_voluntary_exit::<E>(
-        &keystore_path,
-        password_file_path.as_ref(),
-        &client,
-        &spec,
-        stdin_inputs,
-        &testnet_config,
-    ))?;
+    env.runtime().block_on(
+        publish_voluntary_exit::<E>(
+            &keystore_path,
+            password_file_path.as_ref(),
+            &client,
+            &spec,
+            stdin_inputs,
+            &testnet_config,
+        )
+        .compat(),
+    )?;
 
     Ok(())
 }
@@ -95,7 +99,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
     stdin_inputs: bool,
-    testnet_config: &Eth2TestnetConfig,
+    testnet_config: &Eth2NetworkConfig,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = testnet_config
@@ -121,7 +125,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     let keypair = load_voting_keypair(keystore_path, password_file_path, stdin_inputs)?;
 
     let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
-        .ok_or_else(|| "Failed to get current epoch. Please check your system time".to_string())?;
+        .ok_or("Failed to get current epoch. Please check your system time")?;
     let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await?;
 
     let fork = get_beacon_state_fork(client).await?;
@@ -155,7 +159,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
             .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
-        tokio::time::delay_for(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
         eprintln!(
             "Successfully validated and published voluntary exit for validator {}",
             keypair.pk
@@ -244,7 +248,7 @@ async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, St
         .get_beacon_states_fork(StateId::Head)
         .await
         .map_err(|e| format!("Failed to get get fork: {:?}", e))?
-        .ok_or_else(|| "Failed to get fork, state not found".to_string())?
+        .ok_or("Failed to get fork, state not found")?
         .data)
 }
 
