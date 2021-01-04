@@ -18,7 +18,7 @@ From this paragraph, this document will *only* refer to the first two items (1, 
 
 ## Redundant Beacon Nodes
 
-The `--beacon-nodes` command allows one or more comma-separated values:
+The `lighthouse bn --beacon-nodes` flag allows one or more comma-separated values:
 
 1. `lighthouse vc --beacon-nodes http://localhost:5052`
 1. `lighthouse vc --beacon-nodes http://localhost:5052,http://192.168.1.1:5052`
@@ -52,7 +52,7 @@ following flags:
 - `--staking`: starts the HTTP API server and ensures the Eth1 chain is synced.
 - `--http-address 0.0.0.0`: this allows *any* external IP address to access the
 	HTTP server (a firewall should be configured to deny unauthorized access to port
-	`5052`).
+	`5052`). This is only required if your backup node is on a different host.
 - `--subscribe-all-subnets`: ensures that the beacon node subscribes to *all*
 	subnets, not just on-demand requests from validators.
 - `--process-all-attestations`: ensures that the beacon node performs
@@ -86,7 +86,7 @@ There are 64 subnets and each validator will result in a subscription to *at
 least* one subnet. So, using the two aforementioned flags will result in
 resource consumption akin to running 64+ validators.
 
-## Redunant Eth1 nodes
+## Redundant Eth1 nodes
 
 Compared to redundancy in beacon nodes (see above), using redundant Eth1 nodes
 is very straight-forward:
@@ -102,5 +102,5 @@ However, in the case of (2), the `http://192.168.0.1:8545` Eth1 endpoint will
 be tried each time the first fails. Eth1 endpoints will be tried from first to
 last in the list, until a successful response is obtained.
 
-There is no need for special configuration on the Eth1 endpoint, all can be
-(and probably should be) configured identically.
+There is no need for special configuration on the Eth1 endpoint, all endpoints can (probably should)
+be configured identically.
