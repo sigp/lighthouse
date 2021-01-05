@@ -1,9 +1,10 @@
+use beacon_chain::validator_monitor;
 use directory::DEFAULT_ROOT_DIR;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use types::{Graffiti, PublicKey};
+use types::{Graffiti, PublicKeyBytes};
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -63,7 +64,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub slasher: Option<slasher::Config>,
-    pub monitor_validators: Vec<PublicKey>,
+    pub monitor_validators: Vec<PublicKeyBytes>,
+    pub monitor_validators_historical_epochs: usize,
 }
 
 impl Default for Config {
@@ -86,6 +88,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             slasher: None,
             monitor_validators: vec![],
+            monitor_validators_historical_epochs: validator_monitor::DEFAULT_MAX_LEN,
         }
     }
 }

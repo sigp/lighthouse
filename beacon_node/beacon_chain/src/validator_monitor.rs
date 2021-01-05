@@ -1,4 +1,4 @@
-use slog::{debug, info, Logger};
+use slog::{info, Logger};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{self, Read};
@@ -6,8 +6,15 @@ use std::path::Path;
 use std::str::{from_utf8, FromStr, Utf8Error};
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
-    BeaconBlockHeader, BeaconState, EthSpec, IndexedAttestation, PublicKey, SignedAggregateAndProof,
+    BeaconBlockHeader, BeaconState, Epoch, EthSpec, IndexedAttestation, PublicKeyBytes,
+    SignedAggregateAndProof,
 };
+
+/// The number of historical epochs stored in the `ValidatorManager`.
+///
+/// This is set to 32 epochs (12.8 hours). This should give someone actively monitoring the system
+/// enough time to troubleshoot any failures.
+pub const DEFAULT_MAX_LEN: usize = 32;
 
 #[derive(Debug)]
 pub enum Error {
@@ -18,6 +25,7 @@ pub enum Error {
 
 pub struct ValidatorEvent<T: EthSpec> {
     pub timestamp: u64,
+    pub pubkeys: Vec<PublicKeyBytes>,
     pub location: EventLocation,
     pub data: EventData<T>,
 }
@@ -36,35 +44,37 @@ pub enum EventData<T: EthSpec> {
     Aggregate(SignedAggregateAndProof<T>),
 }
 
-struct MonitoredValidator<T: EthSpec> {
+struct MonitoredValidator {
     pub id: String,
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub index: Option<u64>,
-    pub events: Vec<ValidatorEvent<T>>,
 }
 
-impl<T: EthSpec> MonitoredValidator<T> {
-    fn new(pubkey: PublicKey, index: Option<u64>) -> Self {
+impl MonitoredValidator {
+    fn new(pubkey: PublicKeyBytes, index: Option<u64>) -> Self {
         Self {
             id: pubkey.to_string(),
             pubkey,
             index,
-            events: vec![],
         }
     }
 }
 
 pub struct ValidatorMonitor<T: EthSpec> {
-    validators: HashMap<PublicKey, MonitoredValidator<T>>,
-    indices: HashMap<u64, PublicKey>,
+    validators: HashMap<PublicKeyBytes, MonitoredValidator>,
+    indices: HashMap<u64, PublicKeyBytes>,
+    events: HashMap<Epoch, ValidatorEvent<T>>,
+    max_events: usize,
     log: Logger,
 }
 
 impl<T: EthSpec> ValidatorMonitor<T> {
-    pub fn new(log: Logger) -> Self {
+    pub fn new(max_events: usize, log: Logger) -> Self {
         Self {
             validators: <_>::default(),
             indices: <_>::default(),
+            events: <_>::default(),
+            max_events,
             log,
         }
     }
@@ -88,13 +98,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     ) -> Result<(), Error> {
         validator_pubkeys
             .split(",")
-            .map(PublicKey::from_str)
+            .map(PublicKeyBytes::from_str)
             .collect::<Result<Vec<_>, _>>()
             .map_err(Error::InvalidPubkey)
             .map(|pubkeys| self.add_validator_pubkeys(pubkeys))
     }
 
-    pub fn add_validator_pubkeys(&mut self, pubkeys: Vec<PublicKey>) {
+    pub fn add_validator_pubkeys(&mut self, pubkeys: Vec<PublicKeyBytes>) {
         for pubkey in pubkeys {
             let index_opt = self
                 .indices
@@ -103,7 +113,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 .map(|(index, _)| *index);
 
             self.validators
-                .entry(pubkey.clone())
+                .entry(pubkey)
                 .or_insert_with(|| MonitoredValidator::new(pubkey, index_opt));
         }
     }
@@ -116,18 +126,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .skip(self.indices.len())
             .for_each(|(i, validator)| {
                 let i = i as u64;
-                if let Ok(pubkey) = validator.pubkey.decompress() {
-                    if let Some(validator) = self.validators.get_mut(&pubkey) {
-                        validator.index = Some(i);
-                    }
-                    self.indices.insert(i, pubkey);
+                if let Some(validator) = self.validators.get_mut(&validator.pubkey) {
+                    validator.index = Some(i);
                 }
+                self.indices.insert(i, validator.pubkey);
             })
-    }
-
-    fn get_mut_by_index<'a>(&'a mut self, index: u64) -> Option<&'a mut MonitoredValidator<T>> {
-        let pubkey = self.indices.get(&index)?;
-        self.validators.get_mut(pubkey)
     }
 
     pub fn register_api_attestation(&mut self, indexed_attestation: &IndexedAttestation<T>) {
@@ -143,30 +146,45 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         location: EventLocation,
         indexed_attestation: &IndexedAttestation<T>,
     ) {
-        indexed_attestation
+        let pubkeys = indexed_attestation
             .attesting_indices
             .iter()
-            .for_each(|index| {
-                let log = self.log.clone();
-                if let Some(validator) = self.get_mut_by_index(*index) {
-                    info!(
-                        log,
-                        "Monitored validator attestation";
-                        "index" => %indexed_attestation.data.index,
-                        "slot" => %indexed_attestation.data.slot,
-                        "index" => %indexed_attestation.data.slot,
-                        "head" => %indexed_attestation.data.beacon_block_root,
-                        "src" => ?location,
-                        "validator" => %index,
-                    );
+            .filter_map(|i| {
+                let i = *self.indices.get(i)?;
+                info!(
+                    self.log,
+                    "Monitored validator attestation";
+                    "index" => %indexed_attestation.data.index,
+                    "slot" => %indexed_attestation.data.slot,
+                    "index" => %indexed_attestation.data.slot,
+                    "head" => %indexed_attestation.data.beacon_block_root,
+                    "src" => ?location,
+                    "validator" => %i,
+                );
 
-                    validator.events.push(ValidatorEvent {
-                        timestamp: timestamp_now(),
-                        location,
-                        data: EventData::Attestation(indexed_attestation.clone()),
-                    });
-                }
-            });
+                Some(i)
+            })
+            .collect();
+
+        self.events.insert(
+            indexed_attestation.data.slot.epoch(T::slots_per_epoch()),
+            ValidatorEvent {
+                pubkeys,
+                timestamp: timestamp_now(),
+                location,
+                data: EventData::Attestation(indexed_attestation.clone()),
+            },
+        );
+
+        self.prune()
+    }
+
+    pub fn prune(&mut self) {
+        while self.events.len() > self.max_events {
+            if let Some(i) = self.events.iter().map(|(epoch, _)| *epoch).min() {
+                self.events.remove(&i);
+            }
+        }
     }
 }
 

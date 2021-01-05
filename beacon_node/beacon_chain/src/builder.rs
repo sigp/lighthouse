@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKey, Signature,
+    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
     SignedBeaconBlock, Slot,
 };
 
@@ -174,7 +174,6 @@ where
     ///
     /// Should generally be called early in the build chain.
     pub fn logger(mut self, log: Logger) -> Self {
-        self.validator_monitor = Some(ValidatorMonitor::new(log.clone()));
         self.log = Some(log);
         self
     }
@@ -398,12 +397,19 @@ where
     /// Register some validators for additional monitoring.
     ///
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
-    pub fn monitor_validators(mut self, validators: Vec<PublicKey>) -> Result<Self, String> {
-        let validator_monitor = self
-            .validator_monitor
-            .as_mut()
-            .ok_or("No validator monitor")?;
+    pub fn monitor_validators(
+        mut self,
+        validators: Vec<PublicKeyBytes>,
+        historical_epochs: usize,
+    ) -> Result<Self, String> {
+        let log = self
+            .log
+            .as_ref()
+            .ok_or("validator_monitor requires a log")?;
+
+        let mut validator_monitor = ValidatorMonitor::new(historical_epochs, log.clone());
         validator_monitor.add_validator_pubkeys(validators);
+        self.validator_monitor = Some(validator_monitor);
         Ok(self)
     }
 

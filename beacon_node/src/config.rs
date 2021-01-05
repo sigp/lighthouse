@@ -13,7 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKey, GRAFFITI_BYTES_LEN};
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -389,7 +389,7 @@ pub fn get_config<E: EthSpec>(
     if let Some(monitor_validators) = cli_args.value_of("monitor-validators") {
         let pubkeys = monitor_validators
             .split(",")
-            .map(PublicKey::from_str)
+            .map(PublicKeyBytes::from_str)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --monitor-validators value: {:?}", e))?;
         client_config.monitor_validators.extend_from_slice(&pubkeys);
