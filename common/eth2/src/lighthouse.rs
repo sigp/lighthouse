@@ -2,7 +2,7 @@
 
 use crate::{
     ok_or_error,
-    types::{BeaconState, Epoch, EthSpec, GenericResponse, ValidatorId},
+    types::{BeaconState, Epoch, EthSpec, GenericResponse, PublicKeyBytes, ValidatorId},
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
@@ -188,6 +188,19 @@ impl Eth1Block {
             block_hash: self.hash,
         })
     }
+}
+
+/// Describes a validators performance in some `epoch`.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct MonitoredValidatorReport {
+    pub epoch: Epoch,
+    pub pubkey: PublicKeyBytes,
+    pub validator_index: Option<u64>,
+    pub gossip_attestation_seen_timestamp: u64,
+    pub api_attestation_seen_timestamp: u64,
+    pub attestation_seen_in_block_timestamp: u64,
+    pub block_seen_timestamp: u64,
+    pub aggregate_seen_timestamp: u64,
 }
 
 impl BeaconNodeHttpClient {

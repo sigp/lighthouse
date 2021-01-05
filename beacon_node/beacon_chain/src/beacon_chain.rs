@@ -1558,11 +1558,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
             .import_new_pubkeys(&state)?;
 
-        // Allow the validator monitor to learn about new validator indices.
-        self.validator_monitor
-            .write()
-            .update_validator_indices(&state);
-
         // For the current and next epoch of this state, ensure we have the shuffling from this
         // block in our cache.
         for relative_epoch in &[RelativeEpoch::Current, RelativeEpoch::Next] {
@@ -1632,6 +1627,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
+        // Note: this has the potential for a deadlock with the fork choice write-lock.
+        let mut validator_monitor = self.validator_monitor.write();
+
+        // Allow the validator monitor to learn about new validator indices.
+        validator_monitor.update_validator_indices(&state);
+
         // Register each attestation in the block with the fork choice service.
         for attestation in &block.body.attestations[..] {
             let _fork_choice_attestation_timer =
@@ -1649,7 +1650,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
+
+            // Only register this with the validator monitor when the block is sufficiently close to
+            // the current slot.
+            if block.slot + validator_monitor.max_epochs as u64 * T::EthSpec::slots_per_epoch()
+                >= current_slot
+            {
+                validator_monitor.register_attestation_in_block(&indexed_attestation);
+            }
         }
+
+        drop(validator_monitor);
 
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,

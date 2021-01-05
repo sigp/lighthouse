@@ -2284,6 +2284,27 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/validator-monitor/{pubkey}/{epoch}
+    let get_lighthouse_monitored_validators_pubkey_epoch = warp::path("lighthouse")
+        .and(warp::path("validator-monitor"))
+        .and(warp::path::param::<PublicKeyBytes>())
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(
+            |pubkey: PublicKeyBytes, epoch: Epoch, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let report = chain
+                        .validator_monitor
+                        .read()
+                        .generate_validator_report(epoch, pubkey)
+                        .map_err(|e| warp_utils::reject::custom_not_found(format!("{:?}", e)))?;
+
+                    Ok(api_types::GenericResponse::from(report))
+                })
+            },
+        );
+
     fn merge_streams<T: EthSpec>(
         stream_map: StreamMap<
             String,
@@ -2394,6 +2415,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
+                .or(get_lighthouse_monitored_validators_pubkey_epoch.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
