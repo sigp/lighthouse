@@ -13,7 +13,7 @@ use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
-use tempdir::TempDir;
+use tempfile::Builder as TempBuilder;
 
 pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);
 
@@ -76,7 +76,10 @@ pub fn unused_port(transport: &str) -> Result<u16, String> {
 
 pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
-    let path = TempDir::new(&format!("libp2p_test{}", port)).unwrap();
+    let path = TempBuilder::new()
+        .prefix(&format!("libp2p_test{}", port))
+        .tempdir()
+        .unwrap();
 
     config.libp2p_port = port; // tcp port
     config.discovery_port = port; // udp port

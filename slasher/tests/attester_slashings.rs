@@ -6,7 +6,7 @@ use slasher::{
     Config, Slasher,
 };
 use std::collections::HashSet;
-use tempdir::TempDir;
+use tempfile::tempdir;
 use types::{AttesterSlashing, Epoch, IndexedAttestation};
 
 #[test]
@@ -169,7 +169,7 @@ fn slasher_test(
     current_epoch: u64,
     should_process_after: impl Fn(usize) -> bool,
 ) {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
@@ -196,7 +196,7 @@ fn parallel_slasher_test(
     expected_slashed_validators: HashSet<u64>,
     current_epoch: u64,
 ) {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);

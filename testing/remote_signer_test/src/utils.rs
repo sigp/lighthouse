@@ -11,7 +11,7 @@ use std::io::Write;
 use std::net::IpAddr::{V4, V6};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use tempdir::TempDir;
+use tempfile::TempDir;
 use types::{
     AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconBlock,
     BeaconBlockHeader, BitList, Checkpoint, Deposit, DepositData, Epoch, EthSpec, FixedVector,

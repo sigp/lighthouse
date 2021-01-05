@@ -24,7 +24,7 @@ fnv = "1.0.7"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 smallvec = "1.4.2"
-tokio-io-timeout = "0.5.0" 
+tokio-io-timeout = "0.5.0"
 lru = "0.6.0"
 parking_lot = "0.11.0"
 sha2 = "0.9.1"
@@ -50,7 +50,7 @@ features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dn
 tokio = { version = "0.3.2", features = ["full"] }
 slog-term = "2.6.0"
 slog-async = "2.5.0"
-tempdir = "0.3.7"
+tempfile = "3.1.0"
 exit-future = "0.2.0"
 
 [features]
