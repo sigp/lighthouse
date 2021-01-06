@@ -346,7 +346,7 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
 
         // Calculate worst case compression length for given uncompressed length
         let max_compressed_len = snap::raw::max_compress_len(length) as u64;
-        // // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
         let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
         let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
