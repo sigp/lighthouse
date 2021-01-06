@@ -280,6 +280,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             message_id,
             peer_id,
             voluntary_exit,
+            timestamp_now(),
         ))
     }
 
@@ -293,6 +294,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             message_id,
             peer_id,
             proposer_slashing,
+            timestamp_now(),
         ))
     }
 
@@ -306,6 +308,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             message_id,
             peer_id,
             attester_slashing,
+            timestamp_now(),
         ))
     }
 

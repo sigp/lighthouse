@@ -288,23 +288,27 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
 
+        // Register the block with any monitored validators.
+        //
+        // Run this event *prior* to importing the block, where the block is only partially
+        // verified.
+        self.chain.validator_monitor.write().register_gossip_block(
+            seen_duration,
+            &verified_block.block.message,
+            verified_block.block_root,
+            &self.chain.slot_clock,
+        );
+
         let block = Box::new(verified_block.block.clone());
+
         match self.chain.process_block(verified_block) {
-            Ok(block_root) => {
+            Ok(_block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
                 trace!(
                     self.log,
                     "Gossipsub block processed";
                     "peer_id" => %peer_id
-                );
-
-                // Register the block with any monitored validators.
-                self.chain.validator_monitor.write().register_gossip_block(
-                    seen_duration,
-                    &block.message,
-                    block_root,
-                    &self.chain.slot_clock,
                 );
 
                 // The `MessageHandler` would be the place to put this, however it doesn't seem
@@ -357,6 +361,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         voluntary_exit: SignedVoluntaryExit,
+        seen_timestamp: Duration,
     ) {
         let validator_index = voluntary_exit.message.validator_index;
 
@@ -393,6 +398,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
+        // Register the exit with any monitored validators.
+        self.chain
+            .validator_monitor
+            .write()
+            .register_gossip_voluntary_exit(seen_timestamp, &exit.as_inner().message);
+
         self.chain.import_voluntary_exit(exit);
 
         debug!(self.log, "Successfully imported voluntary exit");
@@ -405,6 +416,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         proposer_slashing: ProposerSlashing,
+        seen_timestamp: Duration,
     ) {
         let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
 
@@ -446,6 +458,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
+        // Register the slashing with any monitored validators.
+        self.chain
+            .validator_monitor
+            .write()
+            .register_gossip_proposer_slashing(seen_timestamp, slashing.as_inner());
+
         self.chain.import_proposer_slashing(slashing);
         debug!(self.log, "Successfully imported proposer slashing");
 
@@ -457,6 +475,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         attester_slashing: AttesterSlashing<T::EthSpec>,
+        seen_timestamp: Duration,
     ) {
         let slashing = match self
             .chain
@@ -490,6 +509,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        // Register the slashing with any monitored validators.
+        self.chain
+            .validator_monitor
+            .write()
+            .register_gossip_attester_slashing(seen_timestamp, slashing.as_inner());
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
             debug!(self.log, "Error importing attester slashing"; "error" => ?e);

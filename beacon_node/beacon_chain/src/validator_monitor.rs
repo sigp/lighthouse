@@ -1,15 +1,17 @@
 use eth2::lighthouse::MonitoredValidatorReport;
-use slog::{info, Logger};
+use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{self, Read};
+use std::iter::FromIterator;
 use std::path::Path;
 use std::str::{from_utf8, FromStr, Utf8Error};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
-    AttestationData, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec, Epoch, EthSpec,
-    Hash256, IndexedAttestation, PublicKeyBytes, SignedAggregateAndProof,
+    AttestationData, AttesterSlashing, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec,
+    Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes,
+    SignedAggregateAndProof, VoluntaryExit,
 };
 
 /// The number of historical epochs stored in the `ValidatorManager`.
@@ -447,6 +449,138 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         })
     }
 
+    pub fn register_gossip_voluntary_exit(
+        &mut self,
+        seen_timestamp: Duration,
+        exit: &VoluntaryExit,
+    ) {
+        self.register_voluntary_exit("gossip", seen_timestamp, exit)
+    }
+
+    pub fn register_api_voluntary_exit(&mut self, seen_timestamp: Duration, exit: &VoluntaryExit) {
+        self.register_voluntary_exit("api", seen_timestamp, exit)
+    }
+
+    fn register_voluntary_exit(
+        &mut self,
+        src: &str,
+        seen_timestamp: Duration,
+        exit: &VoluntaryExit,
+    ) {
+        if let Some(pubkey) = self.get_registered_pubkey(exit.validator_index) {
+            info!(
+                self.log,
+                "Voluntary exit";
+                "seen_timestamp" => %seen_timestamp.as_millis(),
+                "epoch" => %exit.epoch,
+                "validator" => %pubkey,
+                "src" => src,
+            );
+        }
+    }
+
+    pub fn register_gossip_proposer_slashing(
+        &mut self,
+        seen_timestamp: Duration,
+        slashing: &ProposerSlashing,
+    ) {
+        self.register_proposer_slashing("gossip", seen_timestamp, slashing)
+    }
+
+    pub fn register_api_proposer_slashing(
+        &mut self,
+        seen_timestamp: Duration,
+        slashing: &ProposerSlashing,
+    ) {
+        self.register_proposer_slashing("api", seen_timestamp, slashing)
+    }
+
+    pub fn register_block_proposer_slashing(
+        &mut self,
+        seen_timestamp: Duration,
+        slashing: &ProposerSlashing,
+    ) {
+        self.register_proposer_slashing("block", seen_timestamp, slashing)
+    }
+
+    fn register_proposer_slashing(
+        &mut self,
+        src: &str,
+        seen_timestamp: Duration,
+        slashing: &ProposerSlashing,
+    ) {
+        let proposer = slashing.signed_header_1.message.proposer_index;
+        let slot = slashing.signed_header_1.message.slot;
+        let root_1 = slashing.signed_header_1.message.canonical_root();
+        let root_2 = slashing.signed_header_2.message.canonical_root();
+
+        if let Some(pubkey) = self.get_registered_pubkey(proposer) {
+            crit!(
+                self.log,
+                "Proposer slashing";
+                "seen_timestamp" => %seen_timestamp.as_millis(),
+                "root_2" => %root_2,
+                "root_1" => %root_1,
+                "slot" => %slot,
+                "validator" => %pubkey,
+                "src" => src,
+            );
+        }
+    }
+
+    pub fn register_gossip_attester_slashing(
+        &mut self,
+        seen_timestamp: Duration,
+        slashing: &AttesterSlashing<T>,
+    ) {
+        self.register_attester_slashing("gossip", seen_timestamp, slashing)
+    }
+
+    pub fn register_api_attester_slashing(
+        &mut self,
+        seen_timestamp: Duration,
+        slashing: &AttesterSlashing<T>,
+    ) {
+        self.register_attester_slashing("api", seen_timestamp, slashing)
+    }
+
+    pub fn register_block_attester_slashing(
+        &mut self,
+        seen_timestamp: Duration,
+        slashing: &AttesterSlashing<T>,
+    ) {
+        self.register_attester_slashing("block", seen_timestamp, slashing)
+    }
+
+    fn register_attester_slashing(
+        &mut self,
+        src: &str,
+        seen_timestamp: Duration,
+        slashing: &AttesterSlashing<T>,
+    ) {
+        let data = &slashing.attestation_1.data;
+        let attestation_1_indices: HashSet<u64> =
+            HashSet::from_iter(slashing.attestation_1.attesting_indices.iter().copied());
+
+        slashing
+            .attestation_2
+            .attesting_indices
+            .iter()
+            .filter(|index| attestation_1_indices.contains(index))
+            .filter_map(|index| self.get_registered_pubkey(*index))
+            .for_each(|pubkey| {
+                crit!(
+                    self.log,
+                    "Attester slashing";
+                    "seen_timestamp" => %seen_timestamp.as_millis(),
+                    "epoch" => %data.slot.epoch(T::slots_per_epoch()),
+                    "slot" => %data.slot,
+                    "validator" => %pubkey,
+                    "src" => src,
+                );
+            })
+    }
+
     pub fn prune(&mut self) {
         while self.events.len() > self.max_epochs {
             if let Some(i) = self.events.iter().map(|(epoch, _)| *epoch).min() {
@@ -454,4 +588,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
     }
+}
+
+pub fn timestamp_now() -> Duration {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
 }

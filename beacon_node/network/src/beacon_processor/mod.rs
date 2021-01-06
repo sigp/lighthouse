@@ -280,6 +280,7 @@ impl<E: EthSpec> WorkEvent<E> {
         message_id: MessageId,
         peer_id: PeerId,
         voluntary_exit: Box<SignedVoluntaryExit>,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -287,6 +288,7 @@ impl<E: EthSpec> WorkEvent<E> {
                 message_id,
                 peer_id,
                 voluntary_exit,
+                seen_timestamp,
             },
         }
     }
@@ -296,6 +298,7 @@ impl<E: EthSpec> WorkEvent<E> {
         message_id: MessageId,
         peer_id: PeerId,
         proposer_slashing: Box<ProposerSlashing>,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -303,6 +306,7 @@ impl<E: EthSpec> WorkEvent<E> {
                 message_id,
                 peer_id,
                 proposer_slashing,
+                seen_timestamp,
             },
         }
     }
@@ -312,6 +316,7 @@ impl<E: EthSpec> WorkEvent<E> {
         message_id: MessageId,
         peer_id: PeerId,
         attester_slashing: Box<AttesterSlashing<E>>,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -319,6 +324,7 @@ impl<E: EthSpec> WorkEvent<E> {
                 message_id,
                 peer_id,
                 attester_slashing,
+                seen_timestamp,
             },
         }
     }
@@ -415,16 +421,19 @@ pub enum Work<E: EthSpec> {
         message_id: MessageId,
         peer_id: PeerId,
         voluntary_exit: Box<SignedVoluntaryExit>,
+        seen_timestamp: Duration,
     },
     GossipProposerSlashing {
         message_id: MessageId,
         peer_id: PeerId,
         proposer_slashing: Box<ProposerSlashing>,
+        seen_timestamp: Duration,
     },
     GossipAttesterSlashing {
         message_id: MessageId,
         peer_id: PeerId,
         attester_slashing: Box<AttesterSlashing<E>>,
+        seen_timestamp: Duration,
     },
     RpcBlock {
         block: Box<SignedBeaconBlock<E>>,
@@ -881,7 +890,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         voluntary_exit,
-                    } => worker.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit),
+                        seen_timestamp,
+                    } => worker.process_gossip_voluntary_exit(
+                        message_id,
+                        peer_id,
+                        *voluntary_exit,
+                        seen_timestamp,
+                    ),
                     /*
                      * Proposer slashings received on gossip.
                      */
@@ -889,10 +904,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         proposer_slashing,
+                        seen_timestamp,
                     } => worker.process_gossip_proposer_slashing(
                         message_id,
                         peer_id,
                         *proposer_slashing,
+                        seen_timestamp,
                     ),
                     /*
                      * Attester slashings received on gossip.
@@ -901,10 +918,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         attester_slashing,
+                        seen_timestamp,
                     } => worker.process_gossip_attester_slashing(
                         message_id,
                         peer_id,
                         *attester_slashing,
+                        seen_timestamp,
                     ),
                     /*
                      * Verification for beacon blocks received during syncing via RPC.

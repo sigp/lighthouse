@@ -13,8 +13,8 @@ mod validator_inclusion;
 
 use beacon_chain::{
     attestation_verification::SignatureVerifiedAttestation,
-    observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
-    BeaconChainError, BeaconChainTypes,
+    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
@@ -34,7 +34,6 @@ use std::convert::TryInto;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::UnboundedSender;
@@ -1062,6 +1061,8 @@ pub fn serve<T: BeaconChainTypes>(
              slashing: AttesterSlashing<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
+
                     let outcome = chain
                         .verify_attester_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -1070,6 +1071,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 e
                             ))
                         })?;
+
+                    // Notify the validator monitor.
+                    chain
+                        .validator_monitor
+                        .write()
+                        .register_api_attester_slashing(seen_timestamp, &slashing);
 
                     if let ObservationOutcome::New(slashing) = outcome {
                         publish_pubsub_message(
@@ -1113,6 +1120,8 @@ pub fn serve<T: BeaconChainTypes>(
              slashing: ProposerSlashing,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
+
                     let outcome = chain
                         .verify_proposer_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -1121,6 +1130,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 e
                             ))
                         })?;
+
+                    // Notify the validator monitor.
+                    chain
+                        .validator_monitor
+                        .write()
+                        .register_api_proposer_slashing(seen_timestamp, &slashing);
 
                     if let ObservationOutcome::New(slashing) = outcome {
                         publish_pubsub_message(
@@ -1162,6 +1177,8 @@ pub fn serve<T: BeaconChainTypes>(
              exit: SignedVoluntaryExit,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
+
                     let outcome = chain
                         .verify_voluntary_exit_for_gossip(exit.clone())
                         .map_err(|e| {
@@ -1170,6 +1187,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 e
                             ))
                         })?;
+
+                    // Notify the validator monitor.
+                    chain
+                        .validator_monitor
+                        .write()
+                        .register_api_voluntary_exit(seen_timestamp, &exit.message);
 
                     if let ObservationOutcome::New(exit) = outcome {
                         publish_pubsub_message(
@@ -2508,10 +2531,4 @@ fn publish_network_message<T: EthSpec>(
             e
         ))
     })
-}
-
-fn timestamp_now() -> Duration {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
 }
