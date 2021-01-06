@@ -5,7 +5,7 @@ pub use local_signer_test_data::*;
 use remote_signer_client::Client;
 use serde_json::Value;
 use std::collections::HashMap;
-use tempdir::TempDir;
+use tempfile::{Builder as TempBuilder, TempDir};
 use types::EthSpec;
 
 pub struct ApiTestSigner<E: EthSpec> {
@@ -81,7 +81,10 @@ pub fn get_environment(is_log_active: bool) -> Environment<E> {
 }
 
 pub fn set_up_api_test_signer_raw_dir() -> (ApiTestSigner<E>, TempDir) {
-    let tmp_dir = TempDir::new("bls-remote-signer-test").unwrap();
+    let tmp_dir = TempBuilder::new()
+        .prefix("bls-remote-signer-test")
+        .tempdir()
+        .unwrap();
     let arg_vec = vec![
         "this_test",
         "--port",
