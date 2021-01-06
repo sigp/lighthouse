@@ -6,7 +6,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Read};
 use std::path::Path;
 use std::str::{from_utf8, FromStr, Utf8Error};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use types::{
     AttestationData, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec, Epoch, EthSpec,
     Hash256, IndexedAttestation, PublicKeyBytes, SignedAggregateAndProof,
@@ -198,11 +198,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .copied()
     }
 
-    pub fn get_block_delay_ms<S: SlotClock>(block: &BeaconBlock<T>, slot_clock: &S) -> String {
+    pub fn get_block_delay_ms<S: SlotClock>(
+        seen_timestamp: Duration,
+        block: &BeaconBlock<T>,
+        slot_clock: &S,
+    ) -> String {
         if let Some(slot_start) = slot_clock.start_of(block.slot) {
             format!(
                 "{} ms",
-                timestamp_now().saturating_sub(slot_start.as_millis())
+                seen_timestamp
+                    .as_millis()
+                    .saturating_sub(slot_start.as_millis())
             )
         } else {
             "??".to_string()
@@ -211,6 +217,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     pub fn register_gossip_block<S: SlotClock>(
         &mut self,
+        seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         block_root: Hash256,
         slot_clock: &S,
@@ -220,7 +227,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 self.log,
                 "Block from p2p gossip";
                 "root" => ?block_root,
-                "delay" => %Self::get_block_delay_ms(block, slot_clock),
+                "delay" => %Self::get_block_delay_ms(seen_timestamp, block, slot_clock),
                 "slot" => %block.slot,
                 "validator" => %pubkey,
             );
@@ -229,6 +236,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     pub fn register_api_block<S: SlotClock>(
         &mut self,
+        seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         block_root: Hash256,
         slot_clock: &S,
@@ -238,7 +246,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 self.log,
                 "Block from API";
                 "root" => ?block_root,
-                "delay" => %Self::get_block_delay_ms(block, slot_clock),
+                "delay" => %Self::get_block_delay_ms(seen_timestamp, block, slot_clock),
                 "slot" => %block.slot,
                 "validator" => %pubkey,
             );
@@ -246,11 +254,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn get_unaggregated_attestation_delay_ms<S: SlotClock>(
+        seen_timestamp: Duration,
         data: &AttestationData,
         slot_clock: &S,
     ) -> String {
         if let Some(slot_start) = slot_clock.start_of(data.slot) {
-            let raw_delay = timestamp_now().saturating_sub(slot_start.as_millis());
+            let raw_delay = seen_timestamp
+                .as_millis()
+                .saturating_sub(slot_start.as_millis());
             let unagg_production_delay = slot_clock.slot_duration().as_millis() / 3;
 
             format!("{} ms", raw_delay.saturating_sub(unagg_production_delay))
@@ -260,11 +271,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn get_aggregated_attestation_delay_ms<S: SlotClock>(
+        seen_timestamp: Duration,
         data: &AttestationData,
         slot_clock: &S,
     ) -> String {
         if let Some(slot_start) = slot_clock.start_of(data.slot) {
-            let raw_delay = timestamp_now().saturating_sub(slot_start.as_millis());
+            let raw_delay = seen_timestamp
+                .as_millis()
+                .saturating_sub(slot_start.as_millis());
             let agg_production_delay = (slot_clock.slot_duration().as_millis() / 3) * 2;
 
             format!("{} ms", raw_delay.saturating_sub(agg_production_delay))
@@ -275,12 +289,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     pub fn register_api_unaggregated_attestation<S: SlotClock>(
         &mut self,
+        seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
         let data = &indexed_attestation.data;
         let epoch = data.slot.epoch(T::slots_per_epoch());
-        let delay = Self::get_unaggregated_attestation_delay_ms(data, slot_clock);
+        let delay = Self::get_unaggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
             if let Some(pubkey) = self.get_registered_pubkey(*i) {
@@ -300,13 +315,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     pub fn register_api_aggregated_attestation<S: SlotClock>(
         &mut self,
+        seen_timestamp: Duration,
         signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
         let data = &indexed_attestation.data;
         let epoch = data.slot.epoch(T::slots_per_epoch());
-        let delay = Self::get_aggregated_attestation_delay_ms(data, slot_clock);
+        let delay = Self::get_aggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
         if let Some(aggregator_pubkey) = self.get_registered_pubkey(aggregator_index) {
@@ -340,12 +356,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     pub fn register_gossip_unaggregated_attestation<S: SlotClock>(
         &mut self,
+        seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
         let data = &indexed_attestation.data;
         let epoch = data.slot.epoch(T::slots_per_epoch());
-        let delay = Self::get_unaggregated_attestation_delay_ms(data, slot_clock);
+        let delay = Self::get_unaggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
             if let Some(pubkey) = self.get_registered_pubkey(*i) {
@@ -365,13 +382,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     pub fn register_gossip_aggregated_attestation<S: SlotClock>(
         &mut self,
+        seen_timestamp: Duration,
         signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
         let data = &indexed_attestation.data;
         let epoch = data.slot.epoch(T::slots_per_epoch());
-        let delay = Self::get_aggregated_attestation_delay_ms(data, slot_clock);
+        let delay = Self::get_aggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
         if let Some(aggregator_pubkey) = self.get_registered_pubkey(aggregator_index) {
@@ -436,11 +454,4 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
     }
-}
-
-fn timestamp_now() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
 }

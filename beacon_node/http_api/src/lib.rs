@@ -34,6 +34,7 @@ use std::convert::TryInto;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::UnboundedSender;
@@ -816,6 +817,8 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
+
                     // Send the block, regardless of whether or not it is valid. The API
                     // specification is very clear that this is the desired behaviour.
                     publish_pubsub_message(
@@ -833,6 +836,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                             // Notify the validator monitor.
                             chain.validator_monitor.write().register_api_block(
+                                seen_timestamp,
                                 &block.message,
                                 root,
                                 &chain.slot_clock,
@@ -928,6 +932,7 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
                     let mut failures = Vec::new();
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
@@ -957,6 +962,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .validator_monitor
                             .write()
                             .register_api_unaggregated_attestation(
+                                seen_timestamp,
                                 attestation.indexed_attestation(),
                                 &chain.slot_clock,
                             );
@@ -1967,6 +1973,7 @@ pub fn serve<T: BeaconChainTypes>(
              aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>, log: Logger| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());
                     let mut failures = Vec::new();
@@ -1984,6 +1991,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     .validator_monitor
                                     .write()
                                     .register_api_aggregated_attestation(
+                                        seen_timestamp,
                                         verified_aggregate.aggregate(),
                                         verified_aggregate.indexed_attestation(),
                                         &chain.slot_clock,
@@ -2500,4 +2508,10 @@ fn publish_network_message<T: EthSpec>(
             e
         ))
     })
+}
+
+fn timestamp_now() -> Duration {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
 }

@@ -8,6 +8,7 @@ use beacon_chain::{
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
 use ssz::Encode;
+use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
@@ -62,6 +63,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         attestation: Attestation<T::EthSpec>,
         subnet_id: SubnetId,
         should_import: bool,
+        seen_timestamp: Duration,
     ) {
         let beacon_block_root = attestation.data.beacon_block_root;
 
@@ -87,6 +89,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .validator_monitor
             .write()
             .register_gossip_unaggregated_attestation(
+                seen_timestamp,
                 attestation.indexed_attestation(),
                 &self.chain.slot_clock,
             );
@@ -147,6 +150,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: SignedAggregateAndProof<T::EthSpec>,
+        seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
 
@@ -177,6 +181,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .validator_monitor
             .write()
             .register_gossip_aggregated_attestation(
+                seen_timestamp,
                 aggregate.aggregate(),
                 aggregate.indexed_attestation(),
                 &self.chain.slot_clock,
@@ -230,6 +235,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
+        seen_duration: Duration,
     ) {
         let verified_block = match self.chain.verify_block_for_gossip(block) {
             Ok(verified_block) => {
@@ -295,6 +301,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Register the block with any monitored validators.
                 self.chain.validator_monitor.write().register_gossip_block(
+                    seen_duration,
                     &block.message,
                     block_root,
                     &self.chain.slot_clock,
