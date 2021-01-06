@@ -1656,7 +1656,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if block.slot + validator_monitor.max_epochs as u64 * T::EthSpec::slots_per_epoch()
                 >= current_slot
             {
-                validator_monitor.register_attestation_in_block(&indexed_attestation);
+                validator_monitor.register_attestation_in_block(
+                    &indexed_attestation,
+                    &block,
+                    &self.spec,
+                );
             }
         }
 

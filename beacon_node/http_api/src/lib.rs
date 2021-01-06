@@ -12,6 +12,7 @@ mod state_id;
 mod validator_inclusion;
 
 use beacon_chain::{
+    attestation_verification::SignatureVerifiedAttestation,
     observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
     BeaconChainError, BeaconChainTypes,
 };
@@ -830,6 +831,13 @@ pub fn serve<T: BeaconChainTypes>(
                                 "root" => format!("{}", root)
                             );
 
+                            // Notify the validator monitor.
+                            chain.validator_monitor.write().register_api_block(
+                                &block.message,
+                                root,
+                                &chain.slot_clock,
+                            );
+
                             // Update the head since it's likely this block will become the new
                             // head.
                             chain
@@ -944,11 +952,14 @@ pub fn serve<T: BeaconChainTypes>(
                             }
                         };
 
-                        // Ensure the validator monitor can register events.
+                        // Notify the validator monitor.
                         chain
                             .validator_monitor
                             .write()
-                            .register_api_attestation(attestation.indexed_attestation());
+                            .register_api_unaggregated_attestation(
+                                attestation.indexed_attestation(),
+                                &chain.slot_clock,
+                            );
 
                         publish_pubsub_message(
                             &network_tx,
@@ -1967,6 +1978,17 @@ pub fn serve<T: BeaconChainTypes>(
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                     verified_aggregate.aggregate().clone(),
                                 )));
+
+                                // Notify the validator monitor.
+                                chain
+                                    .validator_monitor
+                                    .write()
+                                    .register_api_aggregated_attestation(
+                                        verified_aggregate.aggregate(),
+                                        verified_aggregate.indexed_attestation(),
+                                        &chain.slot_clock,
+                                    );
+
                                 verified_aggregates.push((index, verified_aggregate));
                             }
                             // If we already know the attestation, don't broadcast it or attempt to

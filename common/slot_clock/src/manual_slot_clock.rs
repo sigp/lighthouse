@@ -45,18 +45,6 @@ impl ManualSlotClock {
         &self.genesis_duration
     }
 
-    /// Returns the duration between UNIX epoch and the start of `slot`.
-    pub fn start_of(&self, slot: Slot) -> Option<Duration> {
-        let slot = slot
-            .as_u64()
-            .checked_sub(self.genesis_slot.as_u64())?
-            .try_into()
-            .ok()?;
-        let unadjusted_slot_duration = self.slot_duration.checked_mul(slot)?;
-
-        self.genesis_duration.checked_add(unadjusted_slot_duration)
-    }
-
     /// Returns the duration from `now` until the start of `slot`.
     ///
     /// Will return `None` if `now` is later than the start of `slot`.
@@ -145,6 +133,18 @@ impl SlotClock for ManualSlotClock {
 
     fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
         self.duration_to_slot(slot, *self.current_time.read())
+    }
+
+    /// Returns the duration between UNIX epoch and the start of `slot`.
+    fn start_of(&self, slot: Slot) -> Option<Duration> {
+        let slot = slot
+            .as_u64()
+            .checked_sub(self.genesis_slot.as_u64())?
+            .try_into()
+            .ok()?;
+        let unadjusted_slot_duration = self.slot_duration.checked_mul(slot)?;
+
+        self.genesis_duration.checked_add(unadjusted_slot_duration)
     }
 
     fn genesis_slot(&self) -> Slot {

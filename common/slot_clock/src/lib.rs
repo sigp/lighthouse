@@ -59,6 +59,9 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns the duration until the first slot of the next epoch.
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
 
+    /// Returns the start time of the slot, as a duration since `UNIX_EPOCH`.
+    fn start_of(&self, slot: Slot) -> Option<Duration>;
+
     /// Returns the first slot to be returned at the genesis time.
     fn genesis_slot(&self) -> Slot;
 

@@ -1,7 +1,8 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::{
-    attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
+    attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
+    observed_operations::ObservationOutcome,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -81,11 +82,14 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        // Ensure the validator monitor can register events.
+        // Register the attestation with any monitored validators.
         self.chain
             .validator_monitor
             .write()
-            .register_gossip_attestation(attestation.indexed_attestation());
+            .register_gossip_unaggregated_attestation(
+                attestation.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
 
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
@@ -167,6 +171,16 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        // Register the attestation with any monitored validators.
+        self.chain
+            .validator_monitor
+            .write()
+            .register_gossip_aggregated_attestation(
+                aggregate.aggregate(),
+                aggregate.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL);
 
@@ -270,13 +284,20 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let block = Box::new(verified_block.block.clone());
         match self.chain.process_block(verified_block) {
-            Ok(_block_root) => {
+            Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
                 trace!(
                     self.log,
                     "Gossipsub block processed";
                     "peer_id" => %peer_id
+                );
+
+                // Register the block with any monitored validators.
+                self.chain.validator_monitor.write().register_gossip_block(
+                    &block.message,
+                    block_root,
+                    &self.chain.slot_clock,
                 );
 
                 // The `MessageHandler` would be the place to put this, however it doesn't seem

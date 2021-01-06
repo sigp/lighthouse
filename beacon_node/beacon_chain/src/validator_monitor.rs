@@ -1,5 +1,6 @@
 use eth2::lighthouse::MonitoredValidatorReport;
 use slog::{info, Logger};
+use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{self, Read};
@@ -7,8 +8,8 @@ use std::path::Path;
 use std::str::{from_utf8, FromStr, Utf8Error};
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
-    BeaconBlockHeader, BeaconState, Epoch, EthSpec, IndexedAttestation, PublicKeyBytes,
-    SignedAggregateAndProof,
+    AttestationData, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec, Epoch, EthSpec,
+    Hash256, IndexedAttestation, PublicKeyBytes, SignedAggregateAndProof,
 };
 
 /// The number of historical epochs stored in the `ValidatorManager`.
@@ -190,59 +191,242 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             })
     }
 
-    pub fn register_api_attestation(&mut self, indexed_attestation: &IndexedAttestation<T>) {
-        self.register_attestation(EventLocation::API, indexed_attestation)
+    pub fn get_registered_pubkey(&self, validator_index: u64) -> Option<PublicKeyBytes> {
+        self.indices
+            .get(&validator_index)
+            .filter(|pubkey| self.validators.contains_key(&pubkey))
+            .copied()
     }
 
-    pub fn register_gossip_attestation(&mut self, indexed_attestation: &IndexedAttestation<T>) {
-        self.register_attestation(EventLocation::Gossip, indexed_attestation)
+    pub fn get_block_delay_ms<S: SlotClock>(block: &BeaconBlock<T>, slot_clock: &S) -> String {
+        if let Some(slot_start) = slot_clock.start_of(block.slot) {
+            format!(
+                "{} ms",
+                timestamp_now().saturating_sub(slot_start.as_millis())
+            )
+        } else {
+            "??".to_string()
+        }
     }
 
-    pub fn register_attestation_in_block(&mut self, indexed_attestation: &IndexedAttestation<T>) {
-        self.register_attestation(EventLocation::Block, indexed_attestation)
-    }
-
-    pub fn register_attestation(
+    pub fn register_gossip_block<S: SlotClock>(
         &mut self,
-        location: EventLocation,
-        indexed_attestation: &IndexedAttestation<T>,
+        block: &BeaconBlock<T>,
+        block_root: Hash256,
+        slot_clock: &S,
     ) {
-        let pubkeys = indexed_attestation
-            .attesting_indices
-            .iter()
-            .filter_map(|i| {
-                let pubkey = *self.indices.get(i)?;
+        if let Some(pubkey) = self.get_registered_pubkey(block.proposer_index) {
+            info!(
+                self.log,
+                "Block from p2p gossip";
+                "root" => ?block_root,
+                "delay" => %Self::get_block_delay_ms(block, slot_clock),
+                "slot" => %block.slot,
+                "validator" => %pubkey,
+            );
+        }
+    }
 
-                if self.validators.contains_key(&pubkey) {
-                    info!(
-                        self.log,
-                        "Monitored validator attestation";
-                        "index" => %indexed_attestation.data.index,
-                        "slot" => %indexed_attestation.data.slot,
-                        "index" => %indexed_attestation.data.slot,
-                        "head" => %indexed_attestation.data.beacon_block_root,
-                        "src" => ?location,
-                        "validator" => %i,
-                    );
-                    Some(pubkey)
-                } else {
-                    None
-                }
-            })
-            .collect();
+    pub fn register_api_block<S: SlotClock>(
+        &mut self,
+        block: &BeaconBlock<T>,
+        block_root: Hash256,
+        slot_clock: &S,
+    ) {
+        if let Some(pubkey) = self.get_registered_pubkey(block.proposer_index) {
+            info!(
+                self.log,
+                "Block from API";
+                "root" => ?block_root,
+                "delay" => %Self::get_block_delay_ms(block, slot_clock),
+                "slot" => %block.slot,
+                "validator" => %pubkey,
+            );
+        }
+    }
 
-        self.events
-            .entry(indexed_attestation.data.slot.epoch(T::slots_per_epoch()))
-            .or_insert_with(|| vec![])
-            .push(ValidatorEvent {
-                pubkeys,
-                timestamp: timestamp_now(),
-                location,
-                data: EventData::Attestation(indexed_attestation.clone()),
-            });
+    pub fn get_unaggregated_attestation_delay_ms<S: SlotClock>(
+        data: &AttestationData,
+        slot_clock: &S,
+    ) -> String {
+        if let Some(slot_start) = slot_clock.start_of(data.slot) {
+            let raw_delay = timestamp_now().saturating_sub(slot_start.as_millis());
+            let unagg_production_delay = slot_clock.slot_duration().as_millis() / 3;
 
-        // Prune after each insert.
-        self.prune()
+            format!("{} ms", raw_delay.saturating_sub(unagg_production_delay))
+        } else {
+            "??".to_string()
+        }
+    }
+
+    pub fn get_aggregated_attestation_delay_ms<S: SlotClock>(
+        data: &AttestationData,
+        slot_clock: &S,
+    ) -> String {
+        if let Some(slot_start) = slot_clock.start_of(data.slot) {
+            let raw_delay = timestamp_now().saturating_sub(slot_start.as_millis());
+            let agg_production_delay = (slot_clock.slot_duration().as_millis() / 3) * 2;
+
+            format!("{} ms", raw_delay.saturating_sub(agg_production_delay))
+        } else {
+            "??".to_string()
+        }
+    }
+
+    pub fn register_api_unaggregated_attestation<S: SlotClock>(
+        &mut self,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
+        let data = &indexed_attestation.data;
+        let epoch = data.slot.epoch(T::slots_per_epoch());
+        let delay = Self::get_unaggregated_attestation_delay_ms(data, slot_clock);
+
+        indexed_attestation.attesting_indices.iter().for_each(|i| {
+            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+                info!(
+                    self.log,
+                    "Unaggregated attestation from API";
+                    "head" => ?data.beacon_block_root,
+                    "index" => %data.index,
+                    "delay" => %delay,
+                    "epoch" => %epoch,
+                    "slot" => %data.slot,
+                    "validator" => %pubkey,
+                );
+            }
+        })
+    }
+
+    pub fn register_api_aggregated_attestation<S: SlotClock>(
+        &mut self,
+        signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
+        let data = &indexed_attestation.data;
+        let epoch = data.slot.epoch(T::slots_per_epoch());
+        let delay = Self::get_aggregated_attestation_delay_ms(data, slot_clock);
+
+        let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
+        if let Some(aggregator_pubkey) = self.get_registered_pubkey(aggregator_index) {
+            info!(
+                self.log,
+                "Signed aggregate from API";
+                "head" => ?data.beacon_block_root,
+                "index" => %data.index,
+                "delay" => %delay,
+                "epoch" => %epoch,
+                "slot" => %data.slot,
+                "validator" => %aggregator_pubkey,
+            );
+        }
+
+        indexed_attestation.attesting_indices.iter().for_each(|i| {
+            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+                info!(
+                    self.log,
+                    "Attestation included in API aggregate";
+                    "head" => ?data.beacon_block_root,
+                    "index" => %data.index,
+                    "delay" => %delay,
+                    "epoch" => %epoch,
+                    "slot" => %data.slot,
+                    "validator" => %pubkey,
+                );
+            }
+        })
+    }
+
+    pub fn register_gossip_unaggregated_attestation<S: SlotClock>(
+        &mut self,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
+        let data = &indexed_attestation.data;
+        let epoch = data.slot.epoch(T::slots_per_epoch());
+        let delay = Self::get_unaggregated_attestation_delay_ms(data, slot_clock);
+
+        indexed_attestation.attesting_indices.iter().for_each(|i| {
+            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+                info!(
+                    self.log,
+                    "Unaggregated attestation on gossip";
+                    "head" => ?data.beacon_block_root,
+                    "index" => %data.index,
+                    "delay" => %delay,
+                    "epoch" => %epoch,
+                    "slot" => %data.slot,
+                    "validator" => %pubkey,
+                );
+            }
+        })
+    }
+
+    pub fn register_gossip_aggregated_attestation<S: SlotClock>(
+        &mut self,
+        signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
+        let data = &indexed_attestation.data;
+        let epoch = data.slot.epoch(T::slots_per_epoch());
+        let delay = Self::get_aggregated_attestation_delay_ms(data, slot_clock);
+
+        let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
+        if let Some(aggregator_pubkey) = self.get_registered_pubkey(aggregator_index) {
+            info!(
+                self.log,
+                "Signed aggregate on gossip";
+                "head" => ?data.beacon_block_root,
+                "index" => %data.index,
+                "delay" => %delay,
+                "epoch" => %epoch,
+                "slot" => %data.slot,
+                "validator" => %aggregator_pubkey,
+            );
+        }
+
+        indexed_attestation.attesting_indices.iter().for_each(|i| {
+            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+                info!(
+                    self.log,
+                    "Attestation included in gossip aggregate";
+                    "head" => ?data.beacon_block_root,
+                    "index" => %data.index,
+                    "delay" => %delay,
+                    "epoch" => %epoch,
+                    "slot" => %data.slot,
+                    "validator" => %pubkey,
+                );
+            }
+        })
+    }
+
+    pub fn register_attestation_in_block(
+        &mut self,
+        indexed_attestation: &IndexedAttestation<T>,
+        block: &BeaconBlock<T>,
+        spec: &ChainSpec,
+    ) {
+        let data = &indexed_attestation.data;
+        let delay = (block.slot - data.slot) - spec.min_attestation_inclusion_delay;
+        let epoch = data.slot.epoch(T::slots_per_epoch());
+
+        indexed_attestation.attesting_indices.iter().for_each(|i| {
+            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+                info!(
+                    self.log,
+                    "Attestation included in block";
+                    "head" => ?data.beacon_block_root,
+                    "index" => %data.index,
+                    "inclusion_lag" => format!("{} slot(s)", delay),
+                    "epoch" => %epoch,
+                    "slot" => %data.slot,
+                    "validator" => %pubkey,
+                );
+            }
+        })
     }
 
     pub fn prune(&mut self) {
@@ -254,9 +438,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 }
 
-fn timestamp_now() -> u64 {
+fn timestamp_now() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_millis())
         .unwrap_or(0)
 }
