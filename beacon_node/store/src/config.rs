@@ -11,7 +11,7 @@ pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreConfig {
     /// Number of slots to wait between storing restore points in the freezer database.
-    pub slots_per_restore_point: u64,
+    pub slots_per_restore_point: Option<u64>,
     /// Maximum number of blocks to store in the in-memory block cache.
     pub block_cache_size: usize,
     /// Whether to compact the database on initialization.
@@ -21,23 +21,25 @@ pub struct StoreConfig {
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
+// FIXME(sproul): implement migration
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OnDiskStoreConfig {
-    pub slots_per_restore_point: u64,
-    // NOTE: redundant, see https://github.com/sigp/lighthouse/issues/1784
-    pub _block_cache_size: usize,
+    pub slots_per_restore_point: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 pub enum StoreConfigError {
-    MismatchedSlotsPerRestorePoint { config: u64, on_disk: u64 },
+    MismatchedSlotsPerRestorePoint {
+        config: Option<u64>,
+        on_disk: Option<u64>,
+    },
 }
 
 impl Default for StoreConfig {
     fn default() -> Self {
         Self {
             // Safe default for tests, shouldn't ever be read by a CLI node.
-            slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
+            slots_per_restore_point: Some(MinimalEthSpec::slots_per_historical_root() as u64),
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             compact_on_init: false,
             compact_on_prune: true,
@@ -49,7 +51,6 @@ impl StoreConfig {
     pub fn as_disk_config(&self) -> OnDiskStoreConfig {
         OnDiskStoreConfig {
             slots_per_restore_point: self.slots_per_restore_point,
-            _block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
         }
     }
 

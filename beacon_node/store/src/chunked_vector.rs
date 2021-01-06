@@ -34,6 +34,7 @@ pub enum UpdatePattern {
 /// Map a chunk index to bytes that can be used to key the NoSQL database.
 ///
 /// We shift chunks up by 1 to make room for a genesis chunk that is handled separately.
+// FIXME(sproul): add chunk index function, make this take a usize
 pub fn chunk_key(cindex: u64) -> [u8; 8] {
     (cindex + 1).to_be_bytes()
 }
@@ -638,9 +639,29 @@ where
     }
 }
 
+impl<T> Chunk<T>
+where
+    T: Copy,
+{
+    pub fn get(&self, index: usize) -> Result<T, Error> {
+        Ok(self
+            .values
+            .get(index)
+            .copied()
+            .ok_or_else(|| ChunkError::OutOfBounds {
+                length: self.values.len(),
+                index,
+            })?)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ChunkError {
     ZeroLengthVector,
+    OutOfBounds {
+        length: usize,
+        index: usize,
+    },
     InvalidSize {
         chunk_index: usize,
         expected: usize,

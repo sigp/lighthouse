@@ -197,14 +197,17 @@ pub fn get_config<E: EthSpec>(
     }
 
     if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
-        client_config.store.slots_per_restore_point = slots_per_restore_point
-            .parse()
-            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
+        client_config.store.slots_per_restore_point = match slots_per_restore_point {
+            "none" => None,
+            x => Some(x.parse().map_err(|_| {
+                "slots-per-restore-point is not valid (integer or none)".to_string()
+            })?),
+        }
     } else {
-        client_config.store.slots_per_restore_point = std::cmp::min(
+        client_config.store.slots_per_restore_point = Some(std::cmp::min(
             E::slots_per_historical_root() as u64,
             store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
+        ));
     }
 
     if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {

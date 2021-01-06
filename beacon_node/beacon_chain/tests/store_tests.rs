@@ -34,10 +34,16 @@ type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+    get_store_with_config(db_path, StoreConfig::default())
+}
+
+fn get_store_with_config(
+    db_path: &TempDir,
+    config: StoreConfig,
+) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
-    let config = StoreConfig::default();
     let log = test_logger();
 
     Arc::new(
@@ -64,6 +70,27 @@ fn full_participation_no_skips() {
     let num_blocks_produced = E::slots_per_epoch() * 5;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    check_finalization(&harness, num_blocks_produced);
+    check_split_slot(&harness, store);
+    check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
+}
+
+#[test]
+fn no_restore_points_full_participation_no_skips() {
+    let num_blocks_produced = E::slots_per_epoch() * 5;
+    let db_path = tempdir().unwrap();
+    let mut store_config = StoreConfig::default();
+    store_config.slots_per_restore_point = None;
+    let store = get_store_with_config(&db_path, store_config);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     harness.extend_chain(
@@ -1703,12 +1730,17 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
+    for c in &chain_dump {
+        println!("{}: {}", c.beacon_state.slot, c.beacon_block_root);
+    }
+
     for checkpoint in &chain_dump {
         // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root,
             checkpoint.beacon_state.tree_hash_root(),
-            "tree hash of stored state is incorrect"
+            "tree hash of stored state is incorrect, slot {}",
+            checkpoint.beacon_state.slot,
         );
 
         // Check that looking up the state root with no slot hint succeeds.
