@@ -345,7 +345,7 @@ impl FromStr for ValidatorStatus {
             "active" => Ok(ValidatorStatus::Active),
             "pending" => Ok(ValidatorStatus::Pending),
             "exited" => Ok(ValidatorStatus::Exited),
-            "Withdrawal" => Ok(ValidatorStatus::Withdrawal),
+            "withdrawal" => Ok(ValidatorStatus::Withdrawal),
             _ => Err(format!("{} cannot be parsed as a validator status.", s)),
         }
     }
