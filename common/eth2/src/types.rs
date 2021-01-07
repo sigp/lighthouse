@@ -302,7 +302,7 @@ impl ValidatorStatus {
         } else if validator.activation_eligibility_epoch == far_future_epoch {
             ValidatorStatus::PendingInitialized
         } else {
-           ValidatorStatus::PendingQueued
+            ValidatorStatus::PendingQueued
         }
     }
 
