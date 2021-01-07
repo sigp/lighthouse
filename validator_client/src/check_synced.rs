@@ -36,7 +36,7 @@ pub async fn check_synced<T: SlotClock>(
         }
     };
 
-    let is_synced = !resp.data.is_syncing || (resp.data.sync_distance.as_u64() < SYNC_TOLERANCE);
+    let is_synced = resp.data.sync_distance.as_u64() < SYNC_TOLERANCE;
 
     if let Some(log) = log_opt {
         if !is_synced {

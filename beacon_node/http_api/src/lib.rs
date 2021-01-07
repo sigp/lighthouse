@@ -1327,10 +1327,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("node"))
         .and(warp::path("syncing"))
         .and(warp::path::end())
-        .and(network_globals.clone())
         .and(chain_filter.clone())
         .and_then(
-            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
+            |chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     let head_slot = chain
                         .head_info()
@@ -1344,7 +1343,6 @@ pub fn serve<T: BeaconChainTypes>(
                     let sync_distance = current_slot - head_slot;
 
                     let syncing_data = api_types::SyncingData {
-                        is_syncing: network_globals.sync_state.read().is_syncing(),
                         head_slot,
                         sync_distance,
                     };

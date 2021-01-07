@@ -1251,7 +1251,6 @@ impl ApiTester {
         let sync_distance = self.chain.slot().unwrap() - head_slot;
 
         let expected = SyncingData {
-            is_syncing: false,
             head_slot,
             sync_distance,
         };

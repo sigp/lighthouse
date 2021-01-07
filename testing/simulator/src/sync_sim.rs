@@ -3,6 +3,7 @@ use crate::local_network::LocalNetwork;
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
+    eth2::StatusCode,
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorFiles,
 };
 use node_test_rig::{testing_validator_config, ClientConfig};
@@ -359,9 +360,9 @@ pub async fn check_still_syncing<E: EthSpec>(network: &LocalNetwork<E>) -> Resul
     for remote_node in network.remote_nodes()? {
         status.push(
             remote_node
-                .get_node_syncing()
+                .get_node_health()
                 .await
-                .map(|body| body.data.is_syncing)
+                .map(|status| status == StatusCode::OK)
                 .map_err(|e| format!("Get syncing status via http failed: {:?}", e))?,
         )
     }

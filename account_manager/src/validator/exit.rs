@@ -4,7 +4,7 @@ use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorId, ValidatorStatus},
-    BeaconNodeHttpClient, Url,
+    BeaconNodeHttpClient, StatusCode, Url,
 };
 use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
@@ -235,11 +235,10 @@ async fn get_geneisis_data(client: &BeaconNodeHttpClient) -> Result<GenesisData,
 /// Gets syncing status from beacon node client and returns true if syncing and false otherwise.
 async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
     Ok(client
-        .get_node_syncing()
+        .get_node_health()
         .await
-        .map_err(|e| format!("Failed to get sync status: {:?}", e))?
-        .data
-        .is_syncing)
+        .map_err(|e| format!("Failed to get node health: {:?}", e))?
+         == StatusCode::OK)
 }
 
 /// Get fork object for the current state by querying the beacon node client.

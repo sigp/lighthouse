@@ -435,7 +435,6 @@ pub struct VersionData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncingData {
-    pub is_syncing: bool,
     pub head_slot: Slot,
     pub sync_distance: Slot,
 }
