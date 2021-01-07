@@ -357,6 +357,10 @@ lazy_static! {
     /*
      * Validator Monitor Metrics
      */
+    pub static ref VALIDATOR_MONITOR_VALIDATORS_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "validator_monitor_validators_total",
+        "Count of validators that are specifically monitored by this beacon node"
+    );
     pub static ref VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_unaggregated_attestation_total",
         "Number of unaggregated attestations seen",
@@ -451,6 +455,10 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &OP_POOL_NUM_VOLUNTARY_EXITS,
         beacon_chain.op_pool.num_voluntary_exits(),
+    );
+    set_gauge_by_usize(
+        &VALIDATOR_MONITOR_VALIDATORS_TOTAL,
+        beacon_chain.validator_monitor.read().num_validators(),
     );
 }
 

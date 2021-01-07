@@ -81,28 +81,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .map(|pubkeys| self.add_validator_pubkeys(pubkeys))
     }
 
-    pub fn register_local_validator(&mut self, validator_index: u64) {
-        if !self.auto_register {
-            return;
-        }
-
-        if let Some((pubkey, _)) = self.indices.get(&validator_index) {
-            if !self.validators.contains_key(pubkey) {
-                info!(
-                    self.log,
-                    "Started monitoring validator";
-                    "pubkey" => %pubkey,
-                    "validator" => %validator_index,
-                );
-
-                self.validators.insert(
-                    *pubkey,
-                    MonitoredValidator::new(*pubkey, Some(validator_index)),
-                );
-            }
-        }
-    }
-
     pub fn add_validator_pubkeys(&mut self, pubkeys: Vec<PublicKeyBytes>) {
         for pubkey in pubkeys {
             self.add_validator_pubkey(pubkey)
@@ -141,6 +119,32 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .get(&validator_index)
             .filter(|(pubkey, _id)| self.validators.contains_key(pubkey))
             .map(|(_pubkey, id)| id.as_str())
+    }
+
+    pub fn num_validators(&self) -> usize {
+        self.validators.len()
+    }
+
+    pub fn auto_register_local_validator(&mut self, validator_index: u64) {
+        if !self.auto_register {
+            return;
+        }
+
+        if let Some((pubkey, _)) = self.indices.get(&validator_index) {
+            if !self.validators.contains_key(pubkey) {
+                info!(
+                    self.log,
+                    "Started monitoring validator";
+                    "pubkey" => %pubkey,
+                    "validator" => %validator_index,
+                );
+
+                self.validators.insert(
+                    *pubkey,
+                    MonitoredValidator::new(*pubkey, Some(validator_index)),
+                );
+            }
+        }
     }
 
     pub fn get_block_delay_ms<S: SlotClock>(

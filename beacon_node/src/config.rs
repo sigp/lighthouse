@@ -386,6 +386,10 @@ pub fn get_config<E: EthSpec>(
         client_config.slasher = Some(slasher_config);
     }
 
+    if cli_args.is_present("validator-monitor") {
+        client_config.validator_monitor_auto = true;
+    }
+
     if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
         let pubkeys = pubkeys
             .split(",")

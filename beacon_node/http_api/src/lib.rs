@@ -2099,7 +2099,7 @@ pub fn serve<T: BeaconChainTypes>(
                         chain
                             .validator_monitor
                             .write()
-                            .register_local_validator(subscription.validator_index);
+                            .auto_register_local_validator(subscription.validator_index);
 
                         let subscription = api_types::ValidatorSubscription {
                             validator_index: subscription.validator_index,

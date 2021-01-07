@@ -452,11 +452,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("monitor-validators")
-                .long("monitor-validators")
+            Arg::with_name("validator-monitor")
+                .long("validator-monitor")
+                .help("Enables the automatic detection and monitoring of validators connected to the \
+                    HTTP API and using the subnet subscription endpoint. This generally has the \
+                    effect of providing additional logging and metrics for locally controlled \
+                    validators.")
+        )
+        .arg(
+            Arg::with_name("validator-monitor-pubkeys")
+                .long("validator-monitor-pubkeys")
                 .help("A comma separated list of 0x-prefixed validator public keys. \
                         These validators will receive special monitoring and additional \
-                        logging.")
+                        logging. Still effective without --validator-monitor.")
                 .value_name("PUBKEYS")
                 .takes_value(true)
         )
