@@ -299,12 +299,10 @@ impl ValidatorStatus {
         // `pending` statuses are specified as validators where `validator.activation_epoch > current_epoch`.
         // If this code is reached, this criteria must have been met because `validator.is_active_at(epoch)`,
         // `validator.is_exited_at(epoch)`, and `validator.is_withdrawable_at(epoch)` all returned false.
+        } else if validator.activation_eligibility_epoch == far_future_epoch {
+            ValidatorStatus::PendingInitialized
         } else {
-            if validator.activation_eligibility_epoch == far_future_epoch {
-                ValidatorStatus::PendingInitialized
-            } else {
-                ValidatorStatus::PendingQueued
-            }
+           ValidatorStatus::PendingQueued
         }
     }
 
