@@ -68,7 +68,7 @@ impl MonitoredValidator {
 
 pub struct ValidatorMonitor<T: EthSpec> {
     validators: HashMap<PublicKeyBytes, MonitoredValidator>,
-    indices: HashMap<u64, PublicKeyBytes>,
+    indices: HashMap<u64, (PublicKeyBytes, String)>,
     events: HashMap<Epoch, Vec<ValidatorEvent<T>>>,
     pub max_epochs: usize,
     log: Logger,
@@ -169,7 +169,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let index_opt = self
                 .indices
                 .iter()
-                .find(|(_, candidate)| **candidate == pubkey)
+                .find(|(_, (candidate_pk, _))| *candidate_pk == pubkey)
                 .map(|(index, _)| *index);
 
             self.validators
@@ -189,15 +189,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 if let Some(validator) = self.validators.get_mut(&validator.pubkey) {
                     validator.index = Some(i);
                 }
-                self.indices.insert(i, validator.pubkey);
+                self.indices.insert(i, (validator.pubkey, i.to_string()));
             })
     }
 
-    pub fn get_registered_pubkey(&self, validator_index: u64) -> Option<PublicKeyBytes> {
+    pub fn get_validator_id(&self, validator_index: u64) -> Option<&str> {
         self.indices
             .get(&validator_index)
-            .filter(|pubkey| self.validators.contains_key(&pubkey))
-            .copied()
+            .map(|(_pubkey, id)| id.as_str())
     }
 
     pub fn get_block_delay_ms<S: SlotClock>(
@@ -218,20 +217,20 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_gossip_block<S: SlotClock>(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
-        if let Some(pubkey) = self.get_registered_pubkey(block.proposer_index) {
+        if let Some(id) = self.get_validator_id(block.proposer_index) {
             info!(
                 self.log,
                 "Block from p2p gossip";
                 "root" => ?block_root,
                 "delay" => %Self::get_block_delay_ms(seen_timestamp, block, slot_clock),
                 "slot" => %block.slot,
-                "validator" => %pubkey,
+                "validator" => %id,
             );
         }
     }
@@ -243,14 +242,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         block_root: Hash256,
         slot_clock: &S,
     ) {
-        if let Some(pubkey) = self.get_registered_pubkey(block.proposer_index) {
+        if let Some(id) = self.get_validator_id(block.proposer_index) {
             info!(
                 self.log,
                 "Block from API";
                 "root" => ?block_root,
                 "delay" => %Self::get_block_delay_ms(seen_timestamp, block, slot_clock),
                 "slot" => %block.slot,
-                "validator" => %pubkey,
+                "validator" => %id,
             );
         }
     }
@@ -300,7 +299,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let delay = Self::get_unaggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
-            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+            if let Some(id) = self.get_validator_id(*i) {
                 info!(
                     self.log,
                     "Unaggregated attestation from API";
@@ -309,7 +308,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     "delay" => %delay,
                     "epoch" => %epoch,
                     "slot" => %data.slot,
-                    "validator" => %pubkey,
+                    "validator" => %id,
                 );
             }
         })
@@ -327,7 +326,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let delay = Self::get_aggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
-        if let Some(aggregator_pubkey) = self.get_registered_pubkey(aggregator_index) {
+        if let Some(id) = self.get_validator_id(aggregator_index) {
             info!(
                 self.log,
                 "Signed aggregate from API";
@@ -336,12 +335,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 "delay" => %delay,
                 "epoch" => %epoch,
                 "slot" => %data.slot,
-                "validator" => %aggregator_pubkey,
+                "validator" => %id,
             );
         }
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
-            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+            if let Some(id) = self.get_validator_id(*i) {
                 info!(
                     self.log,
                     "Attestation included in API aggregate";
@@ -350,7 +349,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     "delay" => %delay,
                     "epoch" => %epoch,
                     "slot" => %data.slot,
-                    "validator" => %pubkey,
+                    "validator" => %id,
                 );
             }
         })
@@ -367,7 +366,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let delay = Self::get_unaggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
-            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+            if let Some(id) = self.get_validator_id(*i) {
                 info!(
                     self.log,
                     "Unaggregated attestation on gossip";
@@ -376,7 +375,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     "delay" => %delay,
                     "epoch" => %epoch,
                     "slot" => %data.slot,
-                    "validator" => %pubkey,
+                    "validator" => %id,
                 );
             }
         })
@@ -394,7 +393,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let delay = Self::get_aggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
-        if let Some(aggregator_pubkey) = self.get_registered_pubkey(aggregator_index) {
+        if let Some(id) = self.get_validator_id(aggregator_index) {
             info!(
                 self.log,
                 "Signed aggregate on gossip";
@@ -403,12 +402,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 "delay" => %delay,
                 "epoch" => %epoch,
                 "slot" => %data.slot,
-                "validator" => %aggregator_pubkey,
+                "validator" => %id,
             );
         }
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
-            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+            if let Some(id) = self.get_validator_id(*i) {
                 info!(
                     self.log,
                     "Attestation included in gossip aggregate";
@@ -417,7 +416,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     "delay" => %delay,
                     "epoch" => %epoch,
                     "slot" => %data.slot,
-                    "validator" => %pubkey,
+                    "validator" => %id,
                 );
             }
         })
@@ -434,7 +433,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let epoch = data.slot.epoch(T::slots_per_epoch());
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
-            if let Some(pubkey) = self.get_registered_pubkey(*i) {
+            if let Some(id) = self.get_validator_id(*i) {
                 info!(
                     self.log,
                     "Attestation included in block";
@@ -443,7 +442,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     "inclusion_lag" => format!("{} slot(s)", delay),
                     "epoch" => %epoch,
                     "slot" => %data.slot,
-                    "validator" => %pubkey,
+                    "validator" => %id,
                 );
             }
         })
@@ -467,13 +466,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         seen_timestamp: Duration,
         exit: &VoluntaryExit,
     ) {
-        if let Some(pubkey) = self.get_registered_pubkey(exit.validator_index) {
+        if let Some(id) = self.get_validator_id(exit.validator_index) {
             info!(
                 self.log,
                 "Voluntary exit";
                 "seen_timestamp" => %seen_timestamp.as_millis(),
                 "epoch" => %exit.epoch,
-                "validator" => %pubkey,
+                "validator" => %id,
                 "src" => src,
             );
         }
@@ -514,7 +513,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let root_1 = slashing.signed_header_1.message.canonical_root();
         let root_2 = slashing.signed_header_2.message.canonical_root();
 
-        if let Some(pubkey) = self.get_registered_pubkey(proposer) {
+        if let Some(id) = self.get_validator_id(proposer) {
             crit!(
                 self.log,
                 "Proposer slashing";
@@ -522,7 +521,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 "root_2" => %root_2,
                 "root_1" => %root_1,
                 "slot" => %slot,
-                "validator" => %pubkey,
+                "validator" => %id,
                 "src" => src,
             );
         }
@@ -567,15 +566,15 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .attesting_indices
             .iter()
             .filter(|index| attestation_1_indices.contains(index))
-            .filter_map(|index| self.get_registered_pubkey(*index))
-            .for_each(|pubkey| {
+            .filter_map(|index| self.get_validator_id(*index))
+            .for_each(|id| {
                 crit!(
                     self.log,
                     "Attester slashing";
                     "seen_timestamp" => %seen_timestamp.as_millis(),
                     "epoch" => %data.slot.epoch(T::slots_per_epoch()),
                     "slot" => %data.slot,
-                    "validator" => %pubkey,
+                    "validator" => %id,
                     "src" => src,
                 );
             })
