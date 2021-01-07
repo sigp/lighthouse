@@ -6,6 +6,8 @@ on:
             - v*
 
 env:
+    DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+    DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     REPO_NAME: sigp/lighthouse
 
 jobs:
