@@ -10,45 +10,15 @@ use std::path::Path;
 use std::str::{from_utf8, FromStr, Utf8Error};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
-    AttestationData, AttesterSlashing, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec,
-    Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes,
-    SignedAggregateAndProof, VoluntaryExit,
+    AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256,
+    IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, VoluntaryExit,
 };
-
-/// The number of historical epochs stored in the `ValidatorManager`.
-///
-/// This is set to 32 epochs (12.8 hours). This should give someone actively monitoring the system
-/// enough time to troubleshoot any failures.
-pub const DEFAULT_MAX_LEN: usize = 32;
 
 #[derive(Debug)]
 pub enum Error {
     InvalidPubkey(String),
     FileError(io::Error),
     InvalidUtf8(Utf8Error),
-    ValidatorNotMonitored(PublicKeyBytes),
-    NoDataForEpoch(Epoch),
-}
-
-pub struct ValidatorEvent<T: EthSpec> {
-    pub timestamp: u64,
-    pub pubkeys: Vec<PublicKeyBytes>,
-    pub location: EventLocation,
-    pub data: EventData<T>,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum EventLocation {
-    BeaconChain,
-    Gossip,
-    API,
-    Block,
-}
-
-pub enum EventData<T: EthSpec> {
-    Attestation(IndexedAttestation<T>),
-    Block(BeaconBlockHeader),
-    Aggregate(SignedAggregateAndProof<T>),
 }
 
 struct MonitoredValidator {
@@ -70,15 +40,17 @@ impl MonitoredValidator {
 pub struct ValidatorMonitor<T> {
     validators: HashMap<PublicKeyBytes, MonitoredValidator>,
     indices: HashMap<u64, (PublicKeyBytes, String)>,
+    auto_register: bool,
     log: Logger,
     _phantom: PhantomData<T>,
 }
 
 impl<T: EthSpec> ValidatorMonitor<T> {
-    pub fn new(log: Logger) -> Self {
+    pub fn new(auto_register: bool, log: Logger) -> Self {
         Self {
             validators: <_>::default(),
             indices: <_>::default(),
+            auto_register,
             log,
             _phantom: PhantomData,
         }
@@ -109,18 +81,44 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .map(|pubkeys| self.add_validator_pubkeys(pubkeys))
     }
 
+    pub fn register_local_validator(&mut self, validator_index: u64) {
+        if !self.auto_register {
+            return;
+        }
+
+        if let Some((pubkey, _)) = self.indices.get(&validator_index) {
+            if !self.validators.contains_key(pubkey) {
+                info!(
+                    self.log,
+                    "Started monitoring validator";
+                    "pubkey" => %pubkey,
+                    "validator" => %validator_index,
+                );
+
+                self.validators.insert(
+                    *pubkey,
+                    MonitoredValidator::new(*pubkey, Some(validator_index)),
+                );
+            }
+        }
+    }
+
     pub fn add_validator_pubkeys(&mut self, pubkeys: Vec<PublicKeyBytes>) {
         for pubkey in pubkeys {
-            let index_opt = self
-                .indices
-                .iter()
-                .find(|(_, (candidate_pk, _))| *candidate_pk == pubkey)
-                .map(|(index, _)| *index);
-
-            self.validators
-                .entry(pubkey)
-                .or_insert_with(|| MonitoredValidator::new(pubkey, index_opt));
+            self.add_validator_pubkey(pubkey)
         }
+    }
+
+    pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
+        let index_opt = self
+            .indices
+            .iter()
+            .find(|(_, (candidate_pk, _))| *candidate_pk == pubkey)
+            .map(|(index, _)| *index);
+
+        self.validators
+            .entry(pubkey)
+            .or_insert_with(|| MonitoredValidator::new(pubkey, index_opt));
     }
 
     pub fn update_validator_indices(&mut self, state: &BeaconState<T>) {

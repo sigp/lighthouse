@@ -386,13 +386,15 @@ pub fn get_config<E: EthSpec>(
         client_config.slasher = Some(slasher_config);
     }
 
-    if let Some(monitor_validators) = cli_args.value_of("monitor-validators") {
-        let pubkeys = monitor_validators
+    if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
+        let pubkeys = pubkeys
             .split(",")
             .map(PublicKeyBytes::from_str)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --monitor-validators value: {:?}", e))?;
-        client_config.monitor_validators.extend_from_slice(&pubkeys);
+        client_config
+            .validator_monitor_pubkeys
+            .extend_from_slice(&pubkeys);
     }
 
     Ok(client_config)

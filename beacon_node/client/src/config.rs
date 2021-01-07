@@ -63,7 +63,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub slasher: Option<slasher::Config>,
-    pub monitor_validators: Vec<PublicKeyBytes>,
+    pub validator_monitor_auto: bool,
+    pub validator_monitor_pubkeys: Vec<PublicKeyBytes>,
 }
 
 impl Default for Config {
@@ -85,7 +86,8 @@ impl Default for Config {
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             slasher: None,
-            monitor_validators: vec![],
+            validator_monitor_auto: false,
+            validator_monitor_pubkeys: vec![],
         }
     }
 }

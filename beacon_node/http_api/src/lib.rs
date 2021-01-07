@@ -2089,11 +2089,18 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(network_tx_filter)
+        .and(chain_filter.clone())
         .and_then(
             |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     for subscription in &subscriptions {
+                        chain
+                            .validator_monitor
+                            .write()
+                            .register_local_validator(subscription.validator_index);
+
                         let subscription = api_types::ValidatorSubscription {
                             validator_index: subscription.validator_index,
                             attestation_committee_index: subscription.committee_index,
