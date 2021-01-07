@@ -638,7 +638,6 @@ impl ApiTester {
 
                     let expected = state_opt.map(|state| {
                         let epoch = state.current_epoch();
-                        let finalized_epoch = state.finalized_checkpoint.epoch;
                         let far_future_epoch = self.chain.spec.far_future_epoch;
 
                         let mut validators = Vec::with_capacity(validator_indices.len());
@@ -649,9 +648,8 @@ impl ApiTester {
                             }
                             let validator = state.validators[i as usize].clone();
                             let status = ValidatorStatus::from_validator(
-                                Some(&validator),
+                                &validator,
                                 epoch,
-                                finalized_epoch,
                                 far_future_epoch,
                             );
                             if statuses.contains(&status) || statuses.is_empty() {
@@ -706,16 +704,14 @@ impl ApiTester {
 
                     let expected = {
                         let epoch = state.current_epoch();
-                        let finalized_epoch = state.finalized_checkpoint.epoch;
                         let far_future_epoch = self.chain.spec.far_future_epoch;
 
                         ValidatorData {
                             index: i as u64,
                             balance: state.balances[i],
                             status: ValidatorStatus::from_validator(
-                                Some(&validator),
+                                &validator,
                                 epoch,
-                                finalized_epoch,
                                 far_future_epoch,
                             ),
                             validator: validator.clone(),
