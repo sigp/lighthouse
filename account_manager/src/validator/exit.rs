@@ -238,7 +238,7 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
         .get_node_health()
         .await
         .map_err(|e| format!("Failed to get node health: {:?}", e))?
-         == StatusCode::OK)
+        == StatusCode::OK)
 }
 
 /// Get fork object for the current state by querying the beacon node client.

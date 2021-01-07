@@ -1328,29 +1328,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("syncing"))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(
-            |chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let head_slot = chain
-                        .head_info()
-                        .map(|info| info.slot)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let current_slot = chain
-                        .slot()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let head_slot = chain
+                    .head_info()
+                    .map(|info| info.slot)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_slot = chain
+                    .slot()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    // Taking advantage of saturating subtraction on slot.
-                    let sync_distance = current_slot - head_slot;
+                // Taking advantage of saturating subtraction on slot.
+                let sync_distance = current_slot - head_slot;
 
-                    let syncing_data = api_types::SyncingData {
-                        head_slot,
-                        sync_distance,
-                    };
+                let syncing_data = api_types::SyncingData {
+                    head_slot,
+                    sync_distance,
+                };
 
-                    Ok(api_types::GenericResponse::from(syncing_data))
-                })
-            },
-        );
+                Ok(api_types::GenericResponse::from(syncing_data))
+            })
+        });
 
     // GET node/health
     let get_node_health = eth1_v1

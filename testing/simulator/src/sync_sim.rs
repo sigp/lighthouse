@@ -3,8 +3,8 @@ use crate::local_network::LocalNetwork;
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
-    eth2::StatusCode,
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorFiles,
+    environment::EnvironmentBuilder, eth2::StatusCode, testing_client_config, ClientGenesis,
+    ValidatorFiles,
 };
 use node_test_rig::{testing_validator_config, ClientConfig};
 use std::cmp::max;
