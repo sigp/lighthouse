@@ -213,7 +213,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_gossip_block<S: SlotClock>(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         block_root: Hash256,
@@ -223,7 +223,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_api_block<S: SlotClock>(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         block_root: Hash256,
@@ -233,7 +233,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_beacon_block<S: SlotClock>(
-        &mut self,
+        &self,
         src: &str,
         seen_timestamp: Duration,
         block: &BeaconBlock<T>,
@@ -293,7 +293,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_api_unaggregated_attestation<S: SlotClock>(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
@@ -307,7 +307,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_gossip_unaggregated_attestation<S: SlotClock>(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
@@ -321,7 +321,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     fn register_unaggregated_attestation<S: SlotClock>(
-        &mut self,
+        &self,
         src: &str,
         seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<T>,
@@ -358,7 +358,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         })
     }
     pub fn register_api_aggregated_attestation<S: SlotClock>(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
         indexed_attestation: &IndexedAttestation<T>,
@@ -374,7 +374,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_gossip_aggregated_attestation<S: SlotClock>(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
         indexed_attestation: &IndexedAttestation<T>,
@@ -390,7 +390,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     fn register_aggregated_attestation<S: SlotClock>(
-        &mut self,
+        &self,
         src: &str,
         seen_timestamp: Duration,
         signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
@@ -454,7 +454,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_attestation_in_block(
-        &mut self,
+        &self,
         indexed_attestation: &IndexedAttestation<T>,
         block: &BeaconBlock<T>,
         spec: &ChainSpec,
@@ -489,24 +489,15 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         })
     }
 
-    pub fn register_gossip_voluntary_exit(
-        &mut self,
-        seen_timestamp: Duration,
-        exit: &VoluntaryExit,
-    ) {
+    pub fn register_gossip_voluntary_exit(&self, seen_timestamp: Duration, exit: &VoluntaryExit) {
         self.register_voluntary_exit("gossip", seen_timestamp, exit)
     }
 
-    pub fn register_api_voluntary_exit(&mut self, seen_timestamp: Duration, exit: &VoluntaryExit) {
+    pub fn register_api_voluntary_exit(&self, seen_timestamp: Duration, exit: &VoluntaryExit) {
         self.register_voluntary_exit("api", seen_timestamp, exit)
     }
 
-    fn register_voluntary_exit(
-        &mut self,
-        src: &str,
-        seen_timestamp: Duration,
-        exit: &VoluntaryExit,
-    ) {
+    fn register_voluntary_exit(&self, src: &str, seen_timestamp: Duration, exit: &VoluntaryExit) {
         if let Some(id) = self.get_validator_id(exit.validator_index) {
             metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_EXIT_TOTAL, &[src, id]);
 
@@ -522,7 +513,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_gossip_proposer_slashing(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         slashing: &ProposerSlashing,
     ) {
@@ -530,7 +521,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_api_proposer_slashing(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         slashing: &ProposerSlashing,
     ) {
@@ -538,7 +529,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_block_proposer_slashing(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         slashing: &ProposerSlashing,
     ) {
@@ -546,7 +537,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     fn register_proposer_slashing(
-        &mut self,
+        &self,
         src: &str,
         seen_timestamp: Duration,
         slashing: &ProposerSlashing,
@@ -576,7 +567,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_gossip_attester_slashing(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         slashing: &AttesterSlashing<T>,
     ) {
@@ -584,7 +575,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_api_attester_slashing(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         slashing: &AttesterSlashing<T>,
     ) {
@@ -592,7 +583,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn register_block_attester_slashing(
-        &mut self,
+        &self,
         seen_timestamp: Duration,
         slashing: &AttesterSlashing<T>,
     ) {
@@ -600,7 +591,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     fn register_attester_slashing(
-        &mut self,
+        &self,
         src: &str,
         seen_timestamp: Duration,
         slashing: &AttesterSlashing<T>,

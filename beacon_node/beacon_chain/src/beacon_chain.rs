@@ -1627,11 +1627,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
-        // Note: this has the potential for a deadlock with the fork choice write-lock.
-        let mut validator_monitor = self.validator_monitor.write();
-
         // Allow the validator monitor to learn about new validator indices.
-        validator_monitor.update_validator_indices(&state);
+        self.validator_monitor
+            .write()
+            .update_validator_indices(&state);
+        let validator_monitor = self.validator_monitor.read();
 
         // Register each attestation in the block with the fork choice service.
         for attestation in &block.body.attestations[..] {

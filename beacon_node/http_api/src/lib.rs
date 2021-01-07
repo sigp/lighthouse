@@ -834,7 +834,7 @@ pub fn serve<T: BeaconChainTypes>(
                             );
 
                             // Notify the validator monitor.
-                            chain.validator_monitor.write().register_api_block(
+                            chain.validator_monitor.read().register_api_block(
                                 seen_timestamp,
                                 &block.message,
                                 root,
@@ -959,7 +959,7 @@ pub fn serve<T: BeaconChainTypes>(
                         // Notify the validator monitor.
                         chain
                             .validator_monitor
-                            .write()
+                            .read()
                             .register_api_unaggregated_attestation(
                                 seen_timestamp,
                                 attestation.indexed_attestation(),
@@ -1075,7 +1075,7 @@ pub fn serve<T: BeaconChainTypes>(
                     // Notify the validator monitor.
                     chain
                         .validator_monitor
-                        .write()
+                        .read()
                         .register_api_attester_slashing(seen_timestamp, &slashing);
 
                     if let ObservationOutcome::New(slashing) = outcome {
@@ -1134,7 +1134,7 @@ pub fn serve<T: BeaconChainTypes>(
                     // Notify the validator monitor.
                     chain
                         .validator_monitor
-                        .write()
+                        .read()
                         .register_api_proposer_slashing(seen_timestamp, &slashing);
 
                     if let ObservationOutcome::New(slashing) = outcome {
@@ -1191,7 +1191,7 @@ pub fn serve<T: BeaconChainTypes>(
                     // Notify the validator monitor.
                     chain
                         .validator_monitor
-                        .write()
+                        .read()
                         .register_api_voluntary_exit(seen_timestamp, &exit.message);
 
                     if let ObservationOutcome::New(exit) = outcome {
@@ -2012,7 +2012,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // Notify the validator monitor.
                                 chain
                                     .validator_monitor
-                                    .write()
+                                    .read()
                                     .register_api_aggregated_attestation(
                                         seen_timestamp,
                                         verified_aggregate.aggregate(),

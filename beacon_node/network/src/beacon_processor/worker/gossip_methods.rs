@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Register the attestation with any monitored validators.
         self.chain
             .validator_monitor
-            .write()
+            .read()
             .register_gossip_unaggregated_attestation(
                 seen_timestamp,
                 attestation.indexed_attestation(),
@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Register the attestation with any monitored validators.
         self.chain
             .validator_monitor
-            .write()
+            .read()
             .register_gossip_aggregated_attestation(
                 seen_timestamp,
                 aggregate.aggregate(),
@@ -292,7 +292,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         //
         // Run this event *prior* to importing the block, where the block is only partially
         // verified.
-        self.chain.validator_monitor.write().register_gossip_block(
+        self.chain.validator_monitor.read().register_gossip_block(
             seen_duration,
             &verified_block.block.message,
             verified_block.block_root,
@@ -401,7 +401,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Register the exit with any monitored validators.
         self.chain
             .validator_monitor
-            .write()
+            .read()
             .register_gossip_voluntary_exit(seen_timestamp, &exit.as_inner().message);
 
         self.chain.import_voluntary_exit(exit);
@@ -461,7 +461,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Register the slashing with any monitored validators.
         self.chain
             .validator_monitor
-            .write()
+            .read()
             .register_gossip_proposer_slashing(seen_timestamp, slashing.as_inner());
 
         self.chain.import_proposer_slashing(slashing);
@@ -513,7 +513,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Register the slashing with any monitored validators.
         self.chain
             .validator_monitor
-            .write()
+            .read()
             .register_gossip_attester_slashing(seen_timestamp, slashing.as_inner());
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
