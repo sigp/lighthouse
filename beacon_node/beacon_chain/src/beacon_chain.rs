@@ -1653,9 +1653,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Only register this with the validator monitor when the block is sufficiently close to
             // the current slot.
-            if block.slot + validator_monitor.max_epochs as u64 * T::EthSpec::slots_per_epoch()
-                >= current_slot
-            {
+            if 4 * T::EthSpec::slots_per_epoch() + block.slot.as_u64() >= current_slot.as_u64() {
                 validator_monitor.register_attestation_in_block(
                     &indexed_attestation,
                     &block,

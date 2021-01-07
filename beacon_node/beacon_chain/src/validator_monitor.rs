@@ -1,11 +1,11 @@
 use crate::metrics;
-use eth2::lighthouse::MonitoredValidatorReport;
 use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{self, Read};
 use std::iter::FromIterator;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::str::{from_utf8, FromStr, Utf8Error};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -67,77 +67,21 @@ impl MonitoredValidator {
     }
 }
 
-pub struct ValidatorMonitor<T: EthSpec> {
+pub struct ValidatorMonitor<T> {
     validators: HashMap<PublicKeyBytes, MonitoredValidator>,
     indices: HashMap<u64, (PublicKeyBytes, String)>,
-    events: HashMap<Epoch, Vec<ValidatorEvent<T>>>,
-    pub max_epochs: usize,
     log: Logger,
-}
-
-fn set_max(current: &mut u64, other: u64) {
-    *current = std::cmp::max(*current, other);
+    _phantom: PhantomData<T>,
 }
 
 impl<T: EthSpec> ValidatorMonitor<T> {
-    pub fn new(max_epochs: usize, log: Logger) -> Self {
+    pub fn new(log: Logger) -> Self {
         Self {
             validators: <_>::default(),
             indices: <_>::default(),
-            events: <_>::default(),
-            max_epochs,
             log,
+            _phantom: PhantomData,
         }
-    }
-
-    pub fn generate_validator_report(
-        &self,
-        epoch: Epoch,
-        pubkey: PublicKeyBytes,
-    ) -> Result<MonitoredValidatorReport, Error> {
-        let validator = self
-            .validators
-            .get(&pubkey)
-            .ok_or_else(|| Error::ValidatorNotMonitored(pubkey))?;
-
-        let mut report = MonitoredValidatorReport {
-            epoch,
-            pubkey,
-            validator_index: validator.index,
-            gossip_attestation_seen_timestamp: 0,
-            api_attestation_seen_timestamp: 0,
-            attestation_seen_in_block_timestamp: 0,
-            block_seen_timestamp: 0,
-            aggregate_seen_timestamp: 0,
-        };
-
-        self.events
-            .get(&epoch)
-            .ok_or_else(|| Error::NoDataForEpoch(epoch))?
-            .iter()
-            .filter(|event| event.pubkeys.contains(&pubkey))
-            .for_each(|event| {
-                let t = event.timestamp;
-
-                match event.data {
-                    EventData::Attestation(_) => match event.location {
-                        EventLocation::BeaconChain => {}
-                        EventLocation::Gossip => {
-                            set_max(&mut report.gossip_attestation_seen_timestamp, t)
-                        }
-                        EventLocation::API => {
-                            set_max(&mut report.api_attestation_seen_timestamp, t)
-                        }
-                        EventLocation::Block => {
-                            set_max(&mut report.attestation_seen_in_block_timestamp, t)
-                        }
-                    },
-                    EventData::Block(_) => set_max(&mut report.block_seen_timestamp, t),
-                    EventData::Aggregate(_) => set_max(&mut report.aggregate_seen_timestamp, t),
-                }
-            });
-
-        Ok(report)
     }
 
     pub fn add_validators_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
@@ -622,14 +566,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     "src" => src,
                 );
             })
-    }
-
-    pub fn prune(&mut self) {
-        while self.events.len() > self.max_epochs {
-            if let Some(i) = self.events.iter().map(|(epoch, _)| *epoch).min() {
-                self.events.remove(&i);
-            }
-        }
     }
 }
 

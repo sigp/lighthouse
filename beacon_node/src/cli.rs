@@ -460,11 +460,4 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PUBKEYS")
                 .takes_value(true)
         )
-        .arg(
-            Arg::with_name("monitor-validators-historical-epochs")
-                .long("monitor-validators-historical-epochs")
-                .help("The number of epochs for which we maintain monitored validator events.")
-                .value_name("INTEGER")
-                .takes_value(true)
-        )
 }

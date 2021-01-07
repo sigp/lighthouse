@@ -145,10 +145,7 @@ where
             .disabled_forks(disabled_forks)
             .graffiti(graffiti)
             .event_handler(event_handler)
-            .monitor_validators(
-                config.monitor_validators.clone(),
-                config.monitor_validators_historical_epochs,
-            )?;
+            .monitor_validators(config.monitor_validators.clone())?;
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)

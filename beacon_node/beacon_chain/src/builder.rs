@@ -397,17 +397,13 @@ where
     /// Register some validators for additional monitoring.
     ///
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
-    pub fn monitor_validators(
-        mut self,
-        validators: Vec<PublicKeyBytes>,
-        historical_epochs: usize,
-    ) -> Result<Self, String> {
+    pub fn monitor_validators(mut self, validators: Vec<PublicKeyBytes>) -> Result<Self, String> {
         let log = self
             .log
             .as_ref()
             .ok_or("validator_monitor requires a log")?;
 
-        let mut validator_monitor = ValidatorMonitor::new(historical_epochs, log.clone());
+        let mut validator_monitor = ValidatorMonitor::new(log.clone());
         validator_monitor.add_validator_pubkeys(validators);
         self.validator_monitor = Some(validator_monitor);
         Ok(self)
