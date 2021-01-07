@@ -353,6 +353,76 @@ lazy_static! {
         "beacon_attn_observation_epoch_aggregators",
         "Count of aggregators that have been seen by the beacon chain in the previous epoch"
     );
+
+    /*
+     * Validator Monitor Metrics
+     */
+    pub static ref VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_unaggregated_attestation_total",
+        "Number of unaggregated attestations seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_unaggregated_attestation_delay_seconds",
+        "The delay between then the validator should send the attestation and when it was received.",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_aggregated_attestation_total",
+        "Number of aggregated attestations seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_aggregated_attestation_delay_seconds",
+        "The delay between then the validator should send the aggregate and when it was received.",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_attestation_in_aggregate_total",
+        "Number of times an attestation has been seen in an aggregate",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_attestation_in_aggregate_delay_seconds",
+        "The delay between then the validator should send the aggregate and when it was received.",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_attestation_in_block_total",
+        "Number of times an attestation has been seen in a block",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "validator_monitor_attestation_in_block_delay_slots",
+        "The excess slots (beyond the minimum delay) between the attestation slot and the block slot.",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_beacon_block_total",
+        "Number of beacon blocks seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_BEACON_BLOCK_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_beacon_block_delay_seconds",
+        "The delay between then the validator should send the block and when it was received.",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_EXIT_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_exit_total",
+        "Number of beacon exits seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_PROPOSER_SLASHING_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_proposer_slashing_total",
+        "Number of beacon blocks seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTER_SLASHING_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_attester_slashing_total",
+        "Number of beacon blocks seen",
+        &["src", "validator"]
+    );
+
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

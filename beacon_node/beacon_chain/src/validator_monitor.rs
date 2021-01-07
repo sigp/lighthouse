@@ -1,3 +1,4 @@
+use crate::metrics;
 use eth2::lighthouse::MonitoredValidatorReport;
 use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
@@ -196,6 +197,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn get_validator_id(&self, validator_index: u64) -> Option<&str> {
         self.indices
             .get(&validator_index)
+            .filter(|(pubkey, _id)| self.validators.contains_key(pubkey))
             .map(|(_pubkey, id)| id.as_str())
     }
 
@@ -203,36 +205,21 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         slot_clock: &S,
-    ) -> String {
-        if let Some(slot_start) = slot_clock.start_of(block.slot) {
-            format!(
-                "{} ms",
-                seen_timestamp
-                    .as_millis()
-                    .saturating_sub(slot_start.as_millis())
-            )
-        } else {
-            "??".to_string()
-        }
+    ) -> Duration {
+        slot_clock
+            .start_of(block.slot)
+            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
+            .unwrap_or_else(|| Duration::from_secs(0))
     }
 
     pub fn register_gossip_block<S: SlotClock>(
-        &self,
+        &mut self,
         seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
-        if let Some(id) = self.get_validator_id(block.proposer_index) {
-            info!(
-                self.log,
-                "Block from p2p gossip";
-                "root" => ?block_root,
-                "delay" => %Self::get_block_delay_ms(seen_timestamp, block, slot_clock),
-                "slot" => %block.slot,
-                "validator" => %id,
-            );
-        }
+        self.register_beacon_block("gossip", seen_timestamp, block, block_root, slot_clock)
     }
 
     pub fn register_api_block<S: SlotClock>(
@@ -242,13 +229,34 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         block_root: Hash256,
         slot_clock: &S,
     ) {
+        self.register_beacon_block("api", seen_timestamp, block, block_root, slot_clock)
+    }
+
+    pub fn register_beacon_block<S: SlotClock>(
+        &mut self,
+        src: &str,
+        seen_timestamp: Duration,
+        block: &BeaconBlock<T>,
+        block_root: Hash256,
+        slot_clock: &S,
+    ) {
         if let Some(id) = self.get_validator_id(block.proposer_index) {
+            let delay = Self::get_block_delay_ms(seen_timestamp, block, slot_clock);
+
+            metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL, &[src, id]);
+            metrics::observe_timer_vec(
+                &metrics::VALIDATOR_MONITOR_BEACON_BLOCK_DELAY_SECONDS,
+                &[src, id],
+                delay,
+            );
+
             info!(
                 self.log,
                 "Block from API";
                 "root" => ?block_root,
-                "delay" => %Self::get_block_delay_ms(seen_timestamp, block, slot_clock),
+                "delay" => %delay.as_millis(),
                 "slot" => %block.slot,
+                "src" => src,
                 "validator" => %id,
             );
         }
@@ -258,34 +266,30 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         seen_timestamp: Duration,
         data: &AttestationData,
         slot_clock: &S,
-    ) -> String {
-        if let Some(slot_start) = slot_clock.start_of(data.slot) {
-            let raw_delay = seen_timestamp
-                .as_millis()
-                .saturating_sub(slot_start.as_millis());
-            let unagg_production_delay = slot_clock.slot_duration().as_millis() / 3;
-
-            format!("{} ms", raw_delay.saturating_sub(unagg_production_delay))
-        } else {
-            "??".to_string()
-        }
+    ) -> Duration {
+        slot_clock
+            .start_of(data.slot)
+            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
+            .and_then(|gross_delay| {
+                let production_delay = slot_clock.slot_duration() / 3;
+                gross_delay.checked_sub(production_delay)
+            })
+            .unwrap_or_else(|| Duration::from_secs(0))
     }
 
     pub fn get_aggregated_attestation_delay_ms<S: SlotClock>(
         seen_timestamp: Duration,
         data: &AttestationData,
         slot_clock: &S,
-    ) -> String {
-        if let Some(slot_start) = slot_clock.start_of(data.slot) {
-            let raw_delay = seen_timestamp
-                .as_millis()
-                .saturating_sub(slot_start.as_millis());
-            let agg_production_delay = (slot_clock.slot_duration().as_millis() / 3) * 2;
-
-            format!("{} ms", raw_delay.saturating_sub(agg_production_delay))
-        } else {
-            "??".to_string()
-        }
+    ) -> Duration {
+        slot_clock
+            .start_of(data.slot)
+            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
+            .and_then(|gross_delay| {
+                let production_delay = slot_clock.slot_duration() / 2;
+                gross_delay.checked_sub(production_delay)
+            })
+            .unwrap_or_else(|| Duration::from_secs(0))
     }
 
     pub fn register_api_unaggregated_attestation<S: SlotClock>(
@@ -294,65 +298,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
-        let data = &indexed_attestation.data;
-        let epoch = data.slot.epoch(T::slots_per_epoch());
-        let delay = Self::get_unaggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
-
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
-            if let Some(id) = self.get_validator_id(*i) {
-                info!(
-                    self.log,
-                    "Unaggregated attestation from API";
-                    "head" => ?data.beacon_block_root,
-                    "index" => %data.index,
-                    "delay" => %delay,
-                    "epoch" => %epoch,
-                    "slot" => %data.slot,
-                    "validator" => %id,
-                );
-            }
-        })
-    }
-
-    pub fn register_api_aggregated_attestation<S: SlotClock>(
-        &mut self,
-        seen_timestamp: Duration,
-        signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
-        indexed_attestation: &IndexedAttestation<T>,
-        slot_clock: &S,
-    ) {
-        let data = &indexed_attestation.data;
-        let epoch = data.slot.epoch(T::slots_per_epoch());
-        let delay = Self::get_aggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
-
-        let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
-        if let Some(id) = self.get_validator_id(aggregator_index) {
-            info!(
-                self.log,
-                "Signed aggregate from API";
-                "head" => ?data.beacon_block_root,
-                "index" => %data.index,
-                "delay" => %delay,
-                "epoch" => %epoch,
-                "slot" => %data.slot,
-                "validator" => %id,
-            );
-        }
-
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
-            if let Some(id) = self.get_validator_id(*i) {
-                info!(
-                    self.log,
-                    "Attestation included in API aggregate";
-                    "head" => ?data.beacon_block_root,
-                    "index" => %data.index,
-                    "delay" => %delay,
-                    "epoch" => %epoch,
-                    "slot" => %data.slot,
-                    "validator" => %id,
-                );
-            }
-        })
+        self.register_unaggregated_attestation(
+            "api",
+            seen_timestamp,
+            indexed_attestation,
+            slot_clock,
+        )
     }
 
     pub fn register_gossip_unaggregated_attestation<S: SlotClock>(
@@ -361,24 +312,65 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
+        self.register_unaggregated_attestation(
+            "gossip",
+            seen_timestamp,
+            indexed_attestation,
+            slot_clock,
+        )
+    }
+
+    fn register_unaggregated_attestation<S: SlotClock>(
+        &mut self,
+        src: &str,
+        seen_timestamp: Duration,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
         let data = &indexed_attestation.data;
         let epoch = data.slot.epoch(T::slots_per_epoch());
         let delay = Self::get_unaggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
             if let Some(id) = self.get_validator_id(*i) {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_TOTAL,
+                    &[src, id],
+                );
+                metrics::observe_timer_vec(
+                    &metrics::VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS,
+                    &[src, id],
+                    delay,
+                );
+
                 info!(
                     self.log,
-                    "Unaggregated attestation on gossip";
+                    "Unaggregated attestation";
                     "head" => ?data.beacon_block_root,
                     "index" => %data.index,
-                    "delay" => %delay,
+                    "delay_ms" => %delay.as_millis(),
                     "epoch" => %epoch,
                     "slot" => %data.slot,
+                    "src" => src,
                     "validator" => %id,
                 );
             }
         })
+    }
+    pub fn register_api_aggregated_attestation<S: SlotClock>(
+        &mut self,
+        seen_timestamp: Duration,
+        signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
+        self.register_aggregated_attestation(
+            "gossip",
+            seen_timestamp,
+            signed_aggregate_and_proof,
+            indexed_attestation,
+            slot_clock,
+        )
     }
 
     pub fn register_gossip_aggregated_attestation<S: SlotClock>(
@@ -388,34 +380,73 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
+        self.register_aggregated_attestation(
+            "gossip",
+            seen_timestamp,
+            signed_aggregate_and_proof,
+            indexed_attestation,
+            slot_clock,
+        )
+    }
+
+    fn register_aggregated_attestation<S: SlotClock>(
+        &mut self,
+        src: &str,
+        seen_timestamp: Duration,
+        signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
         let data = &indexed_attestation.data;
         let epoch = data.slot.epoch(T::slots_per_epoch());
         let delay = Self::get_aggregated_attestation_delay_ms(seen_timestamp, data, slot_clock);
 
         let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
         if let Some(id) = self.get_validator_id(aggregator_index) {
+            metrics::inc_counter_vec(
+                &metrics::VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL,
+                &[src, id],
+            );
+            metrics::observe_timer_vec(
+                &metrics::VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_DELAY_SECONDS,
+                &[src, id],
+                delay,
+            );
+
             info!(
                 self.log,
-                "Signed aggregate on gossip";
+                "Aggregated attestation";
                 "head" => ?data.beacon_block_root,
                 "index" => %data.index,
-                "delay" => %delay,
+                "delay_ms" => %delay.as_millis(),
                 "epoch" => %epoch,
                 "slot" => %data.slot,
+                "src" => src,
                 "validator" => %id,
             );
         }
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
             if let Some(id) = self.get_validator_id(*i) {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_TOTAL,
+                    &[src, id],
+                );
+                metrics::observe_timer_vec(
+                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_DELAY_SECONDS,
+                    &[src, id],
+                    delay,
+                );
+
                 info!(
                     self.log,
-                    "Attestation included in gossip aggregate";
+                    "Attestation included in aggregate";
                     "head" => ?data.beacon_block_root,
                     "index" => %data.index,
-                    "delay" => %delay,
+                    "delay_ms" => %delay.as_millis(),
                     "epoch" => %epoch,
                     "slot" => %data.slot,
+                    "src" => src,
                     "validator" => %id,
                 );
             }
@@ -434,6 +465,16 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
             if let Some(id) = self.get_validator_id(*i) {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_TOTAL,
+                    &["block", id],
+                );
+                metrics::set_int_gauge(
+                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS,
+                    &["block", id],
+                    delay.as_u64() as i64,
+                );
+
                 info!(
                     self.log,
                     "Attestation included in block";
@@ -467,6 +508,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         exit: &VoluntaryExit,
     ) {
         if let Some(id) = self.get_validator_id(exit.validator_index) {
+            metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_EXIT_TOTAL, &[src, id]);
+
             info!(
                 self.log,
                 "Voluntary exit";
@@ -514,6 +557,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let root_2 = slashing.signed_header_2.message.canonical_root();
 
         if let Some(id) = self.get_validator_id(proposer) {
+            metrics::inc_counter_vec(
+                &metrics::VALIDATOR_MONITOR_PROPOSER_SLASHING_TOTAL,
+                &[src, id],
+            );
+
             crit!(
                 self.log,
                 "Proposer slashing";
@@ -568,6 +616,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .filter(|index| attestation_1_indices.contains(index))
             .filter_map(|index| self.get_validator_id(*index))
             .for_each(|id| {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_ATTESTER_SLASHING_TOTAL,
+                    &[src, id],
+                );
+
                 crit!(
                     self.log,
                     "Attester slashing";
