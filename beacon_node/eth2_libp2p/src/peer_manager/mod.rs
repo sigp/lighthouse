@@ -480,10 +480,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Status => return,
                 },
             },
-            RPCError::NegotiationTimeout => match protocol {
-                Protocol::Ping => PeerAction::LowToleranceError,
-                _ => PeerAction::HighToleranceError,
-            },
+            RPCError::NegotiationTimeout => PeerAction::LowToleranceError,
         };
 
         self.report_peer(peer_id, peer_action, ReportSource::RPC);
