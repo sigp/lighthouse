@@ -9,7 +9,7 @@ env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     REPO_NAME: realbigsean/lighthouse
-    IMAGE_NAME: realbigsean/lighthouse
+    IMAGE_NAME: seanandesron33/lighthouse
 
 jobs:
     extract-version:
@@ -87,7 +87,7 @@ jobs:
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
             - name: Create and push multiarch manifest
               run: |
-                  docker manifest create ${IMAGE_NAME}:latest${TAG_SUFFIX} \
+                  docker manifest create ${IMAGE_NAME}:${{ env.VERSION }} \
                       --amend ${IMAGE_NAME}:${{ env.VERSION }}-arm64 \
                       --amend ${IMAGE_NAME}:${{ env.VERSION }}-amd64;
                   docker manifest push ${IMAGE_NAME}:${{ env.VERSION }}
