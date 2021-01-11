@@ -33,17 +33,14 @@ jobs:
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-
             - name: Cross build lighthouse binary
               run:  |
                   cargo install cross
                   make build-aarch64-portable
-
             - name: Move cross-built ARM binary into Docker scope
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
-
             # Install dependencies for emulation. Have to create a new builder to pick up emulation support.
             - name: Build ARM64 dockerfile (with push)
               run: |
@@ -54,7 +51,6 @@ jobs:
                       --file ./Dockerfile.cross . \
                       --tag ${IMAGE_NAME}:${{ env.VERSION }}-arm64 \
                       --push
-
     build-docker-amd64:
         runs-on: ubuntu-18.04
         needs: [extract-version]
@@ -73,7 +69,6 @@ jobs:
                       --tag ${IMAGE_NAME}:${{ env.VERSION }}-amd64 \
                       --file ./Dockerfile .
                   docker push ${IMAGE_NAME}:${{ env.VERSION }}-amd64
-
     build-docker-multiarch:
         runs-on: ubuntu-18.04
         needs: [build-docker-arm64, build-docker-amd64, extract-version]
@@ -87,11 +82,10 @@ jobs:
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
             - name: Create and push multiarch manifest
               run: |
-                  docker manifest create ${IMAGE_NAME}:latest${TAG_SUFFIX} \
+                  docker manifest create ${IMAGE_NAME}:${{ env.VERSION }} \
                       --amend ${IMAGE_NAME}:${{ env.VERSION }}-arm64 \
                       --amend ${IMAGE_NAME}:${{ env.VERSION }}-amd64;
                   docker manifest push ${IMAGE_NAME}:${{ env.VERSION }}
-
     build:
         name:   Build Release
         strategy:
@@ -136,15 +130,13 @@ jobs:
             - name: Build Lighthouse for ${{matrix.arch}}
               if:   startsWith(matrix.arch, 'aarch64') && endsWith(matrix.arch, 'portable')
               run:  |
-                cargo install cross
-                make build-aarch64-portable
-
+                  cargo install cross
+                  make build-aarch64-portable
             - name: Build Lighthouse for ${{matrix.arch}}
               if:   startsWith(matrix.arch, 'aarch64') && !endsWith(matrix.arch, 'portable')
               run:  |
-                cargo install cross
-                make build-aarch64
-
+                  cargo install cross
+                  make build-aarch64
             - name: Move cross-compiled binary
               if:  startsWith(matrix.arch, 'aarch64')
               run: mv target/aarch64-unknown-linux-gnu/release/lighthouse ~/.cargo/bin/lighthouse
@@ -170,7 +162,6 @@ jobs:
                   tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse
                   echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   mv *tar.gz* ..
-
             # =======================================================================
             # Upload artifacts
             # This is required to share artifacts between different jobs
@@ -220,25 +211,17 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-              # The formatting here is borrowed from OpenEthereum: https://github.com/openethereum/openethereum/blob/main/.github/workflows/build.yml
+                # The formatting here is borrowed from OpenEthereum: https://github.com/openethereum/openethereum/blob/main/.github/workflows/build.yml
               run: |
                   body=$(cat <<- "ENDBODY"
                   <Rick and Morty character>
-
                   ## Summary
-
                   Add a summary.
-
                   ## All Changes
-
                   ${{ steps.changelog.outputs.CHANGELOG }}
-
                   ## Binaries
-
                   [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation-binaries.html)
-
                   The binaries are signed with Sigma Prime's PGP key: `15E66D941F697E28F49381F426416DC3F30674B0`
-
                   | System | Architecture | Binary | PGP Signature |
                   |:---:|:---:|:---:|:---|
                   | <img src="https://simpleicons.org/icons/apple.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc) |
