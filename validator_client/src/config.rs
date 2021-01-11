@@ -22,10 +22,10 @@ pub struct Config {
     pub validator_dir: PathBuf,
     /// The directory containing the passwords to unlock validator keystores.
     pub secrets_dir: PathBuf,
-    /// The http endpoint of the beacon node API.
+    /// The http endpoints of the beacon node APIs.
     ///
-    /// Should be similar to `http://localhost:8080`
-    pub beacon_node: String,
+    /// Should be similar to `["http://localhost:8080"]`
+    pub beacon_nodes: Vec<String>,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -55,7 +55,7 @@ impl Default for Config {
         Self {
             validator_dir,
             secrets_dir,
-            beacon_node: DEFAULT_BEACON_NODE.to_string(),
+            beacon_nodes: vec![DEFAULT_BEACON_NODE.to_string()],
             allow_unsynced_beacon_node: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
@@ -106,18 +106,26 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
-        if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
-            config.beacon_node = beacon_node;
+        if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
+            config.beacon_nodes = beacon_nodes.as_str().split(',').map(String::from).collect()
         }
-
         // To be deprecated.
-        if let Some(server) = parse_optional(cli_args, "server")? {
+        else if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
+            warn!(
+                log,
+                "The --beacon-node flag is deprecated";
+                "msg" => "please use --beacon-nodes instead"
+            );
+            config.beacon_nodes = vec![beacon_node];
+        }
+        // To be deprecated.
+        else if let Some(server) = parse_optional(cli_args, "server")? {
             warn!(
                 log,
                 "The --server flag is deprecated";
-                "msg" => "please use --beacon-node instead"
+                "msg" => "please use --beacon-nodes instead"
             );
-            config.beacon_node = server;
+            config.beacon_nodes = vec![server];
         }
 
         if cli_args.is_present("delete-lockfiles") {

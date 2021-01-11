@@ -606,7 +606,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id.clone(), action);
+                                network.report_peer(attempt.peer_id, action);
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
@@ -615,7 +615,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id.clone(), action);
+                                network.report_peer(attempt.peer_id, action);
                             }
                         }
                     }
@@ -822,11 +822,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let mut priorized_peers = self
                 .peers
                 .iter()
-                .map(|(peer, requests)| (failed_peers.contains(peer), requests.len(), peer))
+                .map(|(peer, requests)| (failed_peers.contains(peer), requests.len(), *peer))
                 .collect::<Vec<_>>();
             // Sort peers prioritizing unrelated peers with less active requests.
             priorized_peers.sort_unstable();
-            priorized_peers.get(0).map(|&(_, _, peer)| peer.clone())
+            priorized_peers.get(0).map(|&(_, _, peer)| peer)
         };
 
         if let Some(peer) = new_peer {
@@ -846,10 +846,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let request = batch.to_blocks_by_range_request();
-            match network.blocks_by_range_request(peer.clone(), request, self.id, batch_id) {
+            match network.blocks_by_range_request(peer, request, self.id, batch_id) {
                 Ok(request_id) => {
                     // inform the batch about the new request
-                    batch.start_downloading_from_peer(peer.clone(), request_id)?;
+                    batch.start_downloading_from_peer(peer, request_id)?;
                     if self
                         .optimistic_start
                         .map(|epoch| epoch == batch_id)
@@ -879,7 +879,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => e, &batch);
                     // register the failed download and check if the batch can be retried
-                    batch.start_downloading_from_peer(peer.clone(), 1)?; // fake request_id is not relevant
+                    batch.start_downloading_from_peer(peer, 1)?; // fake request_id is not relevant
                     self.peers
                         .get_mut(&peer)
                         .map(|request| request.remove(&batch_id));
@@ -922,7 +922,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .iter()
             .filter_map(|(peer, requests)| {
                 if requests.is_empty() {
-                    Some(peer.clone())
+                    Some(*peer)
                 } else {
                     None
                 }

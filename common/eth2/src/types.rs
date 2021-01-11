@@ -3,6 +3,7 @@
 
 use crate::Error as ServerError;
 use eth2_libp2p::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
+pub use reqwest::header::ACCEPT;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -764,6 +765,36 @@ impl fmt::Display for EventTopic {
             EventTopic::Attestation => write!(f, "attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Accept {
+    Json,
+    Ssz,
+    Any,
+}
+
+impl fmt::Display for Accept {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Accept::Ssz => write!(f, "application/octet-stream"),
+            Accept::Json => write!(f, "application/json"),
+            Accept::Any => write!(f, "*/*"),
+        }
+    }
+}
+
+impl FromStr for Accept {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "application/octet-stream" => Ok(Accept::Ssz),
+            "application/json" => Ok(Accept::Json),
+            "*/*" => Ok(Accept::Any),
+            _ => Err("accept header cannot be parsed.".to_string()),
         }
     }
 }

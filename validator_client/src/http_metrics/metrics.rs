@@ -80,6 +80,19 @@ lazy_static::lazy_static! {
         "Number of attesters on this host",
         &["task"]
     );
+    /*
+     * Endpoint metrics
+     */
+    pub static ref ENDPOINT_ERRORS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "bn_endpoint_errors",
+        "The number of beacon node request errors for each endpoint",
+        &["endpoint"]
+    );
+    pub static ref ENDPOINT_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "bn_endpoint_requests",
+        "The number of beacon node requests for each endpoint",
+        &["endpoint"]
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(

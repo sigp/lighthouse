@@ -262,6 +262,8 @@ pub enum RPCResponseErrorCode {
     RateLimited,
     InvalidRequest,
     ServerError,
+    /// Error spec'd to indicate that a peer does not have blocks on a requested range.
+    ResourceUnavailable,
     Unknown,
 }
 
@@ -285,6 +287,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
         let code = match response_code {
             1 => RPCResponseErrorCode::InvalidRequest,
             2 => RPCResponseErrorCode::ServerError,
+            3 => RPCResponseErrorCode::ResourceUnavailable,
             139 => RPCResponseErrorCode::RateLimited,
             _ => RPCResponseErrorCode::Unknown,
         };
@@ -318,6 +321,7 @@ impl RPCResponseErrorCode {
         match self {
             RPCResponseErrorCode::InvalidRequest => 1,
             RPCResponseErrorCode::ServerError => 2,
+            RPCResponseErrorCode::ResourceUnavailable => 3,
             RPCResponseErrorCode::Unknown => 255,
             RPCResponseErrorCode::RateLimited => 139,
         }
@@ -328,6 +332,7 @@ impl std::fmt::Display for RPCResponseErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
             RPCResponseErrorCode::InvalidRequest => "The request was invalid",
+            RPCResponseErrorCode::ResourceUnavailable => "Resource unavailable",
             RPCResponseErrorCode::ServerError => "Server error occurred",
             RPCResponseErrorCode::Unknown => "Unknown error occurred",
             RPCResponseErrorCode::RateLimited => "Rate limited",

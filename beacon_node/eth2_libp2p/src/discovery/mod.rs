@@ -767,6 +767,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 match query_result.1 {
                     Ok(r) if r.is_empty() => {
                         debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => ?subnets_searched_for);
+                        queries.iter().for_each(|query| {
+                            self.add_subnet_query(
+                                query.subnet_id,
+                                query.min_ttl,
+                                query.retries + 1,
+                            );
+                        })
                     }
                     Ok(r) => {
                         debug!(self.log, "Peer grouped subnet discovery request completed"; "peers_found" => r.len(), "subnets_searched_for" => ?subnets_searched_for);

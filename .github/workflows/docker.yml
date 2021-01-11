@@ -31,15 +31,10 @@ jobs:
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
             - name: Cross build lighthouse binary
-              uses: actions-rs/cargo@v1
-              with:
-                  use-cross: true
-                  command: build
-                  args: --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
+              run:  |
+                  cargo install cross
+                  make build-aarch64-portable
             - name: Move cross-built ARM binary into Docker scope
               run: |
                   mkdir ./bin;

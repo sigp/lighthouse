@@ -68,6 +68,30 @@ lazy_static! {
     );
     pub static ref BLOCK_PRODUCTION_TIMES: Result<Histogram> =
         try_create_histogram("beacon_block_production_seconds", "Full runtime of block production");
+    pub static ref BLOCK_PRODUCTION_STATE_LOAD_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_state_load_seconds",
+        "Time taken to load the base state for block production"
+    );
+    pub static ref BLOCK_PRODUCTION_SLOT_PROCESS_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_slot_process_seconds",
+        "Time taken to advance the state to the block production slot"
+    );
+    pub static ref BLOCK_PRODUCTION_UNAGGREGATED_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_unaggregated_seconds",
+        "Time taken to import the naive aggregation pool for block production"
+    );
+    pub static ref BLOCK_PRODUCTION_ATTESTATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_attestation_seconds",
+        "Time taken to pack attestations into a block"
+    );
+    pub static ref BLOCK_PRODUCTION_PROCESS_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_process_seconds",
+        "Time taken to process the block produced"
+    );
+    pub static ref BLOCK_PRODUCTION_STATE_ROOT_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_state_root_seconds",
+        "Time taken to calculate the block's state root"
+    );
 
     /*
      * Block Statistics
