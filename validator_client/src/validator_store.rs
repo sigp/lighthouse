@@ -8,7 +8,7 @@ use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::path::Path;
 use std::sync::Arc;
-use tempdir::TempDir;
+use tempfile::TempDir;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
