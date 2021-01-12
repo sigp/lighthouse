@@ -40,8 +40,12 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 - *Synced is preferred*: the validator client prefers a synced beacon node over
 	one that is still syncing.
 - *Failure is sticky*: if a beacon node fails, it will be flagged as offline
-	the rest of the slot (12 seconds). This helps prevent the impact of time-outs and
-	other lengthy errors.
+    and wont be retried again for the rest of the slot (12 seconds). This helps prevent the impact
+    of time-outs and other lengthy errors.
+
+> Note: When supplying multiple beacon nodes the `http://localhost:5052` address must be explicitly
+> provided (if it is desired). It will only be used as default if no `--beacon-nodes` flag is
+> provided at all.
 
 ### Configuring a redundant Beacon Node
 
@@ -104,3 +108,7 @@ last in the list, until a successful response is obtained.
 
 There is no need for special configuration on the Eth1 endpoint, all endpoints can (probably should)
 be configured identically.
+
+> Note: When supplying multiple endpoints the `http://localhost:8545` address must be explicitly
+> provided (if it is desired). It will only be used as default if no `--eth1-endpoints` flag is
+> provided at all.
