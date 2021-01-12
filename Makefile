@@ -28,6 +28,12 @@ else
 	cargo install --path lcli --force --locked
 endif
 
+# The following commands use `cargo-deb` to create a Debian package for lighthouse.
+#
+# `cargo-deb` can be installed with `cargo install cargo-deb`
+build-deb:
+	cargo deb --manifest-path lighthouse/Cargo.toml -- --force --locked --features portable
+
 # The following commands use `cross` to build a cross-compile.
 #
 # These commands require that:

@@ -1,0 +1,42 @@
+[Unit]
+Description=Ethereum 2.0 Lighthouse Validator Client
+After=syslog.target network.target
+Documentation=https://lighthouse-book.sigmaprime.io/
+
+[Service]
+EnvironmentFile=-/etc/default/lighthousevalidator
+ExecStart=/usr/bin/lighthouse vc $LIGHTHOUSE_BEACON_CLI_ARGS
+User=lighthousevalidator
+Group=lighthousevalidator
+Restart=always
+RestartSec=10
+KillMode=process
+KillSignal=SIGINT
+TimeoutStopSec=90
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=lighthousevalidator
+CapabilityBoundingSet=
+LockPersonality=true
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateMounts=true
+PrivateTmp=true
+PrivateUsers=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RemoveIPC=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@clock @module @mount @reboot @swap @privileged
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
