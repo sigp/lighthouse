@@ -32,7 +32,7 @@ endif
 #
 # `cargo-deb` can be installed with `cargo install cargo-deb`
 build-deb:
-	cargo deb --manifest-path lighthouse/Cargo.toml -- --force --locked --features portable
+	cargo deb --manifest-path lighthouse/Cargo.toml -- --locked --features portable
 
 # The following commands use `cross` to build a cross-compile.
 #

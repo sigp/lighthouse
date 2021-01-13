@@ -12,13 +12,13 @@ name = "lighthouse"
 extended-description = "Implementation of https://github.com/ethereum/eth2.0-specs in Rust."
 section = "misc"
 maintainer = "sean@sigmaprime.io"
-license-file = ["LICENSE", "0"]
+license-file = ["../LICENSE", "0"]
 # https://www.debian.org/doc/debian-policy/ch-maintainerscripts.html
-maintainer-scripts = "scripts/packaging/deb-maintainer-scripts"
+maintainer-scripts = "../scripts/packaging/deb-maintainer-scripts"
 assets = [
-    ["target/release/lighthouse", "/usr/bin/", "755"],
-    ["scripts/packaging/lighthousebeacon.service", "/lib/systemd/system/", "644"],
-    ["scripts/packaging/lighthousevalidator.service", "/lib/systemd/system/", "644"]
+    ["../target/release/lighthouse", "/usr/bin/", "755"],
+    ["../scripts/packaging/lighthousebeacon.service", "/lib/systemd/system/", "644"],
+    ["../scripts/packaging/lighthousevalidator.service", "/lib/systemd/system/", "644"]
 ]
 conf-files = [
     "/etc/default/lighthousebeacon",
