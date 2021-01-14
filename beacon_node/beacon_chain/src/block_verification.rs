@@ -471,16 +471,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         // Do not gossip or process blocks from future slots.
-        let present_slot_with_tolerance = chain
-            .slot_clock
-            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if block.slot() > present_slot_with_tolerance {
-            return Err(BlockError::FutureSlot {
-                present_slot: present_slot_with_tolerance,
-                block_slot: block.slot(),
-            });
-        }
+        check_block_against_current_slot(&block, chain)?;
 
         let block_root = get_block_root(&block);
 
@@ -957,6 +948,26 @@ fn check_block_skip_slots<T: BeaconChainTypes>(
     Ok(())
 }
 
+/// Check that the block is not later than the current slot, accommodating for the permitted clock
+/// disparity.
+fn check_block_against_current_slot<T: BeaconChainTypes>(
+    block: &SignedBeaconBlock<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<(), BlockError<T::EthSpec>> {
+    let present_slot_with_tolerance = chain
+        .slot_clock
+        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .ok_or(BeaconChainError::UnableToReadSlot)?;
+    if block.slot() > present_slot_with_tolerance {
+        return Err(BlockError::FutureSlot {
+            present_slot: present_slot_with_tolerance,
+            block_slot: block.slot(),
+        });
+    } else {
+        Ok(())
+    }
+}
+
 /// Returns `Ok(())` if the block is later than the finalized slot on `chain`.
 ///
 /// Returns an error if the block is earlier or equal to the finalized slot, or there was an error
@@ -1026,12 +1037,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     let block = &signed_block.message;
 
     // Do not process blocks from the future.
-    if block.slot > chain.slot()? {
-        return Err(BlockError::FutureSlot {
-            present_slot: chain.slot()?,
-            block_slot: block.slot,
-        });
-    }
+    check_block_against_current_slot(&signed_block, chain)?;
 
     // Do not re-process the genesis block.
     if block.slot == 0 {
