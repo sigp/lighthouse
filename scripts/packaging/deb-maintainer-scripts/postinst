@@ -16,7 +16,7 @@ if [ "$action" = "configure" ]; then
   # Make user and group
   getent group lighthousebeacon >/dev/null 2>&1 || addgroup --system lighthousebeacon
   getent passwd lighthousebeacon >/dev/null 2>&1 ||
-    adduser --system --home /home/lighthousebeacon --disabled-password \
+    adduser --system --no-create-home --disabled-password \
     --ingroup lighthousebeacon lighthousebeacon
 
   # make the data dir and change ownership
@@ -30,7 +30,7 @@ if [ "$action" = "configure" ]; then
   # Make user and group
   getent group lighthousevalidator >/dev/null 2>&1 || addgroup --system lighthousevalidator
   getent passwd lighthousevalidator >/dev/null 2>&1 ||
-    adduser --system --home /home/lighthousevalidator --disabled-password \
+    adduser --system --no-create-home --disabled-password \
     --ingroup lighthousevalidator lighthousevalidator
 
   # make the data dir and change ownership
