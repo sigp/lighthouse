@@ -959,10 +959,10 @@ fn check_block_against_current_slot<T: BeaconChainTypes>(
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if block.slot() > present_slot_with_tolerance {
-        return Err(BlockError::FutureSlot {
+        Err(BlockError::FutureSlot {
             present_slot: present_slot_with_tolerance,
             block_slot: block.slot(),
-        });
+        })
     } else {
         Ok(())
     }
