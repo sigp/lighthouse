@@ -1,4 +1,3 @@
-#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
@@ -74,7 +73,7 @@ mod tests {
                 .await
                 .unwrap();
             // Allow the network task to spawn on the executor before shutting down.
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             drop(signal);
         });
 
