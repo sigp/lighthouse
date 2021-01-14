@@ -101,14 +101,15 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
         }
 
-        let index = self.beacon_nodes.read().len();
+        let mut write_lock = self_1.beacon_nodes.write();
+        let index = write_lock.len();
 
         let beacon_node = LocalBeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
         )
         .await?;
-        self_1.beacon_nodes.write().push(beacon_node);
+        write_lock.push(beacon_node);
         Ok(())
     }
 
