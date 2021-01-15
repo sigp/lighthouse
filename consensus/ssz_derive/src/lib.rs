@@ -14,9 +14,7 @@ use syn::{parse_macro_input, DeriveInput};
 ///
 /// # Panics
 /// Any unnamed struct field (like in a tuple struct) will raise a panic at compile time.
-fn get_serializable_named_field_idents(
-    struct_data: &syn::DataStruct,
-) -> Vec<&syn::Ident> {
+fn get_serializable_named_field_idents(struct_data: &syn::DataStruct) -> Vec<&syn::Ident> {
     struct_data
         .fields
         .iter()
