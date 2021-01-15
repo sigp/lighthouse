@@ -2,17 +2,18 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::{
     attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
-    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
 use ssz::Encode;
+use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
-use super::Worker;
+use super::{super::WorkEvent, Worker};
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
@@ -210,6 +211,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
+        delayed_import_tx: mpsc::Sender<WorkEvent<T>>,
     ) {
         let verified_block = match self.chain.verify_block_for_gossip(block) {
             Ok(verified_block) => {
@@ -262,6 +264,48 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
 
+        let block_slot = verified_block.block.slot();
+        let block_root = verified_block.block_root;
+
+        match self.chain.slot() {
+            Ok(current_slot) if current_slot >= block_slot => {
+                self.process_gossip_verified_block(peer_id, verified_block)
+            }
+            Ok(_) => {
+                if let Err(_) = delayed_import_tx.try_send(WorkEvent::delayed_import_beacon_block(
+                    peer_id,
+                    verified_block.into(),
+                )) {
+                    error!(
+                        self.log,
+                        "Failed to defer block import";
+                        "block_slot" => %block_slot,
+                        "block_root" => %block_root,
+                        "location" => "block gossip"
+                    )
+                }
+            }
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to defer block import";
+                    "error" => ?e,
+                    "block_slot" => %block_slot,
+                    "block_root" => %block_root,
+                    "location" => "block gossip"
+                )
+            }
+        }
+    }
+
+    /// Process the beacon block that has already passed gossip verification.
+    ///
+    /// Raises a log if there are errors.
+    pub fn process_gossip_verified_block(
+        self,
+        peer_id: PeerId,
+        verified_block: GossipVerifiedBlock<T>,
+    ) {
         let block = Box::new(verified_block.block.clone());
         match self.chain.process_block(verified_block) {
             Ok(_block_root) => {
