@@ -25,7 +25,7 @@ pub struct Processor<T: BeaconChainTypes> {
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -301,7 +301,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
-    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T::EthSpec>) {
+    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T>) {
         self.beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {

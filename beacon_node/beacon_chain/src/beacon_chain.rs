@@ -45,6 +45,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

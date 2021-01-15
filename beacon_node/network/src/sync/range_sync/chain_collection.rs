@@ -194,7 +194,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         local: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
     ) {
         // Remove any outdated finalized/head chains
         self.purge_outdated_chains(local, awaiting_head_peers);
@@ -328,7 +328,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         local_epoch: Epoch,
         local_head_epoch: Epoch,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
     ) {
         // Include the awaiting head peers
         for (peer_id, peer_sync_info) in awaiting_head_peers.drain() {
@@ -463,7 +463,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head_slot: Slot,
         peer: PeerId,
         sync_type: RangeSyncType,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
         network: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);

@@ -36,19 +36,20 @@
 //! task.
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use task_executor::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
@@ -80,6 +81,10 @@ const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
 /// The maximum number of queued `SignedBeaconBlock` objects received on gossip that will be stored
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `SignedBeaconBlock` objects received prior to their slot (but
+/// within acceptable clock disparity) that will be queued before we start dropping them.
+const MAX_DELAYED_BLOCK_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedVoluntaryExit` objects received on gossip that will be stored
 /// before we start dropping them.
@@ -210,18 +215,23 @@ impl<T> LifoQueue<T> {
 }
 
 /// An event to be processed by the manager task.
-#[derive(Debug)]
-pub struct WorkEvent<E: EthSpec> {
+pub struct WorkEvent<T: BeaconChainTypes> {
     drop_during_sync: bool,
-    work: Work<E>,
+    work: Work<T>,
 }
 
-impl<E: EthSpec> WorkEvent<E> {
+impl<T: BeaconChainTypes> fmt::Debug for WorkEvent<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl<T: BeaconChainTypes> WorkEvent<T> {
     /// Create a new `Work` event for some unaggregated attestation.
     pub fn unaggregated_attestation(
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: Attestation<E>,
+        attestation: Attestation<T::EthSpec>,
         subnet_id: SubnetId,
         should_import: bool,
     ) -> Self {
@@ -241,7 +251,7 @@ impl<E: EthSpec> WorkEvent<E> {
     pub fn aggregated_attestation(
         message_id: MessageId,
         peer_id: PeerId,
-        aggregate: SignedAggregateAndProof<E>,
+        aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) -> Self {
         Self {
             drop_during_sync: true,
@@ -257,7 +267,7 @@ impl<E: EthSpec> WorkEvent<E> {
     pub fn gossip_beacon_block(
         message_id: MessageId,
         peer_id: PeerId,
-        block: Box<SignedBeaconBlock<E>>,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -305,7 +315,7 @@ impl<E: EthSpec> WorkEvent<E> {
     pub fn gossip_attester_slashing(
         message_id: MessageId,
         peer_id: PeerId,
-        attester_slashing: Box<AttesterSlashing<E>>,
+        attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -319,7 +329,9 @@ impl<E: EthSpec> WorkEvent<E> {
 
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
-    pub fn rpc_beacon_block(block: Box<SignedBeaconBlock<E>>) -> (Self, BlockResultReceiver<E>) {
+    pub fn rpc_beacon_block(
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+    ) -> (Self, BlockResultReceiver<T::EthSpec>) {
         let (result_tx, result_rx) = oneshot::channel();
         let event = Self {
             drop_during_sync: false,
@@ -329,7 +341,10 @@ impl<E: EthSpec> WorkEvent<E> {
     }
 
     /// Create a new work event to import `blocks` as a beacon chain segment.
-    pub fn chain_segment(process_id: ProcessId, blocks: Vec<SignedBeaconBlock<E>>) -> Self {
+    pub fn chain_segment(
+        process_id: ProcessId,
+        blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Self {
         Self {
             drop_during_sync: false,
             work: Work::ChainSegment { process_id, blocks },
@@ -384,23 +399,28 @@ impl<E: EthSpec> WorkEvent<E> {
 
 /// A consensus message (or multiple) from the network that requires processing.
 #[derive(Debug)]
-pub enum Work<E: EthSpec> {
+pub enum Work<T: BeaconChainTypes> {
     GossipAttestation {
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: Box<Attestation<E>>,
+        attestation: Box<Attestation<T::EthSpec>>,
         subnet_id: SubnetId,
         should_import: bool,
     },
     GossipAggregate {
         message_id: MessageId,
         peer_id: PeerId,
-        aggregate: Box<SignedAggregateAndProof<E>>,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
     },
     GossipBlock {
         message_id: MessageId,
         peer_id: PeerId,
-        block: Box<SignedBeaconBlock<E>>,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+    },
+    DelayedImportBlock {
+        message_id: MessageId,
+        peer_id: PeerId,
+        block: Box<GossipVerifiedBlock<T>>,
     },
     GossipVoluntaryExit {
         message_id: MessageId,
@@ -415,15 +435,15 @@ pub enum Work<E: EthSpec> {
     GossipAttesterSlashing {
         message_id: MessageId,
         peer_id: PeerId,
-        attester_slashing: Box<AttesterSlashing<E>>,
+        attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
     },
     RpcBlock {
-        block: Box<SignedBeaconBlock<E>>,
-        result_tx: BlockResultSender<E>,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        result_tx: BlockResultSender<T::EthSpec>,
     },
     ChainSegment {
         process_id: ProcessId,
-        blocks: Vec<SignedBeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     },
     Status {
         peer_id: PeerId,
@@ -441,13 +461,14 @@ pub enum Work<E: EthSpec> {
     },
 }
 
-impl<E: EthSpec> Work<E> {
+impl<T: BeaconChainTypes> Work<T> {
     /// Provides a `&str` that uniquely identifies each enum variant.
     fn str_id(&self) -> &'static str {
         match self {
             Work::GossipAttestation { .. } => "gossip_attestation",
             Work::GossipAggregate { .. } => "gossip_aggregate",
             Work::GossipBlock { .. } => "gossip_block",
+            Work::DelayedImportBlock { .. } => "delayed_import_block",
             Work::GossipVoluntaryExit { .. } => "gossip_voluntary_exit",
             Work::GossipProposerSlashing { .. } => "gossip_proposer_slashing",
             Work::GossipAttesterSlashing { .. } => "gossip_attester_slashing",
@@ -503,7 +524,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     ///
     /// Only `self.max_workers` will ever be spawned at one time. Each worker is a `tokio` task
     /// started with `spawn_blocking`.
-    pub fn spawn_manager(mut self, mut event_rx: mpsc::Receiver<WorkEvent<T::EthSpec>>) {
+    pub fn spawn_manager(mut self, mut event_rx: mpsc::Receiver<WorkEvent<T>>) {
         let (idle_tx, mut idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
 
         // Using LIFO queues for attestations since validator profits rely upon getting fresh
@@ -682,6 +703,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
+                            Work::DelayedImportBlock { .. } => {
+                                todo!()
+                            }
                             Work::GossipVoluntaryExit { .. } => {
                                 gossip_voluntary_exit_queue.push(work, work_id, &self.log)
                             }
@@ -770,7 +794,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     /// Spawns a blocking worker thread to process some `Work`.
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
-    fn spawn_worker(&mut self, idle_tx: mpsc::Sender<()>, work: Work<T::EthSpec>) {
+    fn spawn_worker(&mut self, idle_tx: mpsc::Sender<()>, work: Work<T>) {
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
         // This helps ensure that the worker is always freed in the case of an early exit or panic.
@@ -856,6 +880,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         block,
                     } => worker.process_gossip_block(message_id, peer_id, *block),
+                    /*
+                     * Import for blocks that we received earlier than their intended slot.
+                     */
+                    Work::DelayedImportBlock { .. } => {
+                        todo!()
+                    }
                     /*
                      * Voluntary exits received on gossip.
                      */
