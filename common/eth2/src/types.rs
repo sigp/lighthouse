@@ -449,7 +449,7 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
     type Error = String;
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        if string == "" {
+        if string.is_empty() {
             return Ok(Self(vec![]));
         }
 

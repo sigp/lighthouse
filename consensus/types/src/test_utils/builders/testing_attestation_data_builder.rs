@@ -69,7 +69,7 @@ impl TestingAttestationDataBuilder {
             }
             AttestationTestTask::WrongJustifiedCheckpoint => {
                 source = Checkpoint {
-                    epoch: Epoch::from(0 as u64),
+                    epoch: Epoch::from(0_u64),
                     root: Hash256::zero(),
                 }
             }
