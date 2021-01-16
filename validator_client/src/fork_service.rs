@@ -34,6 +34,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
         }
     }
 
+    pub fn fork(mut self, fork: Fork) -> Self {
+        self.fork = Some(fork);
+        self
+    }
+
     pub fn slot_clock(mut self, slot_clock: T) -> Self {
         self.slot_clock = Some(slot_clock);
         self
