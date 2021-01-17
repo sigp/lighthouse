@@ -1627,10 +1627,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
-        // Allow the validator monitor to learn about new validator indices.
-        self.validator_monitor
-            .write()
-            .update_validator_indices(&state);
+        // Allow the validator monitor to learn about a new valid state.
+        self.validator_monitor.write().process_valid_state(&state);
         let validator_monitor = self.validator_monitor.read();
 
         // Register each attestation in the block with the fork choice service.

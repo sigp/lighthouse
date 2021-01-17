@@ -3,6 +3,7 @@ use parking_lot::RwLock;
 use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::fs::OpenOptions;
 use std::io::{self, Read};
 use std::iter::FromIterator;
@@ -207,7 +208,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .or_insert_with(|| MonitoredValidator::new(pubkey, index_opt));
     }
 
-    pub fn update_validator_indices(&mut self, state: &BeaconState<T>) {
+    pub fn process_valid_state(&mut self, state: &BeaconState<T>) {
+        // Add any new validator indices.
         state
             .validators
             .iter()
@@ -219,7 +221,60 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     validator.set_index(i)
                 }
                 self.indices.insert(i, validator.pubkey);
-            })
+            });
+
+        // Update metrics for individual validators.
+        for (_, monitored_validator) in &self.validators {
+            if let Some(i) = monitored_validator.index {
+                let i = i as usize;
+                let id = &monitored_validator.id;
+
+                if let Some(balance) = state.balances.get(i) {
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_BALANCE_GWEI,
+                        &[id],
+                        *balance as i64,
+                    );
+                }
+
+                fn u64_to_i64(n: impl Into<u64>) -> i64 {
+                    i64::try_from(n.into()).unwrap_or(i64::max_value())
+                }
+
+                if let Some(validator) = state.validators.get(i) {
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_EFFECTIVE_BALANCE_GWEI,
+                        &[id],
+                        u64_to_i64(validator.effective_balance),
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_SLASHED,
+                        &[id],
+                        if validator.slashed { 0 } else { 1 },
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH,
+                        &[id],
+                        u64_to_i64(validator.activation_eligibility_epoch),
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_ACTIVATION_EPOCH,
+                        &[id],
+                        u64_to_i64(validator.activation_epoch),
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_EXIT_EPOCH,
+                        &[id],
+                        u64_to_i64(validator.exit_epoch),
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_WITHDRAWABLE_EPOCH,
+                        &[id],
+                        u64_to_i64(validator.withdrawable_epoch),
+                    );
+                }
+            }
+        }
     }
 
     fn get_validator_id(&self, validator_index: u64) -> Option<&str> {

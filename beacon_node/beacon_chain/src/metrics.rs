@@ -358,6 +358,52 @@ lazy_static! {
 // Third lazy-static block is used to account for macro recursion limit.
 lazy_static! {
     /*
+     * Validator Monitor Metrics (balances, etc)
+     */
+    pub static ref VALIDATOR_MONITOR_BALANCE_GWEI: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_balance_gwei",
+            "The validators balance in gwei.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_EFFECTIVE_BALANCE_GWEI: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_effective_balance_gwei",
+            "The validators effective balance in gwei.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_SLASHED: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_slashed",
+            "Set to 1 if the validator is slashed.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_activation_eligibility_epoch",
+            "Set to the epoch where the validator will be eligible for activation.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_ACTIVATION_EPOCH: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_activation_epoch",
+            "Set to the epoch where the validator will activate.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_EXIT_EPOCH: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_exit_epoch",
+            "Set to the epoch where the validator will exit.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_WITHDRAWABLE_EPOCH: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_withdrawable_epoch",
+            "Set to the epoch where the validator will be withdrawable.",
+            &["validator"]
+        );
+
+    /*
      * Validator Monitor Metrics (per-epoch summaries)
      */
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL: Result<IntGaugeVec> =
