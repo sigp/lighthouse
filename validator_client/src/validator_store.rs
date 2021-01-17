@@ -120,13 +120,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().num_enabled()
     }
 
-    fn fork(&self) -> Option<Fork> {
-        if self.fork_service.fork().is_none() {
-            error!(
-                self.log,
-                "Unable to get Fork for signing";
-            );
-        }
+    fn fork(&self) -> Fork {
         self.fork_service.fork()
     }
 
@@ -138,7 +132,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
-                    &self.fork()?,
+                    &self.fork(),
                     self.genesis_validators_root,
                 );
                 let message = epoch.signing_root(domain);
@@ -165,7 +159,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Check for slashing conditions.
-        let fork = self.fork()?;
+        let fork = self.fork();
         let domain = self.spec.get_domain(
             block.epoch(),
             Domain::BeaconProposer,
@@ -237,7 +231,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
-        let fork = self.fork()?;
+        let fork = self.fork();
 
         let domain = self.spec.get_domain(
             attestation.data.target.epoch,
@@ -339,7 +333,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             aggregate,
             Some(selection_proof),
             &voting_keypair.sk,
-            &self.fork()?,
+            &self.fork(),
             self.genesis_validators_root,
             &self.spec,
         ))
@@ -360,7 +354,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Some(SelectionProof::new::<E>(
             slot,
             &voting_keypair.sk,
-            &self.fork()?,
+            &self.fork(),
             self.genesis_validators_root,
             &self.spec,
         ))
