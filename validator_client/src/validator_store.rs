@@ -128,7 +128,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .voting_keypair(validator_pubkey)
-            .and_then(|voting_keypair| {
+            .map(|voting_keypair| {
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
@@ -137,7 +137,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 );
                 let message = epoch.signing_root(domain);
 
-                Some(voting_keypair.sk.sign(message))
+                voting_keypair.sk.sign(message)
             })
     }
 
