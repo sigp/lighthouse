@@ -1,3 +1,7 @@
+//! Provides detailed logging and metrics for a set of registered validators.
+//!
+//! This is component should not affect consensus.
+
 use crate::metrics;
 use parking_lot::RwLock;
 use slog::{crit, info, Logger};
@@ -17,6 +21,8 @@ use types::{
     VoluntaryExit,
 };
 
+/// The validator monitor collects per-epoch data about each monitored validator. Historical data
+/// will be kept around for `HISTORIC_EPOCHS` before it is pruned.
 const HISTORIC_EPOCHS: usize = 4;
 
 #[derive(Debug)]
@@ -26,35 +32,52 @@ pub enum Error {
     InvalidUtf8(Utf8Error),
 }
 
+/// Contains data pertaining to one validator for one epoch.
 #[derive(Default)]
 struct EpochSummary {
     /*
-     * Attestations
+     * Attestations with a target in the current epoch.
      */
+    /// The number of attestations seen.
     pub attestations: usize,
+    /// The delay between when the attestation should have been produced and when it was observed.
     pub attestation_min_delay: Option<Duration>,
+    /// The number of times a validators attestation was seen in an aggregate.
     pub attestation_aggregate_incusions: usize,
+    /// The number of times a validators attestation was seen in a block.
     pub attestation_block_inclusions: usize,
+    /// The minimum observed inclusion distance for an attestation for this epoch..
     pub attestation_min_block_inclusion_distance: Option<Slot>,
     /*
-     * Blocks
+     * Blocks with a slot in the current epoch.
      */
+    /// The number of blocks observed.
     pub blocks: usize,
+    /// The delay between when the block should have been produced and when it was observed.
     pub block_min_delay: Option<Duration>,
     /*
-     * Aggregates
+     * Aggregates with a target in the current epoch
      */
+    /// The number of signed aggregate and proofs observed.
     pub aggregates: usize,
+    /// The delay between when the aggregate should have been produced and when it was observed.
     pub aggregate_min_delay: Option<Duration>,
     /*
-     * Others
+     * Others pertaining to this epoch.
      */
+    /// The number of voluntary exists observed.
     pub exits: usize,
+    /// The number of proposer slashings observed.
     pub proposer_slashings: usize,
+    /// The number of attester slashings observed.
     pub attester_slashings: usize,
 }
 
 impl EpochSummary {
+    /// Update `current` if:
+    ///
+    /// - It is `None`.
+    /// - `new` is greater than its current value.
     fn update_if_lt<T: Ord>(current: &mut Option<T>, new: T) {
         if let Some(ref mut current) = current {
             if new < *current {
@@ -99,10 +122,15 @@ impl EpochSummary {
 
 type SummaryMap = HashMap<Epoch, EpochSummary>;
 
+/// A validator that is being monitored by the `ValidatorMonitor`.
 struct MonitoredValidator {
+    /// A human-readable identifier for the validator.
     pub id: String,
+    /// The validator voting pubkey.
     pub pubkey: PublicKeyBytes,
+    /// The validator index in the state.
     pub index: Option<u64>,
+    /// A history of the validator over time.
     pub summaries: RwLock<SummaryMap>,
 }
 
@@ -125,6 +153,12 @@ impl MonitoredValidator {
         }
     }
 
+    /// Maps `func` across the `self.summaries`.
+    ///
+    /// ## Notes
+    ///
+    /// - If `epoch` doesn't exist in `self.summaries`, it is created.
+    /// - `self.summaries` may be pruned after `func` is run.
     fn with_epoch_summary<F>(&self, epoch: Epoch, func: F)
     where
         F: Fn(&mut EpochSummary),
@@ -146,9 +180,20 @@ impl MonitoredValidator {
     }
 }
 
+/// Holds a collection of `MonitoredValidator` and is notified about a variety of events on the P2P
+/// network, HTTP API and `BeaconChain`.
+///
+/// If any of the events pertain to a `MonitoredValidator`, additional logging and metrics will be
+/// performed.
+///
+/// The intention of this struct is to provide users with more logging and Prometheus metrics around
+/// validators that they are interested in.
 pub struct ValidatorMonitor<T> {
+    /// The validators that require additional monitoring.
     validators: HashMap<PublicKeyBytes, MonitoredValidator>,
+    /// A map of validator index (state.validators) to a validator public key.
     indices: HashMap<u64, PublicKeyBytes>,
+    /// If true, allow the automatic registration of validators.
     auto_register: bool,
     log: Logger,
     _phantom: PhantomData<T>,
@@ -165,6 +210,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
+    /// Add some validators to `self` for additional monitoring.
     pub fn add_validators_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         let mut bytes = vec![];
         OpenOptions::new()
@@ -178,24 +224,27 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.add_validators_from_comma_separated_str(from_utf8(&bytes).map_err(Error::InvalidUtf8)?)
     }
 
+    /// Add some validators to `self` for additional monitoring.
     pub fn add_validators_from_comma_separated_str(
         &mut self,
         validator_pubkeys: &str,
     ) -> Result<(), Error> {
         validator_pubkeys
-            .split(",")
+            .split(',')
             .map(PublicKeyBytes::from_str)
             .collect::<Result<Vec<_>, _>>()
             .map_err(Error::InvalidPubkey)
             .map(|pubkeys| self.add_validator_pubkeys(pubkeys))
     }
 
+    /// Add some validators to `self` for additional monitoring.
     pub fn add_validator_pubkeys(&mut self, pubkeys: Vec<PublicKeyBytes>) {
         for pubkey in pubkeys {
             self.add_validator_pubkey(pubkey)
         }
     }
 
+    /// Add some validators to `self` for additional monitoring.
     pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
         let index_opt = self
             .indices
@@ -208,6 +257,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .or_insert_with(|| MonitoredValidator::new(pubkey, index_opt));
     }
 
+    /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
+    /// imported).
     pub fn process_valid_state(&mut self, state: &BeaconState<T>) {
         // Add any new validator indices.
         state
@@ -290,10 +341,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .and_then(|pubkey| self.validators.get(pubkey))
     }
 
+    /// Returns the number of validators monitored by `self`.
     pub fn num_validators(&self) -> usize {
         self.validators.len()
     }
 
+    /// If `self.auto_register == true`, add the `validator_index` to `self.monitored_validators`.
+    /// Otherwise, do nothing.
     pub fn auto_register_local_validator(&mut self, validator_index: u64) {
         if !self.auto_register {
             return;
@@ -316,7 +370,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
-    pub fn get_block_delay_ms<S: SlotClock>(
+    /// Returns the delay between the start of `block.slot` and `seen_timestamp`.
+    fn get_block_delay_ms<S: SlotClock>(
         seen_timestamp: Duration,
         block: &BeaconBlock<T>,
         slot_clock: &S,
@@ -327,6 +382,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .unwrap_or_else(|| Duration::from_secs(0))
     }
 
+    /// Process a block received on gossip.
     pub fn register_gossip_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -337,6 +393,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.register_beacon_block("gossip", seen_timestamp, block, block_root, slot_clock)
     }
 
+    /// Process a block received on the HTTP API from a local validator.
     pub fn register_api_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -347,7 +404,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.register_beacon_block("api", seen_timestamp, block, block_root, slot_clock)
     }
 
-    pub fn register_beacon_block<S: SlotClock>(
+    fn register_beacon_block<S: SlotClock>(
         &self,
         src: &str,
         seen_timestamp: Duration,
@@ -377,7 +434,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
-    pub fn get_unaggregated_attestation_delay_ms<S: SlotClock>(
+    /// Returns the duration between when the attestation `data` could be produced (1/3rd through
+    /// the slot) and `seen_timestamp`.
+    fn get_unaggregated_attestation_delay_ms<S: SlotClock>(
         seen_timestamp: Duration,
         data: &AttestationData,
         slot_clock: &S,
@@ -392,35 +451,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .unwrap_or_else(|| Duration::from_secs(0))
     }
 
-    pub fn get_aggregated_attestation_delay_ms<S: SlotClock>(
-        seen_timestamp: Duration,
-        data: &AttestationData,
-        slot_clock: &S,
-    ) -> Duration {
-        slot_clock
-            .start_of(data.slot)
-            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
-            .and_then(|gross_delay| {
-                let production_delay = slot_clock.slot_duration() / 2;
-                gross_delay.checked_sub(production_delay)
-            })
-            .unwrap_or_else(|| Duration::from_secs(0))
-    }
-
-    pub fn register_api_unaggregated_attestation<S: SlotClock>(
-        &self,
-        seen_timestamp: Duration,
-        indexed_attestation: &IndexedAttestation<T>,
-        slot_clock: &S,
-    ) {
-        self.register_unaggregated_attestation(
-            "api",
-            seen_timestamp,
-            indexed_attestation,
-            slot_clock,
-        )
-    }
-
+    /// Register an attestation seen on the gossip network.
     pub fn register_gossip_unaggregated_attestation<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -429,6 +460,21 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     ) {
         self.register_unaggregated_attestation(
             "gossip",
+            seen_timestamp,
+            indexed_attestation,
+            slot_clock,
+        )
+    }
+
+    /// Register an attestation seen on the HTTP API.
+    pub fn register_api_unaggregated_attestation<S: SlotClock>(
+        &self,
+        seen_timestamp: Duration,
+        indexed_attestation: &IndexedAttestation<T>,
+        slot_clock: &S,
+    ) {
+        self.register_unaggregated_attestation(
+            "api",
             seen_timestamp,
             indexed_attestation,
             slot_clock,
@@ -478,7 +524,26 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         })
     }
-    pub fn register_api_aggregated_attestation<S: SlotClock>(
+
+    /// Returns the duration between when a `AggregateAndproof` with `data` could be produced (2/3rd
+    /// through the slot) and `seen_timestamp`.
+    fn get_aggregated_attestation_delay_ms<S: SlotClock>(
+        seen_timestamp: Duration,
+        data: &AttestationData,
+        slot_clock: &S,
+    ) -> Duration {
+        slot_clock
+            .start_of(data.slot)
+            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
+            .and_then(|gross_delay| {
+                let production_delay = slot_clock.slot_duration() / 2;
+                gross_delay.checked_sub(production_delay)
+            })
+            .unwrap_or_else(|| Duration::from_secs(0))
+    }
+
+    /// Register a `signed_aggregate_and_proof` seen on the gossip network.
+    pub fn register_gossip_aggregated_attestation<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
         signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
@@ -494,7 +559,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         )
     }
 
-    pub fn register_gossip_aggregated_attestation<S: SlotClock>(
+    /// Register a `signed_aggregate_and_proof` seen on the HTTP API.
+    pub fn register_api_aggregated_attestation<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
         signed_aggregate_and_proof: &SignedAggregateAndProof<T>,
@@ -586,6 +652,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         })
     }
 
+    /// Register that the `indexed_attestation` was included in a *valid* `BeaconBlock`.
     pub fn register_attestation_in_block(
         &self,
         indexed_attestation: &IndexedAttestation<T>,
@@ -628,10 +695,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         })
     }
 
+    /// Register an exit from the gossip network.
     pub fn register_gossip_voluntary_exit(&self, seen_timestamp: Duration, exit: &VoluntaryExit) {
         self.register_voluntary_exit("gossip", seen_timestamp, exit)
     }
 
+    /// Register an exit from the HTTP API.
     pub fn register_api_voluntary_exit(&self, seen_timestamp: Duration, exit: &VoluntaryExit) {
         self.register_voluntary_exit("api", seen_timestamp, exit)
     }
@@ -656,6 +725,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
+    /// Register a proposer slashing from the gossip network.
     pub fn register_gossip_proposer_slashing(
         &self,
         seen_timestamp: Duration,
@@ -664,6 +734,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.register_proposer_slashing("gossip", seen_timestamp, slashing)
     }
 
+    /// Register a proposer slashing from the HTTP API.
     pub fn register_api_proposer_slashing(
         &self,
         seen_timestamp: Duration,
@@ -672,6 +743,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.register_proposer_slashing("api", seen_timestamp, slashing)
     }
 
+    /// Register a proposer slashing included in a *valid* `BeaconBlock`.
     pub fn register_block_proposer_slashing(
         &self,
         seen_timestamp: Duration,
@@ -715,6 +787,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
+    /// Register an attester slashing from the gossip network.
     pub fn register_gossip_attester_slashing(
         &self,
         seen_timestamp: Duration,
@@ -723,6 +796,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.register_attester_slashing("gossip", seen_timestamp, slashing)
     }
 
+    /// Register an attester slashing from the HTTP API.
     pub fn register_api_attester_slashing(
         &self,
         seen_timestamp: Duration,
@@ -731,6 +805,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.register_attester_slashing("api", seen_timestamp, slashing)
     }
 
+    /// Register an attester slashing included in a *valid* `BeaconBlock`.
     pub fn register_block_attester_slashing(
         &self,
         seen_timestamp: Duration,
@@ -778,6 +853,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             })
     }
 
+    /// Scrape `self` for metrics.
+    ///
+    /// Should be called whenever Prometheus is scraping Lighthouse.
     pub fn scrape_metrics<S: SlotClock>(&self, slot_clock: &S, spec: &ChainSpec) {
         metrics::set_gauge(
             &metrics::VALIDATOR_MONITOR_VALIDATORS_TOTAL,
@@ -894,6 +972,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 }
 
+/// Returns the duration since the unix epoch.
 pub fn timestamp_now() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
