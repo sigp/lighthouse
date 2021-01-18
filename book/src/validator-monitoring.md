@@ -21,11 +21,12 @@ Lighthouse performs validator monitoring in the Beacon Node (BN) instead of the 
 ## How to Enable Monitoring
 
 The validator monitor is always enabled in Lighthouse, but it might not have any enrolled
-validators. There are two methods for a validator to be enrolled for additional monitoring:
+validators. There are two methods for a validator to be enrolled for additional monitoring;
+automatic and manual.
 
 ### Automatic
 
-When the `--validator-monitor` flag is supplied, any validator which uses the
+When the `--validator-monitor-auto` flag is supplied, any validator which uses the
 [`beacon_committee_subscriptions`](https://ethereum.github.io/eth2.0-APIs/#/Validator/prepareBeaconCommitteeSubnet)
 API endpoint will be enrolled for additional monitoring. All active validators will use this
 endpoint each epoch, so you can expect it to detect all local and active validators within several
@@ -34,13 +35,17 @@ minutes after start up.
 #### Example
 
 ```
-lighthouse bn --staking --validator-monitor
+lighthouse bn --staking --validator-monitor-auto
 ```
 
 ### Manual
 
 The `--validator-monitor-pubkeys` flag can be used to specify validator public keys for monitoring.
 This is useful when monitoring validators that are not directly attached to this BN.
+
+> Note: when monitoring validators that aren't connected to this BN, supply the
+> `--subscribe-all-subnets --import-all-attestations` flags to ensure the BN has a full view of the
+> network. This is not strictly necessary, though.
 
 #### Example
 
@@ -72,15 +77,15 @@ Lighthouse will create logs for the following events for each monitor validator:
 #### Example
 
 ```
-Jan 18 11:21:09.808 INFO Attestation included in block           validator: 1, slot: 342102, epoch:
-10690, inclusion_lag: 0 slot(s), index: 7, head:
-0x422bcd14839e389f797fd38b01e31995f91bcaea3d5d56457fc6aac76909ebac, service: beacon
+Jan 18 11:50:03.896 INFO Unaggregated attestation                validator: 0, src: gossip, slot: 342248, epoch: 10695, delay_ms: 891, index: 12, head: 0x5f9d603c04b5489bf2de3708569226fd9428eb40a89c75945e344d06c7f4f86a, service: beacon
 ```
 
 ```
-Jan 18 11:32:55.196 INFO Attestation included in aggregate       validator: 0, src: gossip, slot:
-342162, epoch: 10692, delay_ms: 2193, index: 10, head:
-0x9be04ecd04bf82952dad5d12c62e532fd13a8d42afb2e6ee98edaf05fc7f9f30, service: beacon
+Jan 18 11:32:55.196 INFO Attestation included in aggregate       validator: 0, src: gossip, slot: 342162, epoch: 10692, delay_ms: 2193, index: 10, head: 0x9be04ecd04bf82952dad5d12c62e532fd13a8d42afb2e6ee98edaf05fc7f9f30, service: beacon
+```
+
+```
+Jan 18 11:21:09.808 INFO Attestation included in block           validator: 1, slot: 342102, epoch: 10690, inclusion_lag: 0 slot(s), index: 7, head: 0x422bcd14839e389f797fd38b01e31995f91bcaea3d5d56457fc6aac76909ebac, service: beacon
 ```
 
 ### Metrics

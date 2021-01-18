@@ -386,16 +386,34 @@ pub fn get_config<E: EthSpec>(
         client_config.slasher = Some(slasher_config);
     }
 
-    if cli_args.is_present("validator-monitor") {
+    if cli_args.is_present("validator-monitor-auto") {
         client_config.validator_monitor_auto = true;
     }
 
     if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
         let pubkeys = pubkeys
-            .split(",")
+            .split(',')
             .map(PublicKeyBytes::from_str)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Invalid --monitor-validators value: {:?}", e))?;
+            .map_err(|e| format!("Invalid --validator-monitor-pubkeys value: {:?}", e))?;
+        client_config
+            .validator_monitor_pubkeys
+            .extend_from_slice(&pubkeys);
+    }
+
+    if let Some(path) = cli_args.value_of("validator-monitor-file") {
+        let string = fs::read(path)
+            .map_err(|e| format!("Unable to read --validator-monitor-file: {}", e))
+            .and_then(|bytes| {
+                String::from_utf8(bytes)
+                    .map_err(|e| format!("--validator-monitor-file is not utf8: {}", e))
+            })?;
+        let pubkeys = string
+            .trim_end() // Remove trailing white space
+            .split(',')
+            .map(PublicKeyBytes::from_str)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Invalid --validator-monitor-file contents: {:?}", e))?;
         client_config
             .validator_monitor_pubkeys
             .extend_from_slice(&pubkeys);

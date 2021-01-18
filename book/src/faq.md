@@ -7,7 +7,7 @@
 - [How do I update lighthouse?](#how-do-i-update-lighthouse)
 - [I can't compile lighthouse](#i-cant-compile-lighthouse)
 - [What is "Syncing eth1 block cache"](#what-is-syncing-eth1-block-cache)
-
+- [How can I monitor my validators](#how-can-i-monitor-my-validators)
 
 ### Why does it take so long for a validator to be activated?
 
@@ -174,3 +174,9 @@ or after being off for more than several minutes.
 
 If this log continues appearing sporadically during operation, there may be an
 issue with your eth1 endpoint.
+
+### How can I monitor my validators?
+
+Apart from using block explorers, Lighthouse provides a built-in "Validator Monitor" which provides
+logging and Prometheus/Grafana metrics for individual validators. See [Validator
+Monitoring](./validator-monitoring.md) for more information.
