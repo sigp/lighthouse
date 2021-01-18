@@ -252,9 +252,15 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .find(|(_, candidate_pk)| **candidate_pk == pubkey)
             .map(|(index, _)| *index);
 
-        self.validators
-            .entry(pubkey)
-            .or_insert_with(|| MonitoredValidator::new(pubkey, index_opt));
+        let log = self.log.clone();
+        self.validators.entry(pubkey).or_insert_with(|| {
+            info!(
+                log,
+                "Started monitoring validator";
+                "pubkey" => %pubkey,
+            );
+            MonitoredValidator::new(pubkey, index_opt)
+        });
     }
 
     /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
