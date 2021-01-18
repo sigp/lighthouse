@@ -126,9 +126,9 @@ where
         let graffiti = config.graffiti;
 
         let store = store.ok_or("beacon_chain_start_method requires a store")?;
-        let context = runtime_context
-            .ok_or("beacon_chain_start_method requires a runtime context")?
-            .service_context("beacon".into());
+        let runtime_context =
+            runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
+        let context = runtime_context.service_context("beacon".into());
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(context.log().clone()))
@@ -148,6 +148,10 @@ where
             .monitor_validators(
                 config.validator_monitor_auto,
                 config.validator_monitor_pubkeys.clone(),
+                runtime_context
+                    .service_context("val_mon".to_string())
+                    .log()
+                    .clone(),
             )?;
 
         let builder = if let Some(slasher) = self.slasher.clone() {

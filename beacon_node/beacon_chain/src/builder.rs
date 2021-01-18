@@ -401,12 +401,8 @@ where
         mut self,
         auto_register: bool,
         validators: Vec<PublicKeyBytes>,
+        log: Logger,
     ) -> Result<Self, String> {
-        let log = self
-            .log
-            .as_ref()
-            .ok_or("validator_monitor requires a log")?;
-
         let mut validator_monitor = ValidatorMonitor::new(auto_register, log.clone());
         validator_monitor.add_validator_pubkeys(validators);
         self.validator_monitor = Some(validator_monitor);
