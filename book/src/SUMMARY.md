@@ -18,6 +18,7 @@
 	* [Importing from the Eth2 Launchpad](./validator-import-launchpad.md)
     * [Slashing Protection](./slashing-protection.md)
     * [Voluntary Exits](./voluntary-exit.md)
+    * [Validator Monitoring](./validator-monitoring.md)
 * [APIs](./api.md)
 	* [Beacon Node API](./api-bn.md)
 		* [/lighthouse](./api-lighthouse.md)
