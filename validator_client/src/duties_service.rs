@@ -5,14 +5,14 @@ use crate::{
 };
 use environment::RuntimeContext;
 use futures::channel::mpsc::Sender;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use parking_lot::RwLock;
 use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::time::{interval_at, Duration, Instant};
+use tokio::time::{sleep, Duration};
 use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, SelectionProof, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
@@ -460,20 +460,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         mut block_service_tx: Sender<BlockServiceNotification>,
         spec: Arc<ChainSpec>,
     ) -> Result<(), String> {
-        let duration_to_next_slot = self
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or("Unable to determine duration to next slot")?;
-
-        let mut interval = {
-            let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            // Note: `interval_at` panics if `slot_duration` is 0
-            interval_at(
-                Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,
-                slot_duration,
-            )
-        };
-
         // Run an immediate update before starting the updater service.
         let duties_service = self.clone();
         let mut block_service_tx_clone = block_service_tx.clone();
@@ -490,8 +476,18 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
-                self.clone().do_update(&mut block_service_tx, &spec).await;
+            loop {
+                if let Ok(duration_to_next_slot) = self
+                    .slot_clock
+                    .duration_to_next_slot()
+                    .ok_or("unable to determine duration to next slot")
+                {
+                    // TODO(pawan): double check timing here
+                    sleep(duration_to_next_slot + TIME_DELAY_FROM_SLOT).await;
+                    self.clone().do_update(&mut block_service_tx, &spec).await;
+                } else {
+                    break;
+                }
             }
         };
 
