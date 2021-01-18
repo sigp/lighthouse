@@ -3,14 +3,13 @@ use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
 use futures::future::FutureExt;
-use futures::StreamExt;
 use parking_lot::RwLock;
 use slog::Logger;
 use slog::{debug, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::time::{interval_at, Duration, Instant};
+use tokio::time::{sleep, Duration};
 use types::{EthSpec, Fork};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
@@ -135,22 +134,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
     /// Starts the service that periodically polls for the `Fork`.
     pub fn start_update_service(self, context: &RuntimeContext<E>) -> Result<(), String> {
-        let spec = &context.eth2_config.spec;
-
-        let duration_to_next_epoch = self
-            .slot_clock
-            .duration_to_next_epoch(E::slots_per_epoch())
-            .ok_or("Unable to determine duration to next epoch")?;
-
-        let mut interval = {
-            let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            // Note: interval_at panics if `slot_duration * E::slots_per_epoch()` = 0
-            interval_at(
-                Instant::now() + duration_to_next_epoch + TIME_DELAY_FROM_SLOT,
-                slot_duration * E::slots_per_epoch() as u32,
-            )
-        };
-
         // Run an immediate update before starting the updater service.
         context
             .executor
@@ -159,8 +142,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let executor = context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
-                self.clone().do_update().await.ok();
+            loop {
+                if let Ok(duration_to_next_epoch) = self
+                    .slot_clock
+                    .duration_to_next_epoch(E::slots_per_epoch())
+                    .ok_or("Unable to determine duration to next slot")
+                {
+                    // TODO(pawan): double check timing here
+                    sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
+                    self.clone().do_update().await.ok();
+                } else {
+                    break;
+                }
             }
         };
 
