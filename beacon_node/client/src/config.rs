@@ -52,6 +52,10 @@ pub struct Config {
     pub disabled_forks: Vec<String>,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Graffiti,
+    /// When true, automatically monitor validators using the HTTP API.
+    pub validator_monitor_auto: bool,
+    /// A list of validator pubkeys to monitor.
+    pub validator_monitor_pubkeys: Vec<PublicKeyBytes>,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -63,8 +67,6 @@ pub struct Config {
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub slasher: Option<slasher::Config>,
-    pub validator_monitor_auto: bool,
-    pub validator_monitor_pubkeys: Vec<PublicKeyBytes>,
 }
 
 impl Default for Config {

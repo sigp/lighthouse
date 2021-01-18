@@ -152,7 +152,7 @@ where
                     .service_context("val_mon".to_string())
                     .log()
                     .clone(),
-            )?;
+            );
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)

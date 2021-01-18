@@ -402,11 +402,11 @@ where
         auto_register: bool,
         validators: Vec<PublicKeyBytes>,
         log: Logger,
-    ) -> Result<Self, String> {
+    ) -> Self {
         let mut validator_monitor = ValidatorMonitor::new(auto_register, log.clone());
         validator_monitor.add_validator_pubkeys(validators);
         self.validator_monitor = Some(validator_monitor);
-        Ok(self)
+        self
     }
 
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
@@ -728,6 +728,7 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .monitor_validators(true, vec![], log.clone())
             .build()
             .expect("should build");
 

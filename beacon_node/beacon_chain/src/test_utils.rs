@@ -198,7 +198,11 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(log, 1)))
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+                log.clone(),
+                1,
+            )))
+            .monitor_validators(true, vec![], log)
             .build()
             .expect("should build");
 
