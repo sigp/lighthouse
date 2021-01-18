@@ -247,6 +247,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .monitor_validators(true, vec![], log)
             .build()
             .expect("should build");
 
@@ -288,6 +289,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .monitor_validators(true, vec![], log)
             .build()
             .expect("should build");
 
