@@ -2,12 +2,12 @@ use slasher::{
     test_utils::{indexed_att, logger},
     Config, Error, Slasher,
 };
-use tempdir::TempDir;
+use tempfile::tempdir;
 use types::Epoch;
 
 #[test]
 fn attestation_pruning_empty_wrap_around() {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
@@ -41,7 +41,7 @@ fn attestation_pruning_empty_wrap_around() {
 // Test that pruning can recover from a `MapFull` error
 #[test]
 fn pruning_with_map_full() {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1;
     config.chunk_size = 16;

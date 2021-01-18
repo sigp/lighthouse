@@ -239,7 +239,7 @@ impl Eth2NetworkConfig {
 mod tests {
     use super::*;
     use ssz::Encode;
-    use tempdir::TempDir;
+    use tempfile::Builder as TempBuilder;
     use types::{Eth1Data, Hash256, MainnetEthSpec, V012LegacyEthSpec, YamlConfig};
 
     type E = V012LegacyEthSpec;
@@ -301,7 +301,10 @@ mod tests {
         genesis_state: Option<BeaconState<E>>,
         yaml_config: Option<YamlConfig>,
     ) {
-        let temp_dir = TempDir::new("eth2_testnet_test").expect("should create temp dir");
+        let temp_dir = TempBuilder::new()
+            .prefix("eth2_testnet_test")
+            .tempdir()
+            .expect("should create temp dir");
         let base_dir = temp_dir.path().join("my_testnet");
         let deposit_contract_deploy_block = 42;
 

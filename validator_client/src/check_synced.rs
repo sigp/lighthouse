@@ -48,7 +48,7 @@ pub async fn check_synced<T: SlotClock>(
 
             warn!(
                 log,
-                "Beacon node is syncing";
+                "Beacon node is not synced";
                 "sync_distance" => resp.data.sync_distance.as_u64(),
                 "head_slot" => resp.data.head_slot.as_u64(),
                 "endpoint" => %beacon_node,
