@@ -174,3 +174,11 @@ or after being off for more than several minutes.
 
 If this log continues appearing sporadically during operation, there may be an
 issue with your eth1 endpoint.
+
+### Can I use redundancy in my staking setup?
+
+You should **never** use duplicate/redundant validator keypairs or validator clients (i.e., don't
+duplicate your JSON keystores and don't run `lighthouse vc` twice). This will lead to slashing.
+
+However, there are some components which can be configured with redundancy. See the
+[Redundancy](./redundancy.md) guide for more information.
