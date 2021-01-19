@@ -133,7 +133,7 @@ impl ProtoArray {
             let node = self
                 .nodes
                 .get_mut(node_index)
-                .ok_or_else(|| Error::InvalidNodeIndex(node_index))?;
+                .ok_or(Error::InvalidNodeIndex(node_index))?;
 
             // If the node has a parent, try to update its best-child and best-descendant.
             if let Some(parent_index) = node.parent {
