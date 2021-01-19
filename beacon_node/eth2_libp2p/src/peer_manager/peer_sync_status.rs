@@ -29,14 +29,12 @@ pub struct SyncInfo {
 
 impl std::cmp::PartialEq for PeerSyncStatus {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (PeerSyncStatus::Synced { .. }, PeerSyncStatus::Synced { .. }) => true,
-            (PeerSyncStatus::Advanced { .. }, PeerSyncStatus::Advanced { .. }) => true,
-            (PeerSyncStatus::Behind { .. }, PeerSyncStatus::Behind { .. }) => true,
-            (PeerSyncStatus::IrrelevantPeer, PeerSyncStatus::IrrelevantPeer) => true,
-            (PeerSyncStatus::Unknown, PeerSyncStatus::Unknown) => true,
-            _ => false,
-        }
+        matches!((self, other),
+            (PeerSyncStatus::Synced { .. }, PeerSyncStatus::Synced { .. }) |
+            (PeerSyncStatus::Advanced { .. }, PeerSyncStatus::Advanced { .. }) |
+            (PeerSyncStatus::Behind { .. }, PeerSyncStatus::Behind { .. }) |
+            (PeerSyncStatus::IrrelevantPeer, PeerSyncStatus::IrrelevantPeer) |
+            (PeerSyncStatus::Unknown, PeerSyncStatus::Unknown))
     }
 }
 
