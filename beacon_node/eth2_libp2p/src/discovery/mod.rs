@@ -1055,7 +1055,7 @@ mod tests {
         discovery.queued_queries.push_back(QueryType::FindPeers);
         discovery
             .queued_queries
-            .push_back(QueryType::Subnet(subnet_query.clone()));
+            .push_back(QueryType::Subnet(subnet_query));
         // Process Subnet query and FindPeers afterwards.
         assert!(discovery.process_queue());
     }
@@ -1101,7 +1101,7 @@ mod tests {
         // Unwanted enr for the given grouped query
         let enr3 = make_enr(vec![3]);
 
-        let enrs: Vec<Enr> = vec![enr1.clone(), enr2.clone(), enr3.clone()];
+        let enrs: Vec<Enr> = vec![enr1.clone(), enr2, enr3];
         let results = discovery
             .process_completed_queries(QueryResult(query, Ok(enrs)))
             .unwrap();

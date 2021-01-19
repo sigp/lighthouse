@@ -397,7 +397,7 @@ mod test {
 
         let merklizer_root_individual_3_bytes = {
             let mut m = MerkleHasher::with_depth(depth);
-            for bytes in reference_bytes.clone().chunks(3) {
+            for bytes in reference_bytes.chunks(3) {
                 m.write(bytes).expect("should process byte");
             }
             m.finish().expect("should finish")
@@ -426,7 +426,7 @@ mod test {
     /// of leaves and a depth.
     fn compare_reference_with_len(leaves: u64, depth: usize) {
         let leaves = (0..leaves)
-            .map(|i| Hash256::from_low_u64_be(i))
+            .map(Hash256::from_low_u64_be)
             .collect::<Vec<_>>();
         compare_with_reference(&leaves, depth)
     }
@@ -435,7 +435,7 @@ mod test {
     /// results.
     fn compare_new_with_leaf_count(num_leaves: u64, depth: usize) {
         let leaves = (0..num_leaves)
-            .map(|i| Hash256::from_low_u64_be(i))
+            .map(Hash256::from_low_u64_be)
             .collect::<Vec<_>>();
 
         let from_depth = {

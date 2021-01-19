@@ -129,7 +129,6 @@ define_net!(toledo, include_toledo_file, "toledo", true);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toml;
 
     #[test]
     fn serde_serialize() {

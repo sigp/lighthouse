@@ -153,6 +153,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     pub fn smallvec_size_check() {
         // If this test fails we need to go and reassess the length of the `SmallVec` in
         // `cached_tree_hash::TreeHashCache`. If the size of the `SmallVec` is too slow we're going

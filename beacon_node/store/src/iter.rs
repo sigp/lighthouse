@@ -432,7 +432,7 @@ mod test {
         let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
 
         store.put_state(&state_a_root, &state_a).unwrap();
-        store.put_state(&state_b_root, &state_b.clone()).unwrap();
+        store.put_state(&state_b_root, &state_b).unwrap();
 
         let iter = StateRootsIterator::new(store, &state_b);
 
