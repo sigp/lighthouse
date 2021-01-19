@@ -437,7 +437,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .peers
                 .read()
                 .peer_info(propagation_source)
-                .map(|info| info.client.kind.as_static_ref())
+                .map(|info| info.client.kind.as_ref())
             {
                 metrics::inc_counter_vec(
                     &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,

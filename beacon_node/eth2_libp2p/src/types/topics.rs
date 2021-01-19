@@ -1,5 +1,6 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde_derive::{Deserialize, Serialize};
+use strum::AsRefStr;
 use types::SubnetId;
 
 /// The gossipsub topic names.
@@ -36,13 +37,15 @@ pub struct GossipTopic {
 
 /// Enum that brings these topics into the rust type system.
 // NOTE: There is intentionally no unknown type here. We only allow known gossipsub topics.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
-    /// Topic for publishing aggregate attestations and proofs.    
+    /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.
+    #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
     /// Topic for publishing voluntary exits.
     VoluntaryExit,
@@ -50,20 +53,6 @@ pub enum GossipKind {
     ProposerSlashing,
     /// Topic for publishing attester slashings.
     AttesterSlashing,
-}
-
-impl AsRef<str> for GossipKind {
-    fn as_ref(&self) -> &str {
-        use GossipKind::*;
-        match self {
-            BeaconBlock => "beacon_block",
-            BeaconAggregateAndProof => "beacon_aggregate_and_proof",
-            Attestation(_) => "beacon_attestation",
-            VoluntaryExit => "voluntary_exit",
-            ProposerSlashing => "proposer_slashing",
-            AttesterSlashing => "attester_slashing",
-        }
-    }
 }
 
 impl std::fmt::Display for GossipKind {
@@ -309,5 +298,21 @@ mod tests {
             subnet_id_from_topic_hash(&topic_hash),
             Some(SubnetId::new(42))
         );
+    }
+
+    #[test]
+    fn test_as_str_ref() {
+        assert_eq!("beacon_block", BeaconBlock.as_ref());
+        assert_eq!(
+            "beacon_aggregate_and_proof",
+            BeaconAggregateAndProof.as_ref()
+        );
+        assert_eq!(
+            "beacon_attestation",
+            Attestation(SubnetId::new(42)).as_ref()
+        );
+        assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
+        assert_eq!("proposer_slashing", ProposerSlashing.as_ref());
+        assert_eq!("attester_slashing", AttesterSlashing.as_ref());
     }
 }

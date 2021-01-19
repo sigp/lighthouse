@@ -44,3 +44,4 @@ itertools = "0.9.0"
 num_cpus = "1.13.0"
 lru_cache = { path = "../../common/lru_cache" }
 if-addrs = "0.6.4"
+strum = { version = "0.20"}
