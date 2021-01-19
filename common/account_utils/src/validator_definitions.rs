@@ -12,7 +12,6 @@ use slog::{error, Logger};
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use types::PublicKey;
 use validator_dir::VOTING_KEYSTORE_FILE;
@@ -154,13 +153,16 @@ impl ValidatorDefinitions {
         recursively_find_voting_keystores(validators_dir, &mut keystore_paths)
             .map_err(Error::UnableToSearchForKeystores)?;
 
-        let known_paths: HashSet<&PathBuf> =
-            HashSet::from_iter(self.0.iter().map(|def| match &def.signing_definition {
+        let known_paths: HashSet<&PathBuf> = self
+            .0
+            .iter()
+            .map(|def| match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
                     voting_keystore_path,
                     ..
                 } => voting_keystore_path,
-            }));
+            })
+            .collect();
 
         let mut new_defs = keystore_paths
             .into_iter()

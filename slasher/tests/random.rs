@@ -8,7 +8,7 @@ use slasher::{
     Config, Slasher,
 };
 use std::cmp::max;
-use tempdir::TempDir;
+use tempfile::tempdir;
 use types::{Epoch, EthSpec};
 
 #[derive(Debug)]
@@ -38,7 +38,7 @@ fn random_test(seed: u64, test_config: TestConfig) {
     println!("Running with seed {}", seed);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
 
     let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1 << rng.gen_range(1, 4);

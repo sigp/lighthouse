@@ -1,6 +1,5 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use types::{Epoch, Hash256, PublicKey, Slot};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -60,8 +59,8 @@ impl Interchange {
 
     /// Do these two `Interchange`s contain the same data (ignoring ordering)?
     pub fn equiv(&self, other: &Self) -> bool {
-        let self_set = HashSet::<_>::from_iter(self.data.iter());
-        let other_set = HashSet::<_>::from_iter(other.data.iter());
+        let self_set = self.data.iter().collect::<HashSet<_>>();
+        let other_set = other.data.iter().collect::<HashSet<_>>();
         self.metadata == other.metadata && self_set == other_set
     }
 
