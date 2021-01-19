@@ -10,7 +10,6 @@ use node_test_rig::{
     ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
-use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use types::{Epoch, EthSpec, MainnetEthSpec};

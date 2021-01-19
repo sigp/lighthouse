@@ -6,7 +6,6 @@ use node_test_rig::{
     ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
-use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep_until, Instant};

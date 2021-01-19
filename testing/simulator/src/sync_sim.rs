@@ -6,7 +6,6 @@ use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorFiles,
 };
 use node_test_rig::{testing_validator_config, ClientConfig};
-use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{Epoch, EthSpec};
