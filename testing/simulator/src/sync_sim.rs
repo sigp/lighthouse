@@ -53,9 +53,8 @@ fn syncing_sim(
     let end_after_checks = true;
     let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
 
-    spec.milliseconds_per_slot /= speed_up_factor;
-    //currently lighthouse only supports slot lengths that are multiples of seconds
-    spec.milliseconds_per_slot = max(1000, spec.milliseconds_per_slot / 1000 * 1000);
+    spec.seconds_per_slot /= speed_up_factor;
+    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
@@ -63,7 +62,7 @@ fn syncing_sim(
     spec.seconds_per_eth1_block = 1;
 
     let num_validators = 8;
-    let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let context = env.core_context();
     let mut beacon_config = testing_client_config();
 

@@ -248,7 +248,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
+            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
