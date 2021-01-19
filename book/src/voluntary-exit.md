@@ -25,7 +25,7 @@ In order to initiate an exit, users can use the `lighthouse account validator ex
 
 - The `--keystore` flag is used to specify the path to the EIP-2335 voting keystore for the validator.
 
-- The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Eth2.0 Standard API](https://ethereum.github.io/eth2.0-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
+- The `--beacon-nodes` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Eth2.0 Standard API](https://ethereum.github.io/eth2.0-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
 
 - The `--network` flag is used to specify a particular Eth2 network (default is `mainnet`).
 
@@ -42,7 +42,7 @@ The exit phrase is the following:
 Below is an example for initiating a voluntary exit on the Pyrmont testnet.
 
 ```
-$ lighthouse --network pyrmont account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
+$ lighthouse --network pyrmont account validator exit --keystore /path/to/keystore --beacon-nodes http://localhost:5052
 
 Running account manager for pyrmont network
 validator-dir path: ~/.lighthouse/pyrmont/validators
