@@ -113,7 +113,7 @@ impl ProtoArray {
                     .ok_or(Error::DeltaOverflow(node_index))?;
             }
 
-            // If the node has a parent, try to update its best-child and best-descendant.
+            // Update the parent delta (if any).
             if let Some(parent_index) = node.parent {
                 let parent_delta = deltas
                     .get_mut(parent_index)
@@ -121,7 +121,22 @@ impl ProtoArray {
 
                 // Back-propagate the nodes delta to its parent.
                 *parent_delta += node_delta;
+            }
+        }
 
+        // A second time, iterate backwards through all indices in `self.nodes`.
+        //
+        // We _must_ perform these functions separate from the weight-updating loop above to ensure
+        // that we have a fully coherent set of weights before updating parent
+        // best-child/descendant.
+        for node_index in (0..self.nodes.len()).rev() {
+            let node = self
+                .nodes
+                .get_mut(node_index)
+                .ok_or(Error::InvalidNodeIndex(node_index))?;
+
+            // If the node has a parent, try to update its best-child and best-descendant.
+            if let Some(parent_index) = node.parent {
                 self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
             }
         }

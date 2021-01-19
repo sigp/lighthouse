@@ -158,8 +158,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             metrics::inc_counter_vec(
                 &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
                 &[
-                    info.client.kind.as_static_ref(),
-                    PeerAction::Fatal.as_static_str(),
+                    info.client.kind.as_ref(),
+                    PeerAction::Fatal.as_ref(),
                     source.into(),
                 ],
             );
@@ -193,11 +193,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 info.apply_peer_action_to_score(action);
                 metrics::inc_counter_vec(
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
-                    &[
-                        info.client.kind.as_static_ref(),
-                        action.as_static_str(),
-                        source.into(),
-                    ],
+                    &[info.client.kind.as_ref(), action.as_ref(), source.into()],
                 );
 
                 Self::handle_score_transitions(
@@ -407,9 +403,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         metrics::inc_counter_vec(
             &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,
             &[
-                client.kind.as_static_ref(),
+                client.kind.as_ref(),
                 err.as_static_str(),
-                direction.as_static_str(),
+                direction.as_ref(),
             ],
         );
 

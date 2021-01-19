@@ -639,7 +639,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let start_slot = head_state.slot;
                 let task_start = Instant::now();
-                let max_task_runtime = Duration::from_millis(self.spec.milliseconds_per_slot);
+                let max_task_runtime = Duration::from_secs(self.spec.seconds_per_slot);
 
                 let head_state_slot = head_state.slot;
                 let mut state = head_state;

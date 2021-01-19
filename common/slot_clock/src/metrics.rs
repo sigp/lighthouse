@@ -9,9 +9,9 @@ lazy_static! {
         try_create_int_gauge("slotclock_present_epoch", "The present wall-clock epoch");
     pub static ref SLOTS_PER_EPOCH: Result<IntGauge> =
         try_create_int_gauge("slotclock_slots_per_epoch", "Slots per epoch (constant)");
-    pub static ref MILLISECONDS_PER_SLOT: Result<IntGauge> = try_create_int_gauge(
-        "slotclock_slot_time_milliseconds",
-        "The duration in milliseconds between each slot"
+    pub static ref SECONDS_PER_SLOT: Result<IntGauge> = try_create_int_gauge(
+        "slotclock_slot_time_seconds",
+        "The duration in seconds between each slot"
     );
 }
 
@@ -28,8 +28,5 @@ pub fn scrape_for_metrics<T: EthSpec, U: SlotClock>(clock: &U) {
         present_slot.epoch(T::slots_per_epoch()).as_u64() as i64,
     );
     set_gauge(&SLOTS_PER_EPOCH, T::slots_per_epoch() as i64);
-    set_gauge(
-        &MILLISECONDS_PER_SLOT,
-        clock.slot_duration().as_millis() as i64,
-    );
+    set_gauge(&SECONDS_PER_SLOT, clock.slot_duration().as_secs() as i64);
 }

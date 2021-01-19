@@ -25,9 +25,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
-    milliseconds_per_slot: u64,
+    seconds_per_slot: u64,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_millis(milliseconds_per_slot);
+    let slot_duration = Duration::from_secs(seconds_per_slot);
     let duration_to_next_slot = beacon_chain
         .slot_clock
         .duration_to_next_slot()

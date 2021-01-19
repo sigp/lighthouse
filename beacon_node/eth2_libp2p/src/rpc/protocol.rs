@@ -17,6 +17,7 @@ use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
+use strum::{AsStaticRef, AsStaticStr};
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
@@ -470,10 +471,12 @@ where
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, AsStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
     // NOTE: in the future a ssz::DecodeError should map to an InvalidData error
+    #[strum(serialize = "decode_error")]
     SSZDecodeError(ssz::DecodeError),
     /// IO Error.
     IoError(String),
@@ -571,22 +574,8 @@ impl RPCError {
     /// Used for metrics.
     pub fn as_static_str(&self) -> &'static str {
         match self {
-            RPCError::SSZDecodeError { .. } => "decode_error",
-            RPCError::IoError { .. } => "io_error",
-            RPCError::ErrorResponse(ref code, ..) => match code {
-                RPCResponseErrorCode::RateLimited => "rate_limited",
-                RPCResponseErrorCode::InvalidRequest => "invalid_request",
-                RPCResponseErrorCode::ServerError => "server_error",
-                RPCResponseErrorCode::ResourceUnavailable => "resource_unavailable",
-                RPCResponseErrorCode::Unknown => "unknown_response_code",
-            },
-            RPCError::StreamTimeout => "stream_timeout",
-            RPCError::UnsupportedProtocol => "unsupported_protocol",
-            RPCError::IncompleteStream => "incomplete_stream",
-            RPCError::InvalidData => "invalid_data",
-            RPCError::InternalError { .. } => "internal_error",
-            RPCError::NegotiationTimeout => "negotiation_timeout",
-            RPCError::HandlerRejected => "handler_rejected",
+            RPCError::ErrorResponse(ref code, ..) => code.as_static(),
+            e => e.as_static(),
         }
     }
 }

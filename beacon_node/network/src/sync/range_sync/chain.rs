@@ -161,7 +161,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Peers currently syncing this chain.
-    pub fn peers<'a>(&'a self) -> impl Iterator<Item = PeerId> + 'a {
+    pub fn peers(&self) -> impl Iterator<Item = PeerId> + '_ {
         self.peers.keys().cloned()
     }
 

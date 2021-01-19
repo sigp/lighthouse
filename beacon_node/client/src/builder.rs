@@ -322,13 +322,13 @@ where
             .beacon_chain
             .clone()
             .ok_or("node timer requires a beacon chain")?;
-        let milliseconds_per_slot = self
+        let seconds_per_slot = self
             .chain_spec
             .as_ref()
             .ok_or("node timer requires a chain spec")?
-            .milliseconds_per_slot;
+            .seconds_per_slot;
 
-        spawn_timer(context.executor, beacon_chain, milliseconds_per_slot)
+        spawn_timer(context.executor, beacon_chain, seconds_per_slot)
             .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         Ok(self)
@@ -381,17 +381,17 @@ where
             .network_globals
             .clone()
             .ok_or("slot_notifier requires a libp2p network")?;
-        let milliseconds_per_slot = self
+        let seconds_per_slot = self
             .chain_spec
             .as_ref()
             .ok_or("slot_notifier requires a chain spec")?
-            .milliseconds_per_slot;
+            .seconds_per_slot;
 
         spawn_notifier(
             context.executor,
             beacon_chain,
             network_globals,
-            milliseconds_per_slot,
+            seconds_per_slot,
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
@@ -685,7 +685,7 @@ where
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_millis(spec.milliseconds_per_slot),
+            Duration::from_secs(spec.seconds_per_slot),
         );
 
         self.slot_clock = Some(slot_clock);
