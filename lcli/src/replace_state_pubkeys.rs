@@ -11,13 +11,13 @@ use types::{BeaconState, EthSpec};
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let path = matches
         .value_of("ssz-state")
-        .ok_or_else(|| "ssz-state not specified")?
+        .ok_or("ssz-state not specified")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Unable to parse ssz-state: {}", e))?;
 
     let mnemonic_phrase = matches
         .value_of("mnemonic")
-        .ok_or_else(|| "mnemonic not specified")?;
+        .ok_or("mnemonic not specified")?;
 
     let mut state: BeaconState<T> = {
         let mut file = File::open(&path).map_err(|e| format!("Unable to open file: {}", e))?;
