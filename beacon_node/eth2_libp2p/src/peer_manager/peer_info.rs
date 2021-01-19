@@ -97,7 +97,7 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Returns the seen IP addresses of the peer.
-    pub fn seen_addresses<'a>(&'a self) -> impl Iterator<Item = IpAddr> + 'a {
+    pub fn seen_addresses(&self) -> impl Iterator<Item = IpAddr> + '_ {
         self.seen_addresses
             .iter()
             .map(|socket_addr| socket_addr.ip())

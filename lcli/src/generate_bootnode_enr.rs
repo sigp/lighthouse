@@ -25,10 +25,12 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         ));
     }
 
-    let mut config = NetworkConfig::default();
-    config.enr_address = Some(ip);
-    config.enr_udp_port = Some(udp_port);
-    config.enr_tcp_port = Some(tcp_port);
+    let config = NetworkConfig {
+        enr_address: Some(ip),
+        enr_udp_port: Some(udp_port),
+        enr_tcp_port: Some(tcp_port),
+        ..Default::default()
+    };
 
     let local_keypair = Keypair::generate_secp256k1();
     let enr_key = CombinedKey::from_libp2p(&local_keypair)?;

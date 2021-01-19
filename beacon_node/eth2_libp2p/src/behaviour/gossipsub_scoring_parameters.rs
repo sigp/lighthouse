@@ -70,16 +70,16 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         enr_fork_id: &EnrForkId,
         current_slot: Slot,
     ) -> error::Result<PeerScoreParams> {
-        let mut params = PeerScoreParams::default();
-
-        params.decay_interval = self.decay_interval;
-        params.decay_to_zero = self.decay_to_zero;
-        params.retain_score = self.epoch * 100;
-        params.app_specific_weight = 1.0;
-        params.ip_colocation_factor_threshold = 3.0;
-        params.behaviour_penalty_threshold = 6.0;
-
-        params.behaviour_penalty_decay = self.score_parameter_decay(self.epoch * 10);
+        let mut params = PeerScoreParams {
+            decay_interval: self.decay_interval,
+            decay_to_zero: self.decay_to_zero,
+            retain_score: self.epoch * 100,
+            app_specific_weight: 1.0,
+            ip_colocation_factor_threshold: 3.0,
+            behaviour_penalty_threshold: 6.0,
+            behaviour_penalty_decay: self.score_parameter_decay(self.epoch * 10),
+            ..Default::default()
+        };
 
         let target_value = Self::decay_convergence(
             params.behaviour_penalty_decay,
