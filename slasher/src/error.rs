@@ -25,6 +25,7 @@ pub enum Error {
         on_disk_config: Config,
         config: Config,
     },
+    ConfigMissing,
     DistanceTooLarge,
     DistanceCalculationOverflow,
     /// Missing an attester record that we expected to exist.

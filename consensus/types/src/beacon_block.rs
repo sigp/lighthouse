@@ -68,7 +68,7 @@ impl<T: EthSpec> BeaconBlock<T> {
         };
         let indexed_attestation: IndexedAttestation<T> = IndexedAttestation {
             attesting_indices: VariableList::new(vec![
-                0 as u64;
+                0_u64;
                 T::MaxValidatorsPerCommittee::to_usize()
             ])
             .unwrap(),

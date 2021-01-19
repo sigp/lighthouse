@@ -70,6 +70,7 @@ members = [
     "remote_signer/client",
 
     "slasher",
+    "slasher/service",
 
     "testing/ef_tests",
     "testing/eth1_test_rig",

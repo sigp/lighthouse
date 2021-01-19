@@ -577,6 +577,7 @@ impl RPCError {
                 RPCResponseErrorCode::RateLimited => "rate_limited",
                 RPCResponseErrorCode::InvalidRequest => "invalid_request",
                 RPCResponseErrorCode::ServerError => "server_error",
+                RPCResponseErrorCode::ResourceUnavailable => "resource_unavailable",
                 RPCResponseErrorCode::Unknown => "unknown_response_code",
             },
             RPCError::StreamTimeout => "stream_timeout",

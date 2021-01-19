@@ -1,43 +1,17 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::config::GOSSIP_MAX_SIZE;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
+use libp2p::gossipsub::{DataTransform, GossipsubMessage, RawGossipsubMessage};
 use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
 use std::boxed::Box;
+use std::io::{Error, ErrorKind};
 use types::SubnetId;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit,
 };
-
-#[derive(Clone)]
-pub struct MessageData {
-    pub raw: Vec<u8>,
-    pub decompressed: Result<Vec<u8>, String>,
-}
-
-impl AsRef<[u8]> for MessageData {
-    fn as_ref(&self) -> &[u8] {
-        self.raw.as_ref()
-    }
-}
-
-impl Into<Vec<u8>> for MessageData {
-    fn into(self) -> Vec<u8> {
-        self.raw
-    }
-}
-
-impl From<Vec<u8>> for MessageData {
-    fn from(raw: Vec<u8>) -> Self {
-        Self {
-            decompressed: decompress_snappy(raw.as_ref()),
-            raw,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<T: EthSpec> {
@@ -55,21 +29,63 @@ pub enum PubsubMessage<T: EthSpec> {
     AttesterSlashing(Box<AttesterSlashing<T>>),
 }
 
-fn decompress_snappy(data: &[u8]) -> Result<Vec<u8>, String> {
-    // Exit early if uncompressed data is > GOSSIP_MAX_SIZE
-    match decompress_len(data) {
-        Ok(n) if n > GOSSIP_MAX_SIZE => {
-            return Err("ssz_snappy decoded data > GOSSIP_MAX_SIZE".into());
+// Implements the `DataTransform` trait of gossipsub to employ snappy compression
+pub struct SnappyTransform {
+    /// Sets the maximum size we allow gossipsub messages to decompress to.
+    max_size_per_message: usize,
+}
+
+impl SnappyTransform {
+    pub fn new(max_size_per_message: usize) -> Self {
+        SnappyTransform {
+            max_size_per_message,
         }
-        Ok(_) => {}
-        Err(e) => {
-            return Err(format!("{}", e));
+    }
+}
+
+impl DataTransform for SnappyTransform {
+    // Provides the snappy decompression from RawGossipsubMessages
+    fn inbound_transform(
+        &self,
+        raw_message: RawGossipsubMessage,
+    ) -> Result<GossipsubMessage, std::io::Error> {
+        // check the length of the raw bytes
+        let len = decompress_len(&raw_message.data)?;
+        if len > self.max_size_per_message {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "ssz_snappy decoded data > GOSSIP_MAX_SIZE",
+            ));
         }
-    };
-    let mut decoder = Decoder::new();
-    match decoder.decompress_vec(data) {
-        Ok(decompressed_data) => Ok(decompressed_data),
-        Err(e) => Err(format!("{}", e)),
+
+        let mut decoder = Decoder::new();
+        let decompressed_data = decoder.decompress_vec(&raw_message.data)?;
+
+        // Build the GossipsubMessage struct
+        Ok(GossipsubMessage {
+            source: raw_message.source,
+            data: decompressed_data,
+            sequence_number: raw_message.sequence_number,
+            topic: raw_message.topic,
+        })
+    }
+
+    /// Provides the snappy compression logic to gossipsub.
+    fn outbound_transform(
+        &self,
+        _topic: &TopicHash,
+        data: Vec<u8>,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        // Currently we are not employing topic-based compression. Everything is expected to be
+        // snappy compressed.
+        if data.len() > self.max_size_per_message {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "ssz_snappy Encoded data > GOSSIP_MAX_SIZE",
+            ));
+        }
+        let mut encoder = Encoder::new();
+        encoder.compress_vec(&data).map_err(Into::into)
     }
 }
 
@@ -98,48 +114,49 @@ impl<T: EthSpec> PubsubMessage<T> {
     /* Note: This is assuming we are not hashing topics. If we choose to hash topics, these will
      * need to be modified.
      */
-    pub fn decode(topic: &TopicHash, data: &MessageData) -> Result<Self, String> {
+    pub fn decode(topic: &TopicHash, data: &[u8]) -> Result<Self, String> {
         match GossipTopic::decode(topic.as_str()) {
             Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
             Ok(gossip_topic) => {
-                let decompressed_data = match gossip_topic.encoding() {
-                    GossipEncoding::SSZSnappy => data.decompressed.as_ref()?.as_slice(),
-                };
+                // All topics are currently expected to be compressed and decompressed with snappy.
+                // This is done in the `SnappyTransform` struct.
+                // Therefore compression has already been handled for us by the time we are
+                // decoding the objects here.
+
                 // the ssz decoders
                 match gossip_topic.kind() {
                     GossipKind::BeaconAggregateAndProof => {
-                        let agg_and_proof =
-                            SignedAggregateAndProof::from_ssz_bytes(decompressed_data)
-                                .map_err(|e| format!("{:?}", e))?;
+                        let agg_and_proof = SignedAggregateAndProof::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
                             agg_and_proof,
                         )))
                     }
                     GossipKind::Attestation(subnet_id) => {
-                        let attestation = Attestation::from_ssz_bytes(decompressed_data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let attestation =
+                            Attestation::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::Attestation(Box::new((
                             *subnet_id,
                             attestation,
                         ))))
                     }
                     GossipKind::BeaconBlock => {
-                        let beacon_block = SignedBeaconBlock::from_ssz_bytes(decompressed_data)
+                        let beacon_block = SignedBeaconBlock::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)))
                     }
                     GossipKind::VoluntaryExit => {
-                        let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(decompressed_data)
+                        let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::VoluntaryExit(Box::new(voluntary_exit)))
                     }
                     GossipKind::ProposerSlashing => {
-                        let proposer_slashing = ProposerSlashing::from_ssz_bytes(decompressed_data)
+                        let proposer_slashing = ProposerSlashing::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ProposerSlashing(Box::new(proposer_slashing)))
                     }
                     GossipKind::AttesterSlashing => {
-                        let attester_slashing = AttesterSlashing::from_ssz_bytes(decompressed_data)
+                        let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
@@ -150,26 +167,18 @@ impl<T: EthSpec> PubsubMessage<T> {
 
     /// Encodes a `PubsubMessage` based on the topic encodings. The first known encoding is used. If
     /// no encoding is known, and error is returned.
-    pub fn encode(&self, encoding: GossipEncoding) -> Result<Vec<u8>, String> {
-        let data = match &self {
+    pub fn encode(&self, _encoding: GossipEncoding) -> Vec<u8> {
+        // Currently do not employ encoding strategies based on the topic. All messages are ssz
+        // encoded.
+        // Also note, that the compression is handled by the `SnappyTransform` struct. Gossipsub will compress the
+        // messages for us.
+        match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
             PubsubMessage::AttesterSlashing(data) => data.as_ssz_bytes(),
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
-        };
-        match encoding {
-            GossipEncoding::SSZSnappy => {
-                let mut encoder = Encoder::new();
-                match encoder.compress_vec(&data) {
-                    Ok(compressed) if compressed.len() > GOSSIP_MAX_SIZE => {
-                        Err("ssz_snappy Encoded data > GOSSIP_MAX_SIZE".into())
-                    }
-                    Ok(compressed) => Ok(compressed),
-                    Err(e) => Err(format!("{}", e)),
-                }
-            }
         }
     }
 }
@@ -198,22 +207,5 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),
             PubsubMessage::AttesterSlashing(_data) => write!(f, "Attester Slashing"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_gossip_max_size() {
-        // Cannot decode more than gossip max size
-        let mut encoder = Encoder::new();
-        let payload = encoder.compress_vec(&[0; GOSSIP_MAX_SIZE + 1]).unwrap();
-        let message_data: MessageData = payload.into();
-        assert_eq!(
-            message_data.decompressed.unwrap_err(),
-            "ssz_snappy decoded data > GOSSIP_MAX_SIZE".to_string()
-        );
     }
 }

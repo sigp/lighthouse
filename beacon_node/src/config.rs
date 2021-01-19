@@ -26,9 +26,10 @@ pub fn get_config<E: EthSpec>(
     spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
-    let mut client_config = ClientConfig::default();
-
-    client_config.data_dir = get_data_dir(cli_args);
+    let mut client_config = ClientConfig {
+        data_dir: get_data_dir(cli_args),
+        ..Default::default()
+    };
 
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
@@ -170,6 +171,11 @@ pub fn get_config<E: EthSpec>(
 
     // Defines the URL to reach the eth1 node.
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
+        warn!(
+            log,
+            "The --eth1-endpoint flag is deprecated";
+            "msg" => "please use --eth1-endpoints instead"
+        );
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = vec![val.to_string()];
     } else if let Some(val) = cli_args.value_of("eth1-endpoints") {
@@ -374,6 +380,8 @@ pub fn get_config<E: EthSpec>(
         {
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
+
+        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
 
         client_config.slasher = Some(slasher_config);
     }
