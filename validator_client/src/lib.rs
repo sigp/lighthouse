@@ -27,6 +27,7 @@ use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
+use eth2::types::StateId;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
 use fork_service::{ForkService, ForkServiceBuilder};
 use futures::channel::mpsc;
@@ -43,7 +44,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Fork, Hash256};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -234,7 +235,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
         // Perform some potentially long-running initialization tasks.
-        let (genesis_time, genesis_validators_root) = tokio::select! {
+        let (genesis_time, genesis_validators_root, fork) = tokio::select! {
             tuple = init_from_beacon_node(&beacon_nodes, &context) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
@@ -255,6 +256,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
 
         let fork_service = ForkServiceBuilder::new()
+            .fork(fork)
             .slot_clock(slot_clock.clone())
             .beacon_nodes(beacon_nodes.clone())
             .log(log.clone())
@@ -394,7 +396,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     context: &RuntimeContext<E>,
-) -> Result<(u64, Hash256), String> {
+) -> Result<(u64, Hash256, Fork), String> {
     loop {
         beacon_nodes.update_unready_candidates().await;
         let num_available = beacon_nodes.num_available().await;
@@ -453,7 +455,33 @@ async fn init_from_beacon_node<E: EthSpec>(
         sleep(RETRY_DELAY).await;
     };
 
-    Ok((genesis.genesis_time, genesis.genesis_validators_root))
+    let fork = loop {
+        match beacon_nodes
+            .first_success(RequireSynced::No, |node| async move {
+                node.get_beacon_states_fork(StateId::Head).await
+            })
+            .await
+        {
+            Ok(Some(fork)) => break fork.data,
+            Ok(None) => {
+                info!(
+                    context.log(),
+                    "Failed to get fork, state not found";
+                );
+            }
+            Err(errors) => {
+                error!(
+                    context.log(),
+                    "Failed to get fork";
+                    "error" => %errors
+                );
+            }
+        }
+
+        sleep(RETRY_DELAY).await;
+    };
+
+    Ok((genesis.genesis_time, genesis.genesis_validators_root, fork))
 }
 
 async fn wait_for_genesis<E: EthSpec>(
