@@ -140,30 +140,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let executor = self.context.executor.clone();
 
         let interval_fut = async move {
-            loop {
-                if let Ok(duration_to_next_slot) = self
-                    .slot_clock
-                    .duration_to_next_slot()
-                    .ok_or("Unable to determine duration to next slot")
-                {
-                    // TODO(pawan): double check timing here
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
-                    let log = self.context.log();
+            while let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
+                // TODO(pawan): double check timing here
+                sleep(duration_to_next_slot + slot_duration / 3).await;
+                let log = self.context.log();
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
-                        crit!(
-                            log,
-                            "Failed to spawn attestation tasks";
-                            "error" => e
-                        )
-                    } else {
-                        trace!(
-                            log,
-                            "Spawned attestation tasks";
-                        )
-                    }
+                if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                    crit!(
+                        log,
+                        "Failed to spawn attestation tasks";
+                        "error" => e
+                    )
                 } else {
-                    break;
+                    trace!(
+                        log,
+                        "Spawned attestation tasks";
+                    )
                 }
             }
         };

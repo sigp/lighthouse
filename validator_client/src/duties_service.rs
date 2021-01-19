@@ -476,19 +476,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
-            loop {
-                if let Ok(duration_to_next_slot) = self
-                    .clone()
-                    .slot_clock
-                    .duration_to_next_slot()
-                    .ok_or("unable to determine duration to next slot")
-                {
-                    // TODO(pawan): double check timing here
-                    sleep(duration_to_next_slot + TIME_DELAY_FROM_SLOT).await;
-                    self.clone().update(&mut block_service_tx, &spec);
-                } else {
-                    break;
-                }
+            while let Some(duration_to_next_slot) = self.clone().slot_clock.duration_to_next_slot()
+            {
+                // TODO(pawan): double check timing here
+                sleep(duration_to_next_slot + TIME_DELAY_FROM_SLOT).await;
+                self.clone().update(&mut block_service_tx, &spec);
             }
         };
 

@@ -147,18 +147,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let executor = context.executor.clone();
 
         let interval_fut = async move {
-            loop {
-                if let Ok(duration_to_next_epoch) = self
-                    .slot_clock
-                    .duration_to_next_epoch(E::slots_per_epoch())
-                    .ok_or("Unable to determine duration to next slot")
-                {
-                    // TODO(pawan): double check timing here
-                    sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
-                    self.clone().do_update().await.ok();
-                } else {
-                    break;
-                }
+            while let Some(duration_to_next_epoch) =
+                self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
+            {
+                // TODO(pawan): double check timing here
+                sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
+                self.clone().do_update().await.ok();
             }
         };
 
