@@ -478,13 +478,14 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let interval_fut = async move {
             loop {
                 if let Ok(duration_to_next_slot) = self
+                    .clone()
                     .slot_clock
                     .duration_to_next_slot()
                     .ok_or("unable to determine duration to next slot")
                 {
                     // TODO(pawan): double check timing here
                     sleep(duration_to_next_slot + TIME_DELAY_FROM_SLOT).await;
-                    self.clone().do_update(&mut block_service_tx, &spec).await;
+                    self.clone().update(&mut block_service_tx, &spec);
                 } else {
                     break;
                 }
@@ -494,6 +495,20 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         executor.spawn(interval_fut, "duties_service");
 
         Ok(())
+    }
+
+    /// Spawns a new duties update task.
+    fn update(self, block_service_tx: &mut Sender<BlockServiceNotification>, spec: &ChainSpec) {
+        let executor = self.inner.context.executor.clone();
+        let mut block_service_tx_clone = block_service_tx.clone();
+        let inner_spec = spec.clone();
+        executor.spawn(
+            async move {
+                self.do_update(&mut block_service_tx_clone, &inner_spec)
+                    .await
+            },
+            "duties_service_task",
+        );
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
