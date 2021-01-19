@@ -10,6 +10,7 @@ use node_test_rig::{
     ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
+use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use types::{Epoch, EthSpec, MainnetEthSpec};
@@ -58,6 +59,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let total_validator_count = validators_per_node * node_count;
 
     spec.seconds_per_slot /= speed_up_factor;
+    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;

@@ -6,6 +6,7 @@ use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorFiles,
 };
 use node_test_rig::{testing_validator_config, ClientConfig};
+use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{Epoch, EthSpec};
@@ -53,6 +54,7 @@ fn syncing_sim(
     let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
 
     spec.seconds_per_slot /= speed_up_factor;
+    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
     spec.eth1_follow_distance = 16;
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
