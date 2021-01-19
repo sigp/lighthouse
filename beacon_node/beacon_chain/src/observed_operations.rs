@@ -2,7 +2,6 @@ use derivative::Derivative;
 use smallvec::SmallVec;
 use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, EthSpec, ProposerSlashing, SignedVoluntaryExit,
@@ -57,10 +56,18 @@ impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
 
 impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        let attestation_1_indices =
-            HashSet::<u64>::from_iter(self.attestation_1.attesting_indices.iter().copied());
-        let attestation_2_indices =
-            HashSet::<u64>::from_iter(self.attestation_2.attesting_indices.iter().copied());
+        let attestation_1_indices = self
+            .attestation_1
+            .attesting_indices
+            .iter()
+            .copied()
+            .collect::<HashSet<u64>>();
+        let attestation_2_indices = self
+            .attestation_2
+            .attesting_indices
+            .iter()
+            .copied()
+            .collect::<HashSet<u64>>();
         attestation_1_indices
             .intersection(&attestation_2_indices)
             .copied()

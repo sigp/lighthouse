@@ -1,3 +1,4 @@
+use crate::local_network::INVALID_ADDRESS;
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
 use eth1::http::Eth1Id;
@@ -128,8 +129,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * One by one, add beacon nodes to the network.
          */
-        for _ in 0..node_count - 1 {
-            network.add_beacon_node(beacon_config.clone()).await?;
+        for i in 0..node_count - 1 {
+            let mut config = beacon_config.clone();
+            if i % 2 == 0 {
+                config.eth1.endpoints.insert(0, INVALID_ADDRESS.to_string());
+            }
+            network.add_beacon_node(config).await?;
         }
 
         /*
@@ -137,7 +142,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         for (i, files) in validator_files.into_iter().enumerate() {
             network
-                .add_validator_client(testing_validator_config(), i, files)
+                .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
                 .await?;
         }
 

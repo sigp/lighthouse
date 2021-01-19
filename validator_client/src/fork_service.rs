@@ -1,6 +1,7 @@
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::http_metrics::metrics;
 use environment::RuntimeContext;
-use eth2::{types::StateId, BeaconNodeHttpClient};
+use eth2::types::StateId;
 use futures::future::FutureExt;
 use futures::StreamExt;
 use parking_lot::RwLock;
@@ -16,19 +17,19 @@ use types::{EthSpec, Fork};
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
 
 /// Builds a `ForkService`.
-pub struct ForkServiceBuilder<T> {
+pub struct ForkServiceBuilder<T, E: EthSpec> {
     fork: Option<Fork>,
     slot_clock: Option<T>,
-    beacon_node: Option<BeaconNodeHttpClient>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     log: Option<Logger>,
 }
 
-impl<T: SlotClock + 'static> ForkServiceBuilder<T> {
+impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
             fork: None,
             slot_clock: None,
-            beacon_node: None,
+            beacon_nodes: None,
             log: None,
         }
     }
@@ -38,8 +39,8 @@ impl<T: SlotClock + 'static> ForkServiceBuilder<T> {
         self
     }
 
-    pub fn beacon_node(mut self, beacon_node: BeaconNodeHttpClient) -> Self {
-        self.beacon_node = Some(beacon_node);
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+        self.beacon_nodes = Some(beacon_nodes);
         self
     }
 
@@ -48,15 +49,15 @@ impl<T: SlotClock + 'static> ForkServiceBuilder<T> {
         self
     }
 
-    pub fn build(self) -> Result<ForkService<T>, String> {
+    pub fn build(self) -> Result<ForkService<T, E>, String> {
         Ok(ForkService {
             inner: Arc::new(Inner {
                 fork: RwLock::new(self.fork),
                 slot_clock: self
                     .slot_clock
                     .ok_or("Cannot build ForkService without slot_clock")?,
-                beacon_node: self
-                    .beacon_node
+                beacon_nodes: self
+                    .beacon_nodes
                     .ok_or("Cannot build ForkService without beacon_node")?,
                 log: self
                     .log
@@ -69,8 +70,21 @@ impl<T: SlotClock + 'static> ForkServiceBuilder<T> {
 
 #[cfg(test)]
 #[allow(dead_code)]
-impl ForkServiceBuilder<slot_clock::TestingSlotClock> {
-    pub fn testing_only(log: Logger) -> Self {
+impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
+    pub fn testing_only(spec: types::ChainSpec, log: Logger) -> Self {
+        use crate::beacon_node_fallback::CandidateBeaconNode;
+
+        let slot_clock = slot_clock::TestingSlotClock::new(
+            types::Slot::new(0),
+            std::time::Duration::from_secs(42),
+            std::time::Duration::from_secs(42),
+        );
+        let candidates = vec![CandidateBeaconNode::new(eth2::BeaconNodeHttpClient::new(
+            eth2::Url::parse("http://127.0.0.1").unwrap(),
+        ))];
+        let mut beacon_nodes = BeaconNodeFallback::new(candidates, spec, log.clone());
+        beacon_nodes.set_slot_clock(slot_clock.clone());
+
         Self {
             fork: Some(types::Fork::default()),
             slot_clock: Some(slot_clock::TestingSlotClock::new(
@@ -78,28 +92,26 @@ impl ForkServiceBuilder<slot_clock::TestingSlotClock> {
                 std::time::Duration::from_secs(42),
                 std::time::Duration::from_secs(42),
             )),
-            beacon_node: Some(eth2::BeaconNodeHttpClient::new(
-                eth2::Url::parse("http://127.0.0.1").unwrap(),
-            )),
+            beacon_nodes: Some(Arc::new(beacon_nodes)),
             log: Some(log),
         }
     }
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<T> {
+pub struct Inner<T, E: EthSpec> {
     fork: RwLock<Option<Fork>>,
-    beacon_node: BeaconNodeHttpClient,
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     log: Logger,
     slot_clock: T,
 }
 
 /// Attempts to download the `Fork` struct from the beacon node at the start of each epoch.
-pub struct ForkService<T> {
-    inner: Arc<Inner<T>>,
+pub struct ForkService<T, E: EthSpec> {
+    inner: Arc<Inner<T, E>>,
 }
 
-impl<T> Clone for ForkService<T> {
+impl<T, E: EthSpec> Clone for ForkService<T, E> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -107,25 +119,22 @@ impl<T> Clone for ForkService<T> {
     }
 }
 
-impl<T> Deref for ForkService<T> {
-    type Target = Inner<T>;
+impl<T, E: EthSpec> Deref for ForkService<T, E> {
+    type Target = Inner<T, E>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<T: SlotClock + 'static> ForkService<T> {
+impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     /// Returns the last fork downloaded from the beacon node, if any.
     pub fn fork(&self) -> Option<Fork> {
         *self.fork.read()
     }
 
     /// Starts the service that periodically polls for the `Fork`.
-    pub fn start_update_service<E: EthSpec>(
-        self,
-        context: &RuntimeContext<E>,
-    ) -> Result<(), String> {
+    pub fn start_update_service(self, context: &RuntimeContext<E>) -> Result<(), String> {
         let spec = &context.eth2_config.spec;
 
         let duration_to_next_epoch = self
@@ -165,26 +174,32 @@ impl<T: SlotClock + 'static> ForkService<T> {
         let _timer =
             metrics::start_timer_vec(&metrics::FORK_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
 
+        let log = &self.log;
         let fork = self
             .inner
-            .beacon_node
-            .get_beacon_states_fork(StateId::Head)
+            .beacon_nodes
+            .first_success(RequireSynced::No, |beacon_node| async move {
+                beacon_node
+                    .get_beacon_states_fork(StateId::Head)
+                    .await
+                    .map_err(|e| {
+                        trace!(
+                            log,
+                            "Fork update failed";
+                            "error" => format!("Error retrieving fork: {:?}", e)
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        trace!(
+                            log,
+                            "Fork update failed";
+                            "error" => "The beacon head fork is unknown"
+                        )
+                    })
+                    .map(|result| result.data)
+            })
             .await
-            .map_err(|e| {
-                trace!(
-                    self.log,
-                    "Fork update failed";
-                    "error" => format!("Error retrieving fork: {:?}", e)
-                )
-            })?
-            .ok_or_else(|| {
-                trace!(
-                    self.log,
-                    "Fork update failed";
-                    "error" => "The beacon head fork is unknown"
-                )
-            })?
-            .data;
+            .map_err(|_| ())?;
 
         if self.fork.read().as_ref() != Some(&fork) {
             *(self.fork.write()) = Some(fork);

@@ -112,6 +112,7 @@ easy_from_to!(ForkChoiceStoreError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
+    UnableToGetHeadInfo(BeaconChainError),
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
     UnableToProduceAtSlot(Slot),

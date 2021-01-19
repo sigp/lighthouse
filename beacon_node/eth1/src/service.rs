@@ -670,7 +670,9 @@ impl Service {
             let outcome = self
                 .update_deposit_cache(Some(new_block_numbers_deposit), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
+                .map_err(|e| {
+                    format!("Failed to update eth1 deposit cache: {:?}", process_err(e))
+                })?;
 
             trace!(
                 self.log,
@@ -686,7 +688,7 @@ impl Service {
             let outcome = self
                 .update_block_cache(Some(new_block_numbers_block_cache), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
+                .map_err(|e| format!("Failed to update eth1 block cache: {:?}", process_err(e)))?;
 
             trace!(
                 self.log,
@@ -876,7 +878,13 @@ impl Service {
                 // imported if any one of them cannot be parsed.
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
-                .map(|deposit_log| {
+                // Returns if a deposit is unable to be added to the cache.
+                //
+                // If this error occurs, the cache will no longer be guaranteed to hold either
+                // none or all of the logs for each block (i.e., they may exist _some_ logs for
+                // a block, but not _all_ logs for that block). This scenario can cause the
+                // node to choose an invalid genesis state or propose an invalid block.
+                .try_for_each(|deposit_log| {
                     if let DepositCacheInsertOutcome::Inserted = cache
                         .cache
                         .insert_log(deposit_log)
@@ -886,14 +894,7 @@ impl Service {
                     }
 
                     Ok(())
-                })
-                // Returns if a deposit is unable to be added to the cache.
-                //
-                // If this error occurs, the cache will no longer be guaranteed to hold either
-                // none or all of the logs for each block (i.e., they may exist _some_ logs for
-                // a block, but not _all_ logs for that block). This scenario can cause the
-                // node to choose an invalid genesis state or propose an invalid block.
-                .collect::<Result<_, _>>()?;
+                })?;
 
             debug!(
                 self.log,

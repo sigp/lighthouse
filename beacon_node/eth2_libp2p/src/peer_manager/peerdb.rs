@@ -322,7 +322,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// A peer is being dialed.
     pub fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
         info.enr = enr;
 
         if info.is_disconnected() {
@@ -341,7 +341,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Update min ttl of a peer.
     pub fn update_min_ttl(&mut self, peer_id: &PeerId, min_ttl: Instant) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
 
         // only update if the ttl is longer
         if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
@@ -382,7 +382,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         enr: Option<Enr>,
         direction: ConnectionDirection,
     ) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
         info.enr = enr;
 
         if info.is_disconnected() {
@@ -459,7 +459,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     // peer's score to be a banned state.
     pub fn disconnect_and_ban(&mut self, peer_id: &PeerId) -> bool {
         let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
+        let info = self.peers.entry(*peer_id).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
                 "peer_id" => %peer_id);
             PeerInfo::default()
@@ -517,7 +517,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// If this is called for a banned peer, it will error.
     pub fn unban(&mut self, peer_id: &PeerId) -> Result<(), &'static str> {
         let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
+        let info = self.peers.entry(*peer_id).or_insert_with(|| {
             warn!(log_ref, "UnBanning unknown peer";
                 "peer_id" => %peer_id);
             PeerInfo::default()
@@ -557,7 +557,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             {
                 self.banned_peers_count
                     .remove_banned_peer(info.seen_addresses());
-                Some(id.clone())
+                Some(*id)
             } else {
                 // If there is no minimum, this is a coding error.
                 crit!(
@@ -584,7 +584,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     _ => None,
                 })
                 .min_by_key(|(_, since)| *since)
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| *id)
             {
                 debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop);
                 self.peers.remove(&to_drop);

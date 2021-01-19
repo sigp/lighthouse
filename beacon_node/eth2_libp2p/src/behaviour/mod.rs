@@ -6,17 +6,13 @@ use crate::peer_manager::{
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
-    subnet_id_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, MessageData,
+    subnet_id_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
-use libp2p::gossipsub::subscription_filter::{
-    MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
-};
-use libp2p::gossipsub::PeerScoreThresholds;
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
@@ -24,13 +20,14 @@ use libp2p::{
         Multiaddr,
     },
     gossipsub::{
-        GenericGossipsub, GenericGossipsubEvent, IdentTopic as Topic, MessageAcceptance,
-        MessageAuthenticity, MessageId,
+        subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
+        Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
+        MessageAuthenticity, MessageId, PeerScoreThresholds,
     },
     identify::{Identify, IdentifyEvent},
     swarm::{
-        NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters,
-        ProtocolsHandler,
+        AddressScore, NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler,
+        PollParameters, ProtocolsHandler,
     },
     PeerId,
 };
@@ -58,8 +55,7 @@ pub const GOSSIPSUB_GREYLIST_THRESHOLD: f64 = -16000.0;
 pub type PeerRequestId = (ConnectionId, SubstreamId);
 
 pub type SubscriptionFilter = MaxCountSubscriptionFilter<WhitelistSubscriptionFilter>;
-pub type Gossipsub = GenericGossipsub<MessageData, SubscriptionFilter>;
-pub type GossipsubEvent = GenericGossipsubEvent<MessageData>;
+pub type Gossipsub = BaseGossipsub<SnappyTransform, SubscriptionFilter>;
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
@@ -181,10 +177,14 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             max_subscriptions_per_request: 100, //this is according to the current go implementation
         };
 
-        let mut gossipsub = Gossipsub::new_with_subscription_filter(
+        // Initialize the compression transform.
+        let snappy_transform = SnappyTransform::new(net_conf.gs_config.max_transmit_size());
+
+        let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
             MessageAuthenticity::Anonymous,
             net_conf.gs_config.clone(),
             filter,
+            snappy_transform,
         )
         .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
@@ -390,34 +390,30 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
-                match message.encode(GossipEncoding::default()) {
-                    Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
-                            slog::warn!(self.log, "Could not publish message";
+                let message_data = message.encode(GossipEncoding::default());
+                if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
+                    slog::warn!(self.log, "Could not publish message";
                                         "error" => ?e);
 
-                            // add to metrics
-                            match topic.kind() {
-                                GossipKind::Attestation(subnet_id) => {
-                                    if let Some(v) = metrics::get_int_gauge(
-                                        &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
-                                        &[&subnet_id.to_string()],
-                                    ) {
-                                        v.inc()
-                                    };
-                                }
-                                kind => {
-                                    if let Some(v) = metrics::get_int_gauge(
-                                        &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
-                                        &[&format!("{:?}", kind)],
-                                    ) {
-                                        v.inc()
-                                    };
-                                }
-                            }
+                    // add to metrics
+                    match topic.kind() {
+                        GossipKind::Attestation(subnet_id) => {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
+                                &[&subnet_id.to_string()],
+                            ) {
+                                v.inc()
+                            };
+                        }
+                        kind => {
+                            if let Some(v) = metrics::get_int_gauge(
+                                &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                                &[&format!("{:?}", kind)],
+                            ) {
+                                v.inc()
+                            };
                         }
                     }
-                    Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
                 }
             }
         }
@@ -642,7 +638,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                match PubsubMessage::decode(&gs_msg.topic, gs_msg.data()) {
+                match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data) {
                     Err(e) => {
                         debug!(self.log, "Could not decode gossipsub message"; "error" => e);
                         //reject the message
@@ -854,7 +850,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         });
                     }
                     PeerManagerEvent::SocketUpdated(address) => {
-                        return Poll::Ready(NBAction::ReportObservedAddr { address });
+                        return Poll::Ready(NBAction::ReportObservedAddr {
+                            address,
+                            score: AddressScore::Finite(1),
+                        });
                     }
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
@@ -1028,8 +1027,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                     trace!(self.log, "Disconnecting newly connected peer"; "peer_id" => %peer_id, "reason" => %goodbye_reason)
                 }
             }
-            self.peers_to_dc
-                .push_back((peer_id.clone(), Some(goodbye_reason)));
+            self.peers_to_dc.push_back((*peer_id, Some(goodbye_reason)));
             // NOTE: We don't inform the peer manager that this peer is disconnecting. It is simply
             // rejected with a goodbye.
             return;
@@ -1041,13 +1039,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.peer_manager
                     .connect_ingoing(&peer_id, send_back_addr.clone());
-                self.add_event(BehaviourEvent::PeerConnected(peer_id.clone()));
+                self.add_event(BehaviourEvent::PeerConnected(*peer_id));
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming");
             }
             ConnectedPoint::Dialer { address } => {
                 self.peer_manager
                     .connect_outgoing(&peer_id, address.clone());
-                self.add_event(BehaviourEvent::PeerDialed(peer_id.clone()));
+                self.add_event(BehaviourEvent::PeerDialed(*peer_id));
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Dialed");
             }
         }
@@ -1122,7 +1120,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             // Both these cases, the peer has been previously registered in the sub protocols and
             // potentially the application layer.
             // Inform the application.
-            self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
+            self.add_event(BehaviourEvent::PeerDisconnected(*peer_id));
             // Inform the behaviour.
             delegate_to_behaviours!(self, inject_disconnected, peer_id);
 
@@ -1260,8 +1258,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                                     ),
                                 });
                             }
-                            NBAction::ReportObservedAddr { address } => {
-                                return Poll::Ready(NBAction::ReportObservedAddr { address })
+                            NBAction::ReportObservedAddr { address, score } => {
+                                return Poll::Ready(NBAction::ReportObservedAddr { address, score })
                             }
                         },
                         Poll::Pending => break,
