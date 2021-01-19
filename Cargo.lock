@@ -3324,6 +3324,7 @@ dependencies = [
 name = "lcli"
 version = "1.0.6"
 dependencies = [
+ "account_utils",
  "bls",
  "clap",
  "clap_utils",
@@ -3335,6 +3336,7 @@ dependencies = [
  "eth2_libp2p",
  "eth2_network_config",
  "eth2_ssz",
+ "eth2_wallet",
  "futures 0.3.8",
  "genesis",
  "hex",
