@@ -113,7 +113,7 @@ impl ProtoArray {
                     .ok_or(Error::DeltaOverflow(node_index))?;
             }
 
-            // If the node has a parent, try to update its best-child and best-descendant.
+            // Update the parent delta (if any).
             if let Some(parent_index) = node.parent {
                 let parent_delta = deltas
                     .get_mut(parent_index)
