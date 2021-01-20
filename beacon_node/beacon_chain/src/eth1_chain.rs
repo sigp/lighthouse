@@ -1044,7 +1044,7 @@ mod test {
 
             let votes = collect_valid_votes(
                 &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
+                &HashMap::from_iter(votes_to_consider.into_iter()),
             );
             assert_eq!(
                 votes.len(),
@@ -1101,7 +1101,7 @@ mod test {
 
             let votes = collect_valid_votes(
                 &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
+                &HashMap::from_iter(votes_to_consider.into_iter()),
             );
             assert_votes!(
                 votes,
