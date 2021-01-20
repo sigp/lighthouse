@@ -8,12 +8,10 @@ use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
-use std::fs::OpenOptions;
-use std::io::{self, Read};
+use std::io;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::path::Path;
-use std::str::{from_utf8, FromStr, Utf8Error};
+use std::str::{FromStr, Utf8Error};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
     AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Epoch, EthSpec,
@@ -23,7 +21,7 @@ use types::{
 
 /// The validator monitor collects per-epoch data about each monitored validator. Historical data
 /// will be kept around for `HISTORIC_EPOCHS` before it is pruned.
-const HISTORIC_EPOCHS: usize = 4;
+pub const HISTORIC_EPOCHS: usize = 4;
 
 #[derive(Debug)]
 pub enum Error {
@@ -211,20 +209,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Add some validators to `self` for additional monitoring.
-    pub fn add_validators_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-        let mut bytes = vec![];
-        OpenOptions::new()
-            .read(true)
-            .write(false)
-            .create(false)
-            .open(path)
-            .and_then(|mut file| file.read_to_end(&mut bytes))
-            .map_err(Error::FileError)?;
-
-        self.add_validators_from_comma_separated_str(from_utf8(&bytes).map_err(Error::InvalidUtf8)?)
-    }
-
-    /// Add some validators to `self` for additional monitoring.
     pub fn add_validators_from_comma_separated_str(
         &mut self,
         validator_pubkeys: &str,
@@ -294,10 +278,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                 }
 
-                fn u64_to_i64(n: impl Into<u64>) -> i64 {
-                    i64::try_from(n.into()).unwrap_or(i64::max_value())
-                }
-
                 if let Some(validator) = state.validators.get(i) {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_EFFECTIVE_BALANCE_GWEI,
@@ -307,7 +287,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_SLASHED,
                         &[id],
-                        if validator.slashed { 0 } else { 1 },
+                        if validator.slashed { 1 } else { 0 },
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH,
@@ -983,4 +963,8 @@ pub fn timestamp_now() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))
+}
+
+fn u64_to_i64(n: impl Into<u64>) -> i64 {
+    i64::try_from(n.into()).unwrap_or(i64::max_value())
 }

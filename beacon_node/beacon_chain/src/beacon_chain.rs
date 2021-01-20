@@ -23,7 +23,9 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
-use crate::validator_monitor::ValidatorMonitor;
+use crate::validator_monitor::{
+    ValidatorMonitor, HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
+};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
@@ -1651,7 +1653,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Only register this with the validator monitor when the block is sufficiently close to
             // the current slot.
-            if 4 * T::EthSpec::slots_per_epoch() + block.slot.as_u64() >= current_slot.as_u64() {
+            if VALIDATOR_MONITOR_HISTORIC_EPOCHS * T::EthSpec::slots_per_epoch()
+                + block.slot.as_u64()
+                >= current_slot.as_u64()
+            {
                 validator_monitor.register_attestation_in_block(
                     &indexed_attestation,
                     &block,
