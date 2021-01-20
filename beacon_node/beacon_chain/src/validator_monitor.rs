@@ -152,6 +152,11 @@ impl MonitoredValidator {
 
     /// Maps `func` across the `self.summaries`.
     ///
+    /// ## Warning
+    ///
+    /// It is possible to deadlock this function by trying to obtain a lock on
+    /// `self.summary` inside `func`.
+    ///
     /// ## Notes
     ///
     /// - If `epoch` doesn't exist in `self.summaries`, it is created.
