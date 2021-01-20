@@ -519,7 +519,12 @@ where
             log.clone(),
         );
 
-        validator_monitor.process_valid_state(&canonical_head.beacon_state);
+        if let Some(slot) = slot_clock.now() {
+            validator_monitor.process_valid_state(
+                slot.epoch(TEthSpec::slots_per_epoch()),
+                &canonical_head.beacon_state,
+            );
+        }
 
         let beacon_chain = BeaconChain {
             spec: self.spec,

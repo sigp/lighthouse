@@ -233,7 +233,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
     /// imported).
-    pub fn process_valid_state(&mut self, state: &BeaconState<T>) {
+    pub fn process_valid_state(&mut self, current_epoch: Epoch, state: &BeaconState<T>) {
         // Add any new validator indices.
         state
             .validators
@@ -272,6 +272,33 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_SLASHED,
                         &[id],
                         if validator.slashed { 1 } else { 0 },
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_ACTIVE,
+                        &[id],
+                        if validator.is_active_at(current_epoch) {
+                            1
+                        } else {
+                            0
+                        },
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_EXITED,
+                        &[id],
+                        if validator.is_exited_at(current_epoch) {
+                            1
+                        } else {
+                            0
+                        },
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_WITHDRAWABLE,
+                        &[id],
+                        if validator.is_withdrawable_at(current_epoch) {
+                            1
+                        } else {
+                            0
+                        },
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH,

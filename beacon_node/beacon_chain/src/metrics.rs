@@ -378,6 +378,24 @@ lazy_static! {
             "Set to 1 if the validator is slashed.",
             &["validator"]
         );
+    pub static ref VALIDATOR_MONITOR_ACTIVE: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_active",
+            "Set to 1 if the validator is active.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_EXITED: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_exited",
+            "Set to 1 if the validator is exited.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_WITHDRAWABLE: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_withdrawable",
+            "Set to 1 if the validator is withdrawable.",
+            &["validator"]
+        );
     pub static ref VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
             "validator_activation_eligibility_epoch",
