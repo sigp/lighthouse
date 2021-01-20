@@ -964,8 +964,10 @@ mod tests {
 
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let mut config = NetworkConfig::default();
-        config.discovery_port = unused_port();
+        let config = NetworkConfig {
+            discovery_port: unused_port(),
+            ..Default::default()
+        };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
         let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);

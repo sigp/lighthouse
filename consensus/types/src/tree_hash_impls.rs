@@ -137,9 +137,11 @@ mod test {
 
     #[test]
     fn zeroed_validator() {
-        let mut v = Validator::default();
-        v.activation_eligibility_epoch = Epoch::from(0u64);
-        v.activation_epoch = Epoch::from(0u64);
+        let v = Validator {
+            activation_eligibility_epoch: Epoch::from(0u64),
+            activation_epoch: Epoch::from(0u64),
+            ..Default::default()
+        };
         test_validator_tree_hash(&v);
     }
 

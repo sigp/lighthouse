@@ -75,8 +75,8 @@ fn beacon_proposer_index() {
 /// 1. Using the cache before it's built fails.
 /// 2. Using the cache after it's build passes.
 /// 3. Using the cache after it's dropped fails.
-fn test_cache_initialization<'a, T: EthSpec>(
-    state: &'a mut BeaconState<T>,
+fn test_cache_initialization<T: EthSpec>(
+    state: &mut BeaconState<T>,
     relative_epoch: RelativeEpoch,
     spec: &ChainSpec,
 ) {
