@@ -93,7 +93,7 @@ impl ValidatorPubkeyCache {
                     .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
             );
 
-            self.indices.insert(v.pubkey.clone(), i);
+            self.indices.insert(v.pubkey, i);
         }
 
         Ok(())

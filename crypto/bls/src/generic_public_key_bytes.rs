@@ -18,10 +18,20 @@ use tree_hash::TreeHash;
 ///
 /// - Lazily verifying a serialized public key.
 /// - Storing some bytes that are actually invalid (required in the case of a `Deposit` message).
-#[derive(Clone)]
 pub struct GenericPublicKeyBytes<Pub> {
     bytes: [u8; PUBLIC_KEY_BYTES_LEN],
     _phantom: PhantomData<Pub>,
+}
+
+impl<Pub> Copy for GenericPublicKeyBytes<Pub> {}
+
+impl<Pub> Clone for GenericPublicKeyBytes<Pub> {
+    fn clone(&self) -> Self {
+        Self {
+            bytes: self.bytes,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<Pub> GenericPublicKeyBytes<Pub>

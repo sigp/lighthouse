@@ -282,6 +282,12 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
     }
 }
 
+pub fn set_gauge_vec(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str], value: i64) {
+    if let Some(gauge) = get_int_gauge(int_gauge_vec, name) {
+        gauge.set(value);
+    }
+}
+
 pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     if let Ok(gauge) = gauge {
         gauge.set(value);

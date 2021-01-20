@@ -778,6 +778,11 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         &self.attestation
     }
 
+    /// Returns the wrapped `indexed_attestation`.
+    pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
+    }
+
     /// Returns a mutable reference to the underlying attestation.
     ///
     /// Only use during testing since modifying the `IndexedAttestation` can cause the attestation

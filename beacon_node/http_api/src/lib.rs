@@ -12,8 +12,9 @@ mod state_id;
 mod validator_inclusion;
 
 use beacon_chain::{
-    observed_operations::ObservationOutcome, AttestationError as AttnError, BeaconChain,
-    BeaconChainError, BeaconChainTypes,
+    attestation_verification::SignatureVerifiedAttestation,
+    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
@@ -816,6 +817,8 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
+
                     // Send the block, regardless of whether or not it is valid. The API
                     // specification is very clear that this is the desired behaviour.
                     publish_pubsub_message(
@@ -829,6 +832,14 @@ pub fn serve<T: BeaconChainTypes>(
                                 log,
                                 "Valid block from HTTP API";
                                 "root" => format!("{}", root)
+                            );
+
+                            // Notify the validator monitor.
+                            chain.validator_monitor.read().register_api_block(
+                                seen_timestamp,
+                                &block.message,
+                                root,
+                                &chain.slot_clock,
                             );
 
                             // Update the head since it's likely this block will become the new
@@ -921,6 +932,7 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
                     let mut failures = Vec::new();
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
@@ -944,6 +956,16 @@ pub fn serve<T: BeaconChainTypes>(
                                 continue;
                             }
                         };
+
+                        // Notify the validator monitor.
+                        chain
+                            .validator_monitor
+                            .read()
+                            .register_api_unaggregated_attestation(
+                                seen_timestamp,
+                                attestation.indexed_attestation(),
+                                &chain.slot_clock,
+                            );
 
                         publish_pubsub_message(
                             &network_tx,
@@ -1049,6 +1071,12 @@ pub fn serve<T: BeaconChainTypes>(
                             ))
                         })?;
 
+                    // Notify the validator monitor.
+                    chain
+                        .validator_monitor
+                        .read()
+                        .register_api_attester_slashing(&slashing);
+
                     if let ObservationOutcome::New(slashing) = outcome {
                         publish_pubsub_message(
                             &network_tx,
@@ -1100,6 +1128,12 @@ pub fn serve<T: BeaconChainTypes>(
                             ))
                         })?;
 
+                    // Notify the validator monitor.
+                    chain
+                        .validator_monitor
+                        .read()
+                        .register_api_proposer_slashing(&slashing);
+
                     if let ObservationOutcome::New(slashing) = outcome {
                         publish_pubsub_message(
                             &network_tx,
@@ -1148,6 +1182,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 e
                             ))
                         })?;
+
+                    // Notify the validator monitor.
+                    chain
+                        .validator_monitor
+                        .read()
+                        .register_api_voluntary_exit(&exit.message);
 
                     if let ObservationOutcome::New(exit) = outcome {
                         publish_pubsub_message(
@@ -1970,6 +2010,7 @@ pub fn serve<T: BeaconChainTypes>(
              aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>, log: Logger| {
                 blocking_json_task(move || {
+                    let seen_timestamp = timestamp_now();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());
                     let mut failures = Vec::new();
@@ -1981,6 +2022,18 @@ pub fn serve<T: BeaconChainTypes>(
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                     verified_aggregate.aggregate().clone(),
                                 )));
+
+                                // Notify the validator monitor.
+                                chain
+                                    .validator_monitor
+                                    .read()
+                                    .register_api_aggregated_attestation(
+                                        seen_timestamp,
+                                        verified_aggregate.aggregate(),
+                                        verified_aggregate.indexed_attestation(),
+                                        &chain.slot_clock,
+                                    );
+
                                 verified_aggregates.push((index, verified_aggregate));
                             }
                             // If we already know the attestation, don't broadcast it or attempt to
@@ -2050,11 +2103,18 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(network_tx_filter)
+        .and(chain_filter.clone())
         .and_then(
             |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     for subscription in &subscriptions {
+                        chain
+                            .validator_monitor
+                            .write()
+                            .auto_register_local_validator(subscription.validator_index);
+
                         let subscription = api_types::ValidatorSubscription {
                             validator_index: subscription.validator_index,
                             attestation_committee_index: subscription.committee_index,

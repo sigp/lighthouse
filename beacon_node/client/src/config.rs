@@ -3,7 +3,7 @@ use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use types::Graffiti;
+use types::{Graffiti, PublicKeyBytes};
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -52,6 +52,10 @@ pub struct Config {
     pub disabled_forks: Vec<String>,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Graffiti,
+    /// When true, automatically monitor validators using the HTTP API.
+    pub validator_monitor_auto: bool,
+    /// A list of validator pubkeys to monitor.
+    pub validator_monitor_pubkeys: Vec<PublicKeyBytes>,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -84,6 +88,8 @@ impl Default for Config {
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             slasher: None,
+            validator_monitor_auto: false,
+            validator_monitor_pubkeys: vec![],
         }
     }
 }

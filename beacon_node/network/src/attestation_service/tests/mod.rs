@@ -62,6 +62,7 @@ impl TestBeaconChain {
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .shutdown_sender(shutdown_tx)
+                .monitor_validators(true, vec![], log)
                 .build()
                 .expect("should build"),
         );
