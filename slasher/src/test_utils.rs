@@ -1,7 +1,6 @@
 use slog::Logger;
 use sloggers::Build;
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use types::{
     AggregateSignature, AttestationData, AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch,
     Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
@@ -59,8 +58,14 @@ pub fn hashset_intersection(
     attestation_1_indices: &[u64],
     attestation_2_indices: &[u64],
 ) -> HashSet<u64> {
-    &HashSet::from_iter(attestation_1_indices.iter().copied())
-        & &HashSet::from_iter(attestation_2_indices.iter().copied())
+    &attestation_1_indices
+        .iter()
+        .copied()
+        .collect::<HashSet<u64>>()
+        & &attestation_2_indices
+            .iter()
+            .copied()
+            .collect::<HashSet<u64>>()
 }
 
 pub fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>>) -> HashSet<u64> {

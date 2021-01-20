@@ -9,6 +9,7 @@ use ssz_types::{
     VariableList,
 };
 use std::ops::Deref;
+use strum::AsStaticStr;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
@@ -257,7 +258,8 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, AsStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum RPCResponseErrorCode {
     RateLimited,
     InvalidRequest,

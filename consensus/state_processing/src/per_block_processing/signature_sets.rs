@@ -44,10 +44,10 @@ impl From<BeaconStateError> for Error {
 }
 
 /// Helper function to get a public key from a `state`.
-pub fn get_pubkey_from_state<'a, T>(
-    state: &'a BeaconState<T>,
+pub fn get_pubkey_from_state<T>(
+    state: &BeaconState<T>,
     validator_index: usize,
-) -> Option<Cow<'a, PublicKey>>
+) -> Option<Cow<PublicKey>>
 where
     T: EthSpec,
 {

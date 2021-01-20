@@ -8,6 +8,7 @@
 use crate::behaviour::GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
 use std::time::Instant;
+use strum::AsRefStr;
 use tokio::time::Duration;
 
 lazy_static! {
@@ -42,7 +43,8 @@ const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
 /// Each variant has an associated score change.
 // To easily assess the behaviour of scores changes the number of variants should stay low, and
 // somewhat generic.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum PeerAction {
     /// We should not communicate more with this peer.
     /// This action will cause the peer to get banned.
@@ -90,17 +92,6 @@ impl std::fmt::Display for PeerAction {
             PeerAction::LowToleranceError => write!(f, "Low Tolerance Error"),
             PeerAction::MidToleranceError => write!(f, "Mid Tolerance Error"),
             PeerAction::HighToleranceError => write!(f, "High Tolerance Error"),
-        }
-    }
-}
-
-impl PeerAction {
-    pub fn as_static_str(&self) -> &'static str {
-        match self {
-            PeerAction::HighToleranceError => "high_tolerance",
-            PeerAction::MidToleranceError => "mid_tolerance",
-            PeerAction::LowToleranceError => "low_tolerance",
-            PeerAction::Fatal => "fatal",
         }
     }
 }

@@ -466,7 +466,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .ok_or("Unable to determine duration to next slot")?;
 
         let mut interval = {
-            let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+            let slot_duration = Duration::from_secs(spec.seconds_per_slot);
             // Note: `interval_at` panics if `slot_duration` is 0
             interval_at(
                 Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,

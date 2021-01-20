@@ -26,9 +26,10 @@ pub fn get_config<E: EthSpec>(
     spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
-    let mut client_config = ClientConfig::default();
-
-    client_config.data_dir = get_data_dir(cli_args);
+    let mut client_config = ClientConfig {
+        data_dir: get_data_dir(cli_args),
+        ..Default::default()
+    };
 
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {

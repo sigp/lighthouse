@@ -25,6 +25,7 @@ lazy_static! {
 #[test]
 fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
+    let additional_slots_tested = MainnetEthSpec::slots_per_epoch() * 3;
 
     let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
@@ -32,38 +33,32 @@ fn produces_attestations() {
         StoreConfig::default(),
     );
 
-    // Skip past the genesis slot.
-    harness.advance_slot();
-
-    harness.extend_chain(
-        num_blocks_produced as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
-
     let chain = &harness.chain;
 
-    let state = &harness.chain.head().expect("should get head").beacon_state;
-    assert_eq!(state.slot, num_blocks_produced, "head should have updated");
-    assert_ne!(
-        state.finalized_checkpoint.epoch, 0,
-        "head should have updated"
-    );
-
-    let current_slot = chain.slot().expect("should get slot");
-
     // Test all valid committee indices for all slots in the chain.
-    for slot in 0..=current_slot.as_u64() + MainnetEthSpec::slots_per_epoch() * 3 {
+    // for slot in 0..=current_slot.as_u64() + MainnetEthSpec::slots_per_epoch() * 3 {
+    for slot in 0..=num_blocks_produced + additional_slots_tested {
+        if slot > 0 && slot <= num_blocks_produced {
+            harness.advance_slot();
+
+            harness.extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            );
+        }
+
         let slot = Slot::from(slot);
         let mut state = chain
             .state_at_slot(slot, StateSkipConfig::WithStateRoots)
             .expect("should get state");
 
-        let block_slot = if slot > current_slot {
-            current_slot
-        } else {
+        let block_slot = if slot <= num_blocks_produced {
             slot
+        } else {
+            Slot::from(num_blocks_produced)
         };
+
         let block = chain
             .block_at_slot(block_slot)
             .expect("should get block")
