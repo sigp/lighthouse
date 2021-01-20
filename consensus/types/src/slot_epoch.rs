@@ -71,9 +71,8 @@ impl Epoch {
     pub fn end_slot(self, slots_per_epoch: u64) -> Slot {
         Slot::from(
             self.0
-                .saturating_add(1)
                 .saturating_mul(slots_per_epoch)
-                .saturating_sub(1),
+                .saturating_add(slots_per_epoch.saturating_sub(1)),
         )
     }
 
@@ -142,6 +141,17 @@ mod epoch_tests {
 
         assert_eq!(epoch.start_slot(slots_per_epoch), Slot::new(0));
         assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(7));
+    }
+
+    #[test]
+    fn end_slot_boundary_test() {
+        let slots_per_epoch = 32;
+
+        // The last epoch which can be represented by u64.
+        let epoch = Epoch::new(u64::max_value() / slots_per_epoch);
+
+        // A slot number on the epoch should be equal to u64::max_value.
+        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(u64::max_value()));
     }
 
     #[test]

@@ -8,6 +8,7 @@ mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
+mod replace_state_pubkeys;
 mod skip_slots;
 mod transition_blocks;
 
@@ -229,6 +230,35 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("The value for state.genesis_time."),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("replace-state-pubkeys")
+                .about(
+                    "Loads a file with an SSZ-encoded BeaconState and replaces \
+                    all the validator pubkeys with ones derived from the mnemonic \
+                    such that validator indices correspond to EIP-2334 voting keypair \
+                    derivation paths.",
+                )
+                .arg(
+                    Arg::with_name("ssz-state")
+                        .index(1)
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The path to the SSZ file"),
+                )
+                .arg(
+                    Arg::with_name("mnemonic")
+                        .index(2)
+                        .value_name("BIP39_MNENMONIC")
+                        .takes_value(true)
+                        .required(true)
+                        .default_value(
+                            "replace nephew blur decorate waste convince soup column \
+                            orient excite play baby",
+                        )
+                        .help("The mnemonic for key derivation."),
                 ),
         )
         .subcommand(
@@ -516,6 +546,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),
         ("change-genesis-time", Some(matches)) => change_genesis_time::run::<T>(matches)
             .map_err(|e| format!("Failed to run change-genesis-time command: {}", e)),
+        ("replace-state-pubkeys", Some(matches)) => replace_state_pubkeys::run::<T>(matches)
+            .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e)),
         ("new-testnet", Some(matches)) => new_testnet::run::<T>(matches)
             .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
         ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)

@@ -11,6 +11,7 @@ use serde::{
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
+use strum::AsRefStr;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
 
@@ -320,19 +321,11 @@ impl Default for PeerStatus {
 }
 
 /// Connection Direction of connection.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ConnectionDirection {
     Incoming,
     Outgoing,
-}
-
-impl ConnectionDirection {
-    pub fn as_static_str(&self) -> &'static str {
-        match self {
-            ConnectionDirection::Incoming => "incoming",
-            ConnectionDirection::Outgoing => "outgoing",
-        }
-    }
 }
 
 /// Connection Status of the peer.

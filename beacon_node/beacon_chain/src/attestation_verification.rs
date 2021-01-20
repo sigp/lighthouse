@@ -48,6 +48,7 @@ use state_processing::{
     },
 };
 use std::borrow::Cow;
+use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
@@ -61,7 +62,7 @@ use types::{
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
-#[derive(Debug)]
+#[derive(Debug, AsRefStr)]
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).

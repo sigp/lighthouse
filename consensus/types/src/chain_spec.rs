@@ -23,14 +23,12 @@ pub enum Domain {
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Constants
      */
     pub genesis_slot: Slot,
-    #[serde(skip_serializing)] // skipped because Serde TOML has trouble with u64::max
     pub far_future_epoch: Epoch,
     pub base_rewards_per_epoch: u64,
     pub deposit_contract_tree_depth: u64,
@@ -61,16 +59,14 @@ pub struct ChainSpec {
     /*
      * Initial Values
      */
-    #[serde(with = "serde_utils::bytes_4_hex")]
     pub genesis_fork_version: [u8; 4],
-    #[serde(with = "serde_utils::u8_hex")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
      */
     pub genesis_delay: u64,
-    pub milliseconds_per_slot: u64,
+    pub seconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
@@ -283,7 +279,7 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 604800, // 7 days
-            milliseconds_per_slot: 12_000,
+            seconds_per_slot: 12,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
@@ -359,7 +355,7 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
             shard_committee_period: 64,
             genesis_delay: 300,
-            milliseconds_per_slot: 6_000,
+            seconds_per_slot: 6,
             inactivity_penalty_quotient: u64::pow(2, 25),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
@@ -588,11 +584,6 @@ impl Default for YamlConfig {
     }
 }
 
-#[allow(clippy::integer_arithmetic)] // Arith cannot overflow or panic.
-fn milliseconds_to_seconds(millis: u64) -> u64 {
-    millis / 1000
-}
-
 /// Spec v0.12.1
 impl YamlConfig {
     /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
@@ -632,7 +623,7 @@ impl YamlConfig {
             hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
             proportional_slashing_multiplier: spec.proportional_slashing_multiplier,
             bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
-            seconds_per_slot: milliseconds_to_seconds(spec.milliseconds_per_slot),
+            seconds_per_slot: spec.seconds_per_slot,
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
             min_seed_lookahead: spec.min_seed_lookahead.into(),
             max_seed_lookahead: spec.max_seed_lookahead.into(),
@@ -754,7 +745,7 @@ impl YamlConfig {
              * Time parameters
              */
             genesis_delay: self.genesis_delay,
-            milliseconds_per_slot: self.seconds_per_slot.saturating_mul(1000),
+            seconds_per_slot: self.seconds_per_slot,
             min_attestation_inclusion_delay: self.min_attestation_inclusion_delay,
             min_seed_lookahead: Epoch::from(self.min_seed_lookahead),
             max_seed_lookahead: Epoch::from(self.max_seed_lookahead),
