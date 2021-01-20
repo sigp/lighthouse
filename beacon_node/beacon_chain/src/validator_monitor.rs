@@ -9,7 +9,6 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::str::{FromStr, Utf8Error};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -163,11 +162,7 @@ impl MonitoredValidator {
     {
         let mut summaries = self.summaries.write();
 
-        func(
-            summaries
-                .entry(epoch)
-                .or_insert_with(|| EpochSummary::default()),
-        );
+        func(summaries.entry(epoch).or_default());
 
         // Prune
         while summaries.len() > HISTORIC_EPOCHS {
@@ -265,7 +260,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             });
 
         // Update metrics for individual validators.
-        for (_, monitored_validator) in &self.validators {
+        for monitored_validator in self.validators.values() {
             if let Some(i) = monitored_validator.index {
                 let i = i as usize;
                 let id = &monitored_validator.id;
@@ -807,8 +802,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         slashing: &AttesterSlashing<T>,
     ) {
         let data = &slashing.attestation_1.data;
-        let attestation_1_indices: HashSet<u64> =
-            HashSet::from_iter(slashing.attestation_1.attesting_indices.iter().copied());
+        let attestation_1_indices: HashSet<u64> = slashing
+            .attestation_1
+            .attesting_indices
+            .iter()
+            .copied()
+            .collect();
 
         slashing
             .attestation_2

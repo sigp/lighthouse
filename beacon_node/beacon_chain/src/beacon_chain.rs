@@ -1653,7 +1653,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Only register this with the validator monitor when the block is sufficiently close to
             // the current slot.
-            if VALIDATOR_MONITOR_HISTORIC_EPOCHS * T::EthSpec::slots_per_epoch()
+            if VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64 * T::EthSpec::slots_per_epoch()
                 + block.slot.as_u64()
                 >= current_slot.as_u64()
             {
