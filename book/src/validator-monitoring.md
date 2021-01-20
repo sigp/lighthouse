@@ -11,7 +11,7 @@ Lighthouse performs validator monitoring in the Beacon Node (BN) instead of the 
 
 1. It keeps the VC simple. The VC handles cryptographic signing and the developers believe it should
    be doing as little additional work as possible.
-1. The BN is has a better knowledge of the chain and network. Communicating all this information to
+1. The BN has a better knowledge of the chain and network. Communicating all this information to
    the VC is impractical, we can provide more information when monitoring with the BN.
 1. It is more flexible:
     - Users can use a local BN to observe some validators running in a remote location.
@@ -64,9 +64,9 @@ Enrolling a validator for additional monitoring results in:
 
 ### Logging
 
-Lighthouse will create logs for the following events for each monitor validator:
+Lighthouse will create logs for the following events for each monitored validator:
 
-- An block from the validator is observed.
+- A block from the validator is observed.
 - An unaggregated attestation from the validator is observed.
 - An unaggregated attestation from the validator is included in an aggregate.
 - An unaggregated attestation from the validator is included in a block.

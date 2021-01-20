@@ -415,7 +415,7 @@ lazy_static! {
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS: Result<HistogramVec> =
         try_create_histogram_vec(
             "validator_monitor_prev_epoch_attestations_min_delay_seconds",
-            "The min delay between then the validator should send the attestation and when it was received.",
+            "The min delay between when the validator should send the attestation and when it was received.",
             &["validator"]
         );
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_AGGREGATE_INCLUSIONS: Result<IntGaugeVec> =
@@ -432,7 +432,7 @@ lazy_static! {
         );
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
-            "validator_monitor_prev_epoch_attestation_block_inclusion_distance",
+            "validator_monitor_prev_epoch_attestation_block_min_inclusion_distance",
             "The minimum inclusion distance observed for the inclusion of an attestation in a block.",
             &["validator"]
         );
@@ -445,7 +445,7 @@ lazy_static! {
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS: Result<HistogramVec> =
         try_create_histogram_vec(
             "validator_monitor_prev_epoch_beacon_blocks_min_delay_seconds",
-            "The min delay between then the validator should send the block and when it was received.",
+            "The min delay between when the validator should send the block and when it was received.",
             &["validator"]
        );
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_TOTAL: Result<IntGaugeVec> =
@@ -457,7 +457,7 @@ lazy_static! {
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS: Result<HistogramVec> =
         try_create_histogram_vec(
             "validator_monitor_prev_epoch_aggregates_min_delay_seconds",
-            "The min delay between then the validator should send the aggregate and when it was received.",
+            "The min delay between when the validator should send the aggregate and when it was received.",
             &["validator"]
         );
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_EXITS_TOTAL: Result<IntGaugeVec> =
@@ -493,7 +493,7 @@ lazy_static! {
     );
     pub static ref VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
         "validator_monitor_unaggregated_attestation_delay_seconds",
-        "The delay between then the validator should send the attestation and when it was received.",
+        "The delay between when the validator should send the attestation and when it was received.",
         &["src", "validator"]
     );
     pub static ref VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
@@ -513,7 +513,7 @@ lazy_static! {
     );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
         "validator_monitor_attestation_in_aggregate_delay_seconds",
-        "The delay between then the validator should send the aggregate and when it was received.",
+        "The delay between when the validator should send the aggregate and when it was received.",
         &["src", "validator"]
     );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
@@ -533,7 +533,7 @@ lazy_static! {
     );
     pub static ref VALIDATOR_MONITOR_BEACON_BLOCK_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
         "validator_monitor_beacon_block_delay_seconds",
-        "The delay between then the validator should send the block and when it was received.",
+        "The delay between when the validator should send the block and when it was received.",
         &["src", "validator"]
     );
     pub static ref VALIDATOR_MONITOR_EXIT_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
@@ -543,12 +543,12 @@ lazy_static! {
     );
     pub static ref VALIDATOR_MONITOR_PROPOSER_SLASHING_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_proposer_slashing_total",
-        "Number of beacon blocks seen",
+        "Number of proposer slashings seen",
         &["src", "validator"]
     );
     pub static ref VALIDATOR_MONITOR_ATTESTER_SLASHING_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_attester_slashing_total",
-        "Number of beacon blocks seen",
+        "Number of attester slashings seen",
         &["src", "validator"]
     );
 

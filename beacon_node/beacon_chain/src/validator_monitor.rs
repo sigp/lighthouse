@@ -1,6 +1,6 @@
 //! Provides detailed logging and metrics for a set of registered validators.
 //!
-//! This is component should not affect consensus.
+//! This component should not affect consensus.
 
 use crate::metrics;
 use parking_lot::RwLock;
@@ -574,7 +574,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         slot_clock: &S,
     ) {
         self.register_aggregated_attestation(
-            "gossip",
+            "api",
             seen_timestamp,
             signed_aggregate_and_proof,
             indexed_attestation,
