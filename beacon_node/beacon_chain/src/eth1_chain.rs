@@ -1042,10 +1042,8 @@ mod test {
 
             let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.into_iter()),
-            );
+            let votes =
+                collect_valid_votes(&state, &HashMap::from_iter(votes_to_consider.into_iter()));
             assert_eq!(
                 votes.len(),
                 0,
@@ -1099,10 +1097,8 @@ mod test {
                 .collect::<Vec<_>>()
                 .into();
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.into_iter()),
-            );
+            let votes =
+                collect_valid_votes(&state, &HashMap::from_iter(votes_to_consider.into_iter()));
             assert_votes!(
                 votes,
                 // There should only be one value if there's a duplicate

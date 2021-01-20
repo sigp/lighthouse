@@ -261,8 +261,8 @@ fn tree_hash_cache() {
 mod committees {
     use super::*;
     use crate::beacon_state::MinimalEthSpec;
+    use std::ops::{Add, Div};
     use swap_or_not_shuffle::shuffle_list;
-    use std::ops::{Div, Add};
 
     fn execute_committee_consistency_test<T: EthSpec>(
         state: BeaconState<T>,
@@ -297,7 +297,10 @@ mod committees {
             // of committees in an epoch.
             assert_eq!(
                 beacon_committees.len() as u64,
-                state.get_epoch_committee_count(relative_epoch).unwrap().div(T::slots_per_epoch())
+                state
+                    .get_epoch_committee_count(relative_epoch)
+                    .unwrap()
+                    .div(T::slots_per_epoch())
             );
 
             for (committee_index, bc) in beacon_committees.iter().enumerate() {
@@ -374,7 +377,8 @@ mod committees {
     fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
         let spec = T::default_spec();
 
-        let validator_count = spec.max_committees_per_slot
+        let validator_count = spec
+            .max_committees_per_slot
             .mul(T::slots_per_epoch() as usize)
             .mul(spec.target_committee_size)
             .add(1);
@@ -389,7 +393,10 @@ mod committees {
 
         committee_consistency_test::<T>(
             validator_count as usize,
-            T::genesis_epoch() + (T::slots_per_historical_root() as u64).mul(T::slots_per_epoch()).mul(4),
+            T::genesis_epoch()
+                + (T::slots_per_historical_root() as u64)
+                    .mul(T::slots_per_epoch())
+                    .mul(4),
             cached_epoch,
         );
     }

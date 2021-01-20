@@ -39,8 +39,7 @@ impl TestBeaconChain {
 
         let log = get_logger();
         let store =
-            HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone())
-                .unwrap();
+            HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
@@ -82,8 +81,8 @@ fn get_logger() -> Logger {
 }
 
 lazy_static! {
-        static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
-    }
+    static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
+}
 
 fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
     let log = get_logger();
@@ -150,11 +149,11 @@ async fn get_events<S: Stream<Item = AttServiceMessage> + Unpin>(
     };
 
     tokio::select! {
-            _ = collect_stream_fut => {return events}
-            _ = tokio::time::sleep(
-            Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
-        ) => { return events; }
-            }
+        _ = collect_stream_fut => {return events}
+        _ = tokio::time::sleep(
+        Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
+    ) => { return events; }
+        }
 }
 
 #[tokio::test]
@@ -193,7 +192,7 @@ async fn subscribe_current_slot_wait_for_unsubscribe() {
         committee_count,
         &attestation_service.beacon_chain.spec,
     )
-        .unwrap();
+    .unwrap();
     let expected = vec![
         AttServiceMessage::Subscribe(subnet_id),
         AttServiceMessage::Unsubscribe(subnet_id),
@@ -202,9 +201,9 @@ async fn subscribe_current_slot_wait_for_unsubscribe() {
     // Wait for 1 slot duration to get the unsubscription event
     let events = get_events(&mut attestation_service, None, 1).await;
     assert_matches!(
-            events[..3],
-            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
-        );
+        events[..3],
+        [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
+    );
 
     // If the long lived and short lived subnets are the same, there should be no more events
     // as we don't resubscribe already subscribed subnets.
@@ -257,7 +256,7 @@ async fn test_same_subnet_unsubscription() {
         committee_count,
         &attestation_service.beacon_chain.spec,
     )
-        .unwrap();
+    .unwrap();
 
     let subnet_id2 = SubnetId::compute_subnet::<MinimalEthSpec>(
         current_slot + Slot::new(subscription_slot2),
@@ -265,7 +264,7 @@ async fn test_same_subnet_unsubscription() {
         committee_count,
         &attestation_service.beacon_chain.spec,
     )
-        .unwrap();
+    .unwrap();
 
     // Assert that subscriptions are different but their subnet is the same
     assert_ne!(sub1, sub2);
@@ -280,9 +279,9 @@ async fn test_same_subnet_unsubscription() {
     // Get all events for 1 slot duration (unsubscription event should happen after 2 slot durations).
     let events = get_events(&mut attestation_service, None, 1).await;
     assert_matches!(
-            events[..3],
-            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
-        );
+        events[..3],
+        [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
+    );
 
     let expected = AttServiceMessage::Subscribe(subnet_id1);
 
@@ -342,9 +341,7 @@ async fn subscribe_all_random_subnets() {
 
     for event in &events {
         match event {
-            AttServiceMessage::DiscoverPeers(_) => {
-                discover_peer_count += 1
-            }
+            AttServiceMessage::DiscoverPeers(_) => discover_peer_count += 1,
             AttServiceMessage::Subscribe(_any_subnet) => {}
             AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count += 1,
             _ => unexpected_msg_count += 1,
@@ -402,9 +399,7 @@ async fn subscribe_all_random_subnets_plus_one() {
 
     for event in &events {
         match event {
-            AttServiceMessage::DiscoverPeers(_) => {
-                discover_peer_count += 1
-            }
+            AttServiceMessage::DiscoverPeers(_) => discover_peer_count += 1,
             AttServiceMessage::Subscribe(_any_subnet) => {}
             AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count += 1,
             _ => unexpected_msg_count += 1,

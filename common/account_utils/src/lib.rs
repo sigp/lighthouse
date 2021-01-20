@@ -204,34 +204,22 @@ mod test {
     fn test_strip_off() {
         let expected = b"hello world".to_vec();
 
-        assert_eq!(
-            strip_off_newlines(b"hello world\n".to_vec()),
-            expected
-        );
+        assert_eq!(strip_off_newlines(b"hello world\n".to_vec()), expected);
         assert_eq!(
             strip_off_newlines(b"hello world\n\n\n\n".to_vec()),
             expected
         );
-        assert_eq!(
-            strip_off_newlines(b"hello world\r".to_vec()),
-            expected
-        );
+        assert_eq!(strip_off_newlines(b"hello world\r".to_vec()), expected);
         assert_eq!(
             strip_off_newlines(b"hello world\r\r\r\r\r".to_vec()),
             expected
         );
-        assert_eq!(
-            strip_off_newlines(b"hello world\r\n".to_vec()),
-            expected
-        );
+        assert_eq!(strip_off_newlines(b"hello world\r\n".to_vec()), expected);
         assert_eq!(
             strip_off_newlines(b"hello world\r\n\r\n".to_vec()),
             expected
         );
-        assert_eq!(
-            strip_off_newlines(b"hello world".to_vec()),
-            expected
-        );
+        assert_eq!(strip_off_newlines(b"hello world".to_vec()), expected);
     }
 
     #[test]
