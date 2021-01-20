@@ -369,7 +369,7 @@ lazy_static! {
     pub static ref VALIDATOR_MONITOR_EFFECTIVE_BALANCE_GWEI: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
             "validator_monitor_effective_balance_gwei",
-            "The validators effective balance in gwei.",
+            "The validator's effective balance in gwei.",
             &["validator"]
         );
     pub static ref VALIDATOR_MONITOR_SLASHED: Result<IntGaugeVec> =
