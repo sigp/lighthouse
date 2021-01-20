@@ -157,7 +157,7 @@ impl Default for Config {
             .session_cache_capacity(1000)
             .request_timeout(Duration::from_secs(1))
             .query_peer_timeout(Duration::from_secs(2))
-            .query_timeout(Duration::from_secs(30))
+            .query_timeout(Duration::from_secs(60))
             .request_retries(1)
             .enr_peer_update_min(10)
             .query_parallelism(5)
