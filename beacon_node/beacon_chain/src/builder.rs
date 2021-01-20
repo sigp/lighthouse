@@ -403,9 +403,11 @@ where
         validators: Vec<PublicKeyBytes>,
         log: Logger,
     ) -> Self {
-        let mut validator_monitor = ValidatorMonitor::new(auto_register, log.clone());
-        validator_monitor.add_validator_pubkeys(validators);
-        self.validator_monitor = Some(validator_monitor);
+        self.validator_monitor = Some(ValidatorMonitor::new(
+            validators,
+            auto_register,
+            log.clone(),
+        ));
         self
     }
 
@@ -436,7 +438,7 @@ where
         let genesis_state_root = self
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
-        let validator_monitor = self
+        let mut validator_monitor = self
             .validator_monitor
             .ok_or("Cannot build without a validator monitor")?;
 
@@ -516,6 +518,8 @@ where
             genesis_block_root,
             log.clone(),
         );
+
+        validator_monitor.process_valid_state(&canonical_head.beacon_state);
 
         let beacon_chain = BeaconChain {
             spec: self.spec,

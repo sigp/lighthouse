@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
 use std::marker::PhantomData;
-use std::str::{FromStr, Utf8Error};
+use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
     AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Epoch, EthSpec,
@@ -198,38 +198,22 @@ pub struct ValidatorMonitor<T> {
 }
 
 impl<T: EthSpec> ValidatorMonitor<T> {
-    pub fn new(auto_register: bool, log: Logger) -> Self {
-        Self {
+    pub fn new(pubkeys: Vec<PublicKeyBytes>, auto_register: bool, log: Logger) -> Self {
+        let mut s = Self {
             validators: <_>::default(),
             indices: <_>::default(),
             auto_register,
             log,
             _phantom: PhantomData,
-        }
-    }
-
-    /// Add some validators to `self` for additional monitoring.
-    pub fn add_validators_from_comma_separated_str(
-        &mut self,
-        validator_pubkeys: &str,
-    ) -> Result<(), Error> {
-        validator_pubkeys
-            .split(',')
-            .map(PublicKeyBytes::from_str)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Error::InvalidPubkey)
-            .map(|pubkeys| self.add_validator_pubkeys(pubkeys))
-    }
-
-    /// Add some validators to `self` for additional monitoring.
-    pub fn add_validator_pubkeys(&mut self, pubkeys: Vec<PublicKeyBytes>) {
+        };
         for pubkey in pubkeys {
-            self.add_validator_pubkey(pubkey)
+            s.add_validator_pubkey(pubkey)
         }
+        s
     }
 
     /// Add some validators to `self` for additional monitoring.
-    pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
+    fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
         let index_opt = self
             .indices
             .iter()
