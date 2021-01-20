@@ -92,6 +92,10 @@ pub enum BeaconChainError {
     },
     WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<&'static str>),
+    AttestingPriorToHead {
+        head_slot: Slot,
+        request_slot: Slot,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

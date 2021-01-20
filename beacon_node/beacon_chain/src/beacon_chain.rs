@@ -853,37 +853,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Cow::Borrowed(&head.beacon_state),
             )
         } else {
-            // Note: this method will fail if `slot` is more than `state.block_roots.len()` slots
-            // prior to the head.
+            // We disallow producing attestations *prior* to the current head since such an
+            // attestation would require loading a `BeaconState` from disk. Loading `BeaconState`
+            // from disk is very resource intensive and proposes a DoS risk from validator clients.
             //
-            // This seems reasonable, producing an attestation at a slot so far
-            // in the past seems useless, definitely in mainnet spec. In minimal spec, when the
-            // block roots only contain two epochs of history, it's possible that you will fail to
-            // produce an attestation that would be valid to be included in a block. Given that
-            // minimal is only for testing, I think this is fine.
+            // Although we generally allow validator clients to do things that might harm us (i.e.,
+            // we trust them), sometimes we need to protect the BN from accidental errors which
+            // could cause it significant harm.
             //
-            // It is important to note that what's _not_ allowed here is attesting to a slot in the
-            // past. You can still attest to a block an arbitrary distance in the past, just not as
-            // if you are in a slot in the past.
-            let beacon_block_root = *head.beacon_state.get_block_root(slot)?;
-            let state_root = *head.beacon_state.get_state_root(slot)?;
-
-            // Avoid holding a lock on the head whilst doing database reads. Good boi functions
-            // don't hog locks.
-            drop(head);
-
-            let mut state = self
-                .get_state(&state_root, Some(slot))?
-                .ok_or(Error::MissingBeaconState(state_root))?;
-
-            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-            self.produce_unaggregated_attestation_for_block(
-                slot,
-                index,
-                beacon_block_root,
-                Cow::Owned(state),
-            )
+            // This case is particularity harmful since the HTTP API can effectively call this
+            // function an unlimited amount of times. If `n` validators all happen to call it at
+            // the same time, we're going to load `n` states (and tree hash caches) into memory all
+            // at once. With `n >= 10` we're looking at hundreds of MB or GBs of RAM.
+            Err(Error::AttestingPriorToHead {
+                head_slot: head.beacon_block.slot(),
+                request_slot: slot,
+            })
         }
     }
 
