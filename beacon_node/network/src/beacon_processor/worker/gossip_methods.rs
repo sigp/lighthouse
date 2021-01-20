@@ -361,7 +361,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         voluntary_exit: SignedVoluntaryExit,
-        seen_timestamp: Duration,
     ) {
         let validator_index = voluntary_exit.message.validator_index;
 
@@ -402,7 +401,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_voluntary_exit(seen_timestamp, &exit.as_inner().message);
+            .register_gossip_voluntary_exit(&exit.as_inner().message);
 
         self.chain.import_voluntary_exit(exit);
 
@@ -416,7 +415,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         proposer_slashing: ProposerSlashing,
-        seen_timestamp: Duration,
     ) {
         let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
 
@@ -462,7 +460,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_proposer_slashing(seen_timestamp, slashing.as_inner());
+            .register_gossip_proposer_slashing(slashing.as_inner());
 
         self.chain.import_proposer_slashing(slashing);
         debug!(self.log, "Successfully imported proposer slashing");
@@ -475,7 +473,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         attester_slashing: AttesterSlashing<T::EthSpec>,
-        seen_timestamp: Duration,
     ) {
         let slashing = match self
             .chain
@@ -514,7 +511,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_attester_slashing(seen_timestamp, slashing.as_inner());
+            .register_gossip_attester_slashing(slashing.as_inner());
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
             debug!(self.log, "Error importing attester slashing"; "error" => ?e);

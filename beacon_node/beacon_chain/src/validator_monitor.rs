@@ -682,16 +682,16 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Register an exit from the gossip network.
-    pub fn register_gossip_voluntary_exit(&self, seen_timestamp: Duration, exit: &VoluntaryExit) {
-        self.register_voluntary_exit("gossip", seen_timestamp, exit)
+    pub fn register_gossip_voluntary_exit(&self, exit: &VoluntaryExit) {
+        self.register_voluntary_exit("gossip", exit)
     }
 
     /// Register an exit from the HTTP API.
-    pub fn register_api_voluntary_exit(&self, seen_timestamp: Duration, exit: &VoluntaryExit) {
-        self.register_voluntary_exit("api", seen_timestamp, exit)
+    pub fn register_api_voluntary_exit(&self, exit: &VoluntaryExit) {
+        self.register_voluntary_exit("api", exit)
     }
 
-    fn register_voluntary_exit(&self, src: &str, seen_timestamp: Duration, exit: &VoluntaryExit) {
+    fn register_voluntary_exit(&self, src: &str, exit: &VoluntaryExit) {
         if let Some(validator) = self.get_validator(exit.validator_index) {
             let id = &validator.id;
             let epoch = exit.epoch;
@@ -701,7 +701,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             info!(
                 self.log,
                 "Voluntary exit";
-                "seen_timestamp" => %seen_timestamp.as_millis(),
                 "epoch" => %epoch,
                 "validator" => %id,
                 "src" => src,
@@ -712,38 +711,21 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Register a proposer slashing from the gossip network.
-    pub fn register_gossip_proposer_slashing(
-        &self,
-        seen_timestamp: Duration,
-        slashing: &ProposerSlashing,
-    ) {
-        self.register_proposer_slashing("gossip", seen_timestamp, slashing)
+    pub fn register_gossip_proposer_slashing(&self, slashing: &ProposerSlashing) {
+        self.register_proposer_slashing("gossip", slashing)
     }
 
     /// Register a proposer slashing from the HTTP API.
-    pub fn register_api_proposer_slashing(
-        &self,
-        seen_timestamp: Duration,
-        slashing: &ProposerSlashing,
-    ) {
-        self.register_proposer_slashing("api", seen_timestamp, slashing)
+    pub fn register_api_proposer_slashing(&self, slashing: &ProposerSlashing) {
+        self.register_proposer_slashing("api", slashing)
     }
 
     /// Register a proposer slashing included in a *valid* `BeaconBlock`.
-    pub fn register_block_proposer_slashing(
-        &self,
-        seen_timestamp: Duration,
-        slashing: &ProposerSlashing,
-    ) {
-        self.register_proposer_slashing("block", seen_timestamp, slashing)
+    pub fn register_block_proposer_slashing(&self, slashing: &ProposerSlashing) {
+        self.register_proposer_slashing("block", slashing)
     }
 
-    fn register_proposer_slashing(
-        &self,
-        src: &str,
-        seen_timestamp: Duration,
-        slashing: &ProposerSlashing,
-    ) {
+    fn register_proposer_slashing(&self, src: &str, slashing: &ProposerSlashing) {
         let proposer = slashing.signed_header_1.message.proposer_index;
         let slot = slashing.signed_header_1.message.slot;
         let epoch = slot.epoch(T::slots_per_epoch());
@@ -761,7 +743,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             crit!(
                 self.log,
                 "Proposer slashing";
-                "seen_timestamp" => %seen_timestamp.as_millis(),
                 "root_2" => %root_2,
                 "root_1" => %root_1,
                 "slot" => %slot,
@@ -774,38 +755,21 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Register an attester slashing from the gossip network.
-    pub fn register_gossip_attester_slashing(
-        &self,
-        seen_timestamp: Duration,
-        slashing: &AttesterSlashing<T>,
-    ) {
-        self.register_attester_slashing("gossip", seen_timestamp, slashing)
+    pub fn register_gossip_attester_slashing(&self, slashing: &AttesterSlashing<T>) {
+        self.register_attester_slashing("gossip", slashing)
     }
 
     /// Register an attester slashing from the HTTP API.
-    pub fn register_api_attester_slashing(
-        &self,
-        seen_timestamp: Duration,
-        slashing: &AttesterSlashing<T>,
-    ) {
-        self.register_attester_slashing("api", seen_timestamp, slashing)
+    pub fn register_api_attester_slashing(&self, slashing: &AttesterSlashing<T>) {
+        self.register_attester_slashing("api", slashing)
     }
 
     /// Register an attester slashing included in a *valid* `BeaconBlock`.
-    pub fn register_block_attester_slashing(
-        &self,
-        seen_timestamp: Duration,
-        slashing: &AttesterSlashing<T>,
-    ) {
-        self.register_attester_slashing("block", seen_timestamp, slashing)
+    pub fn register_block_attester_slashing(&self, slashing: &AttesterSlashing<T>) {
+        self.register_attester_slashing("block", slashing)
     }
 
-    fn register_attester_slashing(
-        &self,
-        src: &str,
-        seen_timestamp: Duration,
-        slashing: &AttesterSlashing<T>,
-    ) {
+    fn register_attester_slashing(&self, src: &str, slashing: &AttesterSlashing<T>) {
         let data = &slashing.attestation_1.data;
         let attestation_1_indices: HashSet<u64> = slashing
             .attestation_1
@@ -832,7 +796,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 crit!(
                     self.log,
                     "Attester slashing";
-                    "seen_timestamp" => %seen_timestamp.as_millis(),
                     "epoch" => %epoch,
                     "slot" => %data.slot,
                     "validator" => %id,

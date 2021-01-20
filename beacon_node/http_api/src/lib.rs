@@ -1062,8 +1062,6 @@ pub fn serve<T: BeaconChainTypes>(
              slashing: AttesterSlashing<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 blocking_json_task(move || {
-                    let seen_timestamp = timestamp_now();
-
                     let outcome = chain
                         .verify_attester_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -1077,7 +1075,7 @@ pub fn serve<T: BeaconChainTypes>(
                     chain
                         .validator_monitor
                         .read()
-                        .register_api_attester_slashing(seen_timestamp, &slashing);
+                        .register_api_attester_slashing(&slashing);
 
                     if let ObservationOutcome::New(slashing) = outcome {
                         publish_pubsub_message(
@@ -1121,8 +1119,6 @@ pub fn serve<T: BeaconChainTypes>(
              slashing: ProposerSlashing,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 blocking_json_task(move || {
-                    let seen_timestamp = timestamp_now();
-
                     let outcome = chain
                         .verify_proposer_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -1136,7 +1132,7 @@ pub fn serve<T: BeaconChainTypes>(
                     chain
                         .validator_monitor
                         .read()
-                        .register_api_proposer_slashing(seen_timestamp, &slashing);
+                        .register_api_proposer_slashing(&slashing);
 
                     if let ObservationOutcome::New(slashing) = outcome {
                         publish_pubsub_message(
@@ -1178,8 +1174,6 @@ pub fn serve<T: BeaconChainTypes>(
              exit: SignedVoluntaryExit,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 blocking_json_task(move || {
-                    let seen_timestamp = timestamp_now();
-
                     let outcome = chain
                         .verify_voluntary_exit_for_gossip(exit.clone())
                         .map_err(|e| {
@@ -1193,7 +1187,7 @@ pub fn serve<T: BeaconChainTypes>(
                     chain
                         .validator_monitor
                         .read()
-                        .register_api_voluntary_exit(seen_timestamp, &exit.message);
+                        .register_api_voluntary_exit(&exit.message);
 
                     if let ObservationOutcome::New(exit) = outcome {
                         publish_pubsub_message(

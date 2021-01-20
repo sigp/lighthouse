@@ -1665,6 +1665,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        for slashing in &block.body.attester_slashings {
+            validator_monitor.register_block_attester_slashing(slashing)
+        }
+
+        for slashing in &block.body.proposer_slashings {
+            validator_monitor.register_block_proposer_slashing(slashing)
+        }
+
         drop(validator_monitor);
 
         metrics::observe(
