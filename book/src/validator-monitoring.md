@@ -90,4 +90,6 @@ Jan 18 11:21:09.808 INFO Attestation included in block           validator: 1, s
 
 ### Metrics
 
-The suite of metrics can be observed at TODO LINK TO METRICS!
+The
+[`ValidatorMonitor`](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/ValidatorMonitor.json)
+dashboard contains all/most of the metrics exposed via the validator monitor.
