@@ -10,3 +10,4 @@ lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 parking_lot = "0.11.0"
 tokio = { version = "0.3.2", features = ["full"] }
+smallvec = "1.6.1"
