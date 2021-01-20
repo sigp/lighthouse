@@ -691,6 +691,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.register_voluntary_exit("api", exit)
     }
 
+    /// Register an exit included in a *valid* beacon block.
+    pub fn register_block_voluntary_exit(&self, exit: &VoluntaryExit) {
+        self.register_voluntary_exit("block", exit)
+    }
+
     fn register_voluntary_exit(&self, src: &str, exit: &VoluntaryExit) {
         if let Some(validator) = self.get_validator(exit.validator_index) {
             let id = &validator.id;

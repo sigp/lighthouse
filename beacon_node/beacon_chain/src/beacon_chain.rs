@@ -1665,6 +1665,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        for exit in &block.body.voluntary_exits {
+            validator_monitor.register_block_voluntary_exit(&exit.message)
+        }
+
         for slashing in &block.body.attester_slashings {
             validator_monitor.register_block_attester_slashing(slashing)
         }
