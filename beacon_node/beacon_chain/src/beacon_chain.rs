@@ -23,6 +23,9 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_monitor::{
+    ValidatorMonitor, HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
+};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
@@ -242,6 +245,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) graffiti: Graffiti,
     /// Optional slasher.
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    /// Provides monitoring of a set of explicitly defined validators.
+    pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
@@ -1609,6 +1614,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
+        // Allow the validator monitor to learn about a new valid state.
+        self.validator_monitor
+            .write()
+            .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
+        let validator_monitor = self.validator_monitor.read();
+
         // Register each attestation in the block with the fork choice service.
         for attestation in &block.body.attestations[..] {
             let _fork_choice_attestation_timer =
@@ -1626,7 +1637,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
+
+            // Only register this with the validator monitor when the block is sufficiently close to
+            // the current slot.
+            if VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64 * T::EthSpec::slots_per_epoch()
+                + block.slot.as_u64()
+                >= current_slot.as_u64()
+            {
+                validator_monitor.register_attestation_in_block(
+                    &indexed_attestation,
+                    &block,
+                    &self.spec,
+                );
+            }
         }
+
+        for exit in &block.body.voluntary_exits {
+            validator_monitor.register_block_voluntary_exit(&exit.message)
+        }
+
+        for slashing in &block.body.attester_slashings {
+            validator_monitor.register_block_attester_slashing(slashing)
+        }
+
+        for slashing in &block.body.proposer_slashings {
+            validator_monitor.register_block_proposer_slashing(slashing)
+        }
+
+        drop(validator_monitor);
 
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,

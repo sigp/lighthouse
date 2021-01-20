@@ -26,7 +26,7 @@ impl DepositData {
     /// Spec v0.12.1
     pub fn as_deposit_message(&self) -> DepositMessage {
         DepositMessage {
-            pubkey: self.pubkey.clone(),
+            pubkey: self.pubkey,
             withdrawal_credentials: self.withdrawal_credentials,
             amount: self.amount,
         }

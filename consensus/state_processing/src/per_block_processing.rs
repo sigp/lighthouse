@@ -465,7 +465,7 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey: deposit.data.pubkey.clone(),
+            pubkey: deposit.data.pubkey,
             withdrawal_credentials: deposit.data.withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,

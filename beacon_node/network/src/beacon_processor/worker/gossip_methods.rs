@@ -1,12 +1,14 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::{
-    attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
+    attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
+    observed_operations::ObservationOutcome,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
 use ssz::Encode;
+use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
@@ -61,6 +63,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         attestation: Attestation<T::EthSpec>,
         subnet_id: SubnetId,
         should_import: bool,
+        seen_timestamp: Duration,
     ) {
         let beacon_block_root = attestation.data.beacon_block_root;
 
@@ -80,6 +83,16 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
+
+        // Register the attestation with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_unaggregated_attestation(
+                seen_timestamp,
+                attestation.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
 
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
@@ -137,6 +150,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: SignedAggregateAndProof<T::EthSpec>,
+        seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
 
@@ -161,6 +175,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        // Register the attestation with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_aggregated_attestation(
+                seen_timestamp,
+                aggregate.aggregate(),
+                aggregate.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL);
 
@@ -210,6 +235,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
+        seen_duration: Duration,
     ) {
         let verified_block = match self.chain.verify_block_for_gossip(block) {
             Ok(verified_block) => {
@@ -262,7 +288,19 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
 
+        // Register the block with any monitored validators.
+        //
+        // Run this event *prior* to importing the block, where the block is only partially
+        // verified.
+        self.chain.validator_monitor.read().register_gossip_block(
+            seen_duration,
+            &verified_block.block.message,
+            verified_block.block_root,
+            &self.chain.slot_clock,
+        );
+
         let block = Box::new(verified_block.block.clone());
+
         match self.chain.process_block(verified_block) {
             Ok(_block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
@@ -359,6 +397,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
+        // Register the exit with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_voluntary_exit(&exit.as_inner().message);
+
         self.chain.import_voluntary_exit(exit);
 
         debug!(self.log, "Successfully imported voluntary exit");
@@ -412,6 +456,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
+        // Register the slashing with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_proposer_slashing(slashing.as_inner());
+
         self.chain.import_proposer_slashing(slashing);
         debug!(self.log, "Successfully imported proposer slashing");
 
@@ -456,6 +506,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        // Register the slashing with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_attester_slashing(slashing.as_inner());
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
             debug!(self.log, "Error importing attester slashing"; "error" => ?e);

@@ -12,7 +12,8 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, GRAFFITI_BYTES_LEN};
+use std::str::FromStr;
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -384,6 +385,39 @@ pub fn get_config<E: EthSpec>(
         slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
 
         client_config.slasher = Some(slasher_config);
+    }
+
+    if cli_args.is_present("validator-monitor-auto") {
+        client_config.validator_monitor_auto = true;
+    }
+
+    if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
+        let pubkeys = pubkeys
+            .split(',')
+            .map(PublicKeyBytes::from_str)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Invalid --validator-monitor-pubkeys value: {:?}", e))?;
+        client_config
+            .validator_monitor_pubkeys
+            .extend_from_slice(&pubkeys);
+    }
+
+    if let Some(path) = cli_args.value_of("validator-monitor-file") {
+        let string = fs::read(path)
+            .map_err(|e| format!("Unable to read --validator-monitor-file: {}", e))
+            .and_then(|bytes| {
+                String::from_utf8(bytes)
+                    .map_err(|e| format!("--validator-monitor-file is not utf8: {}", e))
+            })?;
+        let pubkeys = string
+            .trim_end() // Remove trailing white space
+            .split(',')
+            .map(PublicKeyBytes::from_str)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Invalid --validator-monitor-file contents: {:?}", e))?;
+        client_config
+            .validator_monitor_pubkeys
+            .extend_from_slice(&pubkeys);
     }
 
     Ok(client_config)

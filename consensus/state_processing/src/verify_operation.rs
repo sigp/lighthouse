@@ -20,6 +20,10 @@ impl<T> SigVerifiedOp<T> {
     pub fn into_inner(self) -> T {
         self.0
     }
+
+    pub fn as_inner(&self) -> &T {
+        &self.0
+    }
 }
 
 /// Trait for operations that can be verified and transformed into a `SigVerifiedOp`.
