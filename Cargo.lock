@@ -6026,7 +6026,6 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "parking_lot",
- "tokio 0.3.6",
  "types",
 ]
 

@@ -5,18 +5,13 @@ mod manual_slot_clock;
 mod metrics;
 mod system_time_slot_clock;
 
-use std::future::Future;
 use std::time::Duration;
-use tokio::time::sleep;
 
 pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
-pub use tokio::sync::mpsc::{self, Receiver};
 pub use types::Slot;
-
-pub const SLOT_STREAM_CHANNEL_SIZE: usize = 16_384;
 
 /// A clock that reports the current slot.
 ///
@@ -77,14 +72,4 @@ pub trait SlotClock: Send + Sync + Sized {
         self.slot_of(self.now_duration()?.checked_sub(tolerance)?)
             .or_else(|| Some(self.genesis_slot()))
     }
-}
-
-pub async fn slot_stream<S: SlotClock>(
-    slot_clock: S,
-) -> (Receiver<Slot>, impl Future<Output = ()>) {
-    let (tx, rx) = mpsc::channel(SLOT_STREAM_CHANNEL_SIZE);
-
-    let future = async move { todo!() };
-
-    (rx, future)
 }
