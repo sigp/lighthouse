@@ -44,13 +44,14 @@ impl GraffitiFile {
     /// Returns the graffiti corresponding to the given public key if present, else returns the
     /// default graffiti.
     ///
-    /// Returns `None` if loading from the graffiti file fails.
-    pub fn load_graffiti(&mut self, public_key: &PublicKey) -> Option<Graffiti> {
-        self.read_graffiti_file().ok();
-        self.graffitis
+    /// Returns an error if loading from the graffiti file fails.
+    pub fn load_graffiti(&mut self, public_key: &PublicKey) -> Result<Graffiti, Error> {
+        self.read_graffiti_file()?;
+        Ok(self
+            .graffitis
             .get(public_key)
             .copied()
-            .or(Some(self.default))
+            .unwrap_or(self.default))
     }
 
     /// Reads from a graffiti file with the specified format and populates the default value
@@ -108,7 +109,7 @@ mod tests {
 
     const DEFAULT_GRAFFITI: &str = "lighthouse";
     const CUSTOM_GRAFFITI1: &str = "custom-graffiti1";
-    const CUSTOM_GRAFFITI2: &str = "custom-graffiti1";
+    const CUSTOM_GRAFFITI2: &str = "custom-graffiti2";
     const PK1: &str = "0x800012708dc03f611751aad7a43a082142832b5c1aceed07ff9b543cf836381861352aa923c70eeb02018b638aa306aa";
     const PK2: &str = "0x80001866ce324de7d80ec73be15e2d064dcf121adf1b34a0d679f2b9ecbab40ce021e03bb877e1a2fe72eaaf475e6e21";
 
