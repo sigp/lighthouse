@@ -126,7 +126,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()

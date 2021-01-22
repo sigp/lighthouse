@@ -1,4 +1,3 @@
-use serde_derive::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpecId};
@@ -16,8 +15,7 @@ pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
 /// The core configuration of a Lighthouse beacon node.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone)]
 pub struct Eth2Config {
     pub eth_spec_id: EthSpecId,
     pub spec: ChainSpec,
@@ -125,15 +123,3 @@ define_net!(pyrmont, include_pyrmont_file, "pyrmont", true);
 define_net!(mainnet, include_mainnet_file, "mainnet", true);
 
 define_net!(toledo, include_toledo_file, "toledo", true);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use toml;
-
-    #[test]
-    fn serde_serialize() {
-        let _ =
-            toml::to_string(&Eth2Config::default()).expect("Should serde encode default config");
-    }
-}

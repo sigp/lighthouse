@@ -23,6 +23,7 @@ mod shuffling_cache;
 mod snapshot_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
+pub mod validator_monitor;
 mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{

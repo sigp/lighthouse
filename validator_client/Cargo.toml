@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { version = "0.3.2", features = ["time", "rt-multi-thread", "macros"] }
-tempfile = "3.1.0"
 deposit_contract = { path = "../common/deposit_contract" }
 tokio-compat-02 = "0.1"
 
@@ -46,7 +45,7 @@ hex = "0.4.2"
 deposit_contract = { path = "../common/deposit_contract" }
 bls = { path = "../crypto/bls" }
 eth2 = { path = "../common/eth2" }
-tempdir = "0.3.7"
+tempfile = "3.1.0"
 rayon = "1.4.1"
 validator_dir = { path = "../common/validator_dir" }
 clap_utils = { path = "../common/clap_utils" }

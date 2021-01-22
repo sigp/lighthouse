@@ -20,6 +20,7 @@ pub use reqwest;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
+use ssz::Decode;
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
@@ -134,6 +135,37 @@ impl BeaconNodeHttpClient {
         let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
         match ok_or_error(response).await {
             Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
+            Err(err) => {
+                if err.status() == Some(StatusCode::NOT_FOUND) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// Perform a HTTP GET request using an 'accept' header, returning `None` on a 404 error.
+    pub async fn get_bytes_opt_accept_header<U: IntoUrl>(
+        &self,
+        url: U,
+        accept_header: Accept,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let response = self
+            .client
+            .get(url)
+            .header(ACCEPT, accept_header.to_string())
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        match ok_or_error(response).await {
+            Ok(resp) => Ok(Some(
+                resp.bytes()
+                    .await
+                    .map_err(Error::Reqwest)?
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+            )),
             Err(err) => {
                 if err.status() == Some(StatusCode::NOT_FOUND) {
                     Ok(None)
@@ -822,6 +854,27 @@ impl BeaconNodeHttpClient {
             .push(&state_id.to_string());
 
         self.get_opt(path).await
+    }
+
+    /// `GET debug/beacon/states/{state_id}`
+    /// `-H "accept: application/octet-stream"`
+    pub async fn get_debug_beacon_states_ssz<T: EthSpec>(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<BeaconState<T>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("debug")
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string());
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+            .await?
+            .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .transpose()
     }
 
     /// `GET debug/beacon/heads`

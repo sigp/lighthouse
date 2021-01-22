@@ -43,8 +43,11 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
             })?;
 
     if let Some(nextaccount) = key_derivation_path_offset {
-        wallet.set_nextaccount(nextaccount).map_err(|()| {
-            warp_utils::reject::custom_server_error("unable to set wallet nextaccount".to_string())
+        wallet.set_nextaccount(nextaccount).map_err(|e| {
+            warp_utils::reject::custom_server_error(format!(
+                "unable to set wallet nextaccount: {:?}",
+                e
+            ))
         })?;
     }
 

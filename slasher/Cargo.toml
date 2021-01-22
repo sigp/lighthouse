@@ -28,7 +28,7 @@ types = { path = "../consensus/types" }
 [dev-dependencies]
 maplit = "1.0.2"
 rayon = "1.3.0"
-tempdir = "0.3.7"
+tempfile = "3.1.0"
 
 [features]
 test_logger = []

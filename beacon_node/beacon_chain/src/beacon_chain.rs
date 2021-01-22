@@ -23,6 +23,9 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_monitor::{
+    ValidatorMonitor, HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
+};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
@@ -242,6 +245,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) graffiti: Graffiti,
     /// Optional slasher.
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    /// Provides monitoring of a set of explicitly defined validators.
+    pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
@@ -639,7 +644,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let start_slot = head_state.slot;
                 let task_start = Instant::now();
-                let max_task_runtime = Duration::from_millis(self.spec.milliseconds_per_slot);
+                let max_task_runtime = Duration::from_secs(self.spec.seconds_per_slot);
 
                 let head_state_slot = head_state.slot;
                 let mut state = head_state;
@@ -853,37 +858,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Cow::Borrowed(&head.beacon_state),
             )
         } else {
-            // Note: this method will fail if `slot` is more than `state.block_roots.len()` slots
-            // prior to the head.
+            // We disallow producing attestations *prior* to the current head since such an
+            // attestation would require loading a `BeaconState` from disk. Loading `BeaconState`
+            // from disk is very resource intensive and proposes a DoS risk from validator clients.
             //
-            // This seems reasonable, producing an attestation at a slot so far
-            // in the past seems useless, definitely in mainnet spec. In minimal spec, when the
-            // block roots only contain two epochs of history, it's possible that you will fail to
-            // produce an attestation that would be valid to be included in a block. Given that
-            // minimal is only for testing, I think this is fine.
+            // Although we generally allow validator clients to do things that might harm us (i.e.,
+            // we trust them), sometimes we need to protect the BN from accidental errors which
+            // could cause it significant harm.
             //
-            // It is important to note that what's _not_ allowed here is attesting to a slot in the
-            // past. You can still attest to a block an arbitrary distance in the past, just not as
-            // if you are in a slot in the past.
-            let beacon_block_root = *head.beacon_state.get_block_root(slot)?;
-            let state_root = *head.beacon_state.get_state_root(slot)?;
-
-            // Avoid holding a lock on the head whilst doing database reads. Good boi functions
-            // don't hog locks.
-            drop(head);
-
-            let mut state = self
-                .get_state(&state_root, Some(slot))?
-                .ok_or(Error::MissingBeaconState(state_root))?;
-
-            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-            self.produce_unaggregated_attestation_for_block(
-                slot,
-                index,
-                beacon_block_root,
-                Cow::Owned(state),
-            )
+            // This case is particularity harmful since the HTTP API can effectively call this
+            // function an unlimited amount of times. If `n` validators all happen to call it at
+            // the same time, we're going to load `n` states (and tree hash caches) into memory all
+            // at once. With `n >= 10` we're looking at hundreds of MB or GBs of RAM.
+            Err(Error::AttestingPriorToHead {
+                head_slot: head.beacon_block.slot(),
+                request_slot: slot,
+            })
         }
     }
 
@@ -1624,6 +1614,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
+        // Allow the validator monitor to learn about a new valid state.
+        self.validator_monitor
+            .write()
+            .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
+        let validator_monitor = self.validator_monitor.read();
+
         // Register each attestation in the block with the fork choice service.
         for attestation in &block.body.attestations[..] {
             let _fork_choice_attestation_timer =
@@ -1641,7 +1637,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
+
+            // Only register this with the validator monitor when the block is sufficiently close to
+            // the current slot.
+            if VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64 * T::EthSpec::slots_per_epoch()
+                + block.slot.as_u64()
+                >= current_slot.as_u64()
+            {
+                validator_monitor.register_attestation_in_block(
+                    &indexed_attestation,
+                    &block,
+                    &self.spec,
+                );
+            }
         }
+
+        for exit in &block.body.voluntary_exits {
+            validator_monitor.register_block_voluntary_exit(&exit.message)
+        }
+
+        for slashing in &block.body.attester_slashings {
+            validator_monitor.register_block_attester_slashing(slashing)
+        }
+
+        for slashing in &block.body.proposer_slashings {
+            validator_monitor.register_block_proposer_slashing(slashing)
+        }
+
+        drop(validator_monitor);
 
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,

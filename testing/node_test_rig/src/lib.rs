@@ -11,7 +11,7 @@ use eth2::{
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tempdir::TempDir;
+use tempfile::{Builder as TempBuilder, TempDir};
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 use validator_dir::insecure_keys::build_deterministic_validator_dirs;
@@ -42,7 +42,9 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         mut client_config: ClientConfig,
     ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
-        let datadir = TempDir::new("lighthouse_node_test_rig")
+        let datadir = TempBuilder::new()
+            .prefix("lighthouse_node_test_rig")
+            .tempdir()
             .expect("should create temp directory for client datadir");
 
         client_config.data_dir = datadir.path().into();
@@ -125,10 +127,14 @@ pub struct ValidatorFiles {
 impl ValidatorFiles {
     /// Creates temporary data and secrets dirs.
     pub fn new() -> Result<Self, String> {
-        let datadir = TempDir::new("lighthouse-validator-client")
+        let datadir = TempBuilder::new()
+            .prefix("lighthouse-validator-client")
+            .tempdir()
             .map_err(|e| format!("Unable to create VC data dir: {:?}", e))?;
 
-        let secrets_dir = TempDir::new("lighthouse-validator-client-secrets")
+        let secrets_dir = TempBuilder::new()
+            .prefix("lighthouse-validator-client-secrets")
+            .tempdir()
             .map_err(|e| format!("Unable to create VC secrets dir: {:?}", e))?;
 
         Ok(Self {
