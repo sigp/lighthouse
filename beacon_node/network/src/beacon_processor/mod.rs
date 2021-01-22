@@ -37,6 +37,7 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
+use block_delay_queue::spawn_block_delay_queue;
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -55,6 +56,7 @@ use types::{
 
 use worker::Worker;
 
+mod block_delay_queue;
 mod worker;
 
 pub use worker::ProcessId;

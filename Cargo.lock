@@ -4188,6 +4188,7 @@ dependencies = [
  "exit-future",
  "fnv",
  "futures 0.3.8",
+ "futures-core",
  "genesis",
  "hashset_delay",
  "hex",
@@ -4214,6 +4215,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio 0.3.6",
+ "tokio-util 0.4.0",
  "tree_hash",
  "types",
 ]
