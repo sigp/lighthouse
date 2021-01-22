@@ -61,7 +61,7 @@ impl HalfNode {
 /// zero-value hashes at all depths of the tree.
 ///
 /// This algorithm aims to allocate as little memory as possible and it does this by "folding" up
-/// the tree has each leaf is provided. Consider this step-by-step functional diagram of hashing a
+/// the tree as each leaf is provided. Consider this step-by-step functional diagram of hashing a
 /// tree with depth three:
 ///
 /// ## Functional Diagram
@@ -307,7 +307,7 @@ impl MerkleHasher {
     /// is a leaf node it will be the value of that leaf).
     ///
     /// This operation will always complete one node, then it will attempt to crawl up the tree and
-    /// collapse and other viable nodes. For example, consider a tree of depth 3 (see diagram
+    /// collapse all other completed nodes. For example, consider a tree of depth 3 (see diagram
     /// below). When providing the node with id `7`, the node with id `3` will be completed which
     /// will also provide the right-node for the `1` node. This function will complete both of
     /// those nodes and ultimately find the root of the tree.
