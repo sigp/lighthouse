@@ -34,7 +34,7 @@ use std::convert::TryInto;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::stream::{StreamExt, StreamMap};
+use tokio_stream::{StreamExt, StreamMap};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
@@ -43,7 +43,7 @@ use types::{
     SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
 };
 use warp::http::StatusCode;
-use warp::sse::ServerSentEvent;
+use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter, Stream};
 use warp_utils::reject::ServerSentEventError;
@@ -214,7 +214,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 pub fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
+) -> Result<(SocketAddr, impl Future<Output = ()>), Error> where  <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxValidatorsPerCommittee: Unpin {
     let config = ctx.config.clone();
     let log = ctx.log.clone();
 
@@ -2389,7 +2389,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
                         for topic in topics.topics.0.clone() {
-                            let receiver = match topic {
+                            let mut receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
                                 api_types::EventTopic::Attestation => {

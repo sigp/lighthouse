@@ -26,7 +26,8 @@ pub fn spawn_timer<T: BeaconChainTypes>(
     // Warning: `interval_at` panics if `seconds_per_slot` = 0.
     let mut interval = interval_at(start_instant, Duration::from_secs(seconds_per_slot));
     let timer_future = async move {
-        while interval.next().await.is_some() {
+        loop {
+            interval.tick().await;
             beacon_chain.per_slot_task();
         }
     };

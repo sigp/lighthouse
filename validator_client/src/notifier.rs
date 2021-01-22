@@ -24,7 +24,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let interval_fut = async move {
         let log = context.log();
 
-        while interval.next().await.is_some() {
+        loop  {
             let num_available = duties_service.beacon_nodes.num_available().await;
             let num_synced = duties_service.beacon_nodes.num_synced().await;
             let num_total = duties_service.beacon_nodes.num_total().await;

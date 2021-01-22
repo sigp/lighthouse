@@ -9,7 +9,7 @@ use crate::rpc::{
     MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
-use futures::prelude::*;
+use futures::{Future, FutureExt, Sink, SinkExt, Stream, StreamExt};
 use futures::prelude::{AsyncRead, AsyncWrite};
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use ssz::Encode;
@@ -23,6 +23,7 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
+use tokio::io::AsyncReadExt;
 use types::{BeaconBlock, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock};
 
 lazy_static! {
@@ -278,7 +279,7 @@ impl ProtocolName for ProtocolId {
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
-    Framed<TimeoutStream<Compat<TSocket>>, InboundCodec<TSpec>>;
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
 
 impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
 where
@@ -304,7 +305,7 @@ where
             let mut timed_socket = TimeoutStream::new(socket);
             timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
 
-            let socket = Framed::new(timed_socket, codec);
+            let socket = Framed::new(Box::pin(timed_socket), codec);
 
             // MetaData requests should be empty, return the stream
             match protocol_name {

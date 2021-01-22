@@ -832,7 +832,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         if let Some((peer_id, reason)) = self.peers_to_dc.pop_front() {
             return Poll::Ready(NBAction::NotifyHandler {
                 peer_id,
-                handler: NotifyHandler::All,
+                handler: NotifyHandler::Any,
                 event: BehaviourHandlerIn::Shutdown(
                     reason.map(|reason| (RequestId::Behaviour, RPCRequest::Goodbye(reason))),
                 ),
@@ -893,7 +893,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
 
         // perform gossipsub score updates when necessary
-        while let Poll::Ready(Some(_)) = self.update_gossipsub_scores.poll_next_unpin(cx) {
+        while let Poll::Ready(_) = self.update_gossipsub_scores.poll_tick(cx) {
             self.peer_manager.update_gossipsub_scores(&self.gossipsub);
         }
 

@@ -149,8 +149,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let executor = self.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
-                let log = self.context.log();
+            loop {
+ interval.tick().await;                let log = self.context.log();
 
                 if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
                     crit!(

@@ -89,8 +89,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         // Start a timer that produces eth1 blocks on an interval.
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(eth1_block_time);
-            while interval.next().await.is_some() {
-                let _ = ganache.evm_mine().await;
+            loop {
+ interval.tick().await;                let _ = ganache.evm_mine().await;
             }
         });
 

@@ -20,7 +20,7 @@ spec-v12 = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
-tokio = "0.3.2"
+tokio = "1.0.2"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.1"
 types = { "path" = "../consensus/types" }

@@ -7,6 +7,7 @@ use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use fnv::FnvHashMap;
 use futures::prelude::*;
+use futures::{Sink, SinkExt};
 use libp2p::core::upgrade::{
     InboundUpgrade, NegotiationError, OutboundUpgrade, ProtocolError, UpgradeError,
 };

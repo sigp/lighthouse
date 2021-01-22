@@ -217,8 +217,8 @@ pub async fn verify_one_node_sync<E: EthSpec>(
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);
     let mut count = 0;
-    while interval.next().await.is_some() {
-        if count >= sync_timeout || !check_still_syncing(&network_c).await? {
+        loop {
+ interval.tick().await;        if count >= sync_timeout || !check_still_syncing(&network_c).await? {
             break;
         }
         count += 1;
@@ -254,8 +254,8 @@ pub async fn verify_two_nodes_sync<E: EthSpec>(
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);
     let mut count = 0;
-    while interval.next().await.is_some() {
-        if count >= sync_timeout || !check_still_syncing(&network_c).await? {
+        loop {
+ interval.tick().await;        if count >= sync_timeout || !check_still_syncing(&network_c).await? {
             break;
         }
         count += 1;
@@ -302,8 +302,8 @@ pub async fn verify_in_between_sync<E: EthSpec>(
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);
     let mut count = 0;
-    while interval.next().await.is_some() {
-        if count >= sync_timeout || !check_still_syncing(&network_c).await? {
+        loop {
+ interval.tick().await;        if count >= sync_timeout || !check_still_syncing(&network_c).await? {
             break;
         }
         count += 1;

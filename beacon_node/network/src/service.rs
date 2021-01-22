@@ -266,7 +266,7 @@ fn spawn_service<T: BeaconChainTypes>(
                     info!(service.log, "Network service shutdown");
                     return;
                 }
-                _ = service.metrics_update.next() => {
+                _ = service.metrics_update.tick() => {
                     // update various network metrics
                     metric_update_counter +=1;
                     if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
@@ -283,7 +283,7 @@ fn spawn_service<T: BeaconChainTypes>(
                     metrics::update_sync_metrics(&service.network_globals);
 
                 }
-                _ = service.gossipsub_parameter_update.next() => {
+                _ = service.gossipsub_parameter_update.tick() => {
                     if let Ok(slot) = service.beacon_chain.slot() {
                         if let Some(active_validators) = service.beacon_chain.with_head(|head| {
                                 Ok::<_, BeaconChainError>(

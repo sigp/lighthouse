@@ -20,6 +20,8 @@ use slog::{debug, o, trace};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
+use tokio_stream::{Stream, StreamExt, wrappers::UnboundedReceiverStream};
+use types::Error::UnableToDetermineProducer;
 
 /// Handles messages received from the network and client and organises syncing. This
 /// functionality of this struct is to validate an decode messages from the network before
@@ -101,7 +103,7 @@ impl<T: BeaconChainTypes> Router<T> {
         executor.spawn(
             async move {
                 debug!(log, "Network message router started");
-                handler_recv
+                UnboundedReceiverStream::new(handler_recv)
                     .for_each(move |msg| future::ready(handler.handle_message(msg)))
                     .await;
             },

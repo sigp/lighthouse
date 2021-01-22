@@ -490,8 +490,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
-                self.clone().do_update(&mut block_service_tx, &spec).await;
+            loop {
+ interval.tick().await;                self.clone().do_update(&mut block_service_tx, &spec).await;
             }
         };
 
