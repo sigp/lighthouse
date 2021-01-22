@@ -5,7 +5,6 @@ mod manual_slot_clock;
 mod metrics;
 mod system_time_slot_clock;
 
-use smallvec::{smallvec, SmallVec};
 use std::future::Future;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -18,8 +17,6 @@ pub use tokio::sync::mpsc::{self, Receiver};
 pub use types::Slot;
 
 pub const SLOT_STREAM_CHANNEL_SIZE: usize = 16_384;
-
-pub const SMALLVEC_SIZE: usize = 4;
 
 /// A clock that reports the current slot.
 ///
@@ -87,42 +84,7 @@ pub async fn slot_stream<S: SlotClock>(
 ) -> (Receiver<Slot>, impl Future<Output = ()>) {
     let (tx, rx) = mpsc::channel(SLOT_STREAM_CHANNEL_SIZE);
 
-    let future = async move {
-        let mut previous_opt: Option<Slot> = None;
-        loop {
-            match slot_clock.now() {
-                Some(now) => {
-                    for slot in get_new_slots(previous_opt, now) {
-                        if tx.try_send(slot).is_err() {
-                            break;
-                        }
-                        previous_opt = Some(slot);
-                    }
-
-                    if let Some(duration) = slot_clock.duration_to_next_slot() {
-                        sleep(duration).await;
-                    } else {
-                        sleep(slot_clock.slot_duration()).await;
-                    }
-                }
-                None => sleep(slot_clock.slot_duration()).await,
-            }
-        }
-    };
+    let future = async move { todo!() };
 
     (rx, future)
-}
-
-fn get_new_slots(prev_slot: Option<Slot>, new_slot: Slot) -> SmallVec<[Slot; 4]> {
-    if let Some(prev) = prev_slot {
-        if new_slot > prev {
-            (prev.as_u64() + 1..=new_slot.as_u64())
-                .map(Into::into)
-                .collect()
-        } else {
-            smallvec![]
-        }
-    } else {
-        smallvec![new_slot]
-    }
 }
