@@ -78,7 +78,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     // listen for events
     loop {
         tokio::select! {
-            _ = metric_interval.next() => {
+            _ = metric_interval.tick() => {
                 // display server metrics
                 let metrics = discv5.metrics();
                 info!(log, "Server metrics"; "connected_peers" => discv5.connected_peers(), "active_sessions" => metrics.active_sessions, "requests/s" => format!("{:.2}", metrics.unsolicited_requests_per_second));

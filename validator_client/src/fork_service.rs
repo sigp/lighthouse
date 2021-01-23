@@ -165,7 +165,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
         let interval_fut = async move {
             loop {
- interval.tick().await;                self.clone().do_update().await.ok();
+                interval.tick().await;
+                self.clone().do_update().await.ok();
             }
         };
 

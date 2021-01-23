@@ -19,9 +19,9 @@ use processor::Processor;
 use slog::{debug, o, trace};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::EthSpec;
-use tokio_stream::{Stream, StreamExt, wrappers::UnboundedReceiverStream};
+use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
 use types::Error::UnableToDetermineProducer;
+use types::EthSpec;
 
 /// Handles messages received from the network and client and organises syncing. This
 /// functionality of this struct is to validate an decode messages from the network before

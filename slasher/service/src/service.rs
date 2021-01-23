@@ -19,9 +19,9 @@ use state_processing::{
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio_stream::StreamExt;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{interval_at, Duration, Instant};
+use tokio_stream::StreamExt;
 use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
 
 pub struct SlasherService<T: BeaconChainTypes> {
@@ -84,7 +84,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         let mut interval = interval_at(Instant::now(), Duration::from_secs(update_period));
 
         loop {
- interval.tick().await;            if let Some(current_slot) = beacon_chain.slot_clock.now() {
+            interval.tick().await;
+            if let Some(current_slot) = beacon_chain.slot_clock.now() {
                 let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
                 if let Err(TrySendError::Disconnected(_)) = notif_sender.try_send(current_epoch) {
                     break;

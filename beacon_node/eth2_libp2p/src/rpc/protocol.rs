@@ -9,8 +9,8 @@ use crate::rpc::{
     MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
-use futures::{Future, FutureExt, Sink, SinkExt, Stream, StreamExt};
 use futures::prelude::{AsyncRead, AsyncWrite};
+use futures::{Future, FutureExt, Sink, SinkExt, Stream, StreamExt};
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -18,12 +18,12 @@ use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
 use strum::{AsStaticRef, AsStaticStr};
+use tokio::io::AsyncReadExt;
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use tokio::io::AsyncReadExt;
 use types::{BeaconBlock, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock};
 
 lazy_static! {

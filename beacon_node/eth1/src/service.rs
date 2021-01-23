@@ -721,7 +721,7 @@ impl Service {
         let mut interval = interval_at(Instant::now(), update_interval);
 
         let update_future = async move {
-            loop  {
+            loop {
                 interval.tick().await;
                 self.do_update(update_interval).await.ok();
             }

@@ -90,7 +90,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(eth1_block_time);
             loop {
- interval.tick().await;                let _ = ganache.evm_mine().await;
+                interval.tick().await;
+                let _ = ganache.evm_mine().await;
             }
         });
 

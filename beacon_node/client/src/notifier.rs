@@ -65,7 +65,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         loop {
- interval.tick().await;            let connected_peer_count = network.connected_peers();
+            interval.tick().await;
+            let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
 
             let head_info = beacon_chain.head_info().map_err(|e| {

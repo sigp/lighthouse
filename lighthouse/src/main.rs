@@ -190,7 +190,10 @@ fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
     testnet_config: Eth2NetworkConfig,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    <E as EthSpec>::MaxValidatorsPerCommittee: Unpin,
+{
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
             "{}-bit architecture is not supported (64-bit only).",
