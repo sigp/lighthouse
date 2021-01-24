@@ -540,10 +540,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, mut idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
 
-        // Used internally to place a delayed beacon block back into the queue.
-        let (delayed_block_tx, mut delayed_block_rx) =
-            mpsc::channel::<WorkEvent<T>>(MAX_DELAYED_BLOCK_QUEUE_LEN);
-
         // Using LIFO queues for attestations since validator profits rely upon getting fresh
         // attestations into blocks. Additionally, later attestations contain more information than
         // earlier ones, so we consider them more valuable.
@@ -572,6 +568,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
+
+        // Used internally to place a delayed beacon block back into the queue.
+        let (post_delay_block_queue_tx, mut post_delay_block_queue_rx) =
+            mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
+        let pre_delay_block_queue_tx =
+            spawn_block_delay_queue(post_delay_block_queue_tx, &self.executor, self.log.clone());
 
         let executor = self.executor.clone();
 
@@ -619,9 +621,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         }
                     }
                     // A worker has delayed a block for later processing.
-                    new_delayed_block_opt = delayed_block_rx.recv() => {
-                        if let Some(event) = new_delayed_block_opt {
-                            Some(event)
+                    delayed_block_opt = post_delay_block_queue_rx.recv() => {
+                        if let Some(delayed_block) = delayed_block_opt {
+                            Some(
+                                WorkEvent::delayed_import_beacon_block(
+                                    delayed_block.peer_id,
+                                    Box::new(delayed_block.block)
+                                )
+                            )
                         } else {
                             // Exit if all event senders have been dropped.
                             //
@@ -661,47 +668,95 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // Check for chain segments first, they're the most efficient way to get
                         // blocks into the system.
                         if let Some(item) = chain_segment_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         // Check sync blocks before gossip blocks, since we've already explicitly
                         // requested these blocks.
                         } else if let Some(item) = rpc_block_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones..
                         } else if let Some(item) = delayed_block_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         // Check gossip blocks before gossip attestations, since a block might be
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
                         // more information with less signature verification time.
                         } else if let Some(item) = aggregate_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         } else if let Some(item) = attestation_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
                         // and BlocksByRoot)
                         } else if let Some(item) = status_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         } else if let Some(item) = bbrange_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         } else if let Some(item) = bbroots_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
                         //
                         // Check attester slashings before proposer slashings since they have the
                         // potential to slash multiple validators at once.
                         } else if let Some(item) = gossip_attester_slashing_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         } else if let Some(item) = gossip_proposer_slashing_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         // Check exits last since our validators don't get rewards from them.
                         } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
-                            self.spawn_worker(idle_tx.clone(), item, delayed_block_tx.clone());
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item,
+                                pre_delay_block_queue_tx.clone(),
+                            );
                         }
                     }
                     // There is no new work event and we are unable to spawn a new worker.
@@ -736,9 +791,11 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     Some(WorkEvent { work, .. }) => {
                         let work_id = work.str_id();
                         match work {
-                            _ if can_spawn => {
-                                self.spawn_worker(idle_tx.clone(), work, delayed_block_tx.clone())
-                            }
+                            _ if can_spawn => self.spawn_worker(
+                                idle_tx.clone(),
+                                work,
+                                pre_delay_block_queue_tx.clone(),
+                            ),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
                             Work::GossipBlock { .. } => {

@@ -1,5 +1,6 @@
 use super::MAX_DELAYED_BLOCK_QUEUE_LEN;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
+use eth2_libp2p::PeerId;
 use futures::future::poll_fn;
 use slog::{error, Logger};
 use std::time::Duration;
@@ -9,11 +10,16 @@ use tokio_util::time::DelayQueue;
 
 const TASK_NAME: &str = "beacon_processor_block_delay_queue";
 
+struct QueuedBlock<T: BeaconChainTypes> {
+    pub peer_id: PeerId,
+    pub block: GossipVerifiedBlock<T>,
+}
+
 pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
-    ready_blocks_tx: Sender<GossipVerifiedBlock<T>>,
+    ready_blocks_tx: Sender<QueuedBlock<T>>,
     executor: &TaskExecutor,
     log: Logger,
-) -> Sender<GossipVerifiedBlock<T>> {
+) -> Sender<QueuedBlock<T>> {
     let (early_blocks_tx, mut early_blocks_rx) = mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
     let queue_future = async move {
