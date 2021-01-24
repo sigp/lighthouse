@@ -1,13 +1,4 @@
-//! This crate should eventually represent the structure at this repo:
-//!
-//! https://github.com/eth2-clients/eth2-testnets/tree/master/nimbus/testnet1
-//!
-//! It is not accurate at the moment, we include extra files and we also don't support a few
-//! others. We are unable to conform to the repo until we have the following PR merged:
-//!
-//! https://github.com/sigp/lighthouse/pull/605
-//!
-use eth2_config::{testnets_dir, *};
+use eth2_config::{predefined_networks_dir, *};
 
 use enr::{CombinedKey, Enr};
 use ssz::Decode;
@@ -55,13 +46,13 @@ const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
 const TOLEDO: HardcodedNet = define_net!(toledo, include_toledo_file);
 
 const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO];
-pub const DEFAULT_HARDCODED_TESTNET: &str = "mainnet";
+pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
-/// Specifies an Eth2 testnet.
+/// Specifies an Eth2 network.
 ///
 /// See the crate-level documentation for more details.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Eth2TestnetConfig {
+pub struct Eth2NetworkConfig {
     /// Note: instead of the block where the contract is deployed, it is acceptable to set this
     /// value to be the block number where the first deposit occurs.
     pub deposit_contract_deploy_block: u64,
@@ -70,7 +61,7 @@ pub struct Eth2TestnetConfig {
     pub yaml_config: Option<YamlConfig>,
 }
 
-impl Eth2TestnetConfig {
+impl Eth2NetworkConfig {
     /// When Lighthouse is built it includes zero or more "hardcoded" network specifications. This
     /// function allows for instantiating one of these nets by name.
     pub fn constant(name: &str) -> Result<Option<Self>, String> {
@@ -100,7 +91,7 @@ impl Eth2TestnetConfig {
     }
 
     /// Returns an identifier that should be used for selecting an `EthSpec` instance for this
-    /// testnet.
+    /// network configuration.
     pub fn eth_spec_id(&self) -> Result<EthSpecId, String> {
         self.yaml_config
             .as_ref()
@@ -133,7 +124,7 @@ impl Eth2TestnetConfig {
     /// Overwrites files if specified to do so.
     pub fn write_to_file(&self, base_dir: PathBuf, overwrite: bool) -> Result<(), String> {
         if base_dir.exists() && !overwrite {
-            return Err("Testnet directory already exists".to_string());
+            return Err("Network directory already exists".to_string());
         }
 
         self.force_write_to_file(base_dir)
@@ -248,7 +239,7 @@ impl Eth2TestnetConfig {
 mod tests {
     use super::*;
     use ssz::Encode;
-    use tempdir::TempDir;
+    use tempfile::Builder as TempBuilder;
     use types::{Eth1Data, Hash256, MainnetEthSpec, V012LegacyEthSpec, YamlConfig};
 
     type E = V012LegacyEthSpec;
@@ -257,7 +248,7 @@ mod tests {
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
             let config =
-                Eth2TestnetConfig::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
+                Eth2NetworkConfig::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
 
             if net.name == "mainnet" || net.name == "toledo" || net.name == "pyrmont" {
                 // Ensure we can parse the YAML config to a chain spec.
@@ -310,11 +301,14 @@ mod tests {
         genesis_state: Option<BeaconState<E>>,
         yaml_config: Option<YamlConfig>,
     ) {
-        let temp_dir = TempDir::new("eth2_testnet_test").expect("should create temp dir");
+        let temp_dir = TempBuilder::new()
+            .prefix("eth2_testnet_test")
+            .tempdir()
+            .expect("should create temp dir");
         let base_dir = temp_dir.path().join("my_testnet");
         let deposit_contract_deploy_block = 42;
 
-        let testnet: Eth2TestnetConfig = Eth2TestnetConfig {
+        let testnet: Eth2NetworkConfig = Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
@@ -325,7 +319,7 @@ mod tests {
             .write_to_file(base_dir.clone(), false)
             .expect("should write to file");
 
-        let decoded = Eth2TestnetConfig::load(base_dir).expect("should load struct");
+        let decoded = Eth2NetworkConfig::load(base_dir).expect("should load struct");
 
         assert_eq!(testnet, decoded, "should decode as encoded");
     }

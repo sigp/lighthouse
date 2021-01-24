@@ -1,5 +1,5 @@
 [package]
-name = "eth2_testnet_config"
+name = "eth2_network_config"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
@@ -11,7 +11,7 @@ zip = "0.5.8"
 eth2_config = { path = "../eth2_config"}
 
 [dev-dependencies]
-tempdir = "0.3.7"
+tempfile = "3.1.0"
 
 [dependencies]
 serde = "1.0.116"

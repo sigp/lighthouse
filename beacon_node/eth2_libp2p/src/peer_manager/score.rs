@@ -8,6 +8,7 @@
 use crate::behaviour::GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
 use std::time::Instant;
+use strum::AsRefStr;
 use tokio::time::Duration;
 
 lazy_static! {
@@ -42,7 +43,8 @@ const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
 /// Each variant has an associated score change.
 // To easily assess the behaviour of scores changes the number of variants should stay low, and
 // somewhat generic.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum PeerAction {
     /// We should not communicate more with this peer.
     /// This action will cause the peer to get banned.
@@ -61,8 +63,26 @@ pub enum PeerAction {
     /// kicked.
     /// NOTE: ~50 occurrences will get the peer banned
     HighToleranceError,
-    /// Received an expected message.
-    _ValidMessage,
+}
+
+/// Service reporting a `PeerAction` for a peer.
+#[derive(Debug)]
+pub enum ReportSource {
+    Gossipsub,
+    RPC,
+    Processor,
+    SyncService,
+}
+
+impl From<ReportSource> for &'static str {
+    fn from(report_source: ReportSource) -> &'static str {
+        match report_source {
+            ReportSource::Gossipsub => "gossipsub",
+            ReportSource::RPC => "rpc_error",
+            ReportSource::Processor => "processor",
+            ReportSource::SyncService => "sync",
+        }
+    }
 }
 
 impl std::fmt::Display for PeerAction {
@@ -72,7 +92,6 @@ impl std::fmt::Display for PeerAction {
             PeerAction::LowToleranceError => write!(f, "Low Tolerance Error"),
             PeerAction::MidToleranceError => write!(f, "Mid Tolerance Error"),
             PeerAction::HighToleranceError => write!(f, "High Tolerance Error"),
-            PeerAction::_ValidMessage => write!(f, "Valid Message"),
         }
     }
 }
@@ -155,7 +174,6 @@ impl RealScore {
             PeerAction::LowToleranceError => self.add(-10.0),
             PeerAction::MidToleranceError => self.add(-5.0),
             PeerAction::HighToleranceError => self.add(-1.0),
-            PeerAction::_ValidMessage => self.add(0.1),
         }
     }
 

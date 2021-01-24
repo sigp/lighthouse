@@ -5,12 +5,11 @@ use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{
-    MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
-};
+use eth2_libp2p::{MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response};
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, ChainSpec, EthSpec, ProposerSlashing, SignedAggregateAndProof,
@@ -128,11 +127,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         // ignore status responses if we are shutting down
         if let Ok(status_message) = status_message(&self.chain) {
             // Say status back.
-            self.network.send_response(
-                peer_id.clone(),
-                Response::Status(status_message),
-                request_id,
-            );
+            self.network
+                .send_response(peer_id, Response::Status(status_message), request_id);
         }
 
         self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))
@@ -235,7 +231,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
-            message_id, peer_id, block,
+            message_id,
+            peer_id,
+            block,
+            timestamp_now(),
         ))
     }
 
@@ -253,6 +252,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             unaggregated_attestation,
             subnet_id,
             should_process,
+            timestamp_now(),
         ))
     }
 
@@ -263,7 +263,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::aggregated_attestation(
-            message_id, peer_id, aggregate,
+            message_id,
+            peer_id,
+            aggregate,
+            timestamp_now(),
         ))
     }
 
@@ -361,16 +364,6 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         )
     }
 
-    /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
-    pub fn _goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.inform_network(NetworkMessage::GoodbyePeer { peer_id, reason });
-    }
-
-    /// Reports a peer's action, adjusting the peer's score.
-    pub fn _report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
-        self.inform_network(NetworkMessage::ReportPeer { peer_id, action });
-    }
-
     /// Sends a request to the network task.
     pub fn send_processor_request(&mut self, peer_id: PeerId, request: Request) {
         self.inform_network(NetworkMessage::SendRequest {
@@ -404,4 +397,10 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             reason,
         })
     }
+}
+
+fn timestamp_now() -> Duration {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
 }

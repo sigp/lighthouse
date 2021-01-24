@@ -139,8 +139,9 @@ async fn endpoint_state(
     let error_connecting = |_| {
         warn!(
             log,
-            "Error connecting to eth1 node. Trying fallback ...";
+            "Error connecting to eth1 node endpoint";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks"
         );
         EndpointError::NotReachable
     };
@@ -150,9 +151,9 @@ async fn endpoint_state(
     if &network_id != config_network_id {
         warn!(
             log,
-            "Invalid eth1 network id. Please switch to correct network id. Trying \
-             fallback ...";
+            "Invalid eth1 network id on endpoint. Please switch to correct network id";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_network_id),
             "received" => format!("{:?}",network_id),
         );
@@ -168,15 +169,16 @@ async fn endpoint_state(
             log,
             "Remote eth1 node is not synced";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks"
         );
         return Err(EndpointError::FarBehind);
     }
     if &chain_id != config_chain_id {
         warn!(
             log,
-            "Invalid eth1 chain id. Please switch to correct chain id. Trying \
-             fallback ...";
+            "Invalid eth1 chain id. Please switch to correct chain id on endpoint";
             "endpoint" => endpoint,
+            "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_chain_id),
             "received" => format!("{:?}", chain_id),
         );
@@ -215,16 +217,22 @@ async fn get_remote_head_and_new_block_ranges(
     if remote_head_block.timestamp + node_far_behind_seconds < now {
         warn!(
             service.log,
-            "Eth1 endpoint is far behind. Trying fallback ...";
+            "Eth1 endpoint is not synced";
             "endpoint" => endpoint,
-            "last_seen_block_unix_timestamp" => remote_head_block.timestamp
+            "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
+            "action" => "trying fallback"
         );
         return Err(SingleEndpointError::EndpointError(EndpointError::FarBehind));
     }
 
     let handle_remote_not_synced = |e| {
         if let SingleEndpointError::RemoteNotSynced { .. } = e {
-            warn!(service.log, "Eth1 node not synced. Trying fallback..."; "endpoint" => endpoint);
+            warn!(
+                service.log,
+                "Eth1 endpoint is not synced";
+                "endpoint" => endpoint,
+                "action" => "trying fallbacks"
+            );
         }
         e
     };
@@ -352,7 +360,7 @@ impl Config {
     pub fn set_block_cache_truncation<E: EthSpec>(&mut self, spec: &ChainSpec) {
         // Compute the number of eth1 blocks in an eth1 voting period.
         let seconds_per_voting_period =
-            E::SlotsPerEth1VotingPeriod::to_u64() * spec.milliseconds_per_slot / 1000;
+            E::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
 
         // Compute the number of extra blocks we store prior to the voting period start blocks.
@@ -662,7 +670,9 @@ impl Service {
             let outcome = self
                 .update_deposit_cache(Some(new_block_numbers_deposit), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
+                .map_err(|e| {
+                    format!("Failed to update eth1 deposit cache: {:?}", process_err(e))
+                })?;
 
             trace!(
                 self.log,
@@ -678,7 +688,7 @@ impl Service {
             let outcome = self
                 .update_block_cache(Some(new_block_numbers_block_cache), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", process_err(e)))?;
+                .map_err(|e| format!("Failed to update eth1 block cache: {:?}", process_err(e)))?;
 
             trace!(
                 self.log,
@@ -868,7 +878,13 @@ impl Service {
                 // imported if any one of them cannot be parsed.
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
-                .map(|deposit_log| {
+                // Returns if a deposit is unable to be added to the cache.
+                //
+                // If this error occurs, the cache will no longer be guaranteed to hold either
+                // none or all of the logs for each block (i.e., they may exist _some_ logs for
+                // a block, but not _all_ logs for that block). This scenario can cause the
+                // node to choose an invalid genesis state or propose an invalid block.
+                .try_for_each(|deposit_log| {
                     if let DepositCacheInsertOutcome::Inserted = cache
                         .cache
                         .insert_log(deposit_log)
@@ -878,14 +894,7 @@ impl Service {
                     }
 
                     Ok(())
-                })
-                // Returns if a deposit is unable to be added to the cache.
-                //
-                // If this error occurs, the cache will no longer be guaranteed to hold either
-                // none or all of the logs for each block (i.e., they may exist _some_ logs for
-                // a block, but not _all_ logs for that block). This scenario can cause the
-                // node to choose an invalid genesis state or propose an invalid block.
-                .collect::<Result<_, _>>()?;
+                })?;
 
             debug!(
                 self.log,
@@ -1191,8 +1200,7 @@ mod tests {
         let len = config.block_cache_truncation.unwrap();
 
         let seconds_per_voting_period =
-            <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64()
-                * (spec.milliseconds_per_slot / 1000);
+            <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
         let reduce_follow_distance_blocks =
             config.follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;

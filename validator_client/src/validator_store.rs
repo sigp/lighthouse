@@ -6,10 +6,9 @@ use parking_lot::RwLock;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
-use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
-use tempdir::TempDir;
+use tempfile::TempDir;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
@@ -49,8 +48,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
-    fork_service: ForkService<T>,
-    _phantom: PhantomData<E>,
+    fork_service: ForkService<T, E>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
@@ -59,7 +57,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
-        fork_service: ForkService<T>,
+        fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Self {
         Self {
@@ -70,7 +68,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             log,
             temp_dir: None,
             fork_service,
-            _phantom: PhantomData,
         }
     }
 
@@ -123,13 +120,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().num_enabled()
     }
 
-    fn fork(&self) -> Option<Fork> {
-        if self.fork_service.fork().is_none() {
-            error!(
-                self.log,
-                "Unable to get Fork for signing";
-            );
-        }
+    fn fork(&self) -> Fork {
         self.fork_service.fork()
     }
 
@@ -137,16 +128,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .voting_keypair(validator_pubkey)
-            .and_then(|voting_keypair| {
+            .map(|voting_keypair| {
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
-                    &self.fork()?,
+                    &self.fork(),
                     self.genesis_validators_root,
                 );
                 let message = epoch.signing_root(domain);
 
-                Some(voting_keypair.sk.sign(message))
+                voting_keypair.sk.sign(message)
             })
     }
 
@@ -168,7 +159,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Check for slashing conditions.
-        let fork = self.fork()?;
+        let fork = self.fork();
         let domain = self.spec.get_domain(
             block.epoch(),
             Domain::BeaconProposer,
@@ -240,7 +231,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
-        let fork = self.fork()?;
+        let fork = self.fork();
 
         let domain = self.spec.get_domain(
             attestation.data.target.epoch,
@@ -342,7 +333,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             aggregate,
             Some(selection_proof),
             &voting_keypair.sk,
-            &self.fork()?,
+            &self.fork(),
             self.genesis_validators_root,
             &self.spec,
         ))
@@ -363,7 +354,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Some(SelectionProof::new::<E>(
             slot,
             &voting_keypair.sk,
-            &self.fork()?,
+            &self.fork(),
             self.genesis_validators_root,
             &self.spec,
         ))

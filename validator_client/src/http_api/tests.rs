@@ -73,7 +73,9 @@ impl ApiTester {
         config.validator_dir = validator_dir.path().into();
         config.secrets_dir = secrets_dir.path().into();
 
-        let fork_service = ForkServiceBuilder::testing_only(log.clone())
+        let spec = E::default_spec();
+
+        let fork_service = ForkServiceBuilder::testing_only(spec.clone(), log.clone())
             .build()
             .unwrap();
 
@@ -84,7 +86,7 @@ impl ApiTester {
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
-            E::default_spec(),
+            spec,
             fork_service.clone(),
             log.clone(),
         );

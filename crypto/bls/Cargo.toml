@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 eth2_ssz = "0.1.2"
 tree_hash = "0.1.1"
-milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.0" }
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.0", optional = true }
 rand = "0.7.3"
 serde = "1.0.116"
 serde_derive = "1.0.116"
@@ -22,7 +22,7 @@ blst = "0.3.2"
 [features]
 default = ["supranational"]
 fake_crypto = []
-milagro = []
+milagro = ["milagro_bls"]
 supranational = []
 supranational-portable = ["supranational", "blst/portable"]
 supranational-force-adx = ["supranational", "blst/force-adx"]

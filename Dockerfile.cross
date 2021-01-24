@@ -1,0 +1,10 @@
+# This image is meant to enable cross-architecture builds.
+# It assumes the lighthouse binary has already been
+# compiled for `$TARGETPLATFORM` and moved to `./bin`.
+FROM --platform=$TARGETPLATFORM debian:buster-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  libssl-dev \
+  ca-certificates \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+COPY ./bin/lighthouse /usr/local/bin/lighthouse

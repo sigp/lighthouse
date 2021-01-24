@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use clap_utils::parse_ssz_optional;
 use environment::Environment;
-use eth2_testnet_config::Eth2TestnetConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use genesis::interop_genesis_state;
 use ssz::Encode;
 use std::path::PathBuf;
@@ -36,9 +36,9 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .expect("should locate home directory")
         });
 
-    let mut eth2_testnet_config = Eth2TestnetConfig::load(testnet_dir.clone())?;
+    let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
-    let mut spec = eth2_testnet_config
+    let mut spec = eth2_network_config
         .yaml_config
         .as_ref()
         .ok_or("The testnet directory must contain a spec config")?
@@ -57,8 +57,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let keypairs = generate_deterministic_keypairs(validator_count);
     let genesis_state = interop_genesis_state::<T>(&keypairs, genesis_time, &spec)?;
 
-    eth2_testnet_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
-    eth2_testnet_config.force_write_to_file(testnet_dir)?;
+    eth2_network_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
+    eth2_network_config.force_write_to_file(testnet_dir)?;
 
     Ok(())
 }

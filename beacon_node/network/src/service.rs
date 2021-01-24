@@ -8,7 +8,7 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response,
 };
 use eth2_libp2p::{types::GossipKind, BehaviourEvent, MessageId, NetworkGlobals, PeerId};
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
@@ -75,11 +75,16 @@ pub enum NetworkMessage<T: EthSpec> {
         udp_socket: Option<SocketAddr>,
     },
     /// Reports a peer to the peer manager for performing an action.
-    ReportPeer { peer_id: PeerId, action: PeerAction },
+    ReportPeer {
+        peer_id: PeerId,
+        action: PeerAction,
+        source: ReportSource,
+    },
     /// Disconnect an ban a peer, providing a reason.
     GoodbyePeer {
         peer_id: PeerId,
         reason: GoodbyeReason,
+        source: ReportSource,
     },
 }
 
@@ -264,7 +269,7 @@ fn spawn_service<T: BeaconChainTypes>(
                 _ = service.metrics_update.next() => {
                     // update various network metrics
                     metric_update_counter +=1;
-                    if metric_update_counter* 1000 % T::EthSpec::default_spec().milliseconds_per_slot == 0 {
+                    if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
                         // if a slot has occurred, reset the metrics
                         let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT
                             .as_ref()
@@ -381,8 +386,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                 metrics::expose_publish_metrics(&messages);
                                 service.libp2p.swarm.publish(messages);
                         }
-                        NetworkMessage::ReportPeer { peer_id, action } => service.libp2p.report_peer(&peer_id, action),
-                        NetworkMessage::GoodbyePeer { peer_id, reason } => service.libp2p.goodbye_peer(&peer_id, reason),
+                        NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
+                        NetworkMessage::GoodbyePeer { peer_id, reason, source } => service.libp2p.goodbye_peer(&peer_id, reason, source),
                         NetworkMessage::Subscribe { subscriptions } => {
                             if let Err(e) = service
                                 .attestation_service
@@ -460,13 +465,13 @@ fn spawn_service<T: BeaconChainTypes>(
                                 // We currently do not perform any action here.
                             },
                             BehaviourEvent::PeerDisconnected(peer_id) => {
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::PeerDisconnected(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send peer disconnect to router");
-                                });
-                            },
+                                let _ = service
+                                    .router_send
+                                    .send(RouterMessage::PeerDisconnected(peer_id))
+                                    .map_err(|_| {
+                                        debug!(service.log, "Failed to send peer disconnect to router");
+                                    });
+                                },
                             BehaviourEvent::RequestReceived{peer_id, id, request} => {
                                 let _ = service
                                     .router_send
@@ -538,7 +543,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     }
                                 }
                             }
-                            BehaviourEvent::PeerSubscribed(_, _) => {},
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);

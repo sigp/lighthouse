@@ -9,6 +9,7 @@ use std::sync::Arc;
 use types::{Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
+pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
 
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
@@ -100,14 +101,15 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
         }
 
-        let index = self.beacon_nodes.read().len();
+        let mut write_lock = self_1.beacon_nodes.write();
+        let index = write_lock.len();
 
         let beacon_node = LocalBeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
         )
         .await?;
-        self_1.beacon_nodes.write().push(beacon_node);
+        write_lock.push(beacon_node);
         Ok(())
     }
 
@@ -118,6 +120,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut validator_config: ValidatorConfig,
         beacon_node: usize,
         validator_files: ValidatorFiles,
+        invalid_first_beacon_node: bool, //to test beacon node fallbacks
     ) -> Result<(), String> {
         let index = self.validator_clients.read().len();
         let context = self.context.service_context(format!("validator_{}", index));
@@ -133,8 +136,12 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .expect("Must have http started")
         };
 
-        validator_config.beacon_node =
-            format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
+        let beacon_node = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
+        validator_config.beacon_nodes = if invalid_first_beacon_node {
+            vec![INVALID_ADDRESS.to_string(), beacon_node]
+        } else {
+            vec![beacon_node]
+        };
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,
             validator_config,

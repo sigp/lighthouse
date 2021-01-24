@@ -276,14 +276,16 @@ mod tests {
 
     #[test]
     fn test_decode_malicious_status_message() {
-        // Snappy stream identifier
+        // 10 byte snappy stream identifier
         let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
+
+        assert_eq!(stream_identifier.len(), 10);
 
         // byte 0(0xFE) is padding chunk type identifier for snappy messages
         // byte 1,2,3 are chunk length (little endian)
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
-        // Status message is 84 bytes uncompressed. `max_compressed_len` is 130.
+        // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
@@ -292,6 +294,9 @@ mod tests {
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
+
+        assert_eq!(status_message_bytes.len(), 84);
+        assert_eq!(snap::raw::max_compress_len(status_message_bytes.len()), 130);
 
         let mut uvi_codec: Uvi<usize> = Uvi::default();
         let mut dst = BytesMut::with_capacity(1024);
@@ -313,9 +318,10 @@ mod tests {
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&status_message_bytes).unwrap();
         writer.flush().unwrap();
+        assert_eq!(writer.get_ref().len(), 42);
         dst.extend_from_slice(writer.get_ref());
 
-        // 42 + 80 = 132 > max_compressed_len. Hence, decoding should fail with `InvalidData`.
+        // 10 (for stream identifier) + 80 + 42 = 132 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
 
         let snappy_protocol_id =
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
@@ -323,7 +329,7 @@ mod tests {
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
 
-        let snappy_decoded_message = snappy_outbound_codec.decode(&mut dst.clone()).unwrap_err();
+        let snappy_decoded_message = snappy_outbound_codec.decode(&mut dst).unwrap_err();
         assert_eq!(snappy_decoded_message, RPCError::InvalidData);
     }
 }

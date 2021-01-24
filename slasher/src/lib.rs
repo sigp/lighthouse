@@ -3,13 +3,14 @@
 mod array;
 mod attestation_queue;
 mod attester_record;
+mod batch_stats;
 mod block_queue;
 pub mod config;
 mod database;
 mod error;
-mod metrics;
+pub mod metrics;
+mod migrate;
 mod slasher;
-mod slasher_server;
 pub mod test_utils;
 mod utils;
 
@@ -20,7 +21,6 @@ pub use block_queue::BlockQueue;
 pub use config::Config;
 pub use database::SlasherDB;
 pub use error::Error;
-pub use slasher_server::SlasherServer;
 
 use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
 

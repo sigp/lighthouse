@@ -5,7 +5,7 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::StatusMessage;
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{PeerId, PeerRequestId, Response, SyncInfo};
+use eth2_libp2p::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use itertools::process_results;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
@@ -18,7 +18,11 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
     pub fn goodbye_peer(&self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.send_network_message(NetworkMessage::GoodbyePeer { peer_id, reason });
+        self.send_network_message(NetworkMessage::GoodbyePeer {
+            peer_id,
+            reason,
+            source: ReportSource::Processor,
+        });
     }
 
     pub fn send_response(
@@ -112,7 +116,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         for root in request.block_roots.iter() {
             if let Ok(Some(block)) = self.chain.store.get_block(root) {
                 self.send_response(
-                    peer_id.clone(),
+                    peer_id,
                     Response::BlocksByRoot(Some(Box::new(block))),
                     request_id,
                 );
@@ -208,7 +212,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 {
                     blocks_sent += 1;
                     self.send_network_message(NetworkMessage::SendResponse {
-                        peer_id: peer_id.clone(),
+                        peer_id,
                         response: Response::BlocksByRange(Some(Box::new(block))),
                         id: request_id,
                     });

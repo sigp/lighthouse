@@ -7,7 +7,7 @@ edition = "2018"
 [dev-dependencies]
 helpers = { path = "../../testing/remote_signer_test", package = "remote_signer_test"  }
 sloggers = "1.0.1"
-tempdir = "0.3.7"
+tempfile = "3.1.0"
 
 [dependencies]
 bls = { path = "../../crypto/bls" }

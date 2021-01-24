@@ -435,6 +435,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("slasher-broadcast")
+                .long("slasher-broadcast")
+                .help("Broadcast slashings found by the slasher to the rest of the network \
+                       [disabled by default].")
+                .requires("slasher")
+        )
+        .arg(
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(
@@ -442,6 +449,31 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                      where block_root is an '0x' prefixed 32-byte hex string and epoch_number is an integer."
                 )
                 .value_name("WSS_CHECKPOINT")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("validator-monitor-auto")
+                .long("validator-monitor-auto")
+                .help("Enables the automatic detection and monitoring of validators connected to the \
+                    HTTP API and using the subnet subscription endpoint. This generally has the \
+                    effect of providing additional logging and metrics for locally controlled \
+                    validators.")
+        )
+        .arg(
+            Arg::with_name("validator-monitor-pubkeys")
+                .long("validator-monitor-pubkeys")
+                .help("A comma-separated list of 0x-prefixed validator public keys. \
+                        These validators will receive special monitoring and additional \
+                        logging.")
+                .value_name("PUBKEYS")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("validator-monitor-file")
+                .long("validator-monitor-file")
+                .help("As per --validator-monitor-pubkeys, but the comma-separated list is \
+                    contained within a file at the given path.")
+                .value_name("PATH")
                 .takes_value(true)
         )
 }

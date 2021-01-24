@@ -1,5 +1,6 @@
-use libp2p::gossipsub::IdentTopic as Topic;
+use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde_derive::{Deserialize, Serialize};
+use strum::AsRefStr;
 use types::SubnetId;
 
 /// The gossipsub topic names.
@@ -36,13 +37,15 @@ pub struct GossipTopic {
 
 /// Enum that brings these topics into the rust type system.
 // NOTE: There is intentionally no unknown type here. We only allow known gossipsub topics.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
-    /// Topic for publishing aggregate attestations and proofs.    
+    /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.
+    #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
     /// Topic for publishing voluntary exits.
     VoluntaryExit,
@@ -50,20 +53,6 @@ pub enum GossipKind {
     ProposerSlashing,
     /// Topic for publishing attester slashings.
     AttesterSlashing,
-}
-
-impl AsRef<str> for GossipKind {
-    fn as_ref(&self) -> &str {
-        use GossipKind::*;
-        match self {
-            BeaconBlock => "beacon_block",
-            BeaconAggregateAndProof => "beacon_aggregate_and_proof",
-            Attestation(_) => "beacon_attestation",
-            VoluntaryExit => "voluntary_exit",
-            ProposerSlashing => "proposer_slashing",
-            AttesterSlashing => "attester_slashing",
-        }
-    }
 }
 
 impl std::fmt::Display for GossipKind {
@@ -193,6 +182,15 @@ impl From<SubnetId> for GossipKind {
 
 // helper functions
 
+/// Get subnet id from an attestation subnet topic hash.
+pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<SubnetId> {
+    let gossip_topic = GossipTopic::decode(topic_hash.as_str()).ok()?;
+    if let GossipKind::Attestation(subnet_id) = gossip_topic.kind() {
+        return Some(*subnet_id);
+    }
+    None
+}
+
 // Determines if a string is a committee topic.
 fn committee_topic_index(topic: &str) -> Option<SubnetId> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
@@ -288,5 +286,33 @@ mod tests {
         assert!(GossipTopic::decode("").is_err());
         // Empty parts
         assert!(GossipTopic::decode("////").is_err());
+    }
+
+    #[test]
+    fn test_subnet_id_from_topic_hash() {
+        let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_block/ssz_snappy");
+        assert!(subnet_id_from_topic_hash(&topic_hash).is_none());
+
+        let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_attestation_42/ssz_snappy");
+        assert_eq!(
+            subnet_id_from_topic_hash(&topic_hash),
+            Some(SubnetId::new(42))
+        );
+    }
+
+    #[test]
+    fn test_as_str_ref() {
+        assert_eq!("beacon_block", BeaconBlock.as_ref());
+        assert_eq!(
+            "beacon_aggregate_and_proof",
+            BeaconAggregateAndProof.as_ref()
+        );
+        assert_eq!(
+            "beacon_attestation",
+            Attestation(SubnetId::new(42)).as_ref()
+        );
+        assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
+        assert_eq!("proposer_slashing", ProposerSlashing.as_ref());
+        assert_eq!("attester_slashing", AttesterSlashing.as_ref());
     }
 }

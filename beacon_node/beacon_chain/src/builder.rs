@@ -1,14 +1,12 @@
-use crate::beacon_chain::{
-    BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
-};
+use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_monitor::ValidatorMonitor;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
@@ -29,8 +27,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, Signature, SignedBeaconBlock,
-    Slot,
+    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
+    SignedBeaconBlock, Slot,
 };
 
 pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
@@ -91,6 +89,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     log: Option<Logger>,
     graffiti: Graffiti,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    validator_monitor: Option<ValidatorMonitor<T::EthSpec>>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -129,6 +128,7 @@ where
             log: None,
             graffiti: Graffiti::default(),
             slasher: None,
+            validator_monitor: None,
         }
     }
 
@@ -173,8 +173,8 @@ where
     /// Sets the logger.
     ///
     /// Should generally be called early in the build chain.
-    pub fn logger(mut self, logger: Logger) -> Self {
-        self.log = Some(logger);
+    pub fn logger(mut self, log: Logger) -> Self {
+        self.log = Some(log);
         self
     }
 
@@ -248,20 +248,12 @@ where
                     .to_string()
             })?;
 
-        let persisted_fork_choice = store
-            .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)
-            .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?
-            .ok_or("No persisted fork choice present in database.")?;
-
-        let fc_store = BeaconForkChoiceStore::from_persisted(
-            persisted_fork_choice.fork_choice_store,
-            store.clone(),
-        )
-        .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
-
         let fork_choice =
-            ForkChoice::from_persisted(persisted_fork_choice.fork_choice, fc_store)
-                .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?;
+            BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
+                store.clone(),
+            )
+            .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
+            .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
             .get_item::<SignedBeaconBlock<TEthSpec>>(&chain.genesis_block_root)
@@ -402,6 +394,23 @@ where
         self
     }
 
+    /// Register some validators for additional monitoring.
+    ///
+    /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
+    pub fn monitor_validators(
+        mut self,
+        auto_register: bool,
+        validators: Vec<PublicKeyBytes>,
+        log: Logger,
+    ) -> Self {
+        self.validator_monitor = Some(ValidatorMonitor::new(
+            validators,
+            auto_register,
+            log.clone(),
+        ));
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -429,6 +438,9 @@ where
         let genesis_state_root = self
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
+        let mut validator_monitor = self
+            .validator_monitor
+            .ok_or("Cannot build without a validator monitor")?;
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -507,6 +519,13 @@ where
             log.clone(),
         );
 
+        if let Some(slot) = slot_clock.now() {
+            validator_monitor.process_valid_state(
+                slot.epoch(TEthSpec::slots_per_epoch()),
+                &canonical_head.beacon_state,
+            );
+        }
+
         let beacon_chain = BeaconChain {
             spec: self.spec,
             config: self.chain_config,
@@ -549,6 +568,7 @@ where
             log: log.clone(),
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
+            validator_monitor: RwLock::new(validator_monitor),
         };
 
         let head = beacon_chain
@@ -717,6 +737,7 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .monitor_validators(true, vec![], log.clone())
             .build()
             .expect("should build");
 

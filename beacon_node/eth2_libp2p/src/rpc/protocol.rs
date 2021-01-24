@@ -17,6 +17,7 @@ use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
+use strum::{AsStaticRef, AsStaticStr};
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
@@ -470,10 +471,12 @@ where
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, AsStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
     // NOTE: in the future a ssz::DecodeError should map to an InvalidData error
+    #[strum(serialize = "decode_error")]
     SSZDecodeError(ssz::DecodeError),
     /// IO Error.
     IoError(String),
@@ -493,8 +496,6 @@ pub enum RPCError {
     NegotiationTimeout,
     /// Handler rejected this request.
     HandlerRejected,
-    /// The request exceeds the rate limit.
-    RateLimited,
 }
 
 impl From<ssz::DecodeError> for RPCError {
@@ -533,7 +534,6 @@ impl std::fmt::Display for RPCError {
             RPCError::InternalError(ref err) => write!(f, "Internal error: {}", err),
             RPCError::NegotiationTimeout => write!(f, "Negotiation timeout"),
             RPCError::HandlerRejected => write!(f, "Handler rejected the request"),
-            RPCError::RateLimited => write!(f, "Request exceeds the rate limit"),
         }
     }
 }
@@ -552,7 +552,6 @@ impl std::error::Error for RPCError {
             RPCError::ErrorResponse(_, _) => None,
             RPCError::NegotiationTimeout => None,
             RPCError::HandlerRejected => None,
-            RPCError::RateLimited => None,
         }
     }
 }
@@ -566,6 +565,17 @@ impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
             RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             RPCRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             RPCRequest::MetaData(_) => write!(f, "MetaData request"),
+        }
+    }
+}
+
+impl RPCError {
+    /// Get a `str` representation of the error.
+    /// Used for metrics.
+    pub fn as_static_str(&self) -> &'static str {
+        match self {
+            RPCError::ErrorResponse(ref code, ..) => code.as_static(),
+            e => e.as_static(),
         }
     }
 }

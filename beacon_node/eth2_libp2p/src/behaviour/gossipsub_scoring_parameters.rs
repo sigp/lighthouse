@@ -1,8 +1,7 @@
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, TopicHash};
 use libp2p::gossipsub::{
-    GenericGossipsubConfig, IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds,
-    TopicScoreParams,
+    GossipsubConfig, IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams,
 };
 use std::cmp::max;
 use std::collections::HashMap;
@@ -37,11 +36,8 @@ pub struct PeerScoreSettings<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
-    pub fn new<T>(
-        chain_spec: &ChainSpec,
-        gs_config: &GenericGossipsubConfig<T>,
-    ) -> PeerScoreSettings<TSpec> {
-        let slot = Duration::from_millis(chain_spec.milliseconds_per_slot);
+    pub fn new(chain_spec: &ChainSpec, gs_config: &GossipsubConfig) -> PeerScoreSettings<TSpec> {
+        let slot = Duration::from_secs(chain_spec.seconds_per_slot);
         let beacon_attestation_subnet_weight = 1.0 / chain_spec.attestation_subnet_count as f64;
         let max_positive_score = (MAX_IN_MESH_SCORE + MAX_FIRST_MESSAGE_DELIVERIES_SCORE)
             * (BEACON_BLOCK_WEIGHT
@@ -56,7 +52,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             epoch: slot * TSpec::slots_per_epoch() as u32,
             beacon_attestation_subnet_weight,
             max_positive_score,
-            decay_interval: slot,
+            decay_interval: max(Duration::from_secs(1), slot),
             decay_to_zero: 0.01,
             mesh_n: gs_config.mesh_n(),
             max_committees_per_slot: chain_spec.max_committees_per_slot,
@@ -74,16 +70,16 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         enr_fork_id: &EnrForkId,
         current_slot: Slot,
     ) -> error::Result<PeerScoreParams> {
-        let mut params = PeerScoreParams::default();
-
-        params.decay_interval = self.decay_interval;
-        params.decay_to_zero = self.decay_to_zero;
-        params.retain_score = self.epoch * 100;
-        params.app_specific_weight = 1.0;
-        params.ip_colocation_factor_threshold = 3.0;
-        params.behaviour_penalty_threshold = 6.0;
-
-        params.behaviour_penalty_decay = self.score_parameter_decay(self.epoch * 10);
+        let mut params = PeerScoreParams {
+            decay_interval: self.decay_interval,
+            decay_to_zero: self.decay_to_zero,
+            retain_score: self.epoch * 100,
+            app_specific_weight: 1.0,
+            ip_colocation_factor_threshold: 3.0,
+            behaviour_penalty_threshold: 6.0,
+            behaviour_penalty_decay: self.score_parameter_decay(self.epoch * 10),
+            ..Default::default()
+        };
 
         let target_value = Self::decay_convergence(
             params.behaviour_penalty_decay,

@@ -1,4 +1,5 @@
 use crate::beacon_chain::ForkChoiceError;
+use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
@@ -46,6 +47,7 @@ pub enum BeaconChainError {
     DBInconsistent(String),
     DBError(store::Error),
     ForkChoiceError(ForkChoiceError),
+    ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
@@ -90,6 +92,10 @@ pub enum BeaconChainError {
     },
     WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<&'static str>),
+    AttestingPriorToHead {
+        head_slot: Slot,
+        request_slot: Slot,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -106,9 +112,11 @@ easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
+easy_from_to!(ForkChoiceStoreError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
+    UnableToGetHeadInfo(BeaconChainError),
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
     UnableToProduceAtSlot(Slot),

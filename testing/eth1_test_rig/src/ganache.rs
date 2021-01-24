@@ -1,15 +1,11 @@
-use futures::compat::Future01CompatExt;
 use serde_json::json;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use web3::{
-    transports::{EventLoopHandle, Http},
-    Transport, Web3,
-};
+use tokio_compat_02::FutureExt;
+use web3::{transports::Http, Transport, Web3};
 
 /// How long we will wait for ganache to indicate that it is ready.
 const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
@@ -20,7 +16,6 @@ const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
 pub struct GanacheInstance {
     pub port: u16,
     child: Child,
-    _event_loop: Arc<EventLoopHandle>,
     pub web3: Web3<Http>,
     network_id: u64,
     chain_id: u64,
@@ -56,7 +51,7 @@ impl GanacheInstance {
             }
         }?;
 
-        let (event_loop, transport) = Http::new(&endpoint(port)).map_err(|e| {
+        let transport = Http::new(&endpoint(port)).map_err(|e| {
             format!(
                 "Failed to start HTTP transport connected to ganache: {:?}",
                 e
@@ -69,7 +64,6 @@ impl GanacheInstance {
         Ok(Self {
             child,
             port,
-            _event_loop: Arc::new(event_loop),
             web3,
             network_id,
             chain_id,
