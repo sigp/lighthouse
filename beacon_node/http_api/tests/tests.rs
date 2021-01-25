@@ -25,12 +25,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time::Duration;
-use tokio_compat_02::FutureExt;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
     EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
+use futures::FutureExt;
 
 type E = MainnetEthSpec;
 
@@ -933,7 +933,11 @@ impl ApiTester {
         self.client.post_beacon_blocks(next_block).await.unwrap();
 
         assert!(
-            self.network_rx.try_recv().is_ok(),
+            self.network_rx.recv().now_or_never().is_some(),
+            "valid blocks should be sent to network"
+        );
+        assert!(
+            self.network_rx.recv().now_or_never().is_some(),
             "valid blocks should be sent to network"
         );
 
@@ -947,7 +951,7 @@ impl ApiTester {
         assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
 
         assert!(
-            self.network_rx.try_recv().is_ok(),
+            self.network_rx.recv().now_or_never().is_some(),
             "invalid blocks should be sent to network"
         );
 
@@ -997,7 +1001,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.try_recv().is_ok(),
+            self.network_rx.recv().now_or_never().is_some(),
             "valid attestation should be sent to network"
         );
 
@@ -1034,7 +1038,7 @@ impl ApiTester {
         }
 
         assert!(
-            self.network_rx.try_recv().is_ok(),
+            self.network_rx.recv().now_or_never().is_some(),
             "if some attestations are valid, we should send them to the network"
         );
 
@@ -1064,7 +1068,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.try_recv().is_ok(),
+            self.network_rx.recv().now_or_never().is_some(),
             "valid attester slashing should be sent to network"
         );
 
@@ -1081,7 +1085,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.try_recv().is_err(),
+            self.network_rx.recv().now_or_never().is_none(),
             "invalid attester slashing should not be sent to network"
         );
 
@@ -1110,7 +1114,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.try_recv().is_ok(),
+            self.network_rx.recv().now_or_never().is_some(),
             "valid proposer slashing should be sent to network"
         );
 
@@ -1127,7 +1131,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.try_recv().is_err(),
+            self.network_rx.recv().now_or_never().is_none(),
             "invalid proposer slashing should not be sent to network"
         );
 
@@ -1156,7 +1160,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.try_recv().is_ok(),
+            self.network_rx.recv().now_or_never().is_some(),
             "valid exit should be sent to network"
         );
 
@@ -1173,7 +1177,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.try_recv().is_err(),
+            self.network_rx.recv().now_or_never().is_none(),
             "invalid exit should not be sent to network"
         );
 
@@ -1822,7 +1826,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert!(self.network_rx.try_recv().is_ok());
+        assert!(self.network_rx.recv().now_or_never().is_some());
 
         self
     }
@@ -1837,7 +1841,7 @@ impl ApiTester {
             .await
             .unwrap_err();
 
-        assert!(self.network_rx.try_recv().is_err());
+        assert!(self.network_rx.recv().now_or_never().is_none());
 
         self
     }
@@ -1856,7 +1860,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        self.network_rx.try_recv().unwrap();
+        self.network_rx.recv().now_or_never().unwrap();
 
         self
     }
@@ -2127,20 +2131,18 @@ async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events() {
-    ApiTester::new().test_get_events().compat().await;
+    ApiTester::new().test_get_events().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events_from_genesis() {
     ApiTester::new_from_genesis()
         .test_get_events_from_genesis()
-        .compat()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get() {
-    async {
         ApiTester::new()
             .test_beacon_genesis()
             .await
@@ -2178,16 +2180,12 @@ async fn beacon_get() {
             .await
             .test_get_beacon_pool_voluntary_exits()
             .await;
-    }
-    .compat()
-    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_valid() {
     ApiTester::new()
         .test_post_beacon_blocks_valid()
-        .compat()
         .await;
 }
 
@@ -2195,7 +2193,6 @@ async fn post_beacon_blocks_valid() {
 async fn post_beacon_blocks_invalid() {
     ApiTester::new()
         .test_post_beacon_blocks_invalid()
-        .compat()
         .await;
 }
 
@@ -2203,7 +2200,6 @@ async fn post_beacon_blocks_invalid() {
 async fn beacon_pools_post_attestations_valid() {
     ApiTester::new()
         .test_post_beacon_pool_attestations_valid()
-        .compat()
         .await;
 }
 
@@ -2211,7 +2207,6 @@ async fn beacon_pools_post_attestations_valid() {
 async fn beacon_pools_post_attestations_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_attestations_invalid()
-        .compat()
         .await;
 }
 
@@ -2219,7 +2214,6 @@ async fn beacon_pools_post_attestations_invalid() {
 async fn beacon_pools_post_attester_slashings_valid() {
     ApiTester::new()
         .test_post_beacon_pool_attester_slashings_valid()
-        .compat()
         .await;
 }
 
@@ -2227,7 +2221,6 @@ async fn beacon_pools_post_attester_slashings_valid() {
 async fn beacon_pools_post_attester_slashings_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_attester_slashings_invalid()
-        .compat()
         .await;
 }
 
@@ -2235,7 +2228,6 @@ async fn beacon_pools_post_attester_slashings_invalid() {
 async fn beacon_pools_post_proposer_slashings_valid() {
     ApiTester::new()
         .test_post_beacon_pool_proposer_slashings_valid()
-        .compat()
         .await;
 }
 
@@ -2243,7 +2235,6 @@ async fn beacon_pools_post_proposer_slashings_valid() {
 async fn beacon_pools_post_proposer_slashings_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_proposer_slashings_invalid()
-        .compat()
         .await;
 }
 
@@ -2251,7 +2242,6 @@ async fn beacon_pools_post_proposer_slashings_invalid() {
 async fn beacon_pools_post_voluntary_exits_valid() {
     ApiTester::new()
         .test_post_beacon_pool_voluntary_exits_valid()
-        .compat()
         .await;
 }
 
@@ -2259,7 +2249,6 @@ async fn beacon_pools_post_voluntary_exits_valid() {
 async fn beacon_pools_post_voluntary_exits_invalid() {
     ApiTester::new()
         .test_post_beacon_pool_voluntary_exits_invalid()
-        .compat()
         .await;
 }
 
@@ -2267,13 +2256,10 @@ async fn beacon_pools_post_voluntary_exits_invalid() {
 async fn config_get() {
     ApiTester::new()
         .test_get_config_fork_schedule()
-        .compat()
         .await
         .test_get_config_spec()
-        .compat()
         .await
         .test_get_config_deposit_contract()
-        .compat()
         .await;
 }
 
@@ -2281,10 +2267,8 @@ async fn config_get() {
 async fn debug_get() {
     ApiTester::new()
         .test_get_debug_beacon_states()
-        .compat()
         .await
         .test_get_debug_beacon_heads()
-        .compat()
         .await;
 }
 
@@ -2292,25 +2276,18 @@ async fn debug_get() {
 async fn node_get() {
     ApiTester::new()
         .test_get_node_version()
-        .compat()
         .await
         .test_get_node_syncing()
-        .compat()
         .await
         .test_get_node_identity()
-        .compat()
         .await
         .test_get_node_health()
-        .compat()
         .await
         .test_get_node_peers_by_id()
-        .compat()
         .await
         .test_get_node_peers()
-        .compat()
         .await
         .test_get_node_peer_count()
-        .compat()
         .await;
 }
 
@@ -2318,7 +2295,6 @@ async fn node_get() {
 async fn get_validator_duties_attester() {
     ApiTester::new()
         .test_get_validator_duties_attester()
-        .compat()
         .await;
 }
 
@@ -2327,7 +2303,6 @@ async fn get_validator_duties_attester_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_attester()
-        .compat()
         .await;
 }
 
@@ -2335,7 +2310,6 @@ async fn get_validator_duties_attester_with_skip_slots() {
 async fn get_validator_duties_proposer() {
     ApiTester::new()
         .test_get_validator_duties_proposer()
-        .compat()
         .await;
 }
 
@@ -2344,13 +2318,12 @@ async fn get_validator_duties_proposer_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_proposer()
-        .compat()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production() {
-    ApiTester::new().test_block_production().compat().await;
+    ApiTester::new().test_block_production().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2358,7 +2331,6 @@ async fn block_production_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production()
-        .compat()
         .await;
 }
 
@@ -2366,7 +2338,6 @@ async fn block_production_with_skip_slots() {
 async fn get_validator_attestation_data() {
     ApiTester::new()
         .test_get_validator_attestation_data()
-        .compat()
         .await;
 }
 
@@ -2375,7 +2346,6 @@ async fn get_validator_attestation_data_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_attestation_data()
-        .compat()
         .await;
 }
 
@@ -2383,7 +2353,6 @@ async fn get_validator_attestation_data_with_skip_slots() {
 async fn get_validator_aggregate_attestation() {
     ApiTester::new()
         .test_get_validator_aggregate_attestation()
-        .compat()
         .await;
 }
 
@@ -2392,7 +2361,6 @@ async fn get_validator_aggregate_attestation_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_attestation()
-        .compat()
         .await;
 }
 
@@ -2400,7 +2368,6 @@ async fn get_validator_aggregate_attestation_with_skip_slots() {
 async fn get_validator_aggregate_and_proofs_valid() {
     ApiTester::new()
         .test_get_validator_aggregate_and_proofs_valid()
-        .compat()
         .await;
 }
 
@@ -2409,7 +2376,6 @@ async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_and_proofs_valid()
-        .compat()
         .await;
 }
 
@@ -2417,7 +2383,6 @@ async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
 async fn get_validator_aggregate_and_proofs_invalid() {
     ApiTester::new()
         .test_get_validator_aggregate_and_proofs_invalid()
-        .compat()
         .await;
 }
 
@@ -2426,7 +2391,6 @@ async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
     ApiTester::new()
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_and_proofs_invalid()
-        .compat()
         .await;
 }
 
@@ -2434,7 +2398,6 @@ async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
 async fn get_validator_beacon_committee_subscriptions() {
     ApiTester::new()
         .test_get_validator_beacon_committee_subscriptions()
-        .compat()
         .await;
 }
 
@@ -2442,33 +2405,23 @@ async fn get_validator_beacon_committee_subscriptions() {
 async fn lighthouse_endpoints() {
     ApiTester::new()
         .test_get_lighthouse_health()
-        .compat()
         .await
         .test_get_lighthouse_syncing()
-        .compat()
         .await
         .test_get_lighthouse_proto_array()
-        .compat()
         .await
         .test_get_lighthouse_validator_inclusion()
-        .compat()
         .await
         .test_get_lighthouse_validator_inclusion_global()
-        .compat()
         .await
         .test_get_lighthouse_eth1_syncing()
-        .compat()
         .await
         .test_get_lighthouse_eth1_block_cache()
-        .compat()
         .await
         .test_get_lighthouse_eth1_deposit_cache()
-        .compat()
         .await
         .test_get_lighthouse_beacon_states_ssz()
-        .compat()
         .await
         .test_get_lighthouse_staking()
-        .compat()
         .await;
 }

@@ -313,7 +313,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                 // sent in the timeout
                 match futures::future::select(
                     Box::pin(receiver.next_event()),
-                    tokio::time::sleep(Duration::from_secs(1)),
+                    Box::pin(tokio::time::sleep(Duration::from_secs(1))),
                 )
                 .await
                 {
@@ -688,7 +688,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 // sent in the timeout
                 match futures::future::select(
                     Box::pin(receiver.next_event()),
-                    tokio::time::sleep(Duration::from_millis(1000)),
+                    Box::pin(tokio::time::sleep(Duration::from_secs(1))),
                 )
                 .await
                 {
