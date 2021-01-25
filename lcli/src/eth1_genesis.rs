@@ -6,7 +6,6 @@ use ssz::Encode;
 use std::cmp::max;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio_compat_02::FutureExt;
 use types::EthSpec;
 
 /// Interval between polling the eth1 node for genesis information.
@@ -77,7 +76,6 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
             info!("Connecting to eth1 http endpoints: {:?}", endpoints);
 
             Ok(())
-        }
-        .compat(),
+        },
     )
 }

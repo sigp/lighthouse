@@ -3,7 +3,6 @@
 //! This service allows task execution on the beacon node for various functionality.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use futures::stream::StreamExt;
 use slog::info;
 use slot_clock::SlotClock;
 use std::sync::Arc;

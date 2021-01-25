@@ -21,7 +21,6 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{interval_at, Duration, Instant};
-use tokio_stream::StreamExt;
 use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
 
 pub struct SlasherService<T: BeaconChainTypes> {

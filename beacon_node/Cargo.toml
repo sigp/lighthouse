@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }
-tokio-compat-02 = "0.1"
 
 [features]
 write_ssz_files = ["beacon_chain/write_ssz_files"]  # Writes debugging .ssz files to /tmp during block processing.
@@ -41,7 +40,7 @@ eth2_libp2p = { path = "./eth2_libp2p" }
 eth2_ssz = "0.1.2"
 serde = "1.0.116"
 clap_utils = { path = "../common/clap_utils" }
-hyper = "0.13.8"
+hyper = "0.14.2"
 lighthouse_version = { path = "../common/lighthouse_version" }
 hex = "0.4.2"
 slasher = { path = "../slasher" }

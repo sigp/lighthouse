@@ -131,7 +131,7 @@ fn syncing_sim(
     };
 
     env.runtime()
-        .block_on(tokio_compat_02::FutureExt::compat(main_future))
+        .block_on(main_future)
         .unwrap();
 
     env.fire_signal();

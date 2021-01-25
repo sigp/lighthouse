@@ -11,7 +11,6 @@ path = "src/lib.rs"
 [dev-dependencies]
 tokio = { version = "1.0.2", features = ["time", "rt-multi-thread", "macros"] }
 deposit_contract = { path = "../common/deposit_contract" }
-tokio-compat-02 = "0.1"
 
 [dependencies]
 eth2_ssz = "0.1.2"
@@ -54,7 +53,7 @@ account_utils = { path = "../common/account_utils" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
 warp = "0.3.0"
-hyper = "0.13.8"
+hyper = "0.14.2"
 serde_utils = { path = "../consensus/serde_utils" }
 libsecp256k1 = "0.3.5"
 ring = "0.16.19"

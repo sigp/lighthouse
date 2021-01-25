@@ -10,7 +10,7 @@ use crate::rpc::{
 };
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
-use futures::{Future, FutureExt, Sink, SinkExt, Stream, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;

@@ -25,7 +25,6 @@ use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
-use tokio_compat_02::FutureExt;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 
@@ -446,8 +445,7 @@ fn invalid_pubkey() {
                 .invalidate_api_token()
                 .test_get_lighthouse_version_invalid()
                 .await;
-        }
-        .compat(),
+        },
     );
 }
 
@@ -465,8 +463,7 @@ fn simple_getters() {
                 .await
                 .test_get_lighthouse_spec()
                 .await;
-        }
-        .compat(),
+        },
     );
 }
 
@@ -507,8 +504,7 @@ fn hd_validator_creation() {
                 .await
                 .assert_enabled_validators_count(2)
                 .assert_validators_count(3);
-        }
-        .compat(),
+        },
     );
 }
 
@@ -537,8 +533,7 @@ fn validator_enabling() {
                 .await
                 .assert_enabled_validators_count(2)
                 .assert_validators_count(2);
-        }
-        .compat(),
+        },
     );
 }
 
@@ -573,7 +568,6 @@ fn keystore_validator_creation() {
                 .await
                 .assert_enabled_validators_count(1)
                 .assert_validators_count(2);
-        }
-        .compat(),
+        },
     );
 }

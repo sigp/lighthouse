@@ -26,10 +26,10 @@ impl ApiTestSigner<E> {
 
         let client = environment
             .runtime()
-            .block_on(tokio_compat_02::FutureExt::compat(Client::new(
+            .block_on(Client::new(
                 runtime_context,
                 &matches,
-            )))
+            ))
             .map_err(|e| format!("Failed to init Rest API: {}", e))
             .unwrap();
 

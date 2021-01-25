@@ -35,4 +35,3 @@ store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
 discv5 = { git = "https://github.com/sigp/discv5", branch = "master" }
-tokio-compat-02 = "0.1"

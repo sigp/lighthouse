@@ -5,7 +5,6 @@ use eth2_libp2p::{
     discv5::{enr::NodeId, Discv5, Discv5ConfigBuilder, Discv5Event},
     EnrExt, Eth2Enr,
 };
-use futures::prelude::*;
 use slog::info;
 use types::EthSpec;
 

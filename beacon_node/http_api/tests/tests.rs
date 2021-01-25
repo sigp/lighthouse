@@ -933,13 +933,10 @@ impl ApiTester {
         self.client.post_beacon_blocks(next_block).await.unwrap();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_some(),
+            self.network_rx.recv().await.is_some(),
             "valid blocks should be sent to network"
         );
-        assert!(
-            self.network_rx.recv().now_or_never().is_some(),
-            "valid blocks should be sent to network"
-        );
+
 
         self
     }
@@ -951,7 +948,7 @@ impl ApiTester {
         assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
 
         assert!(
-            self.network_rx.recv().now_or_never().is_some(),
+            self.network_rx.recv().await.is_some(),
             "invalid blocks should be sent to network"
         );
 
@@ -1001,7 +998,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_some(),
+            self.network_rx.recv().await.is_some(),
             "valid attestation should be sent to network"
         );
 
@@ -1038,7 +1035,7 @@ impl ApiTester {
         }
 
         assert!(
-            self.network_rx.recv().now_or_never().is_some(),
+            self.network_rx.recv().await.is_some(),
             "if some attestations are valid, we should send them to the network"
         );
 
@@ -1068,7 +1065,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_some(),
+            self.network_rx.recv().await.is_some(),
             "valid attester slashing should be sent to network"
         );
 
@@ -1114,7 +1111,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_some(),
+            self.network_rx.recv().await.is_some(),
             "valid proposer slashing should be sent to network"
         );
 
@@ -1160,7 +1157,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_some(),
+            self.network_rx.recv().await.is_some(),
             "valid exit should be sent to network"
         );
 
@@ -1826,7 +1823,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert!(self.network_rx.recv().now_or_never().is_some());
+        assert!(self.network_rx.recv().await.is_some());
 
         self
     }

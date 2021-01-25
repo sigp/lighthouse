@@ -6,7 +6,6 @@ use crate::{
 };
 use environment::RuntimeContext;
 use futures::future::FutureExt;
-use futures::StreamExt;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;

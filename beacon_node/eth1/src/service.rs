@@ -9,7 +9,7 @@ use crate::{
     inner::{DepositUpdater, Inner},
 };
 use fallback::{Fallback, FallbackError};
-use futures::{future::TryFutureExt, StreamExt};
+use futures::{future::TryFutureExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};

@@ -12,7 +12,6 @@ use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio_compat_02::FutureExt;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
 
 pub const CMD: &str = "exit";
@@ -85,8 +84,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
             &spec,
             stdin_inputs,
             &testnet_config,
-        )
-        .compat(),
+        ),
     )?;
 
     Ok(())

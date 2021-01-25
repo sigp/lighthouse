@@ -5,7 +5,7 @@ use crate::{
 };
 use environment::RuntimeContext;
 use futures::channel::mpsc::Sender;
-use futures::{SinkExt, StreamExt};
+use futures::{SinkExt};
 use parking_lot::RwLock;
 use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;

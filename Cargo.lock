@@ -32,7 +32,6 @@ dependencies = [
  "slot_clock",
  "tempfile",
  "tokio 1.0.2",
- "tokio-compat-02",
  "types",
  "validator_dir",
 ]
@@ -666,7 +665,7 @@ dependencies = [
  "futures 0.3.12",
  "genesis",
  "hex",
- "hyper 0.13.9",
+ "hyper 0.14.2",
  "lighthouse_version",
  "logging",
  "node_test_rig",
@@ -679,7 +678,6 @@ dependencies = [
  "store",
  "task_executor",
  "tokio 1.0.2",
- "tokio-compat-02",
  "types",
 ]
 
@@ -2852,7 +2850,6 @@ dependencies = [
  "state_processing",
  "store",
  "tokio 1.0.2",
- "tokio-compat-02",
  "tokio-stream",
  "tree_hash",
  "types",
@@ -2878,7 +2875,6 @@ dependencies = [
  "slot_clock",
  "store",
  "tokio 1.0.2",
- "tokio-compat-02",
  "types",
  "warp",
  "warp_utils",
@@ -3423,8 +3419,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p"
-version = "0.35.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5133112ce42be9482f6a87be92a605dd6bbc9e93c297aee77d172ff06908f3a"
 dependencies = [
  "atomic",
  "bytes 1.0.1",
@@ -3486,7 +3483,8 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dad04d3cef6c1df366a6ab58c9cf8b06497699e335d83ac2174783946ff847d6"
 dependencies = [
  "asn1_der",
  "bs58 0.4.0",
@@ -3519,7 +3517,8 @@ dependencies = [
 [[package]]
 name = "libp2p-core-derive"
 version = "0.21.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4bc40943156e42138d22ed3c57ff0e1a147237742715937622a99b10fbe0156"
 dependencies = [
  "quote",
  "syn",
@@ -3528,7 +3527,8 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5153b6db68fd4baa3b304e377db744dd8fea8ff4e4504509ee636abcde88d3e3"
 dependencies = [
  "futures 0.3.12",
  "libp2p-core 0.27.0",
@@ -3537,8 +3537,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p-gossipsub"
-version = "0.28.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12451ba9493e87c91baf2a6dffce9ddf1fbc807a0861532d7cf477954f8ebbee"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -3563,7 +3564,8 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b40fb36a059b7a8cce1514bd8b546fa612e006c9937caa7f5950cb20021fe91e"
 dependencies = [
  "futures 0.3.12",
  "libp2p-core 0.27.0",
@@ -3578,7 +3580,8 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2705dc94b01ab9e3779b42a09bbf3712e637ed213e875c30face247291a85af0"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.0.1",
@@ -3595,7 +3598,8 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.29.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aca322b52a0c5136142a7c3971446fb1e9964923a526c9cc6ef3b7c94e57778"
 dependencies = [
  "bytes 1.0.1",
  "curve25519-dalek",
@@ -3616,7 +3620,8 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22ea8c69839a0e593c8c6a24282cb234d48ac37be4153183f4914e00f5303e75"
 dependencies = [
  "either",
  "futures 0.3.12",
@@ -3631,7 +3636,8 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.27.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3dbd3d7076a478ac5a6aca55e74bdc250ac539b95de09b9d09915e0b8d01a6b2"
 dependencies = [
  "async-io",
  "futures 0.3.12",
@@ -3649,7 +3655,8 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.28.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3b1c6a3431045da8b925ed83384e4c5163e14b990572307fca9c507435d4d22"
 dependencies = [
  "either",
  "futures 0.3.12",
@@ -3666,7 +3673,8 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490b8b27fc40fe35212df1b6a3d14bffaa4117cbff956fdc2892168a371102ad"
 dependencies = [
  "futures 0.3.12",
  "libp2p-core 0.27.0",
@@ -4097,7 +4105,8 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.10.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10ddc0eb0117736f19d556355464fc87efc8ad98b29e3fd84f02531eb6e90840"
 dependencies = [
  "bytes 1.0.1",
  "futures 0.3.12",
@@ -4444,7 +4453,8 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.11.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=bbd3df64ed4cc99a5ddac47ab53673161c70e6da#bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bfda2e46fc5e14122649e2645645a81ee5844e0fb2e727ef560cc71a8b2d801"
 dependencies = [
  "arrayref",
  "bs58 0.4.0",
@@ -5216,7 +5226,7 @@ dependencies = [
  "clap",
  "environment",
  "futures 0.3.12",
- "hyper 0.13.9",
+ "hyper 0.14.2",
  "lazy_static",
  "regex",
  "remote_signer_backend",
@@ -5254,7 +5264,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio 1.0.2",
- "tokio-compat-02",
  "types",
 ]
 
@@ -5791,7 +5800,6 @@ dependencies = [
  "parking_lot",
  "rayon",
  "tokio 1.0.2",
- "tokio-compat-02",
  "types",
  "validator_client",
 ]
@@ -6306,7 +6314,6 @@ dependencies = [
  "lighthouse_metrics",
  "slog",
  "tokio 1.0.2",
- "tokio-compat-02",
 ]
 
 [[package]]
@@ -7106,7 +7113,7 @@ dependencies = [
  "fallback",
  "futures 0.3.12",
  "hex",
- "hyper 0.13.9",
+ "hyper 0.14.2",
  "lazy_static",
  "libc",
  "libsecp256k1",
@@ -7131,7 +7138,6 @@ dependencies = [
  "slot_clock",
  "tempfile",
  "tokio 1.0.2",
- "tokio-compat-02",
  "tree_hash",
  "types",
  "validator_dir",

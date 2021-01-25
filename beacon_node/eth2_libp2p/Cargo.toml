@@ -43,9 +43,7 @@ regex = "1.3.9"
 strum = { version = "0.20", features = ["derive"] }
 
 [dependencies.libp2p]
-#version = "0.23.0"
-git = "https://github.com/libp2p/rust-libp2p"
-rev = "bbd3df64ed4cc99a5ddac47ab53673161c70e6da"
+version = "0.34.0"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
 

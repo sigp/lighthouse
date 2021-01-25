@@ -7,7 +7,6 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use tokio_compat_02::FutureExt;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -293,8 +292,7 @@ fn run<E: EthSpec>(
                             .shutdown_sender()
                             .try_send("Failed to start beacon node");
                     }
-                }
-                .compat(),
+                },
             );
         }
         ("validator_client", Some(matches)) => {
@@ -320,8 +318,7 @@ fn run<E: EthSpec>(
                             .shutdown_sender()
                             .try_send("Failed to start validator client");
                     }
-                }
-                .compat(),
+                },
             );
         }
         ("remote_signer", Some(matches)) => {

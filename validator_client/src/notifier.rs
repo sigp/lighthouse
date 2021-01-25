@@ -1,5 +1,4 @@
 use crate::ProductionValidatorClient;
-use futures::StreamExt;
 use slog::{error, info};
 use slot_clock::SlotClock;
 use tokio::time::{interval_at, Duration, Instant};
@@ -19,7 +18,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
 
     // Run the notifier half way through each slot.
     let start_instant = Instant::now() + duration_to_next_slot + (slot_duration / 2);
-    let mut interval = interval_at(start_instant, slot_duration);
+    let _interval = interval_at(start_instant, slot_duration);
 
     let interval_fut = async move {
         let log = context.log();

@@ -19,9 +19,8 @@ use beacon_chain::{
 };
 use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
-use eth2::types::{self as api_types, EventKind, ValidatorId};
+use eth2::types::{self as api_types, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
-use futures::future;
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use parking_lot::Mutex;
@@ -36,10 +35,8 @@ use std::convert::TryInto;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_stream::{Stream, StreamExt, StreamMap};
+use tokio_stream::{Stream, StreamExt};
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
     Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
@@ -49,7 +46,6 @@ use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter};
-use warp_utils::reject::ServerSentEventError;
 use warp_utils::task::{blocking_json_task, blocking_task};
 
 const API_PREFIX: &str = "eth";
@@ -2397,7 +2393,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
                         for topic in topics.topics.0.clone() {
-                            let mut receiver = match topic {
+                            let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
                                 api_types::EventTopic::Attestation => {
@@ -2412,7 +2408,7 @@ pub fn serve<T: BeaconChainTypes>(
                             };
 
                             receivers.push(broadcast_stream::BroadcastStream::new(receiver).map(
-                                |(msg)| {
+                                |msg| {
                                     match msg {
                                         Ok(data) => Event::default()
                                             .event(data.topic_name())
