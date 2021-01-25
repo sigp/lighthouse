@@ -18,12 +18,13 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
 
     // Run the notifier half way through each slot.
     let start_instant = Instant::now() + duration_to_next_slot + (slot_duration / 2);
-    let _interval = interval_at(start_instant, slot_duration);
+    let mut interval = interval_at(start_instant, slot_duration);
 
     let interval_fut = async move {
         let log = context.log();
 
         loop {
+            interval.tick().await;
             let num_available = duties_service.beacon_nodes.num_available().await;
             let num_synced = duties_service.beacon_nodes.num_synced().await;
             let num_total = duties_service.beacon_nodes.num_total().await;

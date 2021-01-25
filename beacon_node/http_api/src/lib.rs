@@ -2356,28 +2356,6 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // fn stream_events<T: EthSpec>(mut receiver: Receiver<EventKind<T>>)
-    //                              -> impl Stream<Item=Result<EventKind<T>, RecvError>> + Unpin + Send + 'static where <T as EthSpec>::MaxValidatorsPerCommittee: Unpin
-    // {
-    //     async_stream::try_stream! {
-    //     loop {
-    //         let event = receiver.recv().await?;
-    //         yield event;
-    //     }
-    // }
-    // }
-    //
-    // fn merge_streams<T: EthSpec>(
-    //     stream_map: StreamMap<
-    //         String,
-    //         impl Stream<Item=Result<EventKind<T>, RecvError>> + Send + Unpin + 'static,
-    //     >,
-    // ) -> impl Stream<Item=Result<Event, ServerSentEventError>> + 'static {
-    //
-    //     // Convert messages into Server-Sent Events and return resulting stream.
-    //     stream_map
-    // }
-
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
