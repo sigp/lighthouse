@@ -1,14 +1,14 @@
 # Validator graffiti
 
-Lighthouse provides 3 options for setting validator graffitis on the validator client.
+Lighthouse provides 3 options for setting validator graffitis.
 
-## Using the `--graffiti-file` flag on the validator client
+### Using the "--graffiti-file" flag on the validator client
 Users can specify a file with the `--graffiti-file` flag. This option is useful for dynamically changing graffitis for various use cases (e.g. drawing on the beaconcha.in graffiti wall). This file is loaded once on startup and reloaded everytime a validator is chosen to propose a block.
 
 Usage:
 `lighthouse vc --graffiti-file graffiti_file.txt`
 
-The file should contain a key value pair corresponding to validator public key and the corresponding graffiti.
+The file should contain key value pairs corresponding to validator public keys and their associated graffiti. The file should start with a default key for the  default graffiti case.
 ```
 default: default_graffiti
 public_key1: graffiti1
@@ -26,8 +26,8 @@ default: Lighthouse
 
 Lighthouse will first search for the graffiti corresponding to the public key of the proposing validator, if there are no matches for the public key, then it uses the graffiti corresponding to the default key.
 
-## Setting the graffiti in the `validator_definitions.yml`
-Users can set validator specific graffitis in `validator_definitions.yml` with the graffiti key. This is useful for static setups where the graffitis won't change on every new block proposal.
+### Setting the graffiti in the `validator_definitions.yml`
+Users can set validator specific graffitis in `validator_definitions.yml` with the `graffiti` key. This option is recommended for static setups where the graffitis won't change on every new block proposal.
 
 Below is an example of the validator_definitions.yml with validator specific graffitis:
 ```
@@ -46,13 +46,13 @@ Below is an example of the validator_definitions.yml with validator specific gra
   graffiti: "somethingprofound"
 ```
 
-## Using the `--graffiti` flag on the validator client
+### Using the "--graffiti" flag on the validator client
 Users can specify a common graffiti for all their validators using the `--graffiti` flag.
 
 Usage: `lighthouse vc --graffiti fortytwo`
 
-The order of preference for loading the graffiti is as follows:
-1. Read from `--graffiti-file` if provided.
-2. If `--graffiti-file` is not provided or errors, read graffiti from `validator_definitions.yml`.
-3. If graffiti is not specified in `validator_definitions.yml`, load the graffiti passed in the `--graffiti` flag.
-4. If the `--graffiti` flag is not passed, load the default Lighthouse graffiti.
+> Note: The order of preference for loading the graffiti is as follows:
+> 1. Read from `--graffiti-file` if provided.
+> 2. If `--graffiti-file` is not provided or errors, read graffiti from `validator_definitions.yml`.
+> 3. If graffiti is not specified in `validator_definitions.yml`, load the graffiti passed in the `--graffiti` flag.
+> 4. If the `--graffiti` flag is not passed, load the default Lighthouse graffiti.
