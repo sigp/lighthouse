@@ -19,7 +19,7 @@ use processor::Processor;
 use slog::{debug, o, trace};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio_stream::{wrappers::UnboundedReceiverStream};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use types::EthSpec;
 
 /// Handles messages received from the network and client and organises syncing. This

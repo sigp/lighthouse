@@ -73,7 +73,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 Err(e) => {
                     error!(log, "Failed to get beacon chain head info"; "error" => format!("{:?}", e));
                     break;
-                },
+                }
             };
 
             let head_slot = head_info.slot;
@@ -183,7 +183,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     };
 
     // run the notifier on the current executor
-    executor.spawn(interval_future,"notifier");
+    executor.spawn(interval_future, "notifier");
 
     Ok(())
 }

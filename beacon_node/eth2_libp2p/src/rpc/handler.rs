@@ -134,7 +134,7 @@ enum HandlerState {
     ///
     /// While in this state the handler rejects new requests but tries to finish existing ones.
     /// Once the timer expires, all messages are killed.
-    ShuttingDown(Sleep),
+    ShuttingDown(Box<Sleep>),
     /// The handler is deactivated. A goodbye has been sent and no more messages are sent or
     /// received.
     Deactivated,
@@ -240,9 +240,9 @@ where
                 self.dial_queue.push((id, req));
             }
 
-            self.state = HandlerState::ShuttingDown(sleep_until(
+            self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
                 TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
-            ));
+            )));
         }
     }
 

@@ -76,16 +76,14 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         .clone()
         .expect("network should have a valid config");
 
-    env.runtime().block_on(
-        publish_voluntary_exit::<E>(
-            &keystore_path,
-            password_file_path.as_ref(),
-            &client,
-            &spec,
-            stdin_inputs,
-            &testnet_config,
-        ),
-    )?;
+    env.runtime().block_on(publish_voluntary_exit::<E>(
+        &keystore_path,
+        password_file_path.as_ref(),
+        &client,
+        &spec,
+        stdin_inputs,
+        &testnet_config,
+    ))?;
 
     Ok(())
 }

@@ -44,9 +44,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
-    ) -> Result<Self, String>
-
-    {
+    ) -> Result<Self, String> {
         let client_config =
             get_config::<E>(&matches, &context.eth2_config().spec, context.log().clone())?;
         Self::new(context, client_config).await
@@ -58,9 +56,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     pub async fn new(
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
-    ) -> Result<Self, String>
-
-    {
+    ) -> Result<Self, String> {
         let spec = context.eth2_config().spec.clone();
         let client_config_1 = client_config.clone();
         let client_genesis = client_config.genesis.clone();

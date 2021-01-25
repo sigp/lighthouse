@@ -213,9 +213,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 pub fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<(SocketAddr, impl Future<Output = ()>), Error>
-
-{
+) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = ctx.config.clone();
     let log = ctx.log.clone();
 

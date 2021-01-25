@@ -115,9 +115,7 @@ where
         mut self,
         client_genesis: ClientGenesis,
         config: ClientConfig,
-    ) -> Result<Self, String>
-
-    {
+    ) -> Result<Self, String> {
         let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
@@ -416,7 +414,6 @@ where
     pub fn build(
         self,
     ) -> Result<Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>, String>
-
     {
         let runtime_context = self
             .runtime_context

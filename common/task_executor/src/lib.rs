@@ -98,11 +98,10 @@ impl TaskExecutor {
     ) {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             let int_gauge_1 = int_gauge.clone();
-            let future = task
-                .then(move |_| {
-                    int_gauge_1.dec();
-                    futures::future::ready(())
-                });
+            let future = task.then(move |_| {
+                int_gauge_1.dec();
+                futures::future::ready(())
+            });
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {

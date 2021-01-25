@@ -205,9 +205,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    env.runtime()
-        .block_on(main_future)
-        .unwrap();
+    env.runtime().block_on(main_future).unwrap();
 
     env.fire_signal();
     env.shutdown_on_idle();
