@@ -1,6 +1,5 @@
 use crate::rpc::{Protocol, RPCRequest};
 use fnv::FnvHashMap;
-use futures::StreamExt;
 use libp2p::PeerId;
 use std::convert::TryInto;
 use std::future::Future;

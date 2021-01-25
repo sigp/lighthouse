@@ -116,8 +116,7 @@ where
         client_genesis: ClientGenesis,
         config: ClientConfig,
     ) -> Result<Self, String>
-    where
-        <TEthSpec as EthSpec>::MaxValidatorsPerCommittee: Unpin,
+
     {
         let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
@@ -417,8 +416,7 @@ where
     pub fn build(
         self,
     ) -> Result<Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>, String>
-    where
-        <TEthSpec as EthSpec>::MaxValidatorsPerCommittee: Unpin,
+
     {
         let runtime_context = self
             .runtime_context

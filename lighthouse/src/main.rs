@@ -191,8 +191,7 @@ fn run<E: EthSpec>(
     matches: &ArgMatches,
     testnet_config: Eth2NetworkConfig,
 ) -> Result<(), String>
-where
-    <E as EthSpec>::MaxValidatorsPerCommittee: Unpin,
+
 {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(

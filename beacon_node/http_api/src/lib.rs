@@ -218,8 +218,7 @@ pub fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error>
-where
-    <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxValidatorsPerCommittee: Unpin,
+
 {
     let config = ctx.config.clone();
     let log = ctx.log.clone();

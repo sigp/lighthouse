@@ -18,7 +18,6 @@ use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
 use strum::{AsStaticRef, AsStaticStr};
-use tokio::io::AsyncReadExt;
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
