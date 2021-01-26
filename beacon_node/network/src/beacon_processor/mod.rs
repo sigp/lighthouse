@@ -224,6 +224,7 @@ impl<E: EthSpec> WorkEvent<E> {
         attestation: Attestation<E>,
         subnet_id: SubnetId,
         should_import: bool,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: true,
@@ -233,6 +234,7 @@ impl<E: EthSpec> WorkEvent<E> {
                 attestation: Box::new(attestation),
                 subnet_id,
                 should_import,
+                seen_timestamp,
             },
         }
     }
@@ -242,6 +244,7 @@ impl<E: EthSpec> WorkEvent<E> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: SignedAggregateAndProof<E>,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: true,
@@ -249,6 +252,7 @@ impl<E: EthSpec> WorkEvent<E> {
                 message_id,
                 peer_id,
                 aggregate: Box::new(aggregate),
+                seen_timestamp,
             },
         }
     }
@@ -258,6 +262,7 @@ impl<E: EthSpec> WorkEvent<E> {
         message_id: MessageId,
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<E>>,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -265,6 +270,7 @@ impl<E: EthSpec> WorkEvent<E> {
                 message_id,
                 peer_id,
                 block,
+                seen_timestamp,
             },
         }
     }
@@ -391,16 +397,19 @@ pub enum Work<E: EthSpec> {
         attestation: Box<Attestation<E>>,
         subnet_id: SubnetId,
         should_import: bool,
+        seen_timestamp: Duration,
     },
     GossipAggregate {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<E>>,
+        seen_timestamp: Duration,
     },
     GossipBlock {
         message_id: MessageId,
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<E>>,
+        seen_timestamp: Duration,
     },
     GossipVoluntaryExit {
         message_id: MessageId,
@@ -833,12 +842,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         attestation,
                         subnet_id,
                         should_import,
+                        seen_timestamp,
                     } => worker.process_gossip_attestation(
                         message_id,
                         peer_id,
                         *attestation,
                         subnet_id,
                         should_import,
+                        seen_timestamp,
                     ),
                     /*
                      * Aggregated attestation verification.
@@ -847,7 +858,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         aggregate,
-                    } => worker.process_gossip_aggregate(message_id, peer_id, *aggregate),
+                        seen_timestamp,
+                    } => worker.process_gossip_aggregate(
+                        message_id,
+                        peer_id,
+                        *aggregate,
+                        seen_timestamp,
+                    ),
                     /*
                      * Verification for beacon blocks received on gossip.
                      */
@@ -855,7 +872,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         block,
-                    } => worker.process_gossip_block(message_id, peer_id, *block),
+                        seen_timestamp,
+                    } => worker.process_gossip_block(message_id, peer_id, *block, seen_timestamp),
                     /*
                      * Voluntary exits received on gossip.
                      */

@@ -4,7 +4,6 @@ use crate::{
 };
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use types::{Epoch, Hash256};
 
 #[derive(Encode, Decode)]
@@ -41,7 +40,7 @@ impl From<SszContainer> for ProtoArrayForkChoice {
             justified_epoch: from.justified_epoch,
             finalized_epoch: from.finalized_epoch,
             nodes: from.nodes,
-            indices: HashMap::from_iter(from.indices.into_iter()),
+            indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
         };
 
         Self {

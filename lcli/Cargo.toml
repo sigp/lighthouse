@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "1.0.6"
+version = "1.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
@@ -35,4 +35,6 @@ rand = "0.7.3"
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 directory = { path = "../common/directory" }
+account_utils = { path = "../common/account_utils" }
+eth2_wallet = { path = "../crypto/eth2_wallet" }
 tokio-compat-02 = "0.1"

@@ -391,7 +391,7 @@ fn invalid_attestation_wrong_justified_checkpoint() {
                     root: Hash256::zero(),
                 },
                 attestation: Checkpoint {
-                    epoch: Epoch::from(0 as u64),
+                    epoch: Epoch::from(0_u64),
                     root: Hash256::zero(),
                 },
                 is_current: true,
@@ -877,7 +877,7 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
         Err(BlockProcessingError::ProposerSlashingInvalid {
             index: 0,
             reason: ProposerSlashingInvalid::ProposalSlotMismatch(
-                Slot::from(0 as u64),
+                Slot::from(0_u64),
                 Slot::from(128 as u64)
             )
         })

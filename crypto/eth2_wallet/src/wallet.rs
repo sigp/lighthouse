@@ -5,17 +5,16 @@ use crate::{
     },
     KeyType, ValidatorPath,
 };
+pub use bip39::{Mnemonic, Seed as Bip39Seed};
+pub use eth2_key_derivation::{DerivedKey, DerivedKeyError};
 use eth2_keystore::{
     decrypt, default_kdf, encrypt, keypair_from_secret, Keystore, KeystoreBuilder, IV_SIZE,
     SALT_SIZE,
 };
+pub use eth2_keystore::{Error as KeystoreError, PlainText};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
-
-pub use bip39::{Mnemonic, Seed as Bip39Seed};
-pub use eth2_key_derivation::DerivedKey;
-pub use eth2_keystore::{Error as KeystoreError, PlainText};
 pub use uuid::Uuid;
 
 #[derive(Debug, PartialEq)]
@@ -24,11 +23,20 @@ pub enum Error {
     PathExhausted,
     EmptyPassword,
     EmptySeed,
+    InvalidNextAccount { old: u32, new: u32 },
 }
 
 impl From<KeystoreError> for Error {
     fn from(e: KeystoreError) -> Error {
         Error::KeystoreError(e)
+    }
+}
+
+impl From<DerivedKeyError> for Error {
+    fn from(e: DerivedKeyError) -> Error {
+        match e {
+            DerivedKeyError::EmptySeed => Error::EmptySeed,
+        }
     }
 }
 
@@ -222,12 +230,15 @@ impl Wallet {
     ///
     /// Returns `Err(())` if `nextaccount` is less than `self.nextaccount()` without mutating
     /// `self`. This is to protect against duplicate validator generation.
-    pub fn set_nextaccount(&mut self, nextaccount: u32) -> Result<(), ()> {
+    pub fn set_nextaccount(&mut self, nextaccount: u32) -> Result<(), Error> {
         if nextaccount >= self.nextaccount() {
             self.json.nextaccount = nextaccount;
             Ok(())
         } else {
-            Err(())
+            Err(Error::InvalidNextAccount {
+                old: self.json.nextaccount,
+                new: nextaccount,
+            })
         }
     }
 
@@ -295,7 +306,7 @@ pub fn recover_validator_secret(
 ) -> Result<(PlainText, ValidatorPath), Error> {
     let path = ValidatorPath::new(index, key_type);
     let secret = wallet.decrypt_seed(wallet_password)?;
-    let master = DerivedKey::from_seed(secret.as_bytes()).map_err(|()| Error::EmptyPassword)?;
+    let master = DerivedKey::from_seed(secret.as_bytes()).map_err(Error::from)?;
 
     let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
 
@@ -311,7 +322,7 @@ pub fn recover_validator_secret_from_mnemonic(
     key_type: KeyType,
 ) -> Result<(PlainText, ValidatorPath), Error> {
     let path = ValidatorPath::new(index, key_type);
-    let master = DerivedKey::from_seed(secret).map_err(|()| Error::EmptyPassword)?;
+    let master = DerivedKey::from_seed(secret).map_err(Error::from)?;
 
     let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
 

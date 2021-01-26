@@ -10,7 +10,7 @@ use syn::{parse_macro_input, Attribute, DeriveInput, Meta};
 ///
 /// # Panics
 /// Any unnamed struct field (like in a tuple struct) will raise a panic at compile time.
-fn get_hashable_fields<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Ident> {
+fn get_hashable_fields(struct_data: &syn::DataStruct) -> Vec<&syn::Ident> {
     get_hashable_fields_and_their_caches(struct_data)
         .into_iter()
         .map(|(ident, _, _)| ident)
@@ -18,9 +18,9 @@ fn get_hashable_fields<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Ide
 }
 
 /// Return a Vec of the hashable fields of a struct, and each field's type and optional cache field.
-fn get_hashable_fields_and_their_caches<'a>(
-    struct_data: &'a syn::DataStruct,
-) -> Vec<(&'a syn::Ident, syn::Type, Option<syn::Ident>)> {
+fn get_hashable_fields_and_their_caches(
+    struct_data: &syn::DataStruct,
+) -> Vec<(&syn::Ident, syn::Type, Option<syn::Ident>)> {
     struct_data
         .fields
         .iter()

@@ -4,6 +4,7 @@
 
 use libp2p::identify::IdentifyInfo;
 use serde::Serialize;
+use strum::{AsRefStr, AsStaticStr};
 
 /// Various client and protocol information related to a node.
 #[derive(Clone, Debug, Serialize)]
@@ -20,7 +21,7 @@ pub struct Client {
     pub agent_string: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq, AsRefStr, AsStaticStr)]
 pub enum ClientKind {
     /// A lighthouse node (the best kind).
     Lighthouse,
@@ -95,26 +96,6 @@ impl std::fmt::Display for Client {
                 }
             }
         }
-    }
-}
-
-impl ClientKind {
-    pub fn as_static_ref(&self) -> &'static str {
-        use ClientKind::*;
-        match self {
-            Lighthouse => "Lighthouse",
-            Nimbus => "Nimbus",
-            Teku => "Teku",
-            Prysm => "Prysm",
-            Lodestar => "Lodestar",
-            Unknown => "Unknown",
-        }
-    }
-}
-
-impl AsRef<str> for ClientKind {
-    fn as_ref(&self) -> &str {
-        self.as_static_ref()
     }
 }
 
