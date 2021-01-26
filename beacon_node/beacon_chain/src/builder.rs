@@ -328,7 +328,6 @@ where
         let genesis = BeaconSnapshot {
             beacon_block_root,
             beacon_block,
-            beacon_state_root,
             beacon_state,
         };
 
@@ -468,13 +467,8 @@ where
         let mut canonical_head = BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: head_block,
-            beacon_state_root: head_state_root,
             beacon_state: head_state,
         };
-
-        if canonical_head.beacon_block.state_root() != canonical_head.beacon_state_root {
-            return Err("beacon_block.state_root != beacon_state".to_string());
-        }
 
         canonical_head
             .beacon_state
@@ -599,7 +593,7 @@ where
         info!(
             log,
             "Beacon chain initialized";
-            "head_state" => format!("{}", head.beacon_state_root),
+            "head_state" => format!("{}", head.beacon_state_root()),
             "head_block" => format!("{}", head.beacon_block_root),
             "head_slot" => format!("{}", head.beacon_block.slot()),
         );

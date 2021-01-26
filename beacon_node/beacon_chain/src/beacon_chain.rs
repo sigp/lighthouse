@@ -453,9 +453,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         let head = self.head()?;
-        let slot = head.beacon_state.slot;
+        let head_slot = head.beacon_state.slot;
+        let head_state_root = head.beacon_state_root();
         let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
-        let iter = std::iter::once(Ok((head.beacon_state_root, slot)))
+        let iter = std::iter::once(Ok((head_state_root, head_slot)))
             .chain(iter)
             .map(|result| result.map_err(Into::into));
         Ok(iter)
@@ -599,7 +600,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
-                state_root: head.beacon_state_root,
+                state_root: head.beacon_state_root(),
                 current_justified_checkpoint: head.beacon_state.current_justified_checkpoint,
                 finalized_checkpoint: head.beacon_state.finalized_checkpoint,
                 fork: head.beacon_state.fork,
@@ -2021,7 +2022,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     beacon_block,
                     beacon_block_root,
                     beacon_state,
-                    beacon_state_root,
                 })
             })
             .and_then(|mut snapshot| {
@@ -2096,7 +2096,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
         // These fields are used for server-sent events
-        let state_root = new_head.beacon_state_root;
+        let state_root = new_head.beacon_state_root();
         let head_slot = new_head.beacon_state.slot;
         let target_epoch_start_slot = new_head
             .beacon_state
@@ -2458,7 +2458,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_block: self.head()?.beacon_block,
             beacon_block_root: self.head()?.beacon_block_root,
             beacon_state: self.head()?.beacon_state,
-            beacon_state_root: self.head()?.beacon_state_root,
         };
 
         dump.push(last_slot.clone());
@@ -2485,7 +2484,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 beacon_block,
                 beacon_block_root,
                 beacon_state,
-                beacon_state_root,
             };
 
             dump.push(slot.clone());
