@@ -72,6 +72,7 @@ pub enum BeaconChainError {
     CanonicalHeadLockTimeout,
     AttestationCacheLockTimeout,
     ValidatorPubkeyCacheLockTimeout,
+    SnapshotCacheLockTimeout,
     IncorrectStateForAttestation(RelativeEpochError),
     InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheIncomplete(usize),
