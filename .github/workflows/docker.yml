@@ -9,7 +9,7 @@ on:
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-    IMAGE_NAME: seananderson33/lighthouse
+    IMAGE_NAME: sigp/lighthouse
 
 jobs:
     extract-branch-name:
