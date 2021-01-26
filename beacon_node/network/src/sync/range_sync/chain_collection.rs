@@ -345,7 +345,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
 
         if self.head_chains.is_empty() {
-            // There are no finalized chains, update the state.
+            // There are no head chains, update the state.
             self.state = RangeSyncState::Idle;
             return;
         }
