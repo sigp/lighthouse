@@ -94,15 +94,6 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             }
         });
 
-        // Submit deposits to the deposit contract.
-        tokio::spawn(async move {
-            for i in 0..total_validator_count {
-                println!("Submitting deposit for validator {}...", i);
-                let _ = deposit_contract
-                    .deposit_deterministic_async::<E>(i, deposit_amount)
-                    .await;
-            }
-        });
 
         let mut beacon_config = testing_client_config();
 
@@ -125,6 +116,24 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         let network = LocalNetwork::new(context, beacon_config.clone()).await?;
 
+        tokio::spawn(async move {
+
+            /*
+             * One by one, add validators to the network.
+             */
+            for (i, files) in validator_files.into_iter().enumerate() {
+                network
+                    .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
+                    .await?;
+
+                // Submit deposits to the deposit contract.
+                println!("Submitting deposit for validator {}...", i);
+                let _ = deposit_contract
+                    .deposit_deterministic_async::<E>(i, deposit_amount)
+                    .await;
+            }
+        });
+
         /*
          * One by one, add beacon nodes to the network.
          */
@@ -134,15 +143,6 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 config.eth1.endpoints.insert(0, INVALID_ADDRESS.to_string());
             }
             network.add_beacon_node(config).await?;
-        }
-
-        /*
-         * One by one, add validators to the network.
-         */
-        for (i, files) in validator_files.into_iter().enumerate() {
-            network
-                .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
-                .await?;
         }
 
         /*
