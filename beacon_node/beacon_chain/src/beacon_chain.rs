@@ -1726,12 +1726,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root;
         let slot = block.slot;
 
+        // Advance the state into the next slot before placing it into the snapshot cache.
+        per_slot_processing(&mut state, Some(block.state_root), &self.spec)?;
+        let next_slot_state = state;
+
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut snapshot_cache| {
                 snapshot_cache.insert(BeaconSnapshot {
-                    beacon_state: state,
-                    beacon_state_root: signed_block.state_root(),
+                    beacon_state: next_slot_state,
                     beacon_block: signed_block,
                     beacon_block_root: block_root,
                 });

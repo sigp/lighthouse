@@ -1,9 +1,69 @@
 use crate::BeaconSnapshot;
 use std::cmp;
-use types::{beacon_state::CloneConfig, Epoch, EthSpec, Hash256};
+use types::{beacon_state::CloneConfig, BeaconState, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// The default size of the cache.
 pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
+
+pub struct CacheItem<T: EthSpec> {
+    beacon_block: SignedBeaconBlock<T>,
+    beacon_block_root: Hash256,
+    beacon_state: BeaconState<T>,
+    pre_state: Option<BeaconState<T>>,
+}
+
+pub struct PreProcessingSnapshot<T: EthSpec> {
+    pub pre_state: BeaconState<T>,
+    pub beacon_block: SignedBeaconBlock<T>,
+    pub beacon_block_root: Hash256,
+}
+
+impl<T: EthSpec> From<BeaconSnapshot<T>> for PreProcessingSnapshot<T> {
+    fn from(snapshot: BeaconSnapshot<T>) -> Self {
+        Self {
+            pre_state: snapshot.beacon_state,
+            beacon_block: snapshot.beacon_block.clone(),
+            beacon_block_root: snapshot.beacon_block_root,
+        }
+    }
+}
+
+impl<T: EthSpec> CacheItem<T> {
+    pub fn new_without_pre_state(snapshot: BeaconSnapshot<T>) -> Self {
+        Self {
+            beacon_block: snapshot.beacon_block,
+            beacon_block_root: snapshot.beacon_block_root,
+            beacon_state: snapshot.beacon_state,
+            pre_state: None,
+        }
+    }
+
+    fn clone_to_snapshot_with(&self, clone_config: CloneConfig) -> BeaconSnapshot<T> {
+        BeaconSnapshot {
+            beacon_state: self.beacon_state.clone_with(clone_config),
+            beacon_block: self.beacon_block.clone(),
+            beacon_block_root: self.beacon_block_root,
+        }
+    }
+
+    pub fn into_pre_state(self) -> PreProcessingSnapshot<T> {
+        PreProcessingSnapshot {
+            beacon_block: self.beacon_block,
+            beacon_block_root: self.beacon_block_root,
+            pre_state: self.pre_state.unwrap_or(self.beacon_state),
+        }
+    }
+}
+
+impl<T: EthSpec> Into<BeaconSnapshot<T>> for CacheItem<T> {
+    fn into(self) -> BeaconSnapshot<T> {
+        BeaconSnapshot {
+            beacon_state: self.beacon_state,
+            beacon_block: self.beacon_block,
+            beacon_block_root: self.beacon_block_root,
+        }
+    }
+}
 
 /// Provides a cache of `BeaconSnapshot` that is intended primarily for block processing.
 ///
@@ -20,7 +80,7 @@ pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 pub struct SnapshotCache<T: EthSpec> {
     max_len: usize,
     head_block_root: Hash256,
-    snapshots: Vec<BeaconSnapshot<T>>,
+    snapshots: Vec<CacheItem<T>>,
 }
 
 impl<T: EthSpec> SnapshotCache<T> {
@@ -31,15 +91,16 @@ impl<T: EthSpec> SnapshotCache<T> {
         Self {
             max_len: cmp::max(max_len, 1),
             head_block_root: head.beacon_block_root,
-            snapshots: vec![head],
+            snapshots: vec![CacheItem::new_without_pre_state(head)],
         }
     }
 
     /// Insert a snapshot, potentially removing an existing snapshot if `self` is at capacity (see
     /// struct-level documentation for more info).
     pub fn insert(&mut self, snapshot: BeaconSnapshot<T>) {
+        let item = CacheItem::new_without_pre_state(snapshot);
         if self.snapshots.len() < self.max_len {
-            self.snapshots.push(snapshot);
+            self.snapshots.push(item);
         } else {
             let insert_at = self
                 .snapshots
@@ -56,17 +117,17 @@ impl<T: EthSpec> SnapshotCache<T> {
                 .map(|(i, _slot)| i);
 
             if let Some(i) = insert_at {
-                self.snapshots[i] = snapshot;
+                self.snapshots[i] = item;
             }
         }
     }
 
     /// If there is a snapshot with `block_root`, remove and return it.
-    pub fn try_remove(&mut self, block_root: Hash256) -> Option<BeaconSnapshot<T>> {
+    pub fn try_remove(&mut self, block_root: Hash256) -> Option<CacheItem<T>> {
         self.snapshots
             .iter()
             .position(|snapshot| snapshot.beacon_block_root == block_root)
-            .map(|i| self.snapshots.remove(i))
+            .map(|i| self.snapshots.remove(i).into())
     }
 
     /// If there is a snapshot with `block_root`, clone it and return the clone.
@@ -78,7 +139,7 @@ impl<T: EthSpec> SnapshotCache<T> {
         self.snapshots
             .iter()
             .find(|snapshot| snapshot.beacon_block_root == block_root)
-            .map(|snapshot| snapshot.clone_with(clone_config))
+            .map(|snapshot| snapshot.clone_to_snapshot_with(clone_config))
     }
 
     /// Removes all snapshots from the queue that are less than or equal to the finalized epoch.
@@ -115,7 +176,6 @@ mod test {
 
         BeaconSnapshot {
             beacon_state,
-            beacon_state_root: Hash256::from_low_u64_be(i),
             beacon_block: SignedBeaconBlock {
                 message: BeaconBlock::empty(&spec),
                 signature: generate_deterministic_keypair(0)
