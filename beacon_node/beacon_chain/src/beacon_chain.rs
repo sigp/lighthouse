@@ -2,6 +2,7 @@ use crate::attestation_verification::{
     Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
 };
+use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
@@ -231,8 +232,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: Arc<HeadTracker>,
     /// A cache dedicated to block processing.
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
-    /// Caches the shuffling for a given epoch and state root.
+    /// Caches the attester shuffling for a given epoch and shuffling keying root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// Caches the beacon block proposer shuffling for a given epoch and shuffling keying root.
+    pub(crate) beacon_proposer_cache: RwLock<BeaconProposerCache<T::EthSpec>>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
@@ -1550,7 +1553,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // For the current and next epoch of this state, ensure we have the shuffling from this
         // block in our cache.
         for relative_epoch in &[RelativeEpoch::Current, RelativeEpoch::Next] {
-            let shuffling_id = ShufflingId::new(block_root, &state, *relative_epoch)?;
+            let shuffling_id = AttestationShufflingId::new(block_root, &state, *relative_epoch)?;
 
             let shuffling_is_cached = self
                 .shuffling_cache
@@ -1726,6 +1729,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root;
         let slot = block.slot;
 
+        let cloned_state = state.clone_with(CloneConfig::committee_caches_only());
+        let mut pre_state = std::mem::replace(&mut state, cloned_state);
+
+        // Advance a single slot on `pre_state`.
+        per_slot_processing(&mut pre_state, Some(block.state_root), &self.spec)?;
+        // TODO: THIS
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+
+        // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer
+        // shuffling for the next epoch into the cache.
+        if pre_state.current_epoch() > state.current_epoch() {
+            let next_epoch_proposer_shuffling_id = (pre_state.current_epoch(), block_root);
+
+            self.beacon_proposer_cache.write().insert(
+                next_epoch_proposer_shuffling_id,
+                pre_state.get_beacon_proposer_indices(&self.spec)?,
+                pre_state.fork,
+            )?;
+        }
+
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::SnapshotCacheLockTimeout)
@@ -1736,7 +1759,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         beacon_block: signed_block,
                         beacon_block_root: block_root,
                     },
-                    &self.spec,
+                    Some(pre_state),
                 )
             })
             .unwrap_or_else(|e| {

@@ -554,6 +554,7 @@ where
                 canonical_head,
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            beacon_proposer_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             disabled_forks: self.disabled_forks,
             shutdown_sender: self

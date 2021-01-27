@@ -69,6 +69,7 @@ pub enum BeaconChainError {
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
     SszTypesError(SszTypesError),
+    NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
     AttestationCacheLockTimeout,
     ValidatorPubkeyCacheLockTimeout,

@@ -1,9 +1,6 @@
 use crate::{BeaconChainError, BeaconSnapshot};
-use state_processing::per_slot_processing;
 use std::cmp;
-use types::{
-    beacon_state::CloneConfig, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock,
-};
+use types::{beacon_state::CloneConfig, BeaconState, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// The default size of the cache.
 pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
@@ -39,23 +36,6 @@ impl<T: EthSpec> CacheItem<T> {
             beacon_state: snapshot.beacon_state,
             pre_state: None,
         }
-    }
-
-    pub fn build_pre_state(&mut self, spec: &ChainSpec) -> Result<(), BeaconChainError> {
-        let state = self
-            .beacon_state
-            .clone_with(CloneConfig::committee_caches_only());
-        let mut pre_state = std::mem::replace(&mut self.beacon_state, state);
-
-        // Advance a single slot.
-        per_slot_processing(
-            &mut pre_state,
-            Some(self.beacon_block.message.state_root),
-            spec,
-        )?;
-
-        self.pre_state = Some(pre_state);
-        Ok(())
     }
 
     fn clone_to_snapshot_with(&self, clone_config: CloneConfig) -> BeaconSnapshot<T> {
@@ -120,10 +100,14 @@ impl<T: EthSpec> SnapshotCache<T> {
     pub fn insert(
         &mut self,
         snapshot: BeaconSnapshot<T>,
-        spec: &ChainSpec,
+        pre_state: Option<BeaconState<T>>,
     ) -> Result<(), BeaconChainError> {
-        let mut item = CacheItem::new_without_pre_state(snapshot);
-        item.build_pre_state(spec)?;
+        let item = CacheItem {
+            beacon_block: snapshot.beacon_block,
+            beacon_block_root: snapshot.beacon_block_root,
+            beacon_state: snapshot.beacon_state,
+            pre_state,
+        };
 
         if self.snapshots.len() < self.max_len {
             self.snapshots.push(item);
@@ -216,8 +200,6 @@ mod test {
 
     #[test]
     fn insert_get_prune_update() {
-        let spec = &MainnetEthSpec::default_spec();
-
         let mut cache = SnapshotCache::new(CACHE_SIZE, get_snapshot(0));
 
         // Insert a bunch of entries in the cache. It should look like this:
@@ -233,7 +215,7 @@ mod test {
             // Each snapshot should be one slot into an epoch, with each snapshot one epoch apart.
             snapshot.beacon_state.slot = Slot::from(i * MainnetEthSpec::slots_per_epoch() + 1);
 
-            cache.insert(snapshot, spec).unwrap();
+            cache.insert(snapshot, None).unwrap();
 
             assert_eq!(
                 cache.snapshots.len(),
@@ -251,7 +233,7 @@ mod test {
         // 2        2
         // 3        3
         assert_eq!(cache.snapshots.len(), CACHE_SIZE);
-        cache.insert(get_snapshot(42), spec).unwrap();
+        cache.insert(get_snapshot(42), None).unwrap();
         assert_eq!(cache.snapshots.len(), CACHE_SIZE);
 
         assert!(
@@ -299,7 +281,7 @@ mod test {
         // Over-fill the cache so it needs to eject some old values on insert.
         for i in 0..CACHE_SIZE as u64 {
             cache
-                .insert(get_snapshot(u64::max_value() - i), spec)
+                .insert(get_snapshot(u64::max_value() - i), None)
                 .unwrap();
         }
 

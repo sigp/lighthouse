@@ -15,12 +15,12 @@ use std::hash::Hash;
 ///
 /// The struct stores exactly that 2-tuple.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]
-pub struct ShufflingId {
+pub struct AttestationShufflingId {
     pub shuffling_epoch: Epoch,
-    shuffling_decision_block: Hash256,
+    pub shuffling_decision_block: Hash256,
 }
 
-impl ShufflingId {
+impl AttestationShufflingId {
     /// Using the given `state`, return the shuffling id for the shuffling at the given
     /// `relative_epoch`.
     ///
@@ -55,6 +55,19 @@ impl ShufflingId {
     pub fn from_components(shuffling_epoch: Epoch, shuffling_decision_block: Hash256) -> Self {
         Self {
             shuffling_epoch,
+            shuffling_decision_block,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]
+pub struct ProposerShufflingId {
+    shuffling_decision_block: Hash256,
+}
+
+impl ProposerShufflingId {
+    pub fn new(shuffling_decision_block: Hash256) -> Self {
+        Self {
             shuffling_decision_block,
         }
     }

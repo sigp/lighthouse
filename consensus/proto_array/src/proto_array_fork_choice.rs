@@ -4,7 +4,7 @@ use crate::ssz_container::SszContainer;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{Epoch, Hash256, ShufflingId, Slot};
+use types::{AttestationShufflingId, Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -25,8 +25,8 @@ pub struct Block {
     pub parent_root: Option<Hash256>,
     pub state_root: Hash256,
     pub target_root: Hash256,
-    pub current_epoch_shuffling_id: ShufflingId,
-    pub next_epoch_shuffling_id: ShufflingId,
+    pub current_epoch_shuffling_id: AttestationShufflingId,
+    pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
 }
@@ -72,8 +72,8 @@ impl ProtoArrayForkChoice {
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
         finalized_root: Hash256,
-        current_epoch_shuffling_id: ShufflingId,
-        next_epoch_shuffling_id: ShufflingId,
+        current_epoch_shuffling_id: AttestationShufflingId,
+        next_epoch_shuffling_id: AttestationShufflingId,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -349,7 +349,8 @@ mod test_compute_deltas {
         let finalized_desc = Hash256::from_low_u64_be(2);
         let not_finalized_desc = Hash256::from_low_u64_be(3);
         let unknown = Hash256::from_low_u64_be(4);
-        let junk_shuffling_id = ShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
 
         let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
