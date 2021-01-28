@@ -893,9 +893,16 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // being bounced or held for a long time whilst performing `per_slot_processing`.
         //
         // No need to add metrics for historical block imports.
-        if chain.slot_clock.now().map_or(false, |now| {
-            block.slot() + Slot::from(VALIDATOR_MONITOR_HISTORIC_EPOCHS) >= now
-        }) {
+        if chain
+            .slot_clock
+            .now()
+            .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
+            .map_or(false, |now| {
+                block.slot().epoch(T::EthSpec::slots_per_epoch())
+                    + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
+                    >= now
+            })
+        {
             let validator_monitor = chain.validator_monitor.read();
             for summary in summaries {
                 validator_monitor.process_validator_statuses(&summary.statuses);
