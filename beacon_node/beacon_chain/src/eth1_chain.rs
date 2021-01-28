@@ -668,7 +668,6 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 mod test {
     use super::*;
     use environment::null_logger;
-    use std::iter::FromIterator;
     use types::{test_utils::DepositTestTask, MinimalEthSpec};
 
     type E = MinimalEthSpec;
@@ -1042,10 +1041,7 @@ mod test {
 
             let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
-            );
+            let votes = collect_valid_votes(&state, &votes_to_consider.into_iter().collect());
             assert_eq!(
                 votes.len(),
                 0,
@@ -1068,10 +1064,8 @@ mod test {
                 .collect::<Vec<_>>()
                 .into();
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
-            );
+            let votes =
+                collect_valid_votes(&state, &votes_to_consider.clone().into_iter().collect());
             assert_votes!(
                 votes,
                 votes_to_consider[0..slots as usize / 4].to_vec(),
@@ -1099,10 +1093,7 @@ mod test {
                 .collect::<Vec<_>>()
                 .into();
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
-            );
+            let votes = collect_valid_votes(&state, &votes_to_consider.into_iter().collect());
             assert_votes!(
                 votes,
                 // There should only be one value if there's a duplicate
@@ -1150,8 +1141,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number when there are no votes.
                 vote_data(&no_votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(no_votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1162,8 +1152,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number when there are equal votes.
                 vote_data(&votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1174,8 +1163,7 @@ mod test {
             assert_eq!(
                 // Favour the highest vote over the highest block number.
                 vote_data(&votes[3]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1186,8 +1174,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number for tying votes.
                 vote_data(&votes[3]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1198,8 +1185,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number for tying votes.
                 vote_data(&votes[0]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
     }

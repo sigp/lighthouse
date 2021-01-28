@@ -645,6 +645,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_peer_connected_successfully() {
         let mut pdb = get_db();
         let random_peer = PeerId::random();
@@ -745,7 +746,7 @@ mod tests {
         assert!(the_best.is_some());
         // Consistency check
         let best_peers = pdb.best_peers_by_status(PeerInfo::is_connected);
-        assert_eq!(the_best, best_peers.iter().next().map(|p| p.0));
+        assert_eq!(the_best.unwrap(), best_peers.get(0).unwrap().0);
     }
 
     #[test]
@@ -839,7 +840,7 @@ mod tests {
         pdb.notify_disconnect(&random_peer2);
         pdb.disconnect_and_ban(&random_peer3);
         pdb.notify_disconnect(&random_peer3);
-        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr, None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -1021,10 +1022,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer.clone()], &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], &log);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
