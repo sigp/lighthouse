@@ -40,6 +40,7 @@
 //!            END
 //!
 //! ```
+use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     beacon_chain::{
@@ -850,6 +851,19 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         expose_participation_metrics(&summaries);
+
+        // Update the summaries in a separate loop. This protects the `validator_monitor` lock from
+        // being bounced or held for a long time whilst performing `per_slot_processing`.
+        //
+        // No need to add metrics for historical block imports.
+        if chain.slot_clock.now().map_or(false, |now| {
+            block.slot() + Slot::from(VALIDATOR_MONITOR_HISTORIC_EPOCHS) >= now
+        }) {
+            let validator_monitor = chain.validator_monitor.read();
+            for summary in summaries {
+                validator_monitor.process_validator_statuses(&summary.statuses);
+            }
+        }
 
         metrics::stop_timer(catchup_timer);
 

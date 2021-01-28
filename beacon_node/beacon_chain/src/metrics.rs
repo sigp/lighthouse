@@ -424,6 +424,54 @@ lazy_static! {
     /*
      * Validator Monitor Metrics (per-epoch summaries)
      */
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_attester_hit",
+            "Incremented if the validator is flagged as a previous epoch attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_attester_miss",
+            "Incremented if the validator is not flagged as a previous epoch attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_head_attester_hit",
+            "Incremented if the validator is flagged as a previous epoch head attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_head_attester_miss",
+            "Incremented if the validator is not flagged as a previous epoch head attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_target_attester_hit",
+            "Incremented if the validator is flagged as a previous epoch target attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_target_attester_miss",
+            "Incremented if the validator is not flagged as a previous epoch target attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_on_chain_inclusion_distance",
+            "The attestation inclusion distance calculated during per epoch processing",
+            &["validator"]
+        );
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
             "validator_monitor_prev_epoch_attestations_total",

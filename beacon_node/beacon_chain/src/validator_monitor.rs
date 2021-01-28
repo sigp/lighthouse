@@ -6,6 +6,7 @@ use crate::metrics;
 use parking_lot::RwLock;
 use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
+use state_processing::per_epoch_processing::ValidatorStatus;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
@@ -320,6 +321,58 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &[id],
                         u64_to_i64(validator.withdrawable_epoch),
                     );
+                }
+            }
+        }
+    }
+
+    pub fn process_validator_statuses(&self, summaries: &[ValidatorStatus]) {
+        for monitored_validator in self.validators.values() {
+            if let Some(i) = monitored_validator.index {
+                let i = i as usize;
+                let id = &monitored_validator.id;
+
+                if let Some(summary) = summaries.get(i) {
+                    if summary.is_previous_epoch_attester {
+                        metrics::inc_counter_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
+                            &[id],
+                        );
+                    } else {
+                        metrics::inc_counter_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
+                            &[id],
+                        );
+                    }
+                    if summary.is_previous_epoch_head_attester {
+                        metrics::inc_counter_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT,
+                            &[id],
+                        );
+                    } else {
+                        metrics::inc_counter_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS,
+                            &[id],
+                        );
+                    }
+                    if summary.is_previous_epoch_target_attester {
+                        metrics::inc_counter_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT,
+                            &[id],
+                        );
+                    } else {
+                        metrics::inc_counter_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS,
+                            &[id],
+                        );
+                    }
+                    if let Some(inclusion_info) = summary.inclusion_info {
+                        metrics::set_int_gauge(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
+                            &[id],
+                            inclusion_info.delay as i64,
+                        );
+                    }
                 }
             }
         }
