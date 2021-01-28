@@ -69,7 +69,7 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
+    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
     PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
@@ -889,9 +889,6 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         expose_participation_metrics(&summaries);
 
-        // Update the summaries in a separate loop. This protects the `validator_monitor` lock from
-        // being bounced or held for a long time whilst performing `per_slot_processing`.
-        //
         // No need to add metrics for historical block imports.
         if chain
             .slot_clock
@@ -904,8 +901,11 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             })
         {
             let validator_monitor = chain.validator_monitor.read();
-            for summary in summaries {
-                validator_monitor.process_validator_statuses(&summary.statuses);
+            // Update the summaries in a separate loop. This protects the `validator_monitor` lock from
+            // being bounced or held for a long time whilst performing `per_slot_processing`.
+            for (i, summary) in summaries.iter().enumerate() {
+                let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
+                validator_monitor.process_validator_statuses(epoch, &summary.statuses);
             }
         }
 

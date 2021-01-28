@@ -1733,9 +1733,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut pre_state = std::mem::replace(&mut state, cloned_state);
 
         // Advance a single slot on `pre_state`.
-        per_slot_processing(&mut pre_state, Some(block.state_root), &self.spec)?;
-        // TODO: THIS
-        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        if let Some(summary) =
+            per_slot_processing(&mut pre_state, Some(block.state_root), &self.spec)?
+        {
+            // No need to add metrics for historical block imports.
+            if slot.epoch(T::EthSpec::slots_per_epoch()) + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
+                >= current_slot.epoch(T::EthSpec::slots_per_epoch())
+            {
+                self.validator_monitor
+                    .read()
+                    .process_validator_statuses(pre_state.current_epoch(), &summary.statuses);
+            }
+        }
 
         // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer
         // shuffling for the next epoch into the cache.
