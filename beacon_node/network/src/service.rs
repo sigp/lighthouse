@@ -229,18 +229,15 @@ fn spawn_service<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
-    let mut exit_rx = executor.exit();
     let mut shutdown_sender = executor.shutdown_sender();
 
     // spawn on the current executor
-    executor.spawn_without_exit(async move {
+    executor.spawn(async move {
 
         let mut metric_update_counter = 0;
         loop {
             // build the futures to check simultaneously
             tokio::select! {
-                // handle network shutdown
-                _ = (&mut exit_rx) => break,
                 _ = service.metrics_update.next() => {
                     // update various network metrics
                     metric_update_counter +=1;
