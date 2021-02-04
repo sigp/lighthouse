@@ -24,7 +24,8 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
-    ValidatorMonitor, HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
+    get_block_delay_ms, timestamp_now, ValidatorMonitor,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
@@ -1711,6 +1712,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
+
+        // Log metrics to track the delay between when the block was made and when we imported it.
+        //
+        // We're declaring the block "imported" at this point, since fork choice and the DB know
+        // about it.
+        metrics::observe_duration(
+            &metrics::BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME,
+            get_block_delay_ms(timestamp_now(), &signed_block.message, &self.slot_clock),
+        );
 
         let parent_root = block.parent_root;
         let slot = block.slot;
