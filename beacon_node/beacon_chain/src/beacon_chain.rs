@@ -676,7 +676,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             warn!(
                                 self.log,
                                 "Unable to load state at slot";
-                                "error" => format!("{:?}", e),
+                                "error" => ?e,
                                 "head_slot" => head_state_slot,
                                 "requested_slot" => slot
                             );
@@ -1023,7 +1023,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(outcome) => trace!(
                 self.log,
                 "Stored unaggregated attestation";
-                "outcome" => format!("{:?}", outcome),
+                "outcome" => ?outcome,
                 "index" => attestation.data.index,
                 "slot" => attestation.data.slot.as_u64(),
             ),
@@ -1042,7 +1042,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error!(
                         self.log,
                         "Failed to store unaggregated attestation";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                         "index" => attestation.data.index,
                         "slot" => attestation.data.slot.as_u64(),
                 );
@@ -1125,7 +1125,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self.log,
                     "Missing pivot block root for attestation";
                     "slot" => pivot_slot,
-                    "error" => format!("{:?}", e),
+                    "error" => ?e,
                 );
                 return false;
             }
@@ -1151,7 +1151,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self.log,
                     "Discarding attestation because of missing ancestor";
                     "pivot_slot" => pivot_slot.as_u64(),
-                    "block_root" => format!("{:?}", block_root),
+                    "block_root" => ?block_root,
                 );
                 false
             }
@@ -1399,7 +1399,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Successfully processed gossip block";
                     "graffiti" => graffiti_string,
                     "slot" => slot,
-                    "root" => format!("{:?}", verified.block_root()),
+                    "root" => ?verified.block_root(),
                 );
 
                 Ok(verified)
@@ -1456,8 +1456,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 trace!(
                     self.log,
                     "Beacon block imported";
-                    "block_root" => format!("{:?}", block_root),
-                    "block_slot" => format!("{:?}", block.slot().as_u64()),
+                    "block_root" => ?block_root,
+                    "block_slot" => %block.slot(),
                 );
 
                 // Increment the Prometheus counter for block processing successes.
@@ -1471,7 +1471,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 crit!(
                     self.log,
                     "Beacon block processing error";
-                    "error" => format!("{:?}", e),
+                    "error" => ?e,
                 );
                 Err(BlockError::BeaconChainError(e))
             }
@@ -1591,12 +1591,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     crit!(
                         self.log,
                         "Weak subjectivity checkpoint verification failed while importing block!";
-                        "block_root" => format!("{:?}", block_root),
-                        "parent_root" => format!("{:?}", block.parent_root),
-                        "old_finalized_epoch" => format!("{:?}", old_finalized_checkpoint.epoch),
-                        "new_finalized_epoch" => format!("{:?}", new_finalized_checkpoint.epoch),
-                        "weak_subjectivity_epoch" => format!("{:?}", wss_checkpoint.epoch),
-                        "error" => format!("{:?}", e),
+                        "block_root" => ?block_root,
+                        "parent_root" => ?block.parent_root,
+                        "old_finalized_epoch" => ?old_finalized_checkpoint.epoch,
+                        "new_finalized_epoch" => ?new_finalized_checkpoint.epoch,
+                        "weak_subjectivity_epoch" => ?wss_checkpoint.epoch,
+                        "error" => ?e,
                     );
                     crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
                     shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
@@ -1899,7 +1899,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error!(
                     self.log,
                     "Attestation did not transfer to op pool";
-                    "reason" => format!("{:?}", e)
+                    "reason" => ?e
                 );
             }
         }
@@ -1962,7 +1962,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(
             self.log,
             "Produced beacon block";
-            "parent" => format!("{}", block.message.parent_root),
+            "parent" => %block.message.parent_root,
             "attestations" => block.message.body.attestations.len(),
             "slot" => block.message.slot
         );
@@ -2052,21 +2052,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             warn!(
                 self.log,
                 "Beacon chain re-org";
-                "previous_head" => format!("{}", current_head.block_root),
+                "previous_head" => %current_head.block_root,
                 "previous_slot" => current_head.slot,
-                "new_head_parent" => format!("{}", new_head.beacon_block.parent_root()),
-                "new_head" => format!("{}", beacon_block_root),
+                "new_head_parent" => %new_head.beacon_block.parent_root(),
+                "new_head" => %beacon_block_root,
                 "new_slot" => new_head.beacon_block.slot(),
             );
         } else {
             debug!(
                 self.log,
                 "Head beacon block";
-                "justified_root" => format!("{}", new_head.beacon_state.current_justified_checkpoint.root),
+                "justified_root" => %new_head.beacon_state.current_justified_checkpoint.root,
                 "justified_epoch" => new_head.beacon_state.current_justified_checkpoint.epoch,
-                "finalized_root" => format!("{}", new_head.beacon_state.finalized_checkpoint.root),
+                "finalized_root" => %new_head.beacon_state.finalized_checkpoint.root,
                 "finalized_epoch" => new_head.beacon_state.finalized_checkpoint.epoch,
-                "root" => format!("{}", beacon_block_root),
+                "root" => %beacon_block_root,
                 "slot" => new_head.beacon_block.slot(),
             );
         };
@@ -2214,7 +2214,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let finalized_checkpoint = state.finalized_checkpoint;
-        info!(self.log, "Verifying the configured weak subjectivity checkpoint"; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
+        info!(self.log, "Verifying the configured weak subjectivity checkpoint"; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => ?wss_checkpoint.root);
         // If epochs match, simply compare roots.
         if wss_checkpoint.epoch == finalized_checkpoint.epoch
             && wss_checkpoint.root != finalized_checkpoint.root
@@ -2222,8 +2222,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             crit!(
                 self.log,
                  "Root found at the specified checkpoint differs";
-                  "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
-                  "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
+                  "weak_subjectivity_root" => ?wss_checkpoint.root,
+                  "finalized_checkpoint_root" => ?finalized_checkpoint.root
             );
             return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
         } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
@@ -2239,15 +2239,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         crit!(
                             self.log,
                              "Root found at the specified checkpoint differs";
-                              "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
-                              "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
+                              "weak_subjectivity_root" => ?wss_checkpoint.root,
+                              "finalized_checkpoint_root" => ?finalized_checkpoint.root
                         );
                         return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
                     }
                 }
                 None => {
                     crit!(self.log, "The root at the start slot of the given epoch could not be found";
-                    "wss_checkpoint_slot" => format!("{:?}", slot));
+                    "wss_checkpoint_slot" => ?slot);
                     return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
                 }
             }
@@ -2636,7 +2636,7 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
             error!(
                 self.log,
                 "Failed to persist on BeaconChain drop";
-                "error" => format!("{:?}", e)
+                "error" => ?e
             )
         } else {
             info!(
