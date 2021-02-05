@@ -139,7 +139,7 @@ impl<T: EthSpec> SnapshotCache<T> {
         self.snapshots
             .iter()
             .position(|snapshot| snapshot.beacon_block_root == block_root)
-            .map(|i| self.snapshots.remove(i).into())
+            .map(|i| self.snapshots.remove(i))
     }
 
     /// If there is a snapshot with `block_root`, clone it and return the clone.

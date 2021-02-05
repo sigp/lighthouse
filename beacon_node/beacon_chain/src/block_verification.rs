@@ -890,22 +890,19 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         expose_participation_metrics(&summaries);
 
         // No need to add metrics for historical block imports.
-        if chain
-            .slot_clock
-            .now()
-            .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
-            .map_or(false, |now| {
-                block.slot().epoch(T::EthSpec::slots_per_epoch())
-                    + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
-                    >= now
-            })
-        {
-            let validator_monitor = chain.validator_monitor.read();
-            // Update the summaries in a separate loop. This protects the `validator_monitor` lock from
-            // being bounced or held for a long time whilst performing `per_slot_processing`.
-            for (i, summary) in summaries.iter().enumerate() {
-                let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
-                validator_monitor.process_validator_statuses(epoch, &summary.statuses);
+        if let Some(slot) = chain.slot_clock.now() {
+            let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+            if block.slot().epoch(T::EthSpec::slots_per_epoch())
+                + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
+                >= epoch
+            {
+                let validator_monitor = chain.validator_monitor.read();
+                // Update the summaries in a separate loop. This protects the `validator_monitor` lock from
+                // being bounced or held for a long time whilst performing `per_slot_processing`.
+                for (i, summary) in summaries.iter().enumerate() {
+                    let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
+                    validator_monitor.process_validator_statuses(epoch, &summary.statuses);
+                }
             }
         }
 
@@ -1131,6 +1128,7 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
 
 /// Verify the parent of `block` is known, returning some information about the parent block from
 /// fork choice.
+#[allow(clippy::type_complexity)]
 fn verify_parent_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: SignedBeaconBlock<T::EthSpec>,
