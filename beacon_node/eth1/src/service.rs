@@ -1179,7 +1179,6 @@ async fn download_eth1_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toml;
     use types::MainnetEthSpec;
 
     #[test]

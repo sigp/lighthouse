@@ -346,6 +346,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_reputation_change() {
         let mut score = Score::default();
 
@@ -375,6 +376,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_ban_time() {
         let mut score = RealScore::default();
         let now = Instant::now();
@@ -402,6 +404,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_ignored_gossipsub_score() {
         let mut score = Score::default();
         score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD, true);

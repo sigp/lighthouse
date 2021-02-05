@@ -247,8 +247,8 @@ mod tests {
     #[test]
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
-            let config =
-                Eth2NetworkConfig::from_hardcoded_net(net).expect(&format!("{:?}", net.name));
+            let config = Eth2NetworkConfig::from_hardcoded_net(net)
+                .unwrap_or_else(|_| panic!("{:?}", net.name));
 
             if net.name == "mainnet" || net.name == "toledo" || net.name == "pyrmont" {
                 // Ensure we can parse the YAML config to a chain spec.

@@ -20,6 +20,7 @@ use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
 
 use crate::metrics;
 
+#[cfg(test)]
 mod tests;
 
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
