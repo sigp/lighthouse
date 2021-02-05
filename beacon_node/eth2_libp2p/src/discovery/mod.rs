@@ -896,10 +896,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
             EventStream::InActive => {} // ignore checking the stream
             EventStream::Present(ref mut stream) => {
-                //TODO: replace this with try_rec() when this issue is resolved:
-                // (should this be try_recv?)
-                // https://github.com/tokio-rs/tokio/issues/3350
-                while let Some(Some(event)) = stream.recv().now_or_never() {
+                while let Poll::Ready(Some(event)) = stream.poll_recv(cx) {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
                         // the peer manager.

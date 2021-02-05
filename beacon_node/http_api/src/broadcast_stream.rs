@@ -1,21 +1,20 @@
-use crate::Stream;
-use async_stream::stream;
-use std::pin::Pin;
-use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::broadcast::Receiver;
-
-use std::fmt;
-use std::task::{Context, Poll};
-
 // TODO: this should be replaced with the tokio's `BroadcastStream` once it's added to
 // tokio-stream (https://github.com/tokio-rs/tokio/pull/3384)
+
+use std::fmt;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::broadcast::Receiver;
+use tokio_stream::Stream;
+use tokio_util::sync::ReusableBoxFuture;
 
 /// A wrapper around [`tokio::sync::broadcast::Receiver`] that implements [`Stream`].
 ///
 /// [`tokio::sync::broadcast::Receiver`]: struct@tokio::sync::broadcast::Receiver
 /// [`Stream`]: trait@crate::Stream
 pub struct BroadcastStream<T> {
-    inner: Pin<Box<dyn Stream<Item = Result<T, BroadcastStreamRecvError>> + Send + Sync>>,
+    inner: ReusableBoxFuture<(Result<T, RecvError>, Receiver<T>)>,
 }
 
 /// An error returned from the inner stream of a [`BroadcastStream`].
@@ -28,35 +27,39 @@ pub enum BroadcastStreamRecvError {
     Lagged(u64),
 }
 
-impl<T: Clone + Unpin + 'static + Send + Sync> BroadcastStream<T> {
+async fn make_future<T: Clone>(mut rx: Receiver<T>) -> (Result<T, RecvError>, Receiver<T>) {
+    let result = rx.recv().await;
+    (result, rx)
+}
+
+impl<T: 'static + Clone + Send> BroadcastStream<T> {
     /// Create a new `BroadcastStream`.
-    pub fn new(mut rx: Receiver<T>) -> Self {
-        let stream = stream! {
-            loop {
-                match rx.recv().await {
-                    Ok(item) => yield Ok(item),
-                    Err(err) => match err {
-                        RecvError::Closed => break,
-                        RecvError::Lagged(n) => yield Err(BroadcastStreamRecvError::Lagged(n)),
-                    },
-                }
-            }
-        };
+    pub fn new(rx: Receiver<T>) -> Self {
         Self {
-            inner: Box::pin(stream),
+            inner: ReusableBoxFuture::new(make_future(rx)),
         }
     }
 }
 
-impl<T: Clone> Stream for BroadcastStream<T> {
+impl<T: 'static + Clone + Send> Stream for BroadcastStream<T> {
     type Item = Result<T, BroadcastStreamRecvError>;
-
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.inner).poll_next(cx)
+        let (result, rx) = match self.inner.poll(cx) {
+            std::task::Poll::Ready(t) => t,
+            std::task::Poll::Pending => return std::task::Poll::Pending,
+        };
+        self.inner.set(make_future(rx));
+        match result {
+            Ok(item) => Poll::Ready(Some(Ok(item))),
+            Err(RecvError::Closed) => Poll::Ready(None),
+            Err(RecvError::Lagged(n)) => {
+                Poll::Ready(Some(Err(BroadcastStreamRecvError::Lagged(n))))
+            }
+        }
     }
 }
 
-impl<T: Clone> fmt::Debug for BroadcastStream<T> {
+impl<T> fmt::Debug for BroadcastStream<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BroadcastStream").finish()
     }
