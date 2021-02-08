@@ -665,7 +665,7 @@ dependencies = [
  "futures 0.3.12",
  "genesis",
  "hex",
- "hyper 0.14.2",
+ "hyper 0.14.4",
  "lighthouse_version",
  "logging",
  "node_test_rig",
@@ -2906,7 +2906,7 @@ dependencies = [
  "crossbeam-utils",
  "difference",
  "futures-util",
- "hyper 0.14.2",
+ "hyper 0.14.4",
  "isahc",
  "lazy_static",
  "levenshtein",
@@ -2951,9 +2951,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "0.14.2"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12219dc884514cb4a6a03737f4413c0e01c23a1b059b0156004b23f1e19dccbe"
+checksum = "e8e946c2b1349055e0b72ae281b238baf1a3ea7307c7e9f9d64673bdd9c26ac7"
 dependencies = [
  "bytes 1.0.1",
  "futures-channel",
@@ -3011,7 +3011,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
 dependencies = [
  "bytes 1.0.1",
- "hyper 0.14.2",
+ "hyper 0.14.4",
  "native-tls",
  "tokio 1.1.0",
  "tokio-native-tls",
@@ -5224,7 +5224,7 @@ dependencies = [
  "clap",
  "environment",
  "futures 0.3.12",
- "hyper 0.14.2",
+ "hyper 0.14.4",
  "lazy_static",
  "regex",
  "remote_signer_backend",
@@ -5287,7 +5287,7 @@ dependencies = [
  "futures-util",
  "http",
  "http-body 0.4.0",
- "hyper 0.14.2",
+ "hyper 0.14.4",
  "hyper-tls 0.5.0",
  "ipnet",
  "js-sys",
@@ -7111,7 +7111,7 @@ dependencies = [
  "fallback",
  "futures 0.3.12",
  "hex",
- "hyper 0.14.2",
+ "hyper 0.14.4",
  "lazy_static",
  "libc",
  "libsecp256k1",
@@ -7228,7 +7228,7 @@ dependencies = [
  "futures 0.3.12",
  "headers",
  "http",
- "hyper 0.14.2",
+ "hyper 0.14.4",
  "log",
  "mime",
  "mime_guess",
