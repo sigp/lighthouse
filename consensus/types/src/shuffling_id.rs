@@ -59,16 +59,3 @@ impl AttestationShufflingId {
         }
     }
 }
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]
-pub struct ProposerShufflingId {
-    shuffling_decision_block: Hash256,
-}
-
-impl ProposerShufflingId {
-    pub fn new(shuffling_decision_block: Hash256) -> Self {
-        Self {
-            shuffling_decision_block,
-        }
-    }
-}
