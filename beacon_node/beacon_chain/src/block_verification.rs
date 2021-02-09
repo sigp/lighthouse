@@ -182,7 +182,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, state_slot: Slot },
+    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -532,7 +532,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         if parent_block.slot >= block.slot() {
             return Err(BlockError::BlockIsNotLaterThanParent {
                 block_slot: block.slot(),
-                state_slot: parent_block.slot,
+                parent_slot: parent_block.slot,
             });
         }
 
@@ -849,7 +849,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         if block.slot() <= parent.beacon_block.slot() {
             return Err(BlockError::BlockIsNotLaterThanParent {
                 block_slot: block.slot(),
-                state_slot: parent.beacon_block.slot(),
+                parent_slot: parent.beacon_block.slot(),
             });
         }
 
@@ -865,7 +865,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             let state_root = if parent.beacon_block.slot() == state.slot {
                 // If it happens that `pre_state` has *not* already been advanced forward a single
                 // slot, then there is no need to compute the state root for this
-                // `per_slot_processing` since that state root is already stored in the parent
+                // `per_slot_processing` call since that state root is already stored in the parent
                 // block.
                 parent.beacon_block.state_root()
             } else {
@@ -1280,7 +1280,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     } else if state.slot > block_slot {
         Err(BlockError::BlockIsNotLaterThanParent {
             block_slot,
-            state_slot: state.slot,
+            parent_slot: state.slot,
         })
     } else {
         let mut state = state.clone_with(CloneConfig::committee_caches_only());
