@@ -1749,7 +1749,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //    necessarily the completion of this function).
         // 2. On epoch boundaries, it allows us to learn the proposer shuffling for the next epoch
         //    and prime our caches. This shortens block propagation verification times, since we
-        //    don't need to obtain the shuffling.
+        //    don't need to compute the shuffling.
         //
         // The downside of this optimization is that we now need to hold two copies of the state;
         // one that is advanced to the next state (`pre_state`) and one that is not (`state`). We
@@ -1758,7 +1758,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(summary) =
             per_slot_processing(&mut pre_state, Some(block.state_root), &self.spec)?
         {
-            // No need to add metrics for historical block imports.
+            // Only notify the validator monitor for recent blocks.
             if slot.epoch(T::EthSpec::slots_per_epoch()) + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
                 >= current_slot.epoch(T::EthSpec::slots_per_epoch())
             {

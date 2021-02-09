@@ -1,7 +1,7 @@
 //! The `BeaconProposer` cache stores the proposer indices for some epoch.
 //!
 //! This cache is keyed by `(epoch, block_root)` where `block_root` is the block root at
-//! end_slot(epoch - 1). We make the assertion that the proposer shuffling is identical for all
+//! `end_slot(epoch - 1)`. We make the assertion that the proposer shuffling is identical for all
 //! blocks in `epoch` which share the common ancestor of `block_root`.
 //!
 //! The cache is a fairly unintelligent LRU cache that is not pruned after finality. This makes it
@@ -34,7 +34,7 @@ pub struct EpochBlockProposers {
     epoch: Epoch,
     /// The fork that should be used to verify proposer signatures.
     fork: Fork,
-    /// A list of lenght `T::EthSpec::slots_per_epoch()`, representing the proposers for each slot
+    /// A list of length `T::EthSpec::slots_per_epoch()`, representing the proposers for each slot
     /// in that epoch.
     ///
     /// E.g., if `self.epoch == 1`, then `self.proposers[0]` contains the proposer for slot `32`.
@@ -64,9 +64,10 @@ impl BeaconProposerCache {
         shuffling_decision_block: Hash256,
         slot: Slot,
     ) -> Option<Proposer> {
-        let key = (slot.epoch(T::slots_per_epoch()), shuffling_decision_block);
+        let epoch = slot.epoch(T::slots_per_epoch());
+        let key = (epoch, shuffling_decision_block);
         if let Some(cache) = self.cache.get(&key) {
-            let epoch = slot.epoch(T::slots_per_epoch());
+            // This `if` statement is likely unnecessary, but it feels like good practice.
             if epoch == cache.epoch {
                 cache
                     .proposers

@@ -844,7 +844,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // Transition the parent state to the block slot.
         //
         // It is important to note that we're using a "pre-state" here, one that has potentially
-        // been advanced one slot forward from t`parent.beacon_block.slot`.
+        // been advanced one slot forward from `parent.beacon_block.slot`.
         let mut state = parent.pre_state;
         let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
         for _ in 0..distance {
