@@ -5,14 +5,11 @@ use types::{beacon_state::CloneConfig, BeaconState, Epoch, EthSpec, Hash256, Sig
 /// The default size of the cache.
 pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 
-pub struct CacheItem<T: EthSpec> {
-    beacon_block: SignedBeaconBlock<T>,
-    beacon_block_root: Hash256,
-    beacon_state: BeaconState<T>,
-    pre_state: Option<BeaconState<T>>,
-}
-
+/// This snapshot is to be used for verifying a child of `self.beacon_block`.
 pub struct PreProcessingSnapshot<T: EthSpec> {
+    /// This state is equivalent to the `self.beacon_block.state_root()` state that has been
+    /// advanced forward one slot using `per_slot_processing`. This state is "primed and ready" for
+    /// the application of another block.
     pub pre_state: BeaconState<T>,
     pub beacon_block: SignedBeaconBlock<T>,
     pub beacon_block_root: Hash256,
@@ -63,6 +60,17 @@ impl<T: EthSpec> Into<BeaconSnapshot<T>> for CacheItem<T> {
             beacon_block_root: self.beacon_block_root,
         }
     }
+}
+
+/// The item stored in the `SnapshotCache`.
+pub struct CacheItem<T: EthSpec> {
+    beacon_block: SignedBeaconBlock<T>,
+    beacon_block_root: Hash256,
+    /// This state is equivalent to `self.beacon_block.state_root()`.
+    beacon_state: BeaconState<T>,
+    /// This state is equivalent to `self.beacon_state` that has had `per_slot_processing` applied
+    /// to it. This state assists in optimizing block processing.
+    pre_state: Option<BeaconState<T>>,
 }
 
 /// Provides a cache of `BeaconSnapshot` that is intended primarily for block processing.

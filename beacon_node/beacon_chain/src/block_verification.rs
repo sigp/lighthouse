@@ -842,10 +842,17 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         let mut summaries = vec![];
 
         // Transition the parent state to the block slot.
+        //
+        // It is important to note that we're using a "pre-state" here, one that has potentially
+        // been advanced one slot forward from t`parent.beacon_block.slot`.
         let mut state = parent.pre_state;
         let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
         for _ in 0..distance {
             let state_root = if parent.beacon_block.slot() == state.slot {
+                // If it happens that `pre_state` has *not* already been advanced forward a single
+                // slot, then there is no need to compute the state root for this
+                // `per_slot_processing` since that state root is already stored in the parent
+                // block.
                 parent.beacon_block.state_root()
             } else {
                 // This is a new state we've reached, so stage it for storage in the DB.
@@ -893,7 +900,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         expose_participation_metrics(&summaries);
 
-        // No need to add metrics for historical block imports.
+        // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
             if block.slot().epoch(T::EthSpec::slots_per_epoch())
@@ -901,8 +908,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 >= epoch
             {
                 let validator_monitor = chain.validator_monitor.read();
-                // Update the summaries in a separate loop. This protects the `validator_monitor` lock from
-                // being bounced or held for a long time whilst performing `per_slot_processing`.
+                // Update the summaries in a separate loop to `per_slot_processing`. This protects
+                // the `validator_monitor` lock from being bounced or held for a long time whilst
+                // performing `per_slot_processing`.
                 for (i, summary) in summaries.iter().enumerate() {
                     let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
                     validator_monitor.process_validator_statuses(epoch, &summary.statuses);
