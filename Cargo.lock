@@ -2681,21 +2681,6 @@ dependencies = [
 [[package]]
 name = "headers"
 version = "0.3.2"
-source = "git+https://github.com/blacktemplar/headers?branch=lighthouse#8bffbd8aa2e170745a81e62fc0d7e98c0a23a69a"
-dependencies = [
- "base64 0.13.0",
- "bitflags",
- "bytes 0.6.0",
- "headers-core 0.2.0 (git+https://github.com/blacktemplar/headers?branch=lighthouse)",
- "http 0.2.1",
- "mime",
- "sha-1 0.8.2",
- "time 0.1.44",
-]
-
-[[package]]
-name = "headers"
-version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed18eb2459bf1a09ad2d6b1547840c3e5e62882fa09b9a6a20b1de8e3228848f"
 dependencies = [
@@ -2710,11 +2695,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "headers-core"
-version = "0.2.0"
+name = "headers"
+version = "0.3.2"
 source = "git+https://github.com/blacktemplar/headers?branch=lighthouse#8bffbd8aa2e170745a81e62fc0d7e98c0a23a69a"
 dependencies = [
+ "base64 0.13.0",
+ "bitflags",
+ "bytes 0.6.0",
+ "headers-core 0.2.0 (git+https://github.com/blacktemplar/headers?branch=lighthouse)",
  "http 0.2.1",
+ "mime",
+ "sha-1 0.8.2",
+ "time 0.1.44",
 ]
 
 [[package]]
@@ -2724,6 +2716,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
  "http 0.2.2",
+]
+
+[[package]]
+name = "headers-core"
+version = "0.2.0"
+source = "git+https://github.com/blacktemplar/headers?branch=lighthouse#8bffbd8aa2e170745a81e62fc0d7e98c0a23a69a"
+dependencies = [
+ "http 0.2.1",
 ]
 
 [[package]]
@@ -2841,20 +2841,20 @@ dependencies = [
 [[package]]
 name = "http-body"
 version = "0.3.1"
-source = "git+https://github.com/agemanning/http-body?branch=lighthouse#a10365c24eaee8eab881519accad48b695b88ccf"
-dependencies = [
- "bytes 0.6.0",
- "http 0.2.1",
-]
-
-[[package]]
-name = "http-body"
-version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13d5ff830006f7646652e057693569bfe0d51760c0085a071769d142a205111b"
 dependencies = [
  "bytes 0.5.6",
  "http 0.2.2",
+]
+
+[[package]]
+name = "http-body"
+version = "0.3.1"
+source = "git+https://github.com/agemanning/http-body?branch=lighthouse#a10365c24eaee8eab881519accad48b695b88ccf"
+dependencies = [
+ "bytes 0.6.0",
+ "http 0.2.1",
 ]
 
 [[package]]
@@ -7061,20 +7061,20 @@ dependencies = [
 [[package]]
 name = "unsigned-varint"
 version = "0.5.1"
-source = "git+https://github.com/sigp/unsigned-varint?branch=dep-update#b9f8b1ec8b2dbb1d5d27db9601be758065a4d8a6"
-dependencies = [
- "bytes 0.5.6",
- "tokio-util 0.4.0",
-]
-
-[[package]]
-name = "unsigned-varint"
-version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7fdeedbf205afadfe39ae559b75c3240f24e257d0ca27e85f85cb82aa19ac35"
 dependencies = [
  "bytes 0.5.6",
  "futures_codec",
+]
+
+[[package]]
+name = "unsigned-varint"
+version = "0.5.1"
+source = "git+https://github.com/sigp/unsigned-varint?branch=dep-update#b9f8b1ec8b2dbb1d5d27db9601be758065a4d8a6"
+dependencies = [
+ "bytes 0.5.6",
+ "tokio-util 0.4.0",
 ]
 
 [[package]]
