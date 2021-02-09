@@ -2189,6 +2189,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "explorer_api"
+version = "0.1.0"
+dependencies = [
+ "futures 0.3.8",
+ "reqwest",
+ "task_executor",
+ "tokio 0.3.6",
+]
+
+[[package]]
 name = "extend"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,13 @@
+[package]
+name = "explorer_api"
+version = "0.1.0"
+authors = ["pawan <pawandhananjay@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.10.8", features = ["json","stream"] }
+futures = "0.3.7"
+task_executor = { path = "../task_executor" }
+tokio = { version = "0.3.6", features = ["full"] }
