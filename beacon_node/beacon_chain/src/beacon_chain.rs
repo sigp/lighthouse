@@ -235,7 +235,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the attester shuffling for a given epoch and shuffling keying root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling keying root.
-    pub(crate) beacon_proposer_cache: RwLock<BeaconProposerCache<T::EthSpec>>,
+    pub(crate) beacon_proposer_cache: RwLock<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
@@ -1729,10 +1729,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root;
         let slot = block.slot;
 
+        // Clone the state, without the tree hash cache (THC), then "rename" the original `state` (with
+        // the THC) to `pre_state`. After this we have:
+        //
+        // - `state`: does not contain THC.
+        // - `pre_state`: contains THC 🍁.
+        //
+        // The reason for this clone is explained later in this function.
         let cloned_state = state.clone_with(CloneConfig::committee_caches_only());
         let mut pre_state = std::mem::replace(&mut state, cloned_state);
 
         // Advance a single slot on `pre_state`.
+        //
+        // This is an optimisation with the following benefits:
+        //
+        // 1. When following head (i.e., not syncing), this means that we can use the tail-end of
+        //    slot `n` to compute the pre-state for the block at slot `n + 1`. This allows us to
+        //    import blocks faster ("import" meaning placed in the DB and fork choice, not
+        //    necessarily the completion of this function).
+        // 2. On epoch boundaries, it allows us to learn the proposer shuffling for the next epoch
+        //    and prime our caches. This shortens block propagation verification times, since we
+        //    don't need to obtain the shuffling.
+        //
+        // The downside of this optimization is that we now need to hold two copies of the state;
+        // one that is advanced to the next state (`pre_state`) and one that is not (`state`). We
+        // maintain the non-advanced `state` to avoid a DB read when setting an imported block as
+        // the head and therefore putting the state in `self.canonical_head`.
         if let Some(summary) =
             per_slot_processing(&mut pre_state, Some(block.state_root), &self.spec)?
         {
@@ -1740,6 +1762,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if slot.epoch(T::EthSpec::slots_per_epoch()) + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
                 >= current_slot.epoch(T::EthSpec::slots_per_epoch())
             {
+                // Potentially create logs/metrics for locally monitored validators.
                 self.validator_monitor
                     .read()
                     .process_validator_statuses(pre_state.current_epoch(), &summary.statuses);
@@ -1749,10 +1772,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer
         // shuffling for the next epoch into the cache.
         if pre_state.current_epoch() > state.current_epoch() {
-            let next_epoch_proposer_shuffling_id = (pre_state.current_epoch(), block_root);
-
             self.beacon_proposer_cache.write().insert(
-                next_epoch_proposer_shuffling_id,
+                pre_state.current_epoch(),
+                // Since `pre_state` just transitioned into a new epoch it is always the case that
+                // `block_root` is the proposer shuffling decision block.
+                block_root,
                 pre_state.get_beacon_proposer_indices(&self.spec)?,
                 pre_state.fork,
             )?;
@@ -1783,7 +1807,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.head_tracker
             .register_block(block_root, parent_root, slot);
 
-        // send an event to the `events` endpoint after fully processing the block
+        // Send an event to the `events` endpoint after fully processing the block.
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_block_subscribers() {
                 event_handler.register(EventKind::Block(SseBlock {

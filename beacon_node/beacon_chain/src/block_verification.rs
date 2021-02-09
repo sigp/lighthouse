@@ -522,32 +522,34 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
-        let proposer_shuffling_id =
+        let proposer_shuffling_decision_block =
             if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == block_epoch {
-                (
-                    block_epoch,
-                    parent_block
-                        .next_epoch_shuffling_id
-                        .shuffling_decision_block,
-                )
+                parent_block
+                    .next_epoch_shuffling_id
+                    .shuffling_decision_block
             } else {
-                (block_epoch, parent_block.root)
+                parent_block.root
             };
 
         // Reject any block that exceeds our limit on skipped slots.
         check_block_skip_slots(chain, parent_block.slot, &block.message)?;
 
         // We assign to a variable instead of using `if let Some` directly to ensure we drop the
-        // write lock before trying to acquire it again.
+        // write lock before trying to acquire it again in the `else` clause.
         let proposer_opt = chain
             .beacon_proposer_cache
             .write()
-            .get(proposer_shuffling_id, block.slot());
+            .get::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
         let (expected_proposer, fork, parent, block) = if let Some(proposer) = proposer_opt {
+            // The proposer index was cached and we can return it without needing to load the
+            // parent.
             (proposer.index, proposer.fork, None, block)
         } else {
+            // The proposer index was *not* cached and we must load the parent in order to determine
+            // the proposer index.
             let (mut parent, block) = load_parent(block, chain)?;
 
+            // The state produced is only valid for determining proposer/attester shuffling indices.
             let state = cheap_state_advance_to_obtain_committees(
                 &mut parent.pre_state,
                 block.slot(),
@@ -559,8 +561,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 .get(block.slot().as_usize() % T::EthSpec::slots_per_epoch() as usize)
                 .ok_or_else(|| BeaconChainError::NoProposerForSlot(block.slot()))?;
 
+            // Prime the proposer shuffling cache with the newly-learned value.
             chain.beacon_proposer_cache.write().insert(
-                proposer_shuffling_id,
+                block_epoch,
+                proposer_shuffling_decision_block,
                 proposers,
                 state.fork,
             )?;
@@ -1229,12 +1233,12 @@ fn load_parent<T: BeaconChainTypes>(
     result
 }
 
-/// Performs a cheap (time-efficient) state advancement so the committees for `slot` can be
-/// obtained from `state`.
+/// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
+/// `slot` can be obtained from `state`.
 ///
 /// The state advancement is "cheap" since it does not generate state roots. As a result, the
-/// returned state might be holistically invalid but the committees will be correct (since they do
-/// not rely upon state roots).
+/// returned state might be holistically invalid but the committees/proposers will be correct (since
+/// they do not rely upon state roots).
 ///
 /// If the given `state` can already serve the `slot`, the committees will be built on the `state`
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
