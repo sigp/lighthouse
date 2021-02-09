@@ -232,9 +232,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: Arc<HeadTracker>,
     /// A cache dedicated to block processing.
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
-    /// Caches the attester shuffling for a given epoch and shuffling keying root.
+    /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
-    /// Caches the beacon block proposer shuffling for a given epoch and shuffling keying root.
+    /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub(crate) beacon_proposer_cache: RwLock<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
