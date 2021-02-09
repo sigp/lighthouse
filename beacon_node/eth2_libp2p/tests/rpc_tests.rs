@@ -17,6 +17,7 @@ type E = MinimalEthSpec;
 
 // Tests the STATUS RPC message
 #[test]
+#[allow(clippy::single_match)]
 fn test_status_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
@@ -113,6 +114,7 @@ fn test_status_rpc() {
 
 // Tests a streamed BlocksByRange RPC Message
 #[test]
+#[allow(clippy::single_match)]
 fn test_blocks_by_range_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
@@ -199,7 +201,7 @@ fn test_blocks_by_range_chunked_rpc() {
                             warn!(log, "Receiver got request");
                             for _ in 1..=messages_to_send {
                                 receiver.swarm.send_successful_response(
-                                    peer_id.clone(),
+                                    peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
@@ -340,8 +342,8 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
                     receiver.swarm.send_successful_response(
-                        peer_id.clone(),
-                        stream_id.clone(),
+                        *peer_id,
+                        *stream_id,
                         rpc_response.clone(),
                     );
                     debug!(log, "Sending message {}", messages_sent);
@@ -365,6 +367,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
 
 // Tests an empty response to a BlocksByRange RPC Message
 #[test]
+#[allow(clippy::single_match)]
 fn test_blocks_by_range_single_empty_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
@@ -448,7 +451,7 @@ fn test_blocks_by_range_single_empty_rpc() {
 
                             for _ in 1..=messages_to_send {
                                 receiver.swarm.send_successful_response(
-                                    peer_id.clone(),
+                                    peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
@@ -480,6 +483,7 @@ fn test_blocks_by_range_single_empty_rpc() {
 // which is greater than the Snappy frame size. Hence, this test
 // serves to test the snappy framing format as well.
 #[test]
+#[allow(clippy::single_match)]
 fn test_blocks_by_root_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
@@ -565,7 +569,7 @@ fn test_blocks_by_root_chunked_rpc() {
 
                             for _ in 1..=messages_to_send {
                                 receiver.swarm.send_successful_response(
-                                    peer_id.clone(),
+                                    peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
@@ -715,8 +719,8 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
                     receiver.swarm.send_successful_response(
-                        peer_id.clone(),
-                        stream_id.clone(),
+                        *peer_id,
+                        *stream_id,
                         rpc_response.clone(),
                     );
                     debug!(log, "Sending message {}", messages_sent);
@@ -740,6 +744,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
 
 // Tests a Goodbye RPC message
 #[test]
+#[allow(clippy::single_match)]
 fn test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;

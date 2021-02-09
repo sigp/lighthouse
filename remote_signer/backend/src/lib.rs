@@ -135,7 +135,7 @@ pub mod tests_commons {
     pub fn assert_backend_new_error(matches: &ArgMatches, error_msg: &str) {
         match Backend::new(matches, &get_null_logger()) {
             Ok(_) => panic!("This invocation to Backend::new() should return error"),
-            Err(e) => assert_eq!(e.to_string(), error_msg),
+            Err(e) => assert_eq!(e, error_msg),
         }
     }
 }
@@ -188,7 +188,7 @@ pub mod backend_new {
 
         match result {
             Ok(_) => panic!("This invocation to Backend::new() should return error"),
-            Err(e) => assert_eq!(e.to_string(), "Storage Raw Dir: PermissionDenied",),
+            Err(e) => assert_eq!(e, "Storage Raw Dir: PermissionDenied",),
         }
     }
 

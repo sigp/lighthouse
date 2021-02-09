@@ -3,12 +3,13 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
     observed_operations::ObservationOutcome,
+    validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
 use ssz::Encode;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
@@ -237,6 +238,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         seen_duration: Duration,
     ) {
+        // Log metrics to track delay from other nodes on the network.
+        metrics::observe_duration(
+            &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
+            get_block_delay_ms(seen_duration, &block.message, &self.chain.slot_clock),
+        );
+
         let verified_block = match self.chain.verify_block_for_gossip(block) {
             Ok(verified_block) => {
                 info!(
@@ -246,6 +253,19 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "hash" => %verified_block.block_root
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // Log metrics to keep track of propagation delay times.
+                if let Some(duration) = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|now| now.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
+                        duration,
+                    );
+                }
+
                 verified_block
             }
             Err(BlockError::ParentUnknown(block)) => {

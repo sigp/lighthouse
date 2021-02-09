@@ -12,6 +12,13 @@ env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
 jobs:
+  target-branch-check:
+    name: target-branch-check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+        - name: Check that pull request is targeting unstable branch
+          run: test ${{ github.base_ref }} = "unstable"
   cargo-fmt:
     name: cargo-fmt
     runs-on: ubuntu-latest

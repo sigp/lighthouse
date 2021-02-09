@@ -160,7 +160,6 @@ fn ensure_dir_exists(path: PathBuf) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toml;
 
     #[test]
     fn serde() {

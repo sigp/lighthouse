@@ -202,13 +202,12 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let pubkeys = indexed_attestation
-        .attesting_indices
-        .into_iter()
-        .map(|&validator_idx| {
-            Ok(get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?)
-        })
-        .collect::<Result<_>>()?;
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
+    for &validator_idx in &indexed_attestation.attesting_indices {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
@@ -236,13 +235,12 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let pubkeys = indexed_attestation
-        .attesting_indices
-        .into_iter()
-        .map(|&validator_idx| {
-            Ok(get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?)
-        })
-        .collect::<Result<_>>()?;
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
+    for &validator_idx in &indexed_attestation.attesting_indices {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
