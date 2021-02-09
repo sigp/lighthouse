@@ -522,6 +522,20 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
+
+        // Paranoid check to prevent propagation of blocks that don't form a legitimate chain.
+        //
+        // This is not in the spec, but @protolambda tells me that the majority of other clients are
+        // already doing it. For reference:
+        //
+        // https://github.com/ethereum/eth2.0-specs/pull/2196
+        if parent_block.slot >= block.slot() {
+            return Err(BlockError::BlockIsNotLaterThanParent {
+                block_slot: block.slot(),
+                state_slot: parent_block.slot,
+            });
+        }
+
         let proposer_shuffling_decision_block =
             if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == block_epoch {
                 parent_block
