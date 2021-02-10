@@ -1,6 +1,7 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
+use jemalloc_ctl::{stats, epoch};
 
 pub use lighthouse_metrics::*;
 
@@ -46,4 +47,10 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
         .unwrap();
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
+}
+
+pub fn scrape_jemalloc_metrics() {
+    let e = epoch::mib().unwrap();
+    let allocated = stats::allocated::mib().unwrap();
+    let resident = stats::resident::mib().unwrap();
 }
