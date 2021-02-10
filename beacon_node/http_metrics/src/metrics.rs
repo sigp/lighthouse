@@ -1,7 +1,6 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
-use jemalloc_ctl::{stats, epoch};
 
 pub use lighthouse_metrics::*;
 

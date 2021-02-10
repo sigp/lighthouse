@@ -18,3 +18,4 @@ tokio = { version = "0.3.2", features = ["sync"] }
 headers = "0.3.2"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 lazy_static = "1.4.0"
+jemalloc-ctl = "0.3.3"

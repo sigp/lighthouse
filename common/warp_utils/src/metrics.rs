@@ -1,5 +1,6 @@
 use eth2::lighthouse::Health;
 use lighthouse_metrics::*;
+use jemalloc_ctl::{stats, epoch};
 
 lazy_static::lazy_static! {
     pub static ref PROCESS_NUM_THREADS: Result<IntGauge> = try_create_int_gauge(
