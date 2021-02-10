@@ -48,9 +48,3 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }
-
-pub fn scrape_jemalloc_metrics() {
-    let e = epoch::mib().unwrap();
-    let allocated = stats::allocated::mib().unwrap();
-    let resident = stats::resident::mib().unwrap();
-}

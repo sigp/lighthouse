@@ -34,6 +34,14 @@ lazy_static::lazy_static! {
         try_create_float_gauge("system_loadavg_5", "Loadavg over 5 minutes");
     pub static ref SYSTEM_LOADAVG_15: Result<Gauge> =
         try_create_float_gauge("system_loadavg_15", "Loadavg over 15 minutes");
+
+    /*
+     * jemalloc
+     */
+    pub static ref JEMALLOC_RESIDENT: Result<IntGauge> =
+        try_create_int_gauge("jemalloc_resident", "Resident memory according to jemalloc-ctl");
+    pub static ref JEMALLOC_ALLOCATED: Result<IntGauge> =
+        try_create_int_gauge("jemalloc_allocated", "Allocated memory according to jemalloc-ctl");
 }
 
 pub fn scrape_health_metrics() {
@@ -58,4 +66,11 @@ pub fn scrape_health_metrics() {
         set_float_gauge(&SYSTEM_LOADAVG_5, health.sys_loadavg_5);
         set_float_gauge(&SYSTEM_LOADAVG_15, health.sys_loadavg_15);
     }
+
+    let e = epoch::mib().unwrap();
+    e.advance().unwrap();
+    let allocated = stats::allocated::mib().unwrap();
+    set_gauge(&JEMALLOC_ALLOCATED, allocated as i64);
+    let resident = stats::resident::mib().unwrap();
+    set_gauge(&JEMALLOC_RESIDENT, resident as i64);
 }
