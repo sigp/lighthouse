@@ -1044,8 +1044,17 @@ pub fn get_block_delay_ms<T: EthSpec, S: SlotClock>(
     block: &BeaconBlock<T>,
     slot_clock: &S,
 ) -> Duration {
+    get_slot_delay_ms::<S>(seen_timestamp, block.slot, slot_clock)
+}
+
+/// Returns the delay between the start of `slot` and `seen_timestamp`.
+pub fn get_slot_delay_ms<S: SlotClock>(
+    seen_timestamp: Duration,
+    slot: Slot,
+    slot_clock: &S,
+) -> Duration {
     slot_clock
-        .start_of(block.slot)
+        .start_of(slot)
         .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
         .unwrap_or_else(|| Duration::from_secs(0))
 }

@@ -25,7 +25,7 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
-    get_block_delay_ms, timestamp_now, ValidatorMonitor,
+    get_block_delay_ms, get_slot_delay_ms, timestamp_now, ValidatorMonitor,
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -2121,6 +2121,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::CanonicalHeadLockTimeout)? = new_head;
 
         metrics::stop_timer(update_head_timer);
+
+        // Observe the delay between the start of the slot and when we set the block as head.
+        metrics::observe_duration(
+            &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
+            get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock),
+        );
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)

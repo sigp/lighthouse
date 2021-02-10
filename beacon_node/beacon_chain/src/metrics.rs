@@ -623,7 +623,11 @@ lazy_static! {
      */
     pub static ref BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
         "beacon_block_imported_slot_start_delay_time",
-        "Duration between the start of the blocks slot and the current time.",
+        "Duration between the start of the blocks slot and the current time when it was imported.",
+    );
+    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_head_slot_start_delay_time",
+        "Duration between the start of the blocks slot and the current time when it was as head.",
     );
 }
 
