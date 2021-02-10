@@ -6,7 +6,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - uses: styfle/cancel-workflow-action@0.7.0
+      # https://github.com/styfle/cancel-workflow-action/releases
+      - uses: styfle/cancel-workflow-action@514c783 # 0.7.0
         with:
           # https://api.github.com/repos/sigp/lighthouse/actions/workflows
           workflow_id: 697364,2434944,4462424,308241,2883401,316
