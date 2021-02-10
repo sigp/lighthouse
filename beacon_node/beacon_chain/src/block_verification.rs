@@ -53,7 +53,7 @@ use crate::{
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
-use slog::{error, Logger};
+use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
@@ -562,6 +562,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             // The proposer index was *not* cached and we must load the parent in order to determine
             // the proposer index.
             let (mut parent, block) = load_parent(block, chain)?;
+
+            debug!(
+                chain.log,
+                "Proposer shuffling cache miss";
+                "parent_root" => ?parent.beacon_block_root,
+                "parent_slot" => parent.beacon_block.slot(),
+                "block_root" => ?block_root,
+                "block_slot" => block.slot(),
+            );
 
             // The state produced is only valid for determining proposer/attester shuffling indices.
             let state = cheap_state_advance_to_obtain_committees(
