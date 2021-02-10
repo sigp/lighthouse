@@ -1729,59 +1729,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root;
         let slot = block.slot;
 
-        // Clone the state, without the tree hash cache (THC), then "rename" the original `state` (with
-        // the THC) to `pre_state`. After this we have:
-        //
-        // - `state`: does not contain THC.
-        // - `pre_state`: contains THC 🍁.
-        //
-        // The reason for this clone is explained later in this function.
-        let cloned_state = state.clone_with(CloneConfig::committee_caches_only());
-        let mut pre_state = std::mem::replace(&mut state, cloned_state);
-
-        // Advance a single slot on `pre_state`.
-        //
-        // This is an optimisation with the following benefits:
-        //
-        // 1. When following head (i.e., not syncing), this means that we can use the tail-end of
-        //    slot `n` to compute the pre-state for the block at slot `n + 1`. This allows us to
-        //    import blocks faster ("import" meaning placed in the DB and fork choice, not
-        //    necessarily the completion of this function).
-        // 2. On epoch boundaries, it allows us to learn the proposer shuffling for the next epoch
-        //    and prime our caches. This shortens block propagation verification times, since we
-        //    don't need to compute the shuffling.
-        //
-        // The downside of this optimization is that we now need to hold two copies of the state;
-        // one that is advanced to the next state (`pre_state`) and one that is not (`state`). We
-        // maintain the non-advanced `state` to avoid a DB read when setting an imported block as
-        // the head and therefore putting the state in `self.canonical_head`.
-        if let Some(summary) =
-            per_slot_processing(&mut pre_state, Some(block.state_root), &self.spec)?
-        {
-            // Only notify the validator monitor for recent blocks.
-            if slot.epoch(T::EthSpec::slots_per_epoch()) + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
-                >= current_slot.epoch(T::EthSpec::slots_per_epoch())
-            {
-                // Potentially create logs/metrics for locally monitored validators.
-                self.validator_monitor
-                    .read()
-                    .process_validator_statuses(pre_state.current_epoch(), &summary.statuses);
-            }
-        }
-
-        // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer
-        // shuffling for the next epoch into the cache.
-        if pre_state.current_epoch() > state.current_epoch() {
-            self.beacon_proposer_cache.write().insert(
-                pre_state.current_epoch(),
-                // Since `pre_state` just transitioned into a new epoch it is always the case that
-                // `block_root` is the proposer shuffling decision block.
-                block_root,
-                pre_state.get_beacon_proposer_indices(&self.spec)?,
-                pre_state.fork,
-            )?;
-        }
-
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::SnapshotCacheLockTimeout)
@@ -1792,7 +1739,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         beacon_block: signed_block,
                         beacon_block_root: block_root,
                     },
-                    Some(pre_state),
+                    None,
                 )
             })
             .unwrap_or_else(|e| {

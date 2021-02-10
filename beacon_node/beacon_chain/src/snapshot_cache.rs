@@ -1,6 +1,8 @@
 use crate::{BeaconChainError, BeaconSnapshot};
 use std::cmp;
-use types::{beacon_state::CloneConfig, BeaconState, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{
+    beacon_state::CloneConfig, BeaconState, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+};
 
 /// The default size of the cache.
 pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
@@ -160,6 +162,39 @@ impl<T: EthSpec> SnapshotCache<T> {
             .iter()
             .find(|snapshot| snapshot.beacon_block_root == block_root)
             .map(|snapshot| snapshot.clone_to_snapshot_with(clone_config))
+    }
+
+    pub fn get_for_state_advance(
+        &mut self,
+        block_root: Hash256,
+    ) -> Option<(Slot, Hash256, BeaconState<T>)> {
+        self.snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.beacon_block_root == block_root)
+            .map(|snapshot| {
+                let state = if let Some(pre_state) = snapshot.pre_state.take() {
+                    pre_state
+                } else {
+                    let cloned = snapshot
+                        .beacon_state
+                        .clone_with(CloneConfig::committee_caches_only());
+                    std::mem::replace(&mut snapshot.beacon_state, cloned)
+                };
+                (
+                    snapshot.beacon_block.slot(),
+                    snapshot.beacon_block.state_root(),
+                    state,
+                )
+            })
+    }
+
+    pub fn update_pre_state(&mut self, block_root: Hash256, state: BeaconState<T>) -> Option<()> {
+        self.snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.beacon_block_root == block_root)
+            .map(|snapshot| {
+                snapshot.pre_state = Some(state);
+            })
     }
 
     /// Removes all snapshots from the queue that are less than or equal to the finalized epoch.

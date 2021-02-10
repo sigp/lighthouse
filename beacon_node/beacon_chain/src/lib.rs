@@ -22,6 +22,7 @@ mod persisted_beacon_chain;
 mod persisted_fork_choice;
 mod shuffling_cache;
 mod snapshot_cache;
+pub mod state_advance_timer;
 pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
