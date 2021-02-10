@@ -629,6 +629,15 @@ lazy_static! {
         "beacon_block_head_slot_start_delay_time",
         "Duration between the start of the blocks slot and the current time when it was as head.",
     );
+
+    /*
+     * General block metrics
+     */
+    pub static ref GOSSIP_BEACON_BLOCK_SKIPPED_SLOTS: Result<IntGauge> =
+        try_create_int_gauge(
+            "gossip_beacon_block_skipped_slots",
+            "For each gossip blocks, the number of skip slots between it and its parent"
+        );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

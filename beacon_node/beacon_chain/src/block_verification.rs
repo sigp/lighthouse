@@ -523,6 +523,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
 
+        // Track the number of skip slots between the block and its parent.
+        metrics::set_gauge(
+            &metrics::GOSSIP_BEACON_BLOCK_SKIPPED_SLOTS,
+            block
+                .slot()
+                .as_u64()
+                .saturating_sub(parent_block.slot.into()) as i64,
+        );
+
         // Paranoid check to prevent propagation of blocks that don't form a legitimate chain.
         //
         // This is not in the spec, but @protolambda tells me that the majority of other clients are
