@@ -5,7 +5,6 @@ use eth2_libp2p::{
     discv5::{enr::NodeId, Discv5, Discv5ConfigBuilder, Discv5Event},
     EnrExt, Eth2Enr,
 };
-use futures::prelude::*;
 use slog::info;
 use types::EthSpec;
 
@@ -78,7 +77,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     // listen for events
     loop {
         tokio::select! {
-            _ = metric_interval.next() => {
+            _ = metric_interval.tick() => {
                 // display server metrics
                 let metrics = discv5.metrics();
                 info!(log, "Server metrics"; "connected_peers" => discv5.connected_peers(), "active_sessions" => metrics.active_sessions, "requests/s" => format!("{:.2}", metrics.unsolicited_requests_per_second));

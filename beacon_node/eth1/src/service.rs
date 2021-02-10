@@ -9,7 +9,7 @@ use crate::{
     inner::{DepositUpdater, Inner},
 };
 use fallback::{Fallback, FallbackError};
-use futures::{future::TryFutureExt, StreamExt};
+use futures::future::TryFutureExt;
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -721,7 +721,8 @@ impl Service {
         let mut interval = interval_at(Instant::now(), update_interval);
 
         let update_future = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 self.do_update(update_interval).await.ok();
             }
         };

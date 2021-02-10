@@ -1,6 +1,5 @@
 use crate::rpc::{Protocol, RPCRequest};
 use fnv::FnvHashMap;
-use futures::StreamExt;
 use libp2p::PeerId;
 use std::convert::TryInto;
 use std::future::Future;
@@ -241,7 +240,7 @@ impl Future for RPCRateLimiter {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        while let Poll::Ready(Some(_)) = self.prune_interval.poll_next_unpin(cx) {
+        while let Poll::Ready(_) = self.prune_interval.poll_tick(cx) {
             self.prune();
         }
 

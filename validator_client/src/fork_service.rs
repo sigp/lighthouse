@@ -3,7 +3,6 @@ use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
 use futures::future::FutureExt;
-use futures::StreamExt;
 use parking_lot::RwLock;
 use slog::Logger;
 use slog::{debug, trace};
@@ -164,7 +163,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let executor = context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 self.clone().do_update().await.ok();
             }
         };

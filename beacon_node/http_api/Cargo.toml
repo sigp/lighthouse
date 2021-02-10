@@ -5,9 +5,11 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-warp = { git = "https://github.com/sigp/warp ", branch = "lighthouse" }
+warp = "0.3.0"
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "0.3.2", features = ["macros","stream","sync"] }
+tokio = { version = "1.1.0", features = ["macros","sync"] }
+tokio-stream = "0.1.2"
+tokio-util = "0.6.3"
 parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 hex = "0.4.2"
@@ -32,5 +34,4 @@ futures = "0.3.8"
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { version = "0.1.0-beta.2", features = ["libp2p"] }
-tokio-compat-02 = "0.1"
+discv5 = { version = "0.1.0-beta.3" }
