@@ -26,7 +26,6 @@ fn bls_library_name() -> &'static str {
 }
 
 fn main() {
-
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())
