@@ -76,10 +76,12 @@ impl Into<Graffiti> for GraffitiString {
         let graffiti_bytes = self.0.as_bytes();
         let mut graffiti = [0; 32];
 
+        let graffiti_len = std::cmp::min(graffiti_bytes.len(), 32);
+
         // Copy the provided bytes over.
         //
         // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-        graffiti[..graffiti_bytes.len()].copy_from_slice(&graffiti_bytes);
+        graffiti[..graffiti_len].copy_from_slice(&graffiti_bytes);
         graffiti.into()
     }
 }

@@ -367,10 +367,7 @@ impl InitializedValidators {
 
     /// Returns the `graffiti` for a given public key specified in the `ValidatorDefinitions`.
     pub fn graffiti(&self, public_key: &PublicKey) -> Option<Graffiti> {
-        self.validators
-            .get(public_key)
-            .map(|v| v.graffiti)
-            .flatten()
+        self.validators.get(public_key).and_then(|v| v.graffiti)
     }
 
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
