@@ -3769,6 +3769,7 @@ dependencies = [
  "environment",
  "eth2_network_config",
  "futures 0.3.8",
+ "jemalloc-ctl",
  "lighthouse_version",
  "logging",
  "remote_signer",
