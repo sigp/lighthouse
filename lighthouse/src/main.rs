@@ -274,7 +274,7 @@ fn run<E: EthSpec>(
         "Configured for network";
         "name" => &network_name
     );
-    info!(log, "background threads", "enabled" => background_thread::read().unwrap());
+    info!(log, "background threads"; "enabled" => background_thread::read().unwrap());
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
