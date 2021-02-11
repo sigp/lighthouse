@@ -3,7 +3,7 @@ name: test-suite
 on:
   push:
     branches:
-      - master
+      - stable
       - staging
       - trying
       - 'pr/*'
