@@ -78,19 +78,27 @@ pub fn scrape_health_metrics() {
         set_float_gauge(&SYSTEM_LOADAVG_15, health.sys_loadavg_15);
     }
 
-    epoch::advance().unwrap();
-    let allocated = stats::allocated::read().unwrap();
-    let resident = stats::resident::read().unwrap();
-    let mapped = stats::mapped::read().unwrap();
-    let metadata = stats::metadata::read().unwrap();
-    let retained = stats::retained::read().unwrap();
-    let active = stats::active::read().unwrap();
-    let narenas = arenas::narenas::read().unwrap();
-    set_gauge(&JEMALLOC_ALLOCATED, allocated as i64);
-    set_gauge(&JEMALLOC_RESIDENT, resident as i64);
-    set_gauge(&JEMALLOC_MAPPED, mapped as i64);
-    set_gauge(&JEMALLOC_METADATA, metadata as i64);
-    set_gauge(&JEMALLOC_RETAINED, retained as i64);
-    set_gauge(&JEMALLOC_ACTIVE, active as i64);
-    set_gauge(&JEMALLOC_ARENAS, narenas as i64);
+    if epoch::advance().is_ok(){
+        if let Ok(allocated) = stats::allocated::read() {
+            set_gauge(&JEMALLOC_ALLOCATED, allocated as i64);
+        }
+        if let Ok(resident) = stats::resident::read() {
+            set_gauge(&JEMALLOC_RESIDENT, resident as i64);
+        }
+        if let Ok(mapped) = stats::mapped::read() {
+            set_gauge(&JEMALLOC_MAPPED, mapped as i64);
+        }
+        if let Ok(metadata) = stats::metadata::read() {
+            set_gauge(&JEMALLOC_METADATA, metadata as i64);
+        }
+        if let Ok(retained) = stats::retained::read() {
+            set_gauge(&JEMALLOC_RETAINED, retained as i64);
+        }
+        if let Ok(active) = stats::active::read() {
+            set_gauge(&JEMALLOC_ACTIVE, active as i64);
+        }
+        if let Ok(narenas) = arenas::narenas::read() {
+            set_gauge(&JEMALLOC_ARENAS, narenas as i64);
+        }
+    }
 }
