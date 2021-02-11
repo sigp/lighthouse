@@ -98,6 +98,13 @@ pub enum BeaconChainError {
         head_slot: Slot,
         request_slot: Slot,
     },
+    BadPreState {
+        parent_root: Hash256,
+        parent_slot: Slot,
+        block_root: Hash256,
+        block_slot: Slot,
+        state_slot: Slot,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

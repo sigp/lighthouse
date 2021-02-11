@@ -878,6 +878,20 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // It is important to note that we're using a "pre-state" here, one that has potentially
         // been advanced one slot forward from `parent.beacon_block.slot`.
         let mut state = parent.pre_state;
+
+        // Perform a sanity check on the pre-state.
+        let parent_slot = parent.beacon_block.slot();
+        if state.slot < parent_slot || state.slot > parent_slot + 1 {
+            return Err(BeaconChainError::BadPreState {
+                parent_root: parent.beacon_block_root,
+                parent_slot,
+                block_root,
+                block_slot: block.slot(),
+                state_slot: state.slot,
+            }
+            .into());
+        }
+
         let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
         for _ in 0..distance {
             let state_root = if parent.beacon_block.slot() == state.slot {

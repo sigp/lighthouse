@@ -64,6 +64,16 @@ impl<T: EthSpec> Into<BeaconSnapshot<T>> for CacheItem<T> {
     }
 }
 
+pub enum StateAdvance<T: EthSpec> {
+    BlockNotFound,
+    AlreadyAdvanced,
+    State {
+        state: BeaconState<T>,
+        state_root: Hash256,
+        block_slot: Slot,
+    },
+}
+
 /// The item stored in the `SnapshotCache`.
 pub struct CacheItem<T: EthSpec> {
     beacon_block: SignedBeaconBlock<T>,
@@ -164,28 +174,28 @@ impl<T: EthSpec> SnapshotCache<T> {
             .map(|snapshot| snapshot.clone_to_snapshot_with(clone_config))
     }
 
-    pub fn get_for_state_advance(
-        &mut self,
-        block_root: Hash256,
-    ) -> Option<(Slot, Hash256, BeaconState<T>)> {
-        self.snapshots
+    pub fn get_for_state_advance(&mut self, block_root: Hash256) -> StateAdvance<T> {
+        if let Some(snapshot) = self
+            .snapshots
             .iter_mut()
             .find(|snapshot| snapshot.beacon_block_root == block_root)
-            .map(|snapshot| {
-                let state = if let Some(pre_state) = snapshot.pre_state.take() {
-                    pre_state
-                } else {
-                    let cloned = snapshot
-                        .beacon_state
-                        .clone_with(CloneConfig::committee_caches_only());
-                    std::mem::replace(&mut snapshot.beacon_state, cloned)
-                };
-                (
-                    snapshot.beacon_block.slot(),
-                    snapshot.beacon_block.state_root(),
-                    state,
-                )
-            })
+        {
+            if snapshot.pre_state.is_some() {
+                return StateAdvance::AlreadyAdvanced;
+            } else {
+                let cloned = snapshot
+                    .beacon_state
+                    .clone_with(CloneConfig::committee_caches_only());
+
+                StateAdvance::State {
+                    state: std::mem::replace(&mut snapshot.beacon_state, cloned),
+                    state_root: snapshot.beacon_block.state_root(),
+                    block_slot: snapshot.beacon_block.slot(),
+                }
+            }
+        } else {
+            StateAdvance::BlockNotFound
+        }
     }
 
     pub fn update_pre_state(&mut self, block_root: Hash256, state: BeaconState<T>) -> Option<()> {
