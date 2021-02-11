@@ -52,7 +52,7 @@ lazy_static::lazy_static! {
     pub static ref JEMALLOC_ACTIVE: Result<IntGauge> =
         try_create_int_gauge("jemalloc_active", "Total number of bytes in active pages allocated by the application.");
     pub static ref JEMALLOC_ARENAS: Result<IntGauge> =
-        try_create_int_gauge("jemalloc_active", "Current limit on the number of arenas.");
+        try_create_int_gauge("jemalloc_arenas", "Current limit on the number of arenas.");
 }
 
 pub fn scrape_health_metrics() {
