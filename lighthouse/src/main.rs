@@ -28,7 +28,7 @@ fn bls_library_name() -> &'static str {
 
 fn main() {
 
-    background_thread.write(true).unwrap();
+    background_thread::write(true).unwrap();
 
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
@@ -274,7 +274,7 @@ fn run<E: EthSpec>(
         "Configured for network";
         "name" => &network_name
     );
-    info!(log, "background threads", "enabled" => background_thread.read().unwrap());
+    info!(log, "background threads", "enabled" => background_thread::read().unwrap());
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
