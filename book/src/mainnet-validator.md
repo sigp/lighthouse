@@ -4,7 +4,7 @@
 [lh-book]: https://lighthouse-book.sigmaprime.io/
 [testnet-validator]: ./testnet-validator.md
 [advanced-datadir]: ./advanced-datadir.md
-[license]: https://github.com/sigp/lighthouse/blob/master/LICENSE
+[license]: https://github.com/sigp/lighthouse/blob/stable/LICENSE
 [slashing]: ./slashing-protection.md
 [discord]: https://discord.gg/cyAszAh
 

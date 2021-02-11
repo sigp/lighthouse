@@ -177,4 +177,4 @@ out on Discord if you need help.
 The Lighthouse developers do not guarantee the perfect functioning of this software, or accept
 liability for any losses suffered. For more information see the [Lighthouse license][license].
 
-[license]: https://github.com/sigp/lighthouse/blob/master/LICENSE
+[license]: https://github.com/sigp/lighthouse/blob/stable/LICENSE
