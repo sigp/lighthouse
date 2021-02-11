@@ -241,14 +241,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let graffiti = self
             .graffiti_file
             .clone()
-            .map(|mut g| match g.load_graffiti(&validator_pubkey) {
-                Ok(graffiti) => Some(graffiti),
+            .and_then(|mut g| match g.load_graffiti(&validator_pubkey) {
+                Ok(g) => g,
                 Err(e) => {
                     warn!(log, "Failed to read graffiti file"; "error" => ?e);
                     None
                 }
             })
-            .flatten()
             .or_else(|| self.validator_store.graffiti(&validator_pubkey))
             .or(self.graffiti);
 

@@ -12,8 +12,7 @@ use types::{graffiti::GraffitiString, Graffiti};
 pub enum Error {
     InvalidFile(std::io::Error),
     InvalidLine,
-    InvalidPublicKey,
-    NoDefaultField,
+    InvalidPublicKey(String),
     InvalidGraffiti(String),
 }
 
@@ -28,7 +27,7 @@ pub enum Error {
 pub struct GraffitiFile {
     graffiti_path: PathBuf,
     graffitis: HashMap<PublicKey, Graffiti>,
-    default: Graffiti,
+    default: Option<Graffiti>,
 }
 
 impl GraffitiFile {
@@ -36,7 +35,7 @@ impl GraffitiFile {
         Self {
             graffiti_path,
             graffitis: HashMap::new(),
-            default: Default::default(),
+            default: None,
         }
     }
 
@@ -45,13 +44,9 @@ impl GraffitiFile {
     /// default graffiti.
     ///
     /// Returns an error if loading from the graffiti file fails.
-    pub fn load_graffiti(&mut self, public_key: &PublicKey) -> Result<Graffiti, Error> {
+    pub fn load_graffiti(&mut self, public_key: &PublicKey) -> Result<Option<Graffiti>, Error> {
         self.read_graffiti_file()?;
-        Ok(self
-            .graffitis
-            .get(public_key)
-            .copied()
-            .unwrap_or(self.default))
+        Ok(self.graffitis.get(public_key).copied().or(self.default))
     }
 
     /// Reads from a graffiti file with the specified format and populates the default value
@@ -62,41 +57,40 @@ impl GraffitiFile {
         let file = File::open(self.graffiti_path.as_path()).map_err(Error::InvalidFile)?;
         let reader = BufReader::new(file);
 
-        let mut lines = reader.lines();
+        let lines = reader.lines();
 
-        // Parse default
-        if let Some(default_line) = lines.next() {
-            let line = default_line.map_err(|_| Error::InvalidLine)?;
-            let tokens: Vec<&str> = line.split(':').collect();
-            if tokens.len() > 2 {
-                return Err(Error::InvalidLine);
-            }
-            if tokens[0] == "default" {
-                self.default = GraffitiString::from_str(tokens[1].trim())
-                    .map_err(|_| Error::NoDefaultField)?
-                    .into();
-            }
-        }
-
-        // Parse remaining public keys
         for line in lines {
             let line = line.map_err(|_| Error::InvalidLine)?;
-            let tokens: Vec<&str> = line.split(':').collect();
-            if tokens.len() > 2 {
-                return Err(Error::InvalidLine);
+            let (pk_opt, graffiti) = read_line(&line)?;
+            match pk_opt {
+                Some(pk) => {
+                    self.graffitis.insert(pk, graffiti);
+                }
+                None => self.default = Some(graffiti),
             }
-            let pk_string = &tokens[0][2..];
-            self.graffitis.insert(
-                PublicKey::deserialize(
-                    &hex::decode(&pk_string).map_err(|_| Error::InvalidPublicKey)?,
-                )
-                .map_err(|_| Error::InvalidPublicKey)?,
-                GraffitiString::from_str(tokens[1].trim())
-                    .map_err(Error::InvalidGraffiti)?
-                    .into(),
-            );
         }
         Ok(())
+    }
+}
+
+/// Parses a line from the graffiti file.
+///
+/// `Ok((None, graffiti))` represents the graffiti for the default key.
+/// `Ok((Some(pk), graffiti))` represents graffiti for the public key `pk`.
+/// Returns an error if the line is in the wrong format or does not contain a valid public key or graffiti.
+fn read_line(line: &str) -> Result<(Option<PublicKey>, Graffiti), Error> {
+    let tokens: Vec<&str> = line.split(':').collect();
+    if tokens.len() != 2 {
+        return Err(Error::InvalidLine);
+    }
+    let graffiti = GraffitiString::from_str(tokens[1].trim())
+        .map_err(Error::InvalidGraffiti)?
+        .into();
+    if tokens[0] == "default" {
+        Ok((None, graffiti))
+    } else {
+        let pk = PublicKey::from_str(&tokens[0]).map_err(|e| Error::InvalidPublicKey(e))?;
+        Ok((Some(pk), graffiti))
     }
 }
 
@@ -148,18 +142,18 @@ mod tests {
         gf.read_graffiti_file().unwrap();
 
         assert_eq!(
-            gf.load_graffiti(&pk1).unwrap(),
+            gf.load_graffiti(&pk1).unwrap().unwrap(),
             GraffitiString::from_str(CUSTOM_GRAFFITI1).unwrap().into()
         );
         assert_eq!(
-            gf.load_graffiti(&pk2).unwrap(),
+            gf.load_graffiti(&pk2).unwrap().unwrap(),
             GraffitiString::from_str(CUSTOM_GRAFFITI2).unwrap().into()
         );
 
         // Random pk should return the default graffiti
         let random_pk = Keypair::random().pk;
         assert_eq!(
-            gf.load_graffiti(&random_pk).unwrap(),
+            gf.load_graffiti(&random_pk).unwrap().unwrap(),
             GraffitiString::from_str(DEFAULT_GRAFFITI).unwrap().into()
         );
     }
