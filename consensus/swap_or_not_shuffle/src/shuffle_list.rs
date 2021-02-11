@@ -181,6 +181,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn sanity_check_constants() {
         assert!(TOTAL_SIZE > SEED_SIZE);
         assert!(TOTAL_SIZE > PIVOT_VIEW_SIZE);

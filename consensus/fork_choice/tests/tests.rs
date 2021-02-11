@@ -635,12 +635,7 @@ fn invalid_block_future_slot() {
             |block, _| {
                 block.slot = block.slot + 1;
             },
-            |err| {
-                assert_invalid_block!(
-                    err,
-                    InvalidBlock::FutureSlot { .. }
-                )
-            },
+            |err| assert_invalid_block!(err, InvalidBlock::FutureSlot { .. }),
         );
 }
 

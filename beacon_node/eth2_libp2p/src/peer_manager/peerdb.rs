@@ -137,14 +137,20 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// If we are connected or currently dialing the peer returns true.
     pub fn is_connected_or_dialing(&self, peer_id: &PeerId) -> bool {
-        matches!(self.connection_status(peer_id), Some(PeerConnectionStatus::Connected { .. })
-             | Some(PeerConnectionStatus::Dialing { .. }))
+        matches!(
+            self.connection_status(peer_id),
+            Some(PeerConnectionStatus::Connected { .. })
+                | Some(PeerConnectionStatus::Dialing { .. })
+        )
     }
 
     /// If we are connected or in the process of disconnecting
     pub fn is_connected_or_disconnecting(&self, peer_id: &PeerId) -> bool {
-        matches!(self.connection_status(peer_id), Some(PeerConnectionStatus::Connected { .. })
-             | Some(PeerConnectionStatus::Disconnecting { .. }))
+        matches!(
+            self.connection_status(peer_id),
+            Some(PeerConnectionStatus::Connected { .. })
+                | Some(PeerConnectionStatus::Disconnecting { .. })
+        )
     }
 
     /// Returns true if the peer is synced at least to our current head.
@@ -645,6 +651,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_peer_connected_successfully() {
         let mut pdb = get_db();
         let random_peer = PeerId::random();
@@ -745,7 +752,7 @@ mod tests {
         assert!(the_best.is_some());
         // Consistency check
         let best_peers = pdb.best_peers_by_status(PeerInfo::is_connected);
-        assert_eq!(the_best, best_peers.iter().next().map(|p| p.0));
+        assert_eq!(the_best.unwrap(), best_peers.get(0).unwrap().0);
     }
 
     #[test]
@@ -839,7 +846,7 @@ mod tests {
         pdb.notify_disconnect(&random_peer2);
         pdb.disconnect_and_ban(&random_peer3);
         pdb.notify_disconnect(&random_peer3);
-        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr, None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -1021,10 +1028,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer.clone()], &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], &log);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 

@@ -972,7 +972,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // perform the heartbeat when necessary
-        while let Poll::Ready(Some(_)) = self.heartbeat.poll_next_unpin(cx) {
+        while let Poll::Ready(_) = self.heartbeat.poll_tick(cx) {
             self.heartbeat();
         }
 
@@ -1011,8 +1011,10 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             }
         }
 
-        if !matches!(self.network_globals.sync_state(), SyncState::SyncingFinalized{..}|SyncState::SyncingHead{..})
-        {
+        if !matches!(
+            self.network_globals.sync_state(),
+            SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. }
+        ) {
             loop {
                 match self.status_peers.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(peer_id))) => {

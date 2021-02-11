@@ -1,14 +1,11 @@
 #![cfg(test)]
 
-//TODO: Drop compat library once reqwest and other libraries update to tokio 0.3
-
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     eth2::types::StateId,
     testing_client_config, LocalBeaconNode,
 };
-use tokio_compat_02::FutureExt;
 use types::{EthSpec, MinimalEthSpec, Slot};
 
 fn env_builder() -> EnvironmentBuilder<MinimalEthSpec> {
@@ -44,11 +41,7 @@ fn http_server_genesis_state() {
 
     let api_state = env
         .runtime()
-        .block_on(
-            remote_node
-                .get_debug_beacon_states(StateId::Slot(Slot::new(0)))
-                .compat(),
-        )
+        .block_on(remote_node.get_debug_beacon_states(StateId::Slot(Slot::new(0))))
         .expect("should fetch state from http api")
         .unwrap()
         .data;

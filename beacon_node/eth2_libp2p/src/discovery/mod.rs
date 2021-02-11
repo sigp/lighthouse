@@ -896,7 +896,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
             EventStream::InActive => {} // ignore checking the stream
             EventStream::Present(ref mut stream) => {
-                while let Ok(event) = stream.try_recv() {
+                while let Poll::Ready(Some(event)) = stream.poll_recv(cx) {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
                         // the peer manager.
@@ -964,8 +964,10 @@ mod tests {
 
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let mut config = NetworkConfig::default();
-        config.discovery_port = unused_port();
+        let config = NetworkConfig {
+            discovery_port: unused_port(),
+            ..Default::default()
+        };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
         let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
@@ -1055,7 +1057,7 @@ mod tests {
         discovery.queued_queries.push_back(QueryType::FindPeers);
         discovery
             .queued_queries
-            .push_back(QueryType::Subnet(subnet_query.clone()));
+            .push_back(QueryType::Subnet(subnet_query));
         // Process Subnet query and FindPeers afterwards.
         assert!(discovery.process_queue());
     }
@@ -1101,7 +1103,7 @@ mod tests {
         // Unwanted enr for the given grouped query
         let enr3 = make_enr(vec![3]);
 
-        let enrs: Vec<Enr> = vec![enr1.clone(), enr2.clone(), enr3.clone()];
+        let enrs: Vec<Enr> = vec![enr1.clone(), enr2, enr3];
         let results = discovery
             .process_completed_queries(QueryResult(query, Ok(enrs)))
             .unwrap();

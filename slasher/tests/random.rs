@@ -62,7 +62,7 @@ fn random_test(seed: u64, test_config: TestConfig) {
             .choose_multiple(&mut rng, num_attesters)
             .copied()
             .collect::<Vec<u64>>();
-        attesting_indices.sort();
+        attesting_indices.sort_unstable();
 
         // If checking slashings, generate valid attestations in range.
         let (source, target) = if check_slashings {

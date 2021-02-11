@@ -202,36 +202,24 @@ mod test {
 
     #[test]
     fn test_strip_off() {
-        let expected = "hello world".as_bytes().to_vec();
+        let expected = b"hello world".to_vec();
 
+        assert_eq!(strip_off_newlines(b"hello world\n".to_vec()), expected);
         assert_eq!(
-            strip_off_newlines("hello world\n".as_bytes().to_vec()),
+            strip_off_newlines(b"hello world\n\n\n\n".to_vec()),
             expected
         );
+        assert_eq!(strip_off_newlines(b"hello world\r".to_vec()), expected);
         assert_eq!(
-            strip_off_newlines("hello world\n\n\n\n".as_bytes().to_vec()),
+            strip_off_newlines(b"hello world\r\r\r\r\r".to_vec()),
             expected
         );
+        assert_eq!(strip_off_newlines(b"hello world\r\n".to_vec()), expected);
         assert_eq!(
-            strip_off_newlines("hello world\r".as_bytes().to_vec()),
+            strip_off_newlines(b"hello world\r\n\r\n".to_vec()),
             expected
         );
-        assert_eq!(
-            strip_off_newlines("hello world\r\r\r\r\r".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world".as_bytes().to_vec()),
-            expected
-        );
+        assert_eq!(strip_off_newlines(b"hello world".to_vec()), expected);
     }
 
     #[test]

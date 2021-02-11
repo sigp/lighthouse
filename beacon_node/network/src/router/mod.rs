@@ -19,6 +19,7 @@ use processor::Processor;
 use slog::{debug, o, trace};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use types::EthSpec;
 
 /// Handles messages received from the network and client and organises syncing. This
@@ -101,7 +102,7 @@ impl<T: BeaconChainTypes> Router<T> {
         executor.spawn(
             async move {
                 debug!(log, "Network message router started");
-                handler_recv
+                UnboundedReceiverStream::new(handler_recv)
                     .for_each(move |msg| future::ready(handler.handle_message(msg)))
                     .await;
             },

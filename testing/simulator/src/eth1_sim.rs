@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
+use tokio::time::sleep;
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
@@ -89,7 +90,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         // Start a timer that produces eth1 blocks on an interval.
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(eth1_block_time);
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 let _ = ganache.evm_mine().await;
             }
         });
@@ -123,7 +125,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * Create a new `LocalNetwork` with one beacon node.
          */
-        let network = LocalNetwork::new(context, beacon_config.clone()).await?;
+        let network = LocalNetwork::new(context.clone(), beacon_config.clone()).await?;
 
         /*
          * One by one, add beacon nodes to the network.
@@ -139,11 +141,25 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * One by one, add validators to the network.
          */
+
+        let executor = context.executor.clone();
         for (i, files) in validator_files.into_iter().enumerate() {
-            network
-                .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
-                .await?;
+            let network_1 = network.clone();
+            executor.spawn(
+                async move {
+                    println!("Adding validator client {}", i);
+                    network_1
+                        .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
+                        .await
+                        .expect("should add validator");
+                },
+                "vc",
+            );
         }
+
+        let duration_to_genesis = network.duration_to_genesis().await;
+        println!("Duration to genesis: {}", duration_to_genesis.as_secs());
+        sleep(duration_to_genesis).await;
 
         /*
          * Start the checks that ensure the network performs as expected.
@@ -204,9 +220,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    env.runtime()
-        .block_on(tokio_compat_02::FutureExt::compat(main_future))
-        .unwrap();
+    env.runtime().block_on(main_future).unwrap();
 
     env.fire_signal();
     env.shutdown_on_idle();

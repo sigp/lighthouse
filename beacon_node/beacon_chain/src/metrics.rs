@@ -570,6 +570,13 @@ lazy_static! {
         &["src", "validator"]
     );
 
+    /*
+     * Block Delay Metrics
+     */
+    pub static ref BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_imported_slot_start_delay_time",
+        "Duration between the start of the blocks slot and the current time.",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
