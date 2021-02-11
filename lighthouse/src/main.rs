@@ -10,7 +10,6 @@ use std::process::exit;
 use tokio_compat_02::FutureExt;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
-use jemalloc_ctl::background_thread;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
@@ -27,8 +26,6 @@ fn bls_library_name() -> &'static str {
 }
 
 fn main() {
-
-    background_thread::write(true).unwrap();
 
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
@@ -274,7 +271,6 @@ fn run<E: EthSpec>(
         "Configured for network";
         "name" => &network_name
     );
-    info!(log, "background threads"; "enabled" => background_thread::read().unwrap());
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
