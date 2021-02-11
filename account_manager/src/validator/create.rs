@@ -272,7 +272,7 @@ pub fn read_wallet_password_from_cli(
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
             .map(|bytes| strip_off_newlines(bytes).into()),
         None => {
-            eprintln!("");
+            eprintln!();
             eprintln!("{}", WALLET_PASSWORD_PROMPT);
             let password =
                 PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
