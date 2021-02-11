@@ -40,9 +40,19 @@ lazy_static::lazy_static! {
      * jemalloc
      */
     pub static ref JEMALLOC_RESIDENT: Result<IntGauge> =
-        try_create_int_gauge("jemalloc_resident", "Resident memory according to jemalloc-ctl");
+        try_create_int_gauge("jemalloc_resident", "Total number of bytes in physically resident data pages mapped by the allocator.");
     pub static ref JEMALLOC_ALLOCATED: Result<IntGauge> =
-        try_create_int_gauge("jemalloc_allocated", "Allocated memory according to jemalloc-ctl");
+        try_create_int_gauge("jemalloc_allocated", "Total number of bytes allocated by the application.");
+    pub static ref JEMALLOC_MAPPED: Result<IntGauge> =
+        try_create_int_gauge("jemalloc_mapped", "Total number of bytes in active extents mapped by the allocator.");
+    pub static ref JEMALLOC_METADATA: Result<IntGauge> =
+        try_create_int_gauge("jemalloc_metadata", "Total number of bytes dedicated to jemalloc metadata.");
+    pub static ref JEMALLOC_RETAINED: Result<IntGauge> =
+        try_create_int_gauge("jemalloc_retained", "Total number of bytes in virtual memory mappings that were retained rather than being returned to the operating system.");
+    pub static ref JEMALLOC_ACTIVE: Result<IntGauge> =
+        try_create_int_gauge("jemalloc_active", "Total number of bytes in active pages allocated by the application.");
+    pub static ref JEMALLOC_ARENAS: Result<IntGauge> =
+        try_create_int_gauge("jemalloc_active", "Current limit on the number of arenas.");
 }
 
 pub fn scrape_health_metrics() {
@@ -68,8 +78,19 @@ pub fn scrape_health_metrics() {
         set_float_gauge(&SYSTEM_LOADAVG_15, health.sys_loadavg_15);
     }
 
-    let e = epoch::mib().unwrap();
-    e.advance().unwrap();
-    set_gauge(&JEMALLOC_ALLOCATED, stats::allocated::mib().unwrap().into());
-    set_gauge(&JEMALLOC_RESIDENT, stats::resident::mib().unwrap().into());
+    epoch::advance().unwrap();
+    let allocated = stats::allocated::read().unwrap();
+    let resident = stats::resident::read().unwrap();
+    let mapped = stats::mapped::read().unwrap();
+    let metadata = stats::metadata::read().unwrap();
+    let retained = stats::retained::read().unwrap();
+    let active = stats::active::read().unwrap();
+    let narenas = arenas::narenas::read().unwrap();
+    set_gauge(&JEMALLOC_ALLOCATED, allocated as i64);
+    set_gauge(&JEMALLOC_RESIDENT, resident as i64);
+    set_gauge(&JEMALLOC_MAPPED, mapped as i64);
+    set_gauge(&JEMALLOC_METADATA, metadata as i64);
+    set_gauge(&JEMALLOC_RETAINED, retained as i64);
+    set_gauge(&JEMALLOC_ACTIVE, active as i64);
+    set_gauge(&JEMALLOC_ARENAS, narenas as i64);
 }
