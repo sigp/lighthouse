@@ -71,7 +71,7 @@ pub fn scrape_health_metrics() {
     let e = epoch::mib().unwrap();
     e.advance().unwrap();
     let allocated = stats::allocated::mib().unwrap();
-    set_gauge(&JEMALLOC_ALLOCATED, allocated as i64);
+    set_gauge(&JEMALLOC_ALLOCATED, allocated);
     let resident = stats::resident::mib().unwrap();
-    set_gauge(&JEMALLOC_RESIDENT, resident as i64);
+    set_gauge(&JEMALLOC_RESIDENT, resident);
 }

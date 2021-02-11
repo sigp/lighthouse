@@ -7335,6 +7335,7 @@ dependencies = [
  "beacon_chain",
  "eth2",
  "headers 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "jemalloc-ctl",
  "lazy_static",
  "lighthouse_metrics",
  "safe_arith",
