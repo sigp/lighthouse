@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             log: network_log,
         };
 
-        spawn_service(executor, network_service)?;
+        spawn_service(executor, network_service);
 
         Ok((network_globals, network_send))
     }
@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 fn spawn_service<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     mut service: NetworkService<T>,
-) -> error::Result<()> {
+) {
     let mut exit_rx = executor.exit();
     let mut shutdown_sender = executor.shutdown_sender();
 
@@ -570,8 +570,6 @@ fn spawn_service<T: BeaconChainTypes>(
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
     }, "network");
-
-    Ok(())
 }
 
 /// Returns a `Sleep` that triggers shortly after the next change in the beacon chain fork version.
