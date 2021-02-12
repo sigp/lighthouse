@@ -65,8 +65,11 @@ impl<T: EthSpec> Into<BeaconSnapshot<T>> for CacheItem<T> {
 }
 
 pub enum StateAdvance<T: EthSpec> {
+    /// The cache does not contain the supplied block root.
     BlockNotFound,
+    /// The cache contains the supplied block root but the state has already been advanced.
     AlreadyAdvanced,
+    /// The cache contains the supplied block root and the state has not yet been advanced.
     State {
         state: Box<BeaconState<T>>,
         state_root: Hash256,
