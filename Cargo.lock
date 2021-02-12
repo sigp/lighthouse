@@ -2905,7 +2905,6 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_libp2p",
- "jemalloc-ctl",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
