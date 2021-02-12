@@ -27,3 +27,6 @@ reqwest = { version = "0.10.8", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 types = { path = "../../consensus/types" }
 tokio-compat-02 = "0.1"
+
+[features]
+jemalloc = ["warp_utils/jemalloc"]

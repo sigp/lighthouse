@@ -20,4 +20,7 @@ futures = "0.3.7"
 parking_lot = "0.11.0"
 slog-json = "2.3.0"
 exit-future = "0.2.0"
-jemallocator = "0.3.2"
+jemallocator = { version = "0.3.2", optional = true }
+
+[features]
+jemalloc = ["jemallocator"]

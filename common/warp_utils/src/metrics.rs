@@ -1,6 +1,8 @@
 use eth2::lighthouse::Health;
 use lighthouse_metrics::*;
-use jemalloc_ctl::{arenas, stats, epoch};
+
+#[cfg(feature = "jemalloc")]
+use jemalloc_ctl::{arenas, epoch, stats};
 
 lazy_static::lazy_static! {
     pub static ref PROCESS_NUM_THREADS: Result<IntGauge> = try_create_int_gauge(
@@ -78,7 +80,12 @@ pub fn scrape_health_metrics() {
         set_float_gauge(&SYSTEM_LOADAVG_15, health.sys_loadavg_15);
     }
 
-    if epoch::advance().is_ok(){
+    scrape_jemalloc_metrics();
+}
+
+#[cfg(feature = "jemalloc")]
+pub fn scrape_jemalloc_metrics() {
+    if epoch::advance().is_ok() {
         if let Ok(allocated) = stats::allocated::read() {
             set_gauge(&JEMALLOC_ALLOCATED, allocated as i64);
         }
@@ -101,4 +108,9 @@ pub fn scrape_health_metrics() {
             set_gauge(&JEMALLOC_ARENAS, narenas as i64);
         }
     }
+}
+
+#[cfg(not(feature = "jemalloc"))]
+pub fn scrape_jemalloc_metrics() {
+    // NO OP
 }

@@ -28,6 +28,7 @@ use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 
 /// Global allocator
+#[cfg(feature = "jemalloc")]
 #[global_allocator]
 pub static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 

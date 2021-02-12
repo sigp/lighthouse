@@ -44,3 +44,6 @@ http_api = { path = "../http_api" }
 http_metrics = { path = "../http_metrics" }
 slasher = { path = "../../slasher" }
 slasher_service = { path = "../../slasher/service" }
+
+[features]
+jemalloc = ["http_metrics/jemalloc"]

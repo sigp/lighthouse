@@ -17,6 +17,8 @@ milagro = ["bls/milagro"]
 spec-minimal = []
 # Support spec v0.12 (used by Medalla testnet).
 spec-v12 = []
+# Use jemalloc as the global allocator
+jemalloc = ["environment/jemalloc", "beacon_node/jemalloc"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
