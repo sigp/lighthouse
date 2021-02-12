@@ -110,7 +110,7 @@ mod test {
 
         let _lockfile = File::create(&path).unwrap();
 
-        let lock = Lockfile::new(path.clone()).unwrap();
+        let lock = Lockfile::new(path).unwrap();
         assert!(lock.file_existed());
     }
 

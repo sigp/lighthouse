@@ -5,7 +5,6 @@ use reqwest::StatusCode;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio_compat_02::FutureExt;
 use types::MainnetEthSpec;
 
 type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
@@ -46,6 +45,5 @@ async fn returns_200_ok() {
 
         assert_eq!(reqwest::get(&url).await.unwrap().status(), StatusCode::OK);
     }
-    .compat()
     .await
 }

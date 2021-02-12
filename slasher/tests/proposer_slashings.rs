@@ -9,7 +9,7 @@ use types::{Epoch, EthSpec};
 fn empty_pruning() {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
-    let slasher = Slasher::<E>::open(config.clone(), logger()).unwrap();
+    let slasher = Slasher::<E>::open(config, logger()).unwrap();
     slasher.prune_database(Epoch::new(0)).unwrap();
 }
 

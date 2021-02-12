@@ -7,7 +7,6 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use tokio_compat_02::FutureExt;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -281,19 +280,16 @@ fn run<E: EthSpec>(
                 &context.eth2_config().spec,
                 context.log().clone(),
             )?;
-            environment.runtime().spawn(
-                async move {
-                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                        crit!(log, "Failed to start beacon node"; "reason" => e);
-                        // Ignore the error since it always occurs during normal operation when
-                        // shutting down.
-                        let _ = executor
-                            .shutdown_sender()
-                            .try_send("Failed to start beacon node");
-                    }
+            environment.runtime().spawn(async move {
+                if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                    crit!(log, "Failed to start beacon node"; "reason" => e);
+                    // Ignore the error since it always occurs during normal operation when
+                    // shutting down.
+                    let _ = executor
+                        .shutdown_sender()
+                        .try_send("Failed to start beacon node");
                 }
-                .compat(),
-            );
+            });
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
@@ -301,26 +297,23 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(&matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-            environment.runtime().spawn(
-                async move {
-                    let run = async {
-                        ProductionValidatorClient::new(context, config)
-                            .await?
-                            .start_service()?;
+            environment.runtime().spawn(async move {
+                let run = async {
+                    ProductionValidatorClient::new(context, config)
+                        .await?
+                        .start_service()?;
 
-                        Ok::<(), String>(())
-                    };
-                    if let Err(e) = run.await {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
-                        // Ignore the error since it always occurs during normal operation when
-                        // shutting down.
-                        let _ = executor
-                            .shutdown_sender()
-                            .try_send("Failed to start validator client");
-                    }
+                    Ok::<(), String>(())
+                };
+                if let Err(e) = run.await {
+                    crit!(log, "Failed to start validator client"; "reason" => e);
+                    // Ignore the error since it always occurs during normal operation when
+                    // shutting down.
+                    let _ = executor
+                        .shutdown_sender()
+                        .try_send("Failed to start validator client");
                 }
-                .compat(),
-            );
+            });
         }
         ("remote_signer", Some(matches)) => {
             if let Err(e) = remote_signer::run(&mut environment, matches) {

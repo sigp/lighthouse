@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.3.2", features = ["macros", "rt", "rt-multi-thread" ] }
+tokio = { version = "1.1.0", features = ["macros", "rt", "rt-multi-thread" ] }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.1"
 types = { "path" = "../../consensus/types" }

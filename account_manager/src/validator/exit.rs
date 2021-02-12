@@ -12,7 +12,6 @@ use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio_compat_02::FutureExt;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
 
 pub const CMD: &str = "exit";
@@ -77,17 +76,14 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         .clone()
         .expect("network should have a valid config");
 
-    env.runtime().block_on(
-        publish_voluntary_exit::<E>(
-            &keystore_path,
-            password_file_path.as_ref(),
-            &client,
-            &spec,
-            stdin_inputs,
-            &testnet_config,
-        )
-        .compat(),
-    )?;
+    env.runtime().block_on(publish_voluntary_exit::<E>(
+        &keystore_path,
+        password_file_path.as_ref(),
+        &client,
+        &spec,
+        stdin_inputs,
+        &testnet_config,
+    ))?;
 
     Ok(())
 }

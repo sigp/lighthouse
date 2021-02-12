@@ -367,18 +367,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
-    /// Returns the delay between the start of `block.slot` and `seen_timestamp`.
-    fn get_block_delay_ms<S: SlotClock>(
-        seen_timestamp: Duration,
-        block: &BeaconBlock<T>,
-        slot_clock: &S,
-    ) -> Duration {
-        slot_clock
-            .start_of(block.slot)
-            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
-            .unwrap_or_else(|| Duration::from_secs(0))
-    }
-
     /// Process a block received on gossip.
     pub fn register_gossip_block<S: SlotClock>(
         &self,
@@ -410,7 +398,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         slot_clock: &S,
     ) {
         if let Some(id) = self.get_validator_id(block.proposer_index) {
-            let delay = Self::get_block_delay_ms(seen_timestamp, block, slot_clock);
+            let delay = get_block_delay_ms(seen_timestamp, block, slot_clock);
 
             metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL, &[src, id]);
             metrics::observe_timer_vec(
@@ -950,4 +938,16 @@ pub fn timestamp_now() -> Duration {
 
 fn u64_to_i64(n: impl Into<u64>) -> i64 {
     i64::try_from(n.into()).unwrap_or(i64::max_value())
+}
+
+/// Returns the delay between the start of `block.slot` and `seen_timestamp`.
+pub fn get_block_delay_ms<T: EthSpec, S: SlotClock>(
+    seen_timestamp: Duration,
+    block: &BeaconBlock<T>,
+    slot_clock: &S,
+) -> Duration {
+    slot_clock
+        .start_of(block.slot)
+        .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
+        .unwrap_or_else(|| Duration::from_secs(0))
 }
