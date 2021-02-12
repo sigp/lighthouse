@@ -66,16 +66,15 @@ async fn state_advance_timer<T: BeaconChainTypes>(beacon_chain: Arc<BeaconChain<
 
     loop {
         let delay = match beacon_chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => duration + (slot_duration / 4) * 3,
+            Some(duration) => sleep(duration + (slot_duration / 4) * 3).await,
             None => {
                 error!(log, "Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 slot_duration
+                sleep(slot_duration).await;
+                continue
             }
         };
-
-        // Wait until we should fire an event.
-        sleep(delay).await;
 
         match advance_head(&beacon_chain, &log) {
             Ok(()) => (),
