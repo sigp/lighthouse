@@ -214,7 +214,7 @@ fn advance_head<T: BeaconChainTypes>(
         );
         beacon_chain
             .beacon_proposer_cache
-            .write()
+            .lock()
             .insert(
                 state.current_epoch(),
                 head_root,

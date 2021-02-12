@@ -1,4 +1,4 @@
-use crate::{BeaconChainError, BeaconSnapshot};
+use crate::BeaconSnapshot;
 use std::cmp;
 use types::{
     beacon_state::CloneConfig, BeaconState, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
@@ -21,7 +21,7 @@ impl<T: EthSpec> From<BeaconSnapshot<T>> for PreProcessingSnapshot<T> {
     fn from(snapshot: BeaconSnapshot<T>) -> Self {
         Self {
             pre_state: snapshot.beacon_state,
-            beacon_block: snapshot.beacon_block.clone(),
+            beacon_block: snapshot.beacon_block,
             beacon_block_root: snapshot.beacon_block_root,
         }
     }
@@ -120,11 +120,7 @@ impl<T: EthSpec> SnapshotCache<T> {
 
     /// Insert a snapshot, potentially removing an existing snapshot if `self` is at capacity (see
     /// struct-level documentation for more info).
-    pub fn insert(
-        &mut self,
-        snapshot: BeaconSnapshot<T>,
-        pre_state: Option<BeaconState<T>>,
-    ) -> Result<(), BeaconChainError> {
+    pub fn insert(&mut self, snapshot: BeaconSnapshot<T>, pre_state: Option<BeaconState<T>>) {
         let item = CacheItem {
             beacon_block: snapshot.beacon_block,
             beacon_block_root: snapshot.beacon_block_root,
@@ -153,8 +149,6 @@ impl<T: EthSpec> SnapshotCache<T> {
                 self.snapshots[i] = item;
             }
         }
-
-        Ok(())
     }
 
     /// If there is a snapshot with `block_root`, remove and return it.
@@ -271,7 +265,7 @@ mod test {
             // Each snapshot should be one slot into an epoch, with each snapshot one epoch apart.
             snapshot.beacon_state.slot = Slot::from(i * MainnetEthSpec::slots_per_epoch() + 1);
 
-            cache.insert(snapshot, None).unwrap();
+            cache.insert(snapshot, None);
 
             assert_eq!(
                 cache.snapshots.len(),
@@ -289,7 +283,7 @@ mod test {
         // 2        2
         // 3        3
         assert_eq!(cache.snapshots.len(), CACHE_SIZE);
-        cache.insert(get_snapshot(42), None).unwrap();
+        cache.insert(get_snapshot(42), None);
         assert_eq!(cache.snapshots.len(), CACHE_SIZE);
 
         assert!(
@@ -336,9 +330,7 @@ mod test {
 
         // Over-fill the cache so it needs to eject some old values on insert.
         for i in 0..CACHE_SIZE as u64 {
-            cache
-                .insert(get_snapshot(u64::max_value() - i), None)
-                .unwrap();
+            cache.insert(get_snapshot(u64::max_value() - i), None);
         }
 
         // Ensure that the new head value was not removed from the cache.

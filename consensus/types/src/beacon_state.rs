@@ -528,8 +528,6 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
-    ///
-    /// Spec v0.12.1
     pub fn get_beacon_proposer_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
         // Not using the cached validator indices since they are shuffled.
         let indices = self.get_active_validator_indices(self.current_epoch(), spec)?;

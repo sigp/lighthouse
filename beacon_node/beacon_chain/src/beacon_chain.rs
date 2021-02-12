@@ -235,7 +235,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
-    pub(crate) beacon_proposer_cache: RwLock<BeaconProposerCache>,
+    pub(crate) beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
@@ -1732,7 +1732,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::SnapshotCacheLockTimeout)
-            .and_then(|mut snapshot_cache| {
+            .map(|mut snapshot_cache| {
                 snapshot_cache.insert(
                     BeaconSnapshot {
                         beacon_state: state,
