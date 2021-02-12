@@ -896,7 +896,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
             EventStream::InActive => {} // ignore checking the stream
             EventStream::Present(ref mut stream) => {
-                while let Ok(event) = stream.try_recv() {
+                while let Poll::Ready(Some(event)) = stream.poll_recv(cx) {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
                         // the peer manager.

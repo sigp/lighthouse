@@ -13,7 +13,7 @@ eth2_network_config = { path = "../common/eth2_network_config" }
 eth2_ssz = "0.1.2"
 slog = "2.5.2"
 sloggers = "1.0.1"
-tokio = "0.3.2"
+tokio = "1.1.0"
 log = "0.4.11"
 slog-term = "2.6.0"
 logging = { path = "../common/logging" }
