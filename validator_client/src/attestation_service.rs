@@ -222,6 +222,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 );
             });
 
+        // Schedule pruning of the slashing protection database once all unaggregated
+        // attestations have (hopefully) been signed, i.e. at the same time as aggregate
+        // production.
+        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
+
         Ok(())
     }
 
@@ -274,46 +279,34 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         // Step 2.
         //
         // If an attestation was produced, make an aggregate.
-        let make_aggregate = async {
-            if let Some(attestation_data) = attestation_opt {
-                // First, wait until the `aggregation_production_instant` (2/3rds
-                // of the way though the slot). As verified in the
-                // `delay_triggers_when_in_the_past` test, this code will still run
-                // even if the instant has already elapsed.
-                sleep_until(aggregate_production_instant).await;
+        if let Some(attestation_data) = attestation_opt {
+            // First, wait until the `aggregation_production_instant` (2/3rds
+            // of the way though the slot). As verified in the
+            // `delay_triggers_when_in_the_past` test, this code will still run
+            // even if the instant has already elapsed.
+            sleep_until(aggregate_production_instant).await;
 
-                // Start the metrics timer *after* we've done the delay.
-                let _aggregates_timer = metrics::start_timer_vec(
-                    &metrics::ATTESTATION_SERVICE_TIMES,
-                    &[metrics::AGGREGATES],
-                );
+            // Start the metrics timer *after* we've done the delay.
+            let _aggregates_timer = metrics::start_timer_vec(
+                &metrics::ATTESTATION_SERVICE_TIMES,
+                &[metrics::AGGREGATES],
+            );
 
-                // Then download, sign and publish a `SignedAggregateAndProof` for each
-                // validator that is elected to aggregate for this `slot` and
-                // `committee_index`.
-                self.produce_and_publish_aggregates(attestation_data, &validator_duties)
-                    .await
-                    .map_err(move |e| {
-                        crit!(
-                            log,
-                            "Error during attestation routine";
-                            "error" => format!("{:?}", e),
-                            "committee_index" => committee_index,
-                            "slot" => slot.as_u64(),
-                        )
-                    })?;
-            }
-            Ok(())
-        };
-
-        // FIXME(sproul): consider moving this off the core executor
-        let prune_slashing_db = async {
-            let current_epoch = slot.epoch(E::slots_per_epoch());
-            self.validator_store
-                .prune_slashing_protection_db(current_epoch)
-        };
-
-        futures::try_join!(make_aggregate, prune_slashing_db)?;
+            // Then download, sign and publish a `SignedAggregateAndProof` for each
+            // validator that is elected to aggregate for this `slot` and
+            // `committee_index`.
+            self.produce_and_publish_aggregates(attestation_data, &validator_duties)
+                .await
+                .map_err(move |e| {
+                    crit!(
+                        log,
+                        "Error during attestation routine";
+                        "error" => format!("{:?}", e),
+                        "committee_index" => committee_index,
+                        "slot" => slot.as_u64(),
+                    )
+                })?;
+        }
 
         Ok(())
     }
@@ -577,6 +570,35 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         }
 
         Ok(())
+    }
+
+    /// Spawn a blocking task to run the slashing protection pruning process.
+    ///
+    /// Start the task at `pruning_instant` to avoid interference with other tasks.
+    ///
+    /// The first run could take several minutes on a DB for 1000s of validators, during
+    /// which time CRITs will be thrown by other tasks trying to access slashing protection.
+    fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
+        let attestation_service = self.clone();
+        let executor = self.inner.context.executor.clone();
+        let current_epoch = slot.epoch(E::slots_per_epoch());
+
+        // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
+        self.inner.context.executor.spawn(
+            async move {
+                sleep_until(pruning_instant).await;
+
+                executor.spawn_blocking(
+                    move || {
+                        attestation_service
+                            .validator_store
+                            .prune_slashing_protection_db(current_epoch)
+                    },
+                    "slashing_protection_pruning",
+                )
+            },
+            "slashing_protection_pre_pruning",
+        );
     }
 }
 

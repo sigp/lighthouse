@@ -371,14 +371,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ///
     /// This function will only do actual pruning periodically, so it should usually be
     /// cheap to call.
-    pub fn prune_slashing_protection_db(&self, current_epoch: Epoch) -> Result<(), ()> {
+    pub fn prune_slashing_protection_db(&self, current_epoch: Epoch) {
         // Attempt to prune every SLASHING_PROTECTION_HISTORY_EPOCHs, with a tolerance for
         // missing the epoch that aligns exactly.
         let mut last_prune = self.slashing_protection_last_prune.lock();
         if current_epoch / SLASHING_PROTECTION_HISTORY_EPOCHS
             <= *last_prune / SLASHING_PROTECTION_HISTORY_EPOCHS
         {
-            return Ok(());
+            return;
         }
 
         info!(self.log, "Pruning slashing protection DB"; "epoch" => current_epoch);
@@ -389,30 +389,32 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
 
         let validators = self.validators.read();
-        self.slashing_protection
+        if let Err(e) = self
+            .slashing_protection
             .prune_all_signed_attestations(validators.iter_voting_pubkeys(), new_min_target_epoch)
-            .map_err(|e| {
-                error!(
-                    self.log,
-                    "Error during pruning of signed attestations";
-                    "error" => ?e,
-                );
-            })?;
+        {
+            error!(
+                self.log,
+                "Error during pruning of signed attestations";
+                "error" => ?e,
+            );
+            return;
+        }
 
-        self.slashing_protection
+        if let Err(e) = self
+            .slashing_protection
             .prune_all_signed_blocks(validators.iter_voting_pubkeys(), new_min_slot)
-            .map_err(|e| {
-                error!(
-                    self.log,
-                    "Error during pruning of signed blocks";
-                    "error" => ?e,
-                );
-            })?;
+        {
+            error!(
+                self.log,
+                "Error during pruning of signed blocks";
+                "error" => ?e,
+            );
+            return;
+        }
 
         *last_prune = current_epoch;
 
         info!(self.log, "Completed pruning of slashing protection DB");
-
-        Ok(())
     }
 }
