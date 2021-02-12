@@ -584,13 +584,13 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// We don't keep track of a specific validator to random subnet, rather the ratio of active
     /// validators to random subnets. So when a validator goes offline, we can simply remove the
     /// allocated amount of random subnets.
-    fn handle_known_validator_expiry(&mut self) -> Result<(), ()> {
+    fn handle_known_validator_expiry(&mut self) {
         let spec = &self.beacon_chain.spec;
         let subnet_count = spec.attestation_subnet_count;
         let random_subnets_per_validator = spec.random_subnets_per_validator;
         if self.known_validators.len() as u64 * random_subnets_per_validator >= subnet_count {
             // have too many validators, ignore
-            return Ok(());
+            return;
         }
 
         let subscribed_subnets = self.random_subnets.keys().cloned().collect::<Vec<_>>();
@@ -616,7 +616,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .push_back(AttServiceMessage::EnrRemove(*subnet_id));
             self.random_subnets.remove(subnet_id);
         }
-        Ok(())
     }
 }
 

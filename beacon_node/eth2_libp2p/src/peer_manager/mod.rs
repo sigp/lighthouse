@@ -972,7 +972,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // perform the heartbeat when necessary
-        while let Poll::Ready(_) = self.heartbeat.poll_tick(cx) {
+        while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
         }
 
