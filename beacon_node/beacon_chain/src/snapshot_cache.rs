@@ -68,7 +68,7 @@ pub enum StateAdvance<T: EthSpec> {
     BlockNotFound,
     AlreadyAdvanced,
     State {
-        state: BeaconState<T>,
+        state: Box<BeaconState<T>>,
         state_root: Hash256,
         block_slot: Slot,
     },
@@ -181,14 +181,14 @@ impl<T: EthSpec> SnapshotCache<T> {
             .find(|snapshot| snapshot.beacon_block_root == block_root)
         {
             if snapshot.pre_state.is_some() {
-                return StateAdvance::AlreadyAdvanced;
+                StateAdvance::AlreadyAdvanced
             } else {
                 let cloned = snapshot
                     .beacon_state
                     .clone_with(CloneConfig::committee_caches_only());
 
                 StateAdvance::State {
-                    state: std::mem::replace(&mut snapshot.beacon_state, cloned),
+                    state: Box::new(std::mem::replace(&mut snapshot.beacon_state, cloned)),
                     state_root: snapshot.beacon_block.state_root(),
                     block_slot: snapshot.beacon_block.slot(),
                 }

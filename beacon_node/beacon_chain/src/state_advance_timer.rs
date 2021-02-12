@@ -159,7 +159,7 @@ fn advance_head<T: BeaconChainTypes>(
             state,
             state_root,
             block_slot,
-        } => (block_slot, state_root, state),
+        } => (block_slot, state_root, *state),
     };
 
     let initial_slot = state.slot;
@@ -234,7 +234,7 @@ fn advance_head<T: BeaconChainTypes>(
         .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
         .ok_or(BeaconChainError::SnapshotCacheLockTimeout)?
         .update_pre_state(head_root, state)
-        .ok_or_else(|| Error::HeadMissingFromSnapshotCache(head_root))?;
+        .ok_or(Error::HeadMissingFromSnapshotCache(head_root))?;
 
     let current_slot = beacon_chain.slot()?;
     if final_slot <= current_slot {
