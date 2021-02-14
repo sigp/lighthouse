@@ -529,6 +529,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             block
                 .slot()
                 .as_u64()
+                .saturating_sub(1)
                 .saturating_sub(parent_block.slot.into()) as i64,
         );
 
