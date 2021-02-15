@@ -21,7 +21,11 @@ use crate::{
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{EthSpec, Hash256, Slot};
 
@@ -47,62 +51,109 @@ impl From<BeaconChainError> for Error {
     }
 }
 
+/// Provides a simple thread-safe lock to be used for task co-ordination. Practically equivalent to
+/// `Mutex<()>`.
+#[derive(Clone)]
+struct Lock(Arc<AtomicBool>);
+
+impl Lock {
+    /// Instantiate an unlocked self.
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Lock self, returning `true` if the lock was already set.
+    pub fn lock(&self) -> bool {
+        self.0.fetch_or(true, Ordering::SeqCst)
+    }
+
+    /// Unlock self.
+    pub fn unlock(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Spawns the timer described in the module-level documentation.
 pub fn spawn_state_advance_timer<T: BeaconChainTypes>(
-    executor: &task_executor::TaskExecutor,
+    executor: TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) {
-    executor.spawn(
-        state_advance_timer(beacon_chain, log),
+    executor.clone().spawn(
+        state_advance_timer(executor, beacon_chain, log),
         "state_advance_timer",
     );
 }
 
 /// Provides the timer described in the module-level documentation.
-async fn state_advance_timer<T: BeaconChainTypes>(beacon_chain: Arc<BeaconChain<T>>, log: Logger) {
+async fn state_advance_timer<T: BeaconChainTypes>(
+    executor: TaskExecutor,
+    beacon_chain: Arc<BeaconChain<T>>,
+    log: Logger,
+) {
+    let is_running = Lock::new();
     let slot_clock = &beacon_chain.slot_clock;
     let slot_duration = slot_clock.slot_duration();
 
     loop {
-        let delay = match beacon_chain.slot_clock.duration_to_next_slot() {
+        match beacon_chain.slot_clock.duration_to_next_slot() {
             Some(duration) => sleep(duration + (slot_duration / 4) * 3).await,
             None => {
                 error!(log, "Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
-                slot_duration
                 sleep(slot_duration).await;
-                continue
+                continue;
             }
         };
 
-        match advance_head(&beacon_chain, &log) {
-            Ok(()) => (),
-            Err(Error::BeaconChain(e)) => error!(
+        // Only start spawn the state advance task if the lock was previously free.
+        if !is_running.lock() {
+            let log = log.clone();
+            let beacon_chain = beacon_chain.clone();
+            let is_running = is_running.clone();
+
+            executor.spawn_blocking(
+                move || {
+                    match advance_head(&beacon_chain, &log) {
+                        Ok(()) => (),
+                        Err(Error::BeaconChain(e)) => error!(
+                            log,
+                            "Failed to advance head state";
+                            "error" => ?e
+                        ),
+                        Err(Error::StateAlreadyAdvanced { block_root }) => debug!(
+                            log,
+                            "State already advanced on slot";
+                            "block_root" => ?block_root
+                        ),
+                        Err(Error::MaxDistanceExceeded {
+                            current_slot,
+                            head_slot,
+                        }) => debug!(
+                            log,
+                            "Refused to advance head state";
+                            "head_slot" => head_slot,
+                            "current_slot" => current_slot,
+                        ),
+                        other => warn!(
+                            log,
+                            "Did not advance head state";
+                            "reason" => ?other
+                        ),
+                    };
+
+                    // Permit this blocking task to spawn again, next time the timer fires.
+                    is_running.unlock();
+                },
+                "state_advance_blocking",
+            );
+        } else {
+            warn!(
                 log,
-                "Failed to advance head state";
-                "error" => ?e
-            ),
-            Err(Error::StateAlreadyAdvanced { block_root }) => debug!(
-                log,
-                "State already advanced on slot";
-                "block_root" => ?block_root
-            ),
-            Err(Error::MaxDistanceExceeded {
-                current_slot,
-                head_slot,
-            }) => debug!(
-                log,
-                "Refused to advance head state";
-                "head_slot" => head_slot,
-                "current_slot" => current_slot,
-            ),
-            other => warn!(
-                log,
-                "Did not advance head state";
-                "reason" => ?other
-            ),
-        };
+                "State advance routine overloaded";
+                "msg" => "system resources may be overloaded"
+            )
+        }
     }
 }
 
@@ -244,7 +295,7 @@ fn advance_head<T: BeaconChainTypes>(
             "advanced_slot" => final_slot,
             "current_slot" => current_slot,
             "initial_slot" => initial_slot,
-            "msg" => "system may be overloaded",
+            "msg" => "system resources may be overloaded",
         );
     }
 
@@ -257,4 +308,20 @@ fn advance_head<T: BeaconChainTypes>(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock() {
+        let lock = Lock::new();
+        assert_eq!(lock.lock(), false);
+        assert_eq!(lock.lock(), true);
+        assert_eq!(lock.lock(), true);
+        lock.unlock();
+        assert_eq!(lock.lock(), false);
+        assert_eq!(lock.lock(), true);
+    }
 }

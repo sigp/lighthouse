@@ -484,11 +484,8 @@ where
 
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
             let state_advance_context = runtime_context.service_context("state_advance".into());
-            spawn_state_advance_timer(
-                &state_advance_context.executor,
-                beacon_chain.clone(),
-                state_advance_context.log().clone(),
-            );
+            let log = state_advance_context.log().clone();
+            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone(), log);
         }
 
         Ok(Client {
