@@ -1,6 +1,6 @@
 # Validator Graffiti
 
-Lighthouse provides 3 options for setting validator graffitis.
+Lighthouse provides four options for setting validator graffiti.
 
 ### Using the "--graffiti-file" flag on the validator client
 Users can specify a file with the `--graffiti-file` flag. This option is useful for dynamically changing graffitis for various use cases (e.g. drawing on the beaconcha.in graffiti wall). This file is loaded once on startup and reloaded everytime a validator is chosen to propose a block.
