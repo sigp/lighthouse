@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tokio::time::sleep;
 use types::{EthSpec, Hash256, Slot};
 
-/// If the head slot is more than `MAX_ADAVANCE_DISTANCE` from the current slot, then don't perform
+/// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
 /// the state advancement.
 ///
 /// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
