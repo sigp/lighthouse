@@ -89,7 +89,7 @@ fn read_line(line: &str) -> Result<(Option<PublicKey>, Graffiti), Error> {
     if tokens[0] == "default" {
         Ok((None, graffiti))
     } else {
-        let pk = PublicKey::from_str(&tokens[0]).map_err(|e| Error::InvalidPublicKey(e))?;
+        let pk = PublicKey::from_str(&tokens[0]).map_err(Error::InvalidPublicKey)?;
         Ok((Some(pk), graffiti))
     }
 }
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn test_load_graffiti() {
         let graffiti_file_path = create_graffiti_file();
-        let mut gf = GraffitiFile::new(graffiti_file_path.clone());
+        let mut gf = GraffitiFile::new(graffiti_file_path);
 
         let pk1 = PublicKey::deserialize(&hex::decode(&PK1[2..]).unwrap()).unwrap();
         let pk2 = PublicKey::deserialize(&hex::decode(&PK2[2..]).unwrap()).unwrap();
