@@ -405,6 +405,7 @@ mod tests {
         let _ = ChainSpec::mainnet();
     }
 
+    #[allow(clippy::useless_vec)]
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
         let previous_version = [0, 0, 0, 1];
         let current_version = [0, 0, 0, 2];

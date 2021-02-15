@@ -5,7 +5,7 @@ use crate::{
 };
 use environment::RuntimeContext;
 use futures::channel::mpsc::Sender;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use parking_lot::RwLock;
 use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
@@ -490,7 +490,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 self.clone().do_update(&mut block_service_tx, &spec).await;
             }
         };

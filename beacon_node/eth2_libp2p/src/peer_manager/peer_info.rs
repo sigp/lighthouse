@@ -156,7 +156,10 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Checks if the status is connected.
     pub fn is_connected(&self) -> bool {
-        matches!(self.connection_status, PeerConnectionStatus::Connected { .. })
+        matches!(
+            self.connection_status,
+            PeerConnectionStatus::Connected { .. }
+        )
     }
 
     /// Checks if the status is connected.

@@ -6,7 +6,6 @@ use crate::{
 };
 use environment::RuntimeContext;
 use futures::future::FutureExt;
-use futures::StreamExt;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -149,7 +148,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let executor = self.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 let log = self.context.log();
 
                 if let Err(e) = self.spawn_attestation_tasks(slot_duration) {

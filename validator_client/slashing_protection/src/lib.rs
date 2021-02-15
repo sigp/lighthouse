@@ -119,6 +119,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[allow(clippy::eq_op)]
     fn signing_root_partial_eq() {
         let h0 = SigningRoot(Hash256::zero());
         let h1 = SigningRoot(Hash256::repeat_byte(1));

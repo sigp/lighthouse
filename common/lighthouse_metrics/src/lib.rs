@@ -252,14 +252,8 @@ pub fn start_timer(histogram: &Result<Histogram>) -> Option<HistogramTimer> {
 
 /// Starts a timer on `vec` with the given `name`.
 pub fn observe_timer_vec(vec: &Result<HistogramVec>, name: &[&str], duration: Duration) {
-    // This conversion was taken from here:
-    //
-    // https://docs.rs/prometheus/0.5.0/src/prometheus/histogram.rs.html#550-555
-    let nanos = f64::from(duration.subsec_nanos()) / 1e9;
-    let secs = duration.as_secs() as f64 + nanos;
-
     if let Some(h) = get_histogram(vec, name) {
-        h.observe(secs)
+        h.observe(duration_to_f64(duration))
     }
 }
 
@@ -329,4 +323,18 @@ pub fn observe(histogram: &Result<Histogram>, value: f64) {
     if let Ok(histogram) = histogram {
         histogram.observe(value);
     }
+}
+
+pub fn observe_duration(histogram: &Result<Histogram>, duration: Duration) {
+    if let Ok(histogram) = histogram {
+        histogram.observe(duration_to_f64(duration))
+    }
+}
+
+fn duration_to_f64(duration: Duration) -> f64 {
+    // This conversion was taken from here:
+    //
+    // https://docs.rs/prometheus/0.5.0/src/prometheus/histogram.rs.html#550-555
+    let nanos = f64::from(duration.subsec_nanos()) / 1e9;
+    duration.as_secs() as f64 + nanos
 }

@@ -9,8 +9,8 @@ use crate::rpc::{
     MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
-use futures::prelude::*;
 use futures::prelude::{AsyncRead, AsyncWrite};
+use futures::{FutureExt, SinkExt, StreamExt};
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -278,7 +278,7 @@ impl ProtocolName for ProtocolId {
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
-    Framed<TimeoutStream<Compat<TSocket>>, InboundCodec<TSpec>>;
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
 
 impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
 where
@@ -304,7 +304,7 @@ where
             let mut timed_socket = TimeoutStream::new(socket);
             timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
 
-            let socket = Framed::new(timed_socket, codec);
+            let socket = Framed::new(Box::pin(timed_socket), codec);
 
             // MetaData requests should be empty, return the stream
             match protocol_name {

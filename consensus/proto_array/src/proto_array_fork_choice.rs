@@ -386,7 +386,7 @@ mod test_compute_deltas {
                 state_root,
                 target_root: finalized_root,
                 current_epoch_shuffling_id: junk_shuffling_id.clone(),
-                next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                next_epoch_shuffling_id: junk_shuffling_id,
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
             })
