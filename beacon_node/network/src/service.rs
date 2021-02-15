@@ -541,7 +541,10 @@ fn spawn_service<T: BeaconChainTypes>(
 
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
+<<<<<<< HEAD
 
+=======
+>>>>>>> unstable
     }, "network");
 }
 
