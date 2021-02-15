@@ -424,6 +424,54 @@ lazy_static! {
     /*
      * Validator Monitor Metrics (per-epoch summaries)
      */
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_attester_hit",
+            "Incremented if the validator is flagged as a previous epoch attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_attester_miss",
+            "Incremented if the validator is not flagged as a previous epoch attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_head_attester_hit",
+            "Incremented if the validator is flagged as a previous epoch head attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_head_attester_miss",
+            "Incremented if the validator is not flagged as a previous epoch head attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_target_attester_hit",
+            "Incremented if the validator is flagged as a previous epoch target attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "validator_monitor_prev_epoch_on_chain_target_attester_miss",
+            "Incremented if the validator is not flagged as a previous epoch target attester \
+            during per epoch processing",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_on_chain_inclusion_distance",
+            "The attestation inclusion distance calculated during per epoch processing",
+            &["validator"]
+        );
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
             "validator_monitor_prev_epoch_attestations_total",
@@ -575,15 +623,28 @@ lazy_static! {
      */
     pub static ref BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
         "beacon_block_imported_slot_start_delay_time",
-        "Duration between the start of the blocks slot and the current time.",
+        "Duration between the start of the blocks slot and the current time when it was imported.",
     );
+    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_head_slot_start_delay_time",
+        "Duration between the start of the blocks slot and the current time when it was as head.",
+    );
+
+    /*
+     * General block metrics
+     */
+    pub static ref GOSSIP_BEACON_BLOCK_SKIPPED_SLOTS: Result<IntGauge> =
+        try_create_int_gauge(
+            "gossip_beacon_block_skipped_slots",
+            "For each gossip blocks, the number of skip slots between it and its parent"
+        );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     if let Ok(head) = beacon_chain.head() {
-        scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root)
+        scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root())
     }
 
     if let Some(slot) = beacon_chain.slot_clock.now() {
