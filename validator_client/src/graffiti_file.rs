@@ -81,6 +81,9 @@ impl GraffitiFile {
 fn read_line(line: &str) -> Result<(Option<PublicKey>, Graffiti), Error> {
     if let Some(i) = line.find(':') {
         let (key, value) = line.split_at(i);
+        if value.len() < 1 {
+            return Err(Error::InvalidLine);
+        }
         let graffiti = GraffitiString::from_str(value[1..].trim())
             .map_err(Error::InvalidGraffiti)?
             .into();

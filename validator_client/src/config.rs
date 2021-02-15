@@ -8,7 +8,7 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
-use slog::{warn, Logger};
+use slog::{info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -144,12 +144,13 @@ impl Config {
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
 
-        if let Some(graffiti_file) = cli_args.value_of("graffiti-file") {
-            let mut graffiti_file = GraffitiFile::new(graffiti_file.into());
+        if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
+            let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
             graffiti_file
                 .read_graffiti_file()
                 .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
             config.graffiti_file = Some(graffiti_file);
+            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
         }
 
         if let Some(input_graffiti) = cli_args.value_of("graffiti") {
