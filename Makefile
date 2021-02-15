@@ -15,9 +15,9 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 # Binaries will most likely be found in `./target/release`
 install:
 ifeq ($(PORTABLE), true)
-	cargo install --path lighthouse --force --locked --features portable
+	cargo install --path lighthouse --force --locked --features portable,jemalloc
 else
-	cargo install --path lighthouse --force --locked
+	cargo install --path lighthouse --force --locked --features jemalloc
 endif
 
 # Builds the lcli binary in release (optimized).
