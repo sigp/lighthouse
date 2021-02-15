@@ -40,17 +40,20 @@
 //!            END
 //!
 //! ```
+use crate::snapshot_cache::PreProcessingSnapshot;
+use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     beacon_chain::{
         BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
+    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
-use slog::{error, Logger};
+use proto_array::Block as ProtoBlock;
+use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
@@ -66,7 +69,7 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
+    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
     PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
@@ -179,7 +182,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, state_slot: Slot },
+    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -348,11 +351,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         .map(|(_, block)| block.slot())
         .unwrap_or_else(|| slot);
 
-    let state = cheap_state_advance_to_obtain_committees(
-        &mut parent.beacon_state,
-        highest_slot,
-        &chain.spec,
-    )?;
+    let state =
+        cheap_state_advance_to_obtain_committees(&mut parent.pre_state, highest_slot, &chain.spec)?;
 
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
@@ -388,7 +388,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
-    parent: BeaconSnapshot<T::EthSpec>,
+    parent: Option<PreProcessingSnapshot<T::EthSpec>>,
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
@@ -396,7 +396,7 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
 pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     block: SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
-    parent: Option<BeaconSnapshot<T::EthSpec>>,
+    parent: Option<PreProcessingSnapshot<T::EthSpec>>,
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
@@ -520,16 +520,90 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             &chain.store,
         )?;
 
-        let (mut parent, block) = load_parent(block, chain)?;
+        let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
+
+        // Track the number of skip slots between the block and its parent.
+        metrics::set_gauge(
+            &metrics::GOSSIP_BEACON_BLOCK_SKIPPED_SLOTS,
+            block
+                .slot()
+                .as_u64()
+                .saturating_sub(1)
+                .saturating_sub(parent_block.slot.into()) as i64,
+        );
+
+        // Paranoid check to prevent propagation of blocks that don't form a legitimate chain.
+        //
+        // This is not in the spec, but @protolambda tells me that the majority of other clients are
+        // already doing it. For reference:
+        //
+        // https://github.com/ethereum/eth2.0-specs/pull/2196
+        if parent_block.slot >= block.slot() {
+            return Err(BlockError::BlockIsNotLaterThanParent {
+                block_slot: block.slot(),
+                parent_slot: parent_block.slot,
+            });
+        }
+
+        let proposer_shuffling_decision_block =
+            if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == block_epoch {
+                parent_block
+                    .next_epoch_shuffling_id
+                    .shuffling_decision_block
+            } else {
+                parent_block.root
+            };
 
         // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, &parent.beacon_block.message, &block.message)?;
+        check_block_skip_slots(chain, parent_block.slot, &block.message)?;
 
-        let state = cheap_state_advance_to_obtain_committees(
-            &mut parent.beacon_state,
-            block.slot(),
-            &chain.spec,
-        )?;
+        // We assign to a variable instead of using `if let Some` directly to ensure we drop the
+        // write lock before trying to acquire it again in the `else` clause.
+        let proposer_opt = chain
+            .beacon_proposer_cache
+            .lock()
+            .get::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
+        let (expected_proposer, fork, parent, block) = if let Some(proposer) = proposer_opt {
+            // The proposer index was cached and we can return it without needing to load the
+            // parent.
+            (proposer.index, proposer.fork, None, block)
+        } else {
+            // The proposer index was *not* cached and we must load the parent in order to determine
+            // the proposer index.
+            let (mut parent, block) = load_parent(block, chain)?;
+
+            debug!(
+                chain.log,
+                "Proposer shuffling cache miss";
+                "parent_root" => ?parent.beacon_block_root,
+                "parent_slot" => parent.beacon_block.slot(),
+                "block_root" => ?block_root,
+                "block_slot" => block.slot(),
+            );
+
+            // The state produced is only valid for determining proposer/attester shuffling indices.
+            let state = cheap_state_advance_to_obtain_committees(
+                &mut parent.pre_state,
+                block.slot(),
+                &chain.spec,
+            )?;
+
+            let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+            let proposer_index = *proposers
+                .get(block.slot().as_usize() % T::EthSpec::slots_per_epoch() as usize)
+                .ok_or_else(|| BeaconChainError::NoProposerForSlot(block.slot()))?;
+
+            // Prime the proposer shuffling cache with the newly-learned value.
+            chain.beacon_proposer_cache.lock().insert(
+                block_epoch,
+                proposer_shuffling_decision_block,
+                proposers,
+                state.fork,
+            )?;
+
+            (proposer_index, state.fork, Some(parent), block)
+        };
 
         let signature_is_valid = {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
@@ -539,7 +613,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             block.verify_signature(
                 Some(block_root),
                 pubkey,
-                &state.fork,
+                &fork,
                 chain.genesis_validators_root,
                 &chain.spec,
             )
@@ -566,12 +640,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        let expected_proposer =
-            state.get_beacon_proposer_index(block.message.slot, &chain.spec)? as u64;
-        if block.message.proposer_index != expected_proposer {
+        if block.message.proposer_index != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {
                 block: block.message.proposer_index,
-                local_shuffling: expected_proposer,
+                local_shuffling: expected_proposer as u64,
             });
         }
 
@@ -615,12 +687,12 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let (mut parent, block) = load_parent(block, chain)?;
 
         // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, &parent.beacon_block.message, &block.message)?;
+        check_block_skip_slots(chain, parent.beacon_block.slot(), &block.message)?;
 
         let block_root = get_block_root(&block);
 
         let state = cheap_state_advance_to_obtain_committees(
-            &mut parent.beacon_state,
+            &mut parent.pre_state,
             block.slot(),
             &chain.spec,
         )?;
@@ -657,11 +729,14 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let mut parent = from.parent;
-        let block = from.block;
+        let (mut parent, block) = if let Some(parent) = from.parent {
+            (parent, from.block)
+        } else {
+            load_parent(from.block, chain)?
+        };
 
         let state = cheap_state_advance_to_obtain_committees(
-            &mut parent.beacon_state,
+            &mut parent.pre_state,
             block.slot(),
             &chain.spec,
         )?;
@@ -749,7 +824,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
     pub fn from_signature_verified_components(
         block: SignedBeaconBlock<T::EthSpec>,
         block_root: Hash256,
-        parent: BeaconSnapshot<T::EthSpec>,
+        parent: PreProcessingSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         // Reject any block if its parent is not known to fork choice.
@@ -771,7 +846,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, &parent.beacon_block.message, &block.message)?;
+        check_block_skip_slots(chain, parent.beacon_block.slot(), &block.message)?;
 
         /*
          *  Perform cursory checks to see if the block is even worth processing.
@@ -790,20 +865,41 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         let mut confirmation_db_batch = vec![];
 
         // The block must have a higher slot than its parent.
-        if block.slot() <= parent.beacon_state.slot {
+        if block.slot() <= parent.beacon_block.slot() {
             return Err(BlockError::BlockIsNotLaterThanParent {
                 block_slot: block.slot(),
-                state_slot: parent.beacon_state.slot,
+                parent_slot: parent.beacon_block.slot(),
             });
         }
 
         let mut summaries = vec![];
 
         // Transition the parent state to the block slot.
-        let mut state = parent.beacon_state;
+        //
+        // It is important to note that we're using a "pre-state" here, one that has potentially
+        // been advanced one slot forward from `parent.beacon_block.slot`.
+        let mut state = parent.pre_state;
+
+        // Perform a sanity check on the pre-state.
+        let parent_slot = parent.beacon_block.slot();
+        if state.slot < parent_slot || state.slot > parent_slot + 1 {
+            return Err(BeaconChainError::BadPreState {
+                parent_root: parent.beacon_block_root,
+                parent_slot,
+                block_root,
+                block_slot: block.slot(),
+                state_slot: state.slot,
+            }
+            .into());
+        }
+
         let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
-        for i in 0..distance {
-            let state_root = if i == 0 {
+        for _ in 0..distance {
+            let state_root = if parent.beacon_block.slot() == state.slot {
+                // If it happens that `pre_state` has *not* already been advanced forward a single
+                // slot, then there is no need to compute the state root for this
+                // `per_slot_processing` call since that state root is already stored in the parent
+                // block.
                 parent.beacon_block.state_root()
             } else {
                 // This is a new state we've reached, so stage it for storage in the DB.
@@ -850,6 +946,24 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         expose_participation_metrics(&summaries);
+
+        // If the block is sufficiently recent, notify the validator monitor.
+        if let Some(slot) = chain.slot_clock.now() {
+            let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+            if block.slot().epoch(T::EthSpec::slots_per_epoch())
+                + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
+                >= epoch
+            {
+                let validator_monitor = chain.validator_monitor.read();
+                // Update the summaries in a separate loop to `per_slot_processing`. This protects
+                // the `validator_monitor` lock from being bounced or held for a long time whilst
+                // performing `per_slot_processing`.
+                for (i, summary) in summaries.iter().enumerate() {
+                    let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
+                    validator_monitor.process_validator_statuses(epoch, &summary.statuses);
+                }
+            }
+        }
 
         metrics::stop_timer(catchup_timer);
 
@@ -941,14 +1055,14 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 /// `import_max_skip_slots` value.
 fn check_block_skip_slots<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    parent: &BeaconBlock<T::EthSpec>,
+    parent_slot: Slot,
     block: &BeaconBlock<T::EthSpec>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     // Reject any block that exceeds our limit on skipped slots.
     if let Some(max_skip_slots) = chain.config.import_max_skip_slots {
-        if block.slot > parent.slot + max_skip_slots {
+        if block.slot > parent_slot + max_skip_slots {
             return Err(BlockError::TooManySkippedSlots {
-                parent_slot: parent.slot,
+                parent_slot,
                 block_slot: block.slot,
             });
         }
@@ -1071,6 +1185,24 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
     block_root
 }
 
+/// Verify the parent of `block` is known, returning some information about the parent block from
+/// fork choice.
+#[allow(clippy::type_complexity)]
+fn verify_parent_block_is_known<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block: SignedBeaconBlock<T::EthSpec>,
+) -> Result<(ProtoBlock, SignedBeaconBlock<T::EthSpec>), BlockError<T::EthSpec>> {
+    if let Some(proto_block) = chain
+        .fork_choice
+        .read()
+        .get_block(&block.message.parent_root)
+    {
+        Ok((proto_block, block))
+    } else {
+        Err(BlockError::ParentUnknown(Box::new(block)))
+    }
+}
+
 /// Load the parent snapshot (block and state) of the given `block`.
 ///
 /// Returns `Err(BlockError::ParentUnknown)` if the parent is not found, or if an error occurs
@@ -1079,7 +1211,13 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
 fn load_parent<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<(BeaconSnapshot<T::EthSpec>, SignedBeaconBlock<T::EthSpec>), BlockError<T::EthSpec>> {
+) -> Result<
+    (
+        PreProcessingSnapshot<T::EthSpec>,
+        SignedBeaconBlock<T::EthSpec>,
+    ),
+    BlockError<T::EthSpec>,
+> {
     // Reject any block if its parent is not known to fork choice.
     //
     // A block that is not in fork choice is either:
@@ -1105,7 +1243,7 @@ fn load_parent<T: BeaconChainTypes>(
         .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
         .and_then(|mut snapshot_cache| snapshot_cache.try_remove(block.parent_root()))
     {
-        Ok((snapshot, block))
+        Ok((snapshot.into_pre_state(), block))
     } else {
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
@@ -1136,11 +1274,10 @@ fn load_parent<T: BeaconChainTypes>(
             })?;
 
         Ok((
-            BeaconSnapshot {
+            PreProcessingSnapshot {
                 beacon_block: parent_block,
                 beacon_block_root: root,
-                beacon_state: parent_state,
-                beacon_state_root: parent_state_root,
+                pre_state: parent_state,
             },
             block,
         ))
@@ -1151,12 +1288,12 @@ fn load_parent<T: BeaconChainTypes>(
     result
 }
 
-/// Performs a cheap (time-efficient) state advancement so the committees for `slot` can be
-/// obtained from `state`.
+/// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
+/// `slot` can be obtained from `state`.
 ///
 /// The state advancement is "cheap" since it does not generate state roots. As a result, the
-/// returned state might be holistically invalid but the committees will be correct (since they do
-/// not rely upon state roots).
+/// returned state might be holistically invalid but the committees/proposers will be correct (since
+/// they do not rely upon state roots).
 ///
 /// If the given `state` can already serve the `slot`, the committees will be built on the `state`
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
@@ -1176,7 +1313,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     } else if state.slot > block_slot {
         Err(BlockError::BlockIsNotLaterThanParent {
             block_slot,
-            state_slot: state.slot,
+            parent_slot: state.slot,
         })
     } else {
         let mut state = state.clone_with(CloneConfig::committee_caches_only());

@@ -135,12 +135,12 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let keystore = Keystore::from_json_file(src_keystore)
             .map_err(|e| format!("Unable to read keystore JSON {:?}: {:?}", src_keystore, e))?;
 
-        eprintln!("");
+        eprintln!();
         eprintln!("Keystore found at {:?}:", src_keystore);
-        eprintln!("");
+        eprintln!();
         eprintln!(" - Public key: 0x{}", keystore.pubkey());
         eprintln!(" - UUID: {}", keystore.uuid());
-        eprintln!("");
+        eprintln!();
         eprintln!(
             "If you enter the password it will be stored as plain-text in {} so that it is not \
              required each time the validator client starts.",
@@ -152,7 +152,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                 eprintln!("Reuse previous password.");
                 break Some(password);
             }
-            eprintln!("");
+            eprintln!();
             eprintln!("{}", PASSWORD_PROMPT);
 
             let password = read_password_from_user(stdin_inputs)?;
@@ -166,7 +166,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             match keystore.decrypt_keypair(password.as_ref()) {
                 Ok(_) => {
                     eprintln!("Password is correct.");
-                    eprintln!("");
+                    eprintln!();
                     sleep(Duration::from_secs(1)); // Provides nicer UX.
                     if reuse_password {
                         previous_password = Some(password.clone());
@@ -234,13 +234,13 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         eprintln!("Successfully updated {}.", CONFIG_FILENAME);
     }
 
-    eprintln!("");
+    eprintln!();
     eprintln!(
         "Successfully imported {} validators ({} skipped).",
         num_imported_keystores,
         keystore_paths.len() - num_imported_keystores
     );
-    eprintln!("");
+    eprintln!();
     eprintln!("WARNING: {}", KEYSTORE_REUSE_WARNING);
 
     Ok(())

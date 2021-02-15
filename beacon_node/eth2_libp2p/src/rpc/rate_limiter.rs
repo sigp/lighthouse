@@ -240,7 +240,7 @@ impl Future for RPCRateLimiter {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        while let Poll::Ready(_) = self.prune_interval.poll_tick(cx) {
+        while self.prune_interval.poll_tick(cx).is_ready() {
             self.prune();
         }
 

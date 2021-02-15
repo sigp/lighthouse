@@ -2,7 +2,7 @@ use crate::{error::Error, Block};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{Epoch, Hash256, ShufflingId, Slot};
+use types::{AttestationShufflingId, Epoch, Hash256, Slot};
 
 #[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
 pub struct ProtoNode {
@@ -18,8 +18,8 @@ pub struct ProtoNode {
     /// The `target_root` is not necessary for `ProtoArray` either, it also just exists for upstream
     /// components (namely fork choice attestation verification).
     pub target_root: Hash256,
-    pub current_epoch_shuffling_id: ShufflingId,
-    pub next_epoch_shuffling_id: ShufflingId,
+    pub current_epoch_shuffling_id: AttestationShufflingId,
+    pub next_epoch_shuffling_id: AttestationShufflingId,
     pub root: Hash256,
     pub parent: Option<usize>,
     pub justified_epoch: Epoch,
