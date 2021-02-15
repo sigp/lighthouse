@@ -79,8 +79,8 @@ pub fn spawn_state_advance_timer<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) {
-    executor.clone().spawn(
-        state_advance_timer(executor, beacon_chain, log),
+    executor.spawn(
+        state_advance_timer(executor.clone(), beacon_chain, log),
         "state_advance_timer",
     );
 }
