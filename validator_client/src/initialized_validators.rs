@@ -238,29 +238,29 @@ fn unlock_keystore_via_stdin_password(
     keystore: &Keystore,
     keystore_path: &PathBuf,
 ) -> Result<(ZeroizeString, Keypair), Error> {
-    eprintln!("");
+    eprintln!();
     eprintln!(
         "The {} file does not contain either of the following fields for {:?}:",
         CONFIG_FILENAME, keystore_path
     );
-    eprintln!("");
+    eprintln!();
     eprintln!(" - voting_keystore_password");
     eprintln!(" - voting_keystore_password_path");
-    eprintln!("");
+    eprintln!();
     eprintln!(
         "You may exit and update {} or enter a password. \
                             If you choose to enter a password now then this prompt \
                             will be raised next time the validator is started.",
         CONFIG_FILENAME
     );
-    eprintln!("");
+    eprintln!();
     eprintln!("Enter password (or press Ctrl+c to exit):");
 
     loop {
         let password =
             read_password_from_user(USE_STDIN).map_err(Error::UnableToReadPasswordFromUser)?;
 
-        eprintln!("");
+        eprintln!();
 
         match keystore.decrypt_keypair(password.as_ref()) {
             Ok(keystore) => break Ok((password, keystore)),

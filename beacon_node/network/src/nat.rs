@@ -52,11 +52,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                 // Just use the first IP of the first interface that is not a loopback and not an
                 // ipv6 address.
                 if !interface.is_loopback() {
-                    if let IpAddr::V4(_) = interface.ip() {
-                        Some(interface.ip())
-                    } else {
-                        None
-                    }
+                    interface.ip().is_ipv4().then(|| interface.ip())
                 } else {
                     None
                 }
