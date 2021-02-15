@@ -35,18 +35,22 @@ pub fn compute_shuffled_index(
     let mut index = index;
     for round in 0..shuffle_round_count {
         let pivot = bytes_to_int64(&hash_with_round(seed, round)[..]) as usize % list_size;
-        index = do_round(seed, index, pivot, round, list_size)?;
+        index = do_round(seed, index, pivot, round, list_size);
     }
     Some(index)
 }
 
-fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize) -> Option<usize> {
+fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize) -> usize {
     let flip = (pivot + (list_size - index)) % list_size;
     let position = max(index, flip);
     let source = hash_with_round_and_position(seed, round, position);
     let byte = source[(position % 256) / 8];
     let bit = (byte >> (position % 8)) % 2;
-    Some(if bit == 1 { flip } else { index })
+    if bit == 1 {
+        flip
+    } else {
+        index
+    }
 }
 
 fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Hash256 {
