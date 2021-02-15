@@ -79,18 +79,19 @@ impl GraffitiFile {
 /// `Ok((Some(pk), graffiti))` represents graffiti for the public key `pk`.
 /// Returns an error if the line is in the wrong format or does not contain a valid public key or graffiti.
 fn read_line(line: &str) -> Result<(Option<PublicKey>, Graffiti), Error> {
-    let tokens: Vec<&str> = line.split(':').collect();
-    if tokens.len() != 2 {
-        return Err(Error::InvalidLine);
-    }
-    let graffiti = GraffitiString::from_str(tokens[1].trim())
-        .map_err(Error::InvalidGraffiti)?
-        .into();
-    if tokens[0] == "default" {
-        Ok((None, graffiti))
+    if let Some(i) = line.find(':') {
+        let (key, value) = line.split_at(i);
+        let graffiti = GraffitiString::from_str(value[1..].trim())
+            .map_err(Error::InvalidGraffiti)?
+            .into();
+        if key == "default" {
+            Ok((None, graffiti))
+        } else {
+            let pk = PublicKey::from_str(&key).map_err(Error::InvalidPublicKey)?;
+            Ok((Some(pk), graffiti))
+        }
     } else {
-        let pk = PublicKey::from_str(&tokens[0]).map_err(Error::InvalidPublicKey)?;
-        Ok((Some(pk), graffiti))
+        Err(Error::InvalidLine)
     }
 }
 
@@ -103,7 +104,7 @@ mod tests {
 
     const DEFAULT_GRAFFITI: &str = "lighthouse";
     const CUSTOM_GRAFFITI1: &str = "custom-graffiti1";
-    const CUSTOM_GRAFFITI2: &str = "custom-graffiti2";
+    const CUSTOM_GRAFFITI2: &str = "graffitiwall:720:641:#ffff00";
     const PK1: &str = "0x800012708dc03f611751aad7a43a082142832b5c1aceed07ff9b543cf836381861352aa923c70eeb02018b638aa306aa";
     const PK2: &str = "0x80001866ce324de7d80ec73be15e2d064dcf121adf1b34a0d679f2b9ecbab40ce021e03bb877e1a2fe72eaaf475e6e21";
 
