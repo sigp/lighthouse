@@ -893,7 +893,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
 
         // perform gossipsub score updates when necessary
-        while let Poll::Ready(_) = self.update_gossipsub_scores.poll_tick(cx) {
+        while self.update_gossipsub_scores.poll_tick(cx).is_ready() {
             self.peer_manager.update_gossipsub_scores(&self.gossipsub);
         }
 

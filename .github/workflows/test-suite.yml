@@ -26,6 +26,8 @@ jobs:
     - uses: actions/checkout@v1
     - name: Get latest version of stable Rust
       run: rustup update stable
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
   release-tests-ubuntu:
@@ -78,6 +80,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Build the root Dockerfile
       run: docker build .
   eth1-simulator-ubuntu:
@@ -86,6 +90,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim that starts from an eth1 contract
@@ -96,6 +102,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim without an eth1 connection
@@ -106,6 +114,8 @@ jobs:
     needs: cargo-fmt
     steps:
       - uses: actions/checkout@v1
+      - name: Get latest version of stable Rust
+        run: rustup update stable
       - name: Install ganache-cli
         run: sudo npm install -g ganache-cli
       - name: Run the syncing simulator
@@ -116,6 +126,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Typecheck benchmark code without running it
       run: make check-benches
   check-consensus:
@@ -124,6 +136,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Typecheck consensus code in strict mode
       run: make check-consensus
   clippy:
@@ -132,6 +146,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Lint code for quality and style with Clippy
       run: make lint
     - name: Certify Cargo.lock freshness
@@ -142,6 +158,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Validate state_processing feature arbitrary-fuzz
       run:  make arbitrary-fuzz
   cargo-audit:
@@ -150,6 +168,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
       run:  make audit
   cargo-udeps:

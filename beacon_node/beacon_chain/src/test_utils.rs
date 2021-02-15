@@ -15,7 +15,7 @@ use genesis::interop_genesis_state;
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
 use rand::Rng;
-use rand_core::SeedableRng;
+use rand::SeedableRng;
 use rayon::prelude::*;
 use slog::Logger;
 use slot_clock::TestingSlotClock;

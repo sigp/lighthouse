@@ -269,6 +269,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 verified_block
             }
             Err(BlockError::ParentUnknown(block)) => {
+                debug!(
+                    self.log,
+                    "Unknown parent for gossip block";
+                    "root" => %block.canonical_root()
+                );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
                 return;
             }

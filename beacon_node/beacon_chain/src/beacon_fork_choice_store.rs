@@ -210,7 +210,7 @@ where
         let anchor_state = &anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header.clone();
         if anchor_block_header.state_root == Hash256::zero() {
-            anchor_block_header.state_root = anchor.beacon_state_root;
+            anchor_block_header.state_root = anchor.beacon_state_root();
         }
         let anchor_root = anchor_block_header.canonical_root();
         let anchor_epoch = anchor_state.current_epoch();

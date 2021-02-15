@@ -29,7 +29,7 @@ pub fn read_mnemonic_from_cli(
                 })
             })?,
         None => loop {
-            eprintln!("");
+            eprintln!();
             eprintln!("{}", MNEMONIC_PROMPT);
 
             let mnemonic = read_input_from_user(stdin_inputs)?;
@@ -37,7 +37,7 @@ pub fn read_mnemonic_from_cli(
             match Mnemonic::from_phrase(mnemonic.as_str(), Language::English) {
                 Ok(mnemonic_m) => {
                     eprintln!("Valid mnemonic provided.");
-                    eprintln!("");
+                    eprintln!();
                     sleep(Duration::from_secs(1));
                     break mnemonic_m;
                 }

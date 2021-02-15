@@ -227,6 +227,7 @@ jobs:
 
             - name: Create Release Draft
               env:
+                  GITHUB_USER: sigp
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
               # The formatting here is borrowed from OpenEthereum: https://github.com/openethereum/openethereum/blob/main/.github/workflows/build.yml
