@@ -46,7 +46,7 @@ futures = "0.3.7"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1.5"
 rand = "0.7.3"
-rand_core = "0.5.1"
+rand_core = "0.6.2"
 proto_array = { path = "../../consensus/proto_array" }
 lru = "0.6.0"
 tempfile = "3.1.0"
