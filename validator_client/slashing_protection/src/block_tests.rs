@@ -69,7 +69,7 @@ fn valid_same_block_different_validator() {
         registered_validators: vec![pubkey(0), pubkey(1)],
         cases: vec![
             Test::with_pubkey(pubkey(0), block.clone()),
-            Test::with_pubkey(pubkey(1), block.clone()),
+            Test::with_pubkey(pubkey(1), block),
         ],
     }
     .run()

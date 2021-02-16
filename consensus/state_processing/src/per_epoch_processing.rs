@@ -18,6 +18,7 @@ pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 /// Provides a summary of validator participation during the epoch.
 pub struct EpochProcessingSummary {
     pub total_balances: TotalBalances,
+    pub statuses: Vec<ValidatorStatus>,
 }
 
 /// Performs per-epoch processing on some BeaconState.
@@ -65,6 +66,7 @@ pub fn per_epoch_processing<T: EthSpec>(
 
     Ok(EpochProcessingSummary {
         total_balances: validator_statuses.total_balances,
+        statuses: validator_statuses.statuses,
     })
 }
 

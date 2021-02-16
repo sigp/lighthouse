@@ -126,8 +126,7 @@ pub async fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    let enr = node.swarm.local_enr().clone();
-    enr
+    node.swarm.local_enr()
 }
 
 // Returns `n` libp2p peers in fully connected topology.

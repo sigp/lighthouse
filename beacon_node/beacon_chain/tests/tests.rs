@@ -133,7 +133,7 @@ fn iterators() {
 
     assert_eq!(
         *state_roots.first().expect("should have some state roots"),
-        (head.beacon_state_root, head.beacon_state.slot),
+        (head.beacon_state_root(), head.beacon_state.slot),
         "first state root and slot should be for the head state"
     );
 }

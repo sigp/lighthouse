@@ -351,6 +351,17 @@ lazy_static! {
         &["range_type"]
     );
 
+    /*
+     * Block Delay Metrics
+     */
+    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_gossip_propagation_verification_delay_time",
+        "Duration between when the block is received and when it is verified for propagation.",
+    );
+    pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_gossip_slot_start_delay_time",
+        "Duration between when the block is received and the start of the slot it belongs to.",
+    );
 }
 
 pub fn register_attestation_error(error: &AttnError) {

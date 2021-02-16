@@ -1706,7 +1706,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     for checkpoint in &chain_dump {
         // Check that the tree hash of the stored state is as expected
         assert_eq!(
-            checkpoint.beacon_state_root,
+            checkpoint.beacon_state_root(),
             checkpoint.beacon_state.tree_hash_root(),
             "tree hash of stored state is incorrect"
         );
@@ -1717,7 +1717,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
             harness
                 .chain
                 .store
-                .get_state(&checkpoint.beacon_state_root, None)
+                .get_state(&checkpoint.beacon_state_root(), None)
                 .expect("no error")
                 .expect("state exists")
                 .slot,

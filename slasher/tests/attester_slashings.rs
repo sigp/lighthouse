@@ -107,7 +107,7 @@ fn surrounds_existing_single_val_single_chunk() {
 fn surrounds_existing_multi_vals_single_chunk() {
     let validators = vec![0, 16, 1024, 300_000, 300_001];
     let att1 = indexed_att(validators.clone(), 1, 2, 0);
-    let att2 = indexed_att(validators.clone(), 0, 3, 0);
+    let att2 = indexed_att(validators, 0, 3, 0);
     let slashings = hashset![att_slashing(&att2, &att1)];
     slasher_test_indiv(&[att1, att2], &slashings, 3);
 }

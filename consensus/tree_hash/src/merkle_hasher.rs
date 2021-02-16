@@ -61,7 +61,7 @@ impl HalfNode {
 /// zero-value hashes at all depths of the tree.
 ///
 /// This algorithm aims to allocate as little memory as possible and it does this by "folding" up
-/// the tree has each leaf is provided. Consider this step-by-step functional diagram of hashing a
+/// the tree as each leaf is provided. Consider this step-by-step functional diagram of hashing a
 /// tree with depth three:
 ///
 /// ## Functional Diagram
@@ -307,7 +307,7 @@ impl MerkleHasher {
     /// is a leaf node it will be the value of that leaf).
     ///
     /// This operation will always complete one node, then it will attempt to crawl up the tree and
-    /// collapse and other viable nodes. For example, consider a tree of depth 3 (see diagram
+    /// collapse all other completed nodes. For example, consider a tree of depth 3 (see diagram
     /// below). When providing the node with id `7`, the node with id `3` will be completed which
     /// will also provide the right-node for the `1` node. This function will complete both of
     /// those nodes and ultimately find the root of the tree.
@@ -397,7 +397,7 @@ mod test {
 
         let merklizer_root_individual_3_bytes = {
             let mut m = MerkleHasher::with_depth(depth);
-            for bytes in reference_bytes.clone().chunks(3) {
+            for bytes in reference_bytes.chunks(3) {
                 m.write(bytes).expect("should process byte");
             }
             m.finish().expect("should finish")
@@ -426,7 +426,7 @@ mod test {
     /// of leaves and a depth.
     fn compare_reference_with_len(leaves: u64, depth: usize) {
         let leaves = (0..leaves)
-            .map(|i| Hash256::from_low_u64_be(i))
+            .map(Hash256::from_low_u64_be)
             .collect::<Vec<_>>();
         compare_with_reference(&leaves, depth)
     }
@@ -435,7 +435,7 @@ mod test {
     /// results.
     fn compare_new_with_leaf_count(num_leaves: u64, depth: usize) {
         let leaves = (0..num_leaves)
-            .map(|i| Hash256::from_low_u64_be(i))
+            .map(Hash256::from_low_u64_be)
             .collect::<Vec<_>>();
 
         let from_depth = {

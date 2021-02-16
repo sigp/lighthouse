@@ -54,6 +54,10 @@ impl SlotClock for SystemTimeSlotClock {
         self.clock.duration_to_slot(slot, now)
     }
 
+    fn start_of(&self, slot: Slot) -> Option<Duration> {
+        self.clock.start_of(slot)
+    }
+
     fn genesis_slot(&self) -> Slot {
         self.clock.genesis_slot()
     }

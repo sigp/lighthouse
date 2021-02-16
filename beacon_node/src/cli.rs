@@ -451,4 +451,29 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("WSS_CHECKPOINT")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("validator-monitor-auto")
+                .long("validator-monitor-auto")
+                .help("Enables the automatic detection and monitoring of validators connected to the \
+                    HTTP API and using the subnet subscription endpoint. This generally has the \
+                    effect of providing additional logging and metrics for locally controlled \
+                    validators.")
+        )
+        .arg(
+            Arg::with_name("validator-monitor-pubkeys")
+                .long("validator-monitor-pubkeys")
+                .help("A comma-separated list of 0x-prefixed validator public keys. \
+                        These validators will receive special monitoring and additional \
+                        logging.")
+                .value_name("PUBKEYS")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("validator-monitor-file")
+                .long("validator-monitor-file")
+                .help("As per --validator-monitor-pubkeys, but the comma-separated list is \
+                    contained within a file at the given path.")
+                .value_name("PATH")
+                .takes_value(true)
+        )
 }
