@@ -27,11 +27,6 @@ use task_executor::TaskExecutor;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 
-/// Global allocator
-#[cfg(feature = "jemalloc")]
-#[global_allocator]
-pub static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
-
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.

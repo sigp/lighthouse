@@ -10,6 +10,27 @@ use std::process::exit;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
+/// Global allocator
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+pub static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
+union U {
+    x: &'static u8,
+    y: &'static libc::c_char,
+}
+
+#[cfg(feature = "jemalloc")]
+#[allow(non_upper_case_globals)]
+#[cfg_attr(prefixed, export_name = "_rjem_malloc_conf")]
+#[cfg_attr(not(prefixed), no_mangle)]
+pub static malloc_conf: Option<&'static libc::c_char> = Some(unsafe {
+    U {
+        x: &b"narenas:1\0"[0],
+    }
+    .y
+});
+
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn bls_library_name() -> &'static str {
