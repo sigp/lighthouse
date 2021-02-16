@@ -4,7 +4,7 @@ use beacon_chain::{
     attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
     observed_operations::ObservationOutcome,
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerfiedBlock,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
@@ -16,7 +16,7 @@ use types::{
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
-use super::{super::WorkEvent, Worker};
+use super::{super::block_delay_queue::QueuedBlock, Worker};
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
@@ -237,7 +237,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
-        delayed_import_tx: mpsc::Sender<WorkEvent<T>>,
+        delayed_import_tx: mpsc::Sender<QueuedBlock<T>>,
         seen_duration: Duration,
     ) {
         // Log metrics to track delay from other nodes on the network.
@@ -331,13 +331,17 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         match self.chain.slot() {
             Ok(current_slot) if current_slot >= block_slot => {
-                self.process_gossip_verified_block(peer_id, verified_block)
+                self.process_gossip_verified_block(peer_id, verified_block, seen_duration)
             }
             Ok(_) => {
-                if let Err(_) = delayed_import_tx.try_send(WorkEvent::delayed_import_beacon_block(
-                    peer_id,
-                    verified_block.into(),
-                )) {
+                if delayed_import_tx
+                    .try_send(QueuedBlock {
+                        peer_id,
+                        block: verified_block,
+                        seen_timestamp: seen_duration,
+                    })
+                    .is_err()
+                {
                     error!(
                         self.log,
                         "Failed to defer block import";
@@ -367,6 +371,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
+        // TODO: use this.
+        _seen_duration: Duration,
     ) {
         let block = Box::new(verified_block.block.clone());
 

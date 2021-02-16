@@ -10,9 +10,10 @@ use tokio_util::time::DelayQueue;
 
 const TASK_NAME: &str = "beacon_processor_block_delay_queue";
 
-struct QueuedBlock<T: BeaconChainTypes> {
+pub struct QueuedBlock<T: BeaconChainTypes> {
     pub peer_id: PeerId,
     pub block: GossipVerifiedBlock<T>,
+    pub seen_timestamp: Duration,
 }
 
 pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
@@ -36,7 +37,7 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
                 poll = poll_fn(|cx| delay_queue.poll_expired(cx)) => {
                     match poll {
                         Some(Ok(expired_block)) => {
-                            if let Err(_) = ready_blocks_tx.try_send(expired_block.into_inner()) {
+                            if ready_blocks_tx.try_send(expired_block.into_inner()).is_err() {
                                 error!(
                                     log,
                                     "Failed to pop queued block";

@@ -37,7 +37,7 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
-use block_delay_queue::spawn_block_delay_queue;
+use block_delay_queue::{spawn_block_delay_queue, QueuedBlock};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -291,10 +291,15 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn delayed_import_beacon_block(
         peer_id: PeerId,
         block: Box<GossipVerifiedBlock<T>>,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
-            work: Work::DelayedImportBlock { peer_id, block },
+            work: Work::DelayedImportBlock {
+                peer_id,
+                block,
+                seen_timestamp,
+            },
         }
     }
 
@@ -437,6 +442,7 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
     },
     DelayedImportBlock {
         peer_id: PeerId,
@@ -635,7 +641,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Some(
                                 WorkEvent::delayed_import_beacon_block(
                                     delayed_block.peer_id,
-                                    Box::new(delayed_block.block)
+                                    Box::new(delayed_block.block),
+                                    delayed_block.seen_timestamp
                                 )
                             )
                         } else {
@@ -905,7 +912,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         &mut self,
         idle_tx: mpsc::Sender<()>,
         work: Work<T>,
-        delayed_block_tx: mpsc::Sender<WorkEvent<T>>,
+        delayed_block_tx: mpsc::Sender<QueuedBlock<T>>,
     ) {
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
@@ -999,19 +1006,22 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         block,
+                        seen_timestamp,
                     } => worker.process_gossip_block(
                         message_id,
                         peer_id,
                         *block,
-                        seen_timestamp,
                         delayed_block_tx,
+                        seen_timestamp,
                     ),
                     /*
                      * Import for blocks that we received earlier than their intended slot.
                      */
-                    Work::DelayedImportBlock { peer_id, block } => {
-                        worker.process_gossip_verified_block(peer_id, *block)
-                    }
+                    Work::DelayedImportBlock {
+                        peer_id,
+                        block,
+                        seen_timestamp,
+                    } => worker.process_gossip_verified_block(peer_id, *block, seen_timestamp),
                     /*
                      * Voluntary exits received on gossip.
                      */
