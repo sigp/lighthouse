@@ -255,12 +255,8 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn aggregated_attestation(
         message_id: MessageId,
         peer_id: PeerId,
-<<<<<<< HEAD
         aggregate: SignedAggregateAndProof<T::EthSpec>,
-=======
-        aggregate: SignedAggregateAndProof<E>,
         seen_timestamp: Duration,
->>>>>>> unstable
     ) -> Self {
         Self {
             drop_during_sync: true,
@@ -277,12 +273,8 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn gossip_beacon_block(
         message_id: MessageId,
         peer_id: PeerId,
-<<<<<<< HEAD
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-=======
-        block: Box<SignedBeaconBlock<E>>,
         seen_timestamp: Duration,
->>>>>>> unstable
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -438,26 +430,18 @@ pub enum Work<T: BeaconChainTypes> {
     GossipAggregate {
         message_id: MessageId,
         peer_id: PeerId,
-<<<<<<< HEAD
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
-=======
-        aggregate: Box<SignedAggregateAndProof<E>>,
         seen_timestamp: Duration,
->>>>>>> unstable
     },
     GossipBlock {
         message_id: MessageId,
         peer_id: PeerId,
-<<<<<<< HEAD
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     },
     DelayedImportBlock {
         peer_id: PeerId,
         block: Box<GossipVerifiedBlock<T>>,
-=======
-        block: Box<SignedBeaconBlock<E>>,
         seen_timestamp: Duration,
->>>>>>> unstable
     },
     GossipVoluntaryExit {
         message_id: MessageId,
@@ -1015,18 +999,19 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         block,
-<<<<<<< HEAD
-                    } => worker.process_gossip_block(message_id, peer_id, *block, delayed_block_tx),
+                    } => worker.process_gossip_block(
+                        message_id,
+                        peer_id,
+                        *block,
+                        seen_timestamp,
+                        delayed_block_tx,
+                    ),
                     /*
                      * Import for blocks that we received earlier than their intended slot.
                      */
                     Work::DelayedImportBlock { peer_id, block } => {
                         worker.process_gossip_verified_block(peer_id, *block)
                     }
-=======
-                        seen_timestamp,
-                    } => worker.process_gossip_block(message_id, peer_id, *block, seen_timestamp),
->>>>>>> unstable
                     /*
                      * Voluntary exits received on gossip.
                      */
