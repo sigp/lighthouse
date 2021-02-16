@@ -5,7 +5,7 @@ use crate::{
 };
 use environment::RuntimeContext;
 use futures::channel::mpsc::Sender;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use parking_lot::RwLock;
 use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
@@ -466,7 +466,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .ok_or("Unable to determine duration to next slot")?;
 
         let mut interval = {
-            let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+            let slot_duration = Duration::from_secs(spec.seconds_per_slot);
             // Note: `interval_at` panics if `slot_duration` is 0
             interval_at(
                 Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,
@@ -490,7 +490,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 self.clone().do_update(&mut block_service_tx, &spec).await;
             }
         };

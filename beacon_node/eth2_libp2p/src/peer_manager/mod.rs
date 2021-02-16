@@ -158,8 +158,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             metrics::inc_counter_vec(
                 &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
                 &[
-                    info.client.kind.as_static_ref(),
-                    PeerAction::Fatal.as_static_str(),
+                    info.client.kind.as_ref(),
+                    PeerAction::Fatal.as_ref(),
                     source.into(),
                 ],
             );
@@ -193,11 +193,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 info.apply_peer_action_to_score(action);
                 metrics::inc_counter_vec(
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
-                    &[
-                        info.client.kind.as_static_ref(),
-                        action.as_static_str(),
-                        source.into(),
-                    ],
+                    &[info.client.kind.as_ref(), action.as_ref(), source.into()],
                 );
 
                 Self::handle_score_transitions(
@@ -407,9 +403,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         metrics::inc_counter_vec(
             &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,
             &[
-                client.kind.as_static_ref(),
+                client.kind.as_ref(),
                 err.as_static_str(),
-                direction.as_static_str(),
+                direction.as_ref(),
             ],
         );
 
@@ -976,7 +972,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // perform the heartbeat when necessary
-        while let Poll::Ready(Some(_)) = self.heartbeat.poll_next_unpin(cx) {
+        while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
         }
 
@@ -1015,8 +1011,10 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             }
         }
 
-        if !matches!(self.network_globals.sync_state(), SyncState::SyncingFinalized{..}|SyncState::SyncingHead{..})
-        {
+        if !matches!(
+            self.network_globals.sync_state(),
+            SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. }
+        ) {
             loop {
                 match self.status_peers.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(peer_id))) => {

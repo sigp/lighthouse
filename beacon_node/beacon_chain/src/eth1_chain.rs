@@ -90,7 +90,7 @@ fn get_sync_status<T: EthSpec>(
 
         let period_start = slot_start_seconds::<T>(
             genesis_time,
-            spec.milliseconds_per_slot,
+            spec.seconds_per_slot,
             voting_period_start_slot,
         );
 
@@ -98,7 +98,7 @@ fn get_sync_status<T: EthSpec>(
     } else {
         // The number of seconds in an eth1 voting period.
         let voting_period_duration =
-            T::slots_per_eth1_voting_period() as u64 * (spec.milliseconds_per_slot / 1_000);
+            T::slots_per_eth1_voting_period() as u64 * spec.seconds_per_slot;
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
 
@@ -454,7 +454,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
         let voting_period_start_slot = (state.slot / period) * period;
         let voting_period_start_seconds = slot_start_seconds::<T>(
             state.genesis_time,
-            spec.milliseconds_per_slot,
+            spec.seconds_per_slot,
             voting_period_start_slot,
         );
 
@@ -645,10 +645,10 @@ fn int_to_bytes32(int: u64) -> Vec<u8> {
 /// Returns the unix-epoch seconds at the start of the given `slot`.
 fn slot_start_seconds<T: EthSpec>(
     genesis_unix_seconds: u64,
-    milliseconds_per_slot: u64,
+    seconds_per_slot: u64,
     slot: Slot,
 ) -> u64 {
-    genesis_unix_seconds + slot.as_u64() * milliseconds_per_slot / 1_000
+    genesis_unix_seconds + slot.as_u64() * seconds_per_slot
 }
 
 /// Returns a boolean denoting if a given `Eth1Block` is a candidate for `Eth1Data` calculation
@@ -668,7 +668,6 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 mod test {
     use super::*;
     use environment::null_logger;
-    use std::iter::FromIterator;
     use types::{test_utils::DepositTestTask, MinimalEthSpec};
 
     type E = MinimalEthSpec;
@@ -686,7 +685,7 @@ mod test {
         let voting_period_start_slot = (state.slot / period) * period;
         slot_start_seconds::<E>(
             state.genesis_time,
-            spec.milliseconds_per_slot,
+            spec.seconds_per_slot,
             voting_period_start_slot,
         )
     }
@@ -696,21 +695,21 @@ mod test {
         let zero_sec = 0;
         assert_eq!(slot_start_seconds::<E>(100, zero_sec, Slot::new(2)), 100);
 
-        let half_sec = 500;
-        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(0)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(1)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(2)), 101);
-        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(3)), 101);
-
-        let one_sec = 1_000;
+        let one_sec = 1;
         assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(0)), 100);
         assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(1)), 101);
         assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(2)), 102);
 
-        let three_sec = 3_000;
+        let three_sec = 3;
         assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(0)), 100);
         assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(1)), 103);
         assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(2)), 106);
+
+        let five_sec = 5;
+        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(1)), 105);
+        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(2)), 110);
+        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(3)), 115);
     }
 
     fn get_eth1_block(timestamp: u64, number: u64) -> Eth1Block {
@@ -1042,10 +1041,7 @@ mod test {
 
             let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
-            );
+            let votes = collect_valid_votes(&state, &votes_to_consider.into_iter().collect());
             assert_eq!(
                 votes.len(),
                 0,
@@ -1068,10 +1064,8 @@ mod test {
                 .collect::<Vec<_>>()
                 .into();
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
-            );
+            let votes =
+                collect_valid_votes(&state, &votes_to_consider.clone().into_iter().collect());
             assert_votes!(
                 votes,
                 votes_to_consider[0..slots as usize / 4].to_vec(),
@@ -1099,10 +1093,7 @@ mod test {
                 .collect::<Vec<_>>()
                 .into();
 
-            let votes = collect_valid_votes(
-                &state,
-                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
-            );
+            let votes = collect_valid_votes(&state, &votes_to_consider.into_iter().collect());
             assert_votes!(
                 votes,
                 // There should only be one value if there's a duplicate
@@ -1150,8 +1141,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number when there are no votes.
                 vote_data(&no_votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(no_votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1162,8 +1152,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number when there are equal votes.
                 vote_data(&votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1174,8 +1163,7 @@ mod test {
             assert_eq!(
                 // Favour the highest vote over the highest block number.
                 vote_data(&votes[3]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1186,8 +1174,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number for tying votes.
                 vote_data(&votes[3]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
 
@@ -1198,8 +1185,7 @@ mod test {
             assert_eq!(
                 // Favour the highest block number for tying votes.
                 vote_data(&votes[0]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
+                find_winning_vote(votes.into_iter().collect()).expect("should find winner")
             );
         }
     }

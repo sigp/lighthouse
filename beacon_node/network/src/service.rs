@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             log: network_log,
         };
 
-        spawn_service(executor, network_service)?;
+        spawn_service(executor, network_service);
 
         Ok((network_globals, network_send))
     }
@@ -228,48 +228,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 fn spawn_service<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     mut service: NetworkService<T>,
-) -> error::Result<()> {
-    let mut exit_rx = executor.exit();
+) {
     let mut shutdown_sender = executor.shutdown_sender();
 
     // spawn on the current executor
-    executor.spawn_without_exit(async move {
+    executor.spawn(async move {
 
         let mut metric_update_counter = 0;
         loop {
             // build the futures to check simultaneously
             tokio::select! {
-                // handle network shutdown
-                _ = (&mut exit_rx) => {
-                    // network thread is terminating
-                    let enrs = service.libp2p.swarm.enr_entries();
-                    debug!(
-                        service.log,
-                        "Persisting DHT to store";
-                        "Number of peers" => enrs.len(),
-                    );
-                    match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(service.store.clone(), enrs) {
-                        Err(e) => error!(
-                            service.log,
-                            "Failed to persist DHT on drop";
-                            "error" => ?e
-                        ),
-                        Ok(_) => info!(
-                            service.log,
-                            "Saved DHT state";
-                        ),
-                    }
-
-                    // attempt to remove port mappings
-                    crate::nat::remove_mappings(service.upnp_mappings.0, service.upnp_mappings.1, &service.log);
-
-                    info!(service.log, "Network service shutdown");
-                    return;
-                }
-                _ = service.metrics_update.next() => {
+                _ = service.metrics_update.tick() => {
                     // update various network metrics
                     metric_update_counter +=1;
-                    if metric_update_counter* 1000 % T::EthSpec::default_spec().milliseconds_per_slot == 0 {
+                    if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
                         // if a slot has occurred, reset the metrics
                         let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT
                             .as_ref()
@@ -283,7 +255,7 @@ fn spawn_service<T: BeaconChainTypes>(
                     metrics::update_sync_metrics(&service.network_globals);
 
                 }
-                _ = service.gossipsub_parameter_update.next() => {
+                _ = service.gossipsub_parameter_update.tick() => {
                     if let Ok(slot) = service.beacon_chain.slot() {
                         if let Some(active_validators) = service.beacon_chain.with_head(|head| {
                                 Ok::<_, BeaconChainError>(
@@ -570,8 +542,6 @@ fn spawn_service<T: BeaconChainTypes>(
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
     }, "network");
-
-    Ok(())
 }
 
 /// Returns a `Sleep` that triggers shortly after the next change in the beacon chain fork version.
@@ -584,4 +554,32 @@ fn next_fork_delay<T: BeaconChainTypes>(
         let delay = Duration::from_millis(200);
         tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
     })
+}
+
+impl<T: BeaconChainTypes> Drop for NetworkService<T> {
+    fn drop(&mut self) {
+        // network thread is terminating
+        let enrs = self.libp2p.swarm.enr_entries();
+        debug!(
+            self.log,
+            "Persisting DHT to store";
+            "Number of peers" => enrs.len(),
+        );
+        match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone(), enrs) {
+            Err(e) => error!(
+                self.log,
+                "Failed to persist DHT on drop";
+                "error" => ?e
+            ),
+            Ok(_) => info!(
+                self.log,
+                "Saved DHT state";
+            ),
+        }
+
+        // attempt to remove port mappings
+        crate::nat::remove_mappings(self.upnp_mappings.0, self.upnp_mappings.1, &self.log);
+
+        info!(self.log, "Network service shutdown");
+    }
 }

@@ -30,7 +30,7 @@ to understand how we develop and test Lighthouse.
 ## About this Book
 
 This book is open source, contribute at
-[github.com/sigp/lighthouse/book](https://github.com/sigp/lighthouse/tree/master/book).
+[github.com/sigp/lighthouse/book](https://github.com/sigp/lighthouse/tree/unstable/book).
 
-The Lighthouse CI/CD system maintains a hosted version of the `master` branch
+The Lighthouse CI/CD system maintains a hosted version of the `unstable` branch
 at [lighthouse-book.sigmaprime.io](http://lighthouse-book.sigmaprime.io).

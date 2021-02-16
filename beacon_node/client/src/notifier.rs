@@ -1,7 +1,6 @@
 use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::NetworkGlobals;
-use futures::prelude::*;
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -25,9 +24,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
-    milliseconds_per_slot: u64,
+    seconds_per_slot: u64,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_millis(milliseconds_per_slot);
+    let slot_duration = Duration::from_secs(seconds_per_slot);
     let duration_to_next_slot = beacon_chain
         .slot_clock
         .duration_to_next_slot()
@@ -64,26 +63,32 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         }
 
         // Perform post-genesis logging.
-        while interval.next().await.is_some() {
+        loop {
+            interval.tick().await;
             let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
 
-            let head_info = beacon_chain.head_info().map_err(|e| {
-                error!(
-                    log,
-                    "Failed to get beacon chain head info";
-                    "error" => format!("{:?}", e)
-                )
-            })?;
+            let head_info = match beacon_chain.head_info() {
+                Ok(head_info) => head_info,
+                Err(e) => {
+                    error!(log, "Failed to get beacon chain head info"; "error" => format!("{:?}", e));
+                    break;
+                }
+            };
 
             let head_slot = head_info.slot;
-            let current_slot = beacon_chain.slot().map_err(|e| {
-                error!(
-                    log,
-                    "Unable to read current slot";
-                    "error" => format!("{:?}", e)
-                )
-            })?;
+            let current_slot = match beacon_chain.slot() {
+                Ok(slot) => slot,
+                Err(e) => {
+                    error!(
+                        log,
+                        "Unable to read current slot";
+                        "error" => format!("{:?}", e)
+                    );
+                    break;
+                }
+            };
+
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
             let finalized_epoch = head_info.finalized_checkpoint.epoch;
             let finalized_root = head_info.finalized_checkpoint.root;
@@ -175,11 +180,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             eth1_logging(&beacon_chain, &log);
         }
-        Ok::<(), ()>(())
     };
 
     // run the notifier on the current executor
-    executor.spawn(interval_future.unwrap_or_else(|_| ()), "notifier");
+    executor.spawn(interval_future, "notifier");
 
     Ok(())
 }

@@ -5,7 +5,6 @@ use futures::prelude::*;
 use slog::{debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::Runtime;
-use tokio_compat_02::FutureExt;
 
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
@@ -63,7 +62,7 @@ impl TaskExecutor {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
             let int_gauge_1 = int_gauge.clone();
-            let future = future::select(Box::pin(task.compat()), exit).then(move |either| {
+            let future = future::select(Box::pin(task), exit).then(move |either| {
                 match either {
                     future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
                     future::Either::Right(_) => {
@@ -99,12 +98,10 @@ impl TaskExecutor {
     ) {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             let int_gauge_1 = int_gauge.clone();
-            let future = task
-                .then(move |_| {
-                    int_gauge_1.dec();
-                    futures::future::ready(())
-                })
-                .compat();
+            let future = task.then(move |_| {
+                int_gauge_1.dec();
+                futures::future::ready(())
+            });
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
@@ -186,7 +183,7 @@ impl TaskExecutor {
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
-                Some(runtime.spawn(future.compat()))
+                Some(runtime.spawn(future))
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
                 None

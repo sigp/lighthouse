@@ -437,7 +437,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .peers
                 .read()
                 .peer_info(propagation_source)
-                .map(|info| info.client.kind.as_static_ref())
+                .map(|info| info.client.kind.as_ref())
             {
                 metrics::inc_counter_vec(
                     &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
@@ -832,7 +832,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         if let Some((peer_id, reason)) = self.peers_to_dc.pop_front() {
             return Poll::Ready(NBAction::NotifyHandler {
                 peer_id,
-                handler: NotifyHandler::All,
+                handler: NotifyHandler::Any,
                 event: BehaviourHandlerIn::Shutdown(
                     reason.map(|reason| (RequestId::Behaviour, RPCRequest::Goodbye(reason))),
                 ),
@@ -893,7 +893,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
 
         // perform gossipsub score updates when necessary
-        while let Poll::Ready(Some(_)) = self.update_gossipsub_scores.poll_next_unpin(cx) {
+        while self.update_gossipsub_scores.poll_tick(cx).is_ready() {
             self.peer_manager.update_gossipsub_scores(&self.gossipsub);
         }
 

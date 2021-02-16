@@ -11,6 +11,7 @@ use serde::{
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
+use strum::AsRefStr;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
 
@@ -97,7 +98,7 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Returns the seen IP addresses of the peer.
-    pub fn seen_addresses<'a>(&'a self) -> impl Iterator<Item = IpAddr> + 'a {
+    pub fn seen_addresses(&self) -> impl Iterator<Item = IpAddr> + '_ {
         self.seen_addresses
             .iter()
             .map(|socket_addr| socket_addr.ip())
@@ -155,7 +156,10 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Checks if the status is connected.
     pub fn is_connected(&self) -> bool {
-        matches!(self.connection_status, PeerConnectionStatus::Connected { .. })
+        matches!(
+            self.connection_status,
+            PeerConnectionStatus::Connected { .. }
+        )
     }
 
     /// Checks if the status is connected.
@@ -320,19 +324,11 @@ impl Default for PeerStatus {
 }
 
 /// Connection Direction of connection.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ConnectionDirection {
     Incoming,
     Outgoing,
-}
-
-impl ConnectionDirection {
-    pub fn as_static_str(&self) -> &'static str {
-        match self {
-            ConnectionDirection::Incoming => "incoming",
-            ConnectionDirection::Outgoing => "outgoing",
-        }
-    }
 }
 
 /// Connection Status of the peer.

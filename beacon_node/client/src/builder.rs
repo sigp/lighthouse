@@ -5,6 +5,7 @@ use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
+    state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
 };
@@ -126,9 +127,9 @@ where
         let graffiti = config.graffiti;
 
         let store = store.ok_or("beacon_chain_start_method requires a store")?;
-        let context = runtime_context
-            .ok_or("beacon_chain_start_method requires a runtime context")?
-            .service_context("beacon".into());
+        let runtime_context =
+            runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
+        let context = runtime_context.service_context("beacon".into());
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(context.log().clone()))
@@ -144,7 +145,15 @@ where
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
             .graffiti(graffiti)
-            .event_handler(event_handler);
+            .event_handler(event_handler)
+            .monitor_validators(
+                config.validator_monitor_auto,
+                config.validator_monitor_pubkeys.clone(),
+                runtime_context
+                    .service_context("val_mon".to_string())
+                    .log()
+                    .clone(),
+            );
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -322,13 +331,13 @@ where
             .beacon_chain
             .clone()
             .ok_or("node timer requires a beacon chain")?;
-        let milliseconds_per_slot = self
+        let seconds_per_slot = self
             .chain_spec
             .as_ref()
             .ok_or("node timer requires a chain spec")?
-            .milliseconds_per_slot;
+            .seconds_per_slot;
 
-        spawn_timer(context.executor, beacon_chain, milliseconds_per_slot)
+        spawn_timer(context.executor, beacon_chain, seconds_per_slot)
             .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         Ok(self)
@@ -381,17 +390,17 @@ where
             .network_globals
             .clone()
             .ok_or("slot_notifier requires a libp2p network")?;
-        let milliseconds_per_slot = self
+        let seconds_per_slot = self
             .chain_spec
             .as_ref()
             .ok_or("slot_notifier requires a chain spec")?
-            .milliseconds_per_slot;
+            .seconds_per_slot;
 
         spawn_notifier(
             context.executor,
             beacon_chain,
             network_globals,
-            milliseconds_per_slot,
+            seconds_per_slot,
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
@@ -471,6 +480,12 @@ where
 
         if self.slasher.is_some() {
             self.start_slasher_service()?;
+        }
+
+        if let Some(beacon_chain) = self.beacon_chain.as_ref() {
+            let state_advance_context = runtime_context.service_context("state_advance".into());
+            let log = state_advance_context.log().clone();
+            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone(), log);
         }
 
         Ok(Client {
@@ -685,7 +700,7 @@ where
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_millis(spec.milliseconds_per_slot),
+            Duration::from_secs(spec.seconds_per_slot),
         );
 
         self.slot_clock = Some(slot_clock);

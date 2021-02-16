@@ -9,7 +9,7 @@ use crate::{
     inner::{DepositUpdater, Inner},
 };
 use fallback::{Fallback, FallbackError};
-use futures::{future::TryFutureExt, StreamExt};
+use futures::future::TryFutureExt;
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -360,7 +360,7 @@ impl Config {
     pub fn set_block_cache_truncation<E: EthSpec>(&mut self, spec: &ChainSpec) {
         // Compute the number of eth1 blocks in an eth1 voting period.
         let seconds_per_voting_period =
-            E::SlotsPerEth1VotingPeriod::to_u64() * spec.milliseconds_per_slot / 1000;
+            E::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
 
         // Compute the number of extra blocks we store prior to the voting period start blocks.
@@ -721,7 +721,8 @@ impl Service {
         let mut interval = interval_at(Instant::now(), update_interval);
 
         let update_future = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 self.do_update(update_interval).await.ok();
             }
         };
@@ -878,7 +879,13 @@ impl Service {
                 // imported if any one of them cannot be parsed.
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
-                .map(|deposit_log| {
+                // Returns if a deposit is unable to be added to the cache.
+                //
+                // If this error occurs, the cache will no longer be guaranteed to hold either
+                // none or all of the logs for each block (i.e., they may exist _some_ logs for
+                // a block, but not _all_ logs for that block). This scenario can cause the
+                // node to choose an invalid genesis state or propose an invalid block.
+                .try_for_each(|deposit_log| {
                     if let DepositCacheInsertOutcome::Inserted = cache
                         .cache
                         .insert_log(deposit_log)
@@ -888,14 +895,7 @@ impl Service {
                     }
 
                     Ok(())
-                })
-                // Returns if a deposit is unable to be added to the cache.
-                //
-                // If this error occurs, the cache will no longer be guaranteed to hold either
-                // none or all of the logs for each block (i.e., they may exist _some_ logs for
-                // a block, but not _all_ logs for that block). This scenario can cause the
-                // node to choose an invalid genesis state or propose an invalid block.
-                .collect::<Result<_, _>>()?;
+                })?;
 
             debug!(
                 self.log,
@@ -1180,7 +1180,6 @@ async fn download_eth1_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toml;
     use types::MainnetEthSpec;
 
     #[test]
@@ -1201,8 +1200,7 @@ mod tests {
         let len = config.block_cache_truncation.unwrap();
 
         let seconds_per_voting_period =
-            <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64()
-                * (spec.milliseconds_per_slot / 1000);
+            <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
         let reduce_follow_distance_blocks =
             config.follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;

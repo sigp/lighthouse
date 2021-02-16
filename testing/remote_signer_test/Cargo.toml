@@ -11,10 +11,9 @@ hex = "0.4.2"
 httpmock = "0.5.1"
 remote_signer_client = { path = "../../remote_signer/client" }
 remote_signer_consumer = { path = "../../common/remote_signer_consumer" }
-reqwest = { version = "0.10.8", features = ["blocking", "json"] }
+reqwest = { version = "0.11.0", features = ["blocking", "json"] }
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.58"
 tempfile = "3.1.0"
-tokio = { version = "0.3.5", features = ["time"] }
+tokio = { version = "1.1.0", features = ["time"] }
 types = { path = "../../consensus/types" }
-tokio-compat-02 = "0.1"

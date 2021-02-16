@@ -449,7 +449,7 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
     type Error = String;
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        if string == "" {
+        if string.is_empty() {
             return Ok(Self(vec![]));
         }
 
@@ -682,6 +682,16 @@ pub enum EventKind<T: EthSpec> {
 }
 
 impl<T: EthSpec> EventKind<T> {
+    pub fn topic_name(&self) -> &str {
+        match self {
+            EventKind::Head(_) => "head",
+            EventKind::Block(_) => "block",
+            EventKind::Attestation(_) => "attestation",
+            EventKind::VoluntaryExit(_) => "voluntary_exit",
+            EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
+        }
+    }
+
     pub fn from_sse_bytes(message: &[u8]) -> Result<Self, ServerError> {
         let s = from_utf8(message)
             .map_err(|e| ServerError::InvalidServerSentEvent(format!("{:?}", e)))?;

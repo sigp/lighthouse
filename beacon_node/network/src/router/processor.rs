@@ -9,6 +9,7 @@ use eth2_libp2p::{MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Res
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, ChainSpec, EthSpec, ProposerSlashing, SignedAggregateAndProof,
@@ -230,7 +231,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
-            message_id, peer_id, block,
+            message_id,
+            peer_id,
+            block,
+            timestamp_now(),
         ))
     }
 
@@ -248,6 +252,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             unaggregated_attestation,
             subnet_id,
             should_process,
+            timestamp_now(),
         ))
     }
 
@@ -258,7 +263,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::aggregated_attestation(
-            message_id, peer_id, aggregate,
+            message_id,
+            peer_id,
+            aggregate,
+            timestamp_now(),
         ))
     }
 
@@ -389,4 +397,10 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             reason,
         })
     }
+}
+
+fn timestamp_now() -> Duration {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
 }

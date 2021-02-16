@@ -1,7 +1,6 @@
 use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use types::{Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
@@ -61,13 +60,12 @@ impl HeadTracker {
                 slots_len,
             })
         } else {
-            let map = HashMap::from_iter(
-                ssz_container
-                    .roots
-                    .iter()
-                    .zip(ssz_container.slots.iter())
-                    .map(|(root, slot)| (*root, *slot)),
-            );
+            let map = ssz_container
+                .roots
+                .iter()
+                .zip(ssz_container.slots.iter())
+                .map(|(root, slot)| (*root, *slot))
+                .collect::<HashMap<_, _>>();
 
             Ok(Self(RwLock::new(map)))
         }

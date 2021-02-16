@@ -9,9 +9,8 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "0.3.2", features = ["time", "rt-multi-thread", "macros"] }
+tokio = { version = "1.1.0", features = ["time", "rt-multi-thread", "macros"] }
 deposit_contract = { path = "../common/deposit_contract" }
-tokio-compat-02 = "0.1"
 
 [dependencies]
 eth2_ssz = "0.1.2"
@@ -30,7 +29,7 @@ serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
 slog-term = "2.6.0"
-tokio = { version = "0.3.2", features = ["time"] }
+tokio = { version = "1.1.0", features = ["time"] }
 futures = "0.3.7"
 dirs = "3.0.1"
 directory = { path = "../common/directory" }
@@ -53,8 +52,8 @@ eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
-warp = { git = "https://github.com/sigp/warp ", branch = "lighthouse" }
-hyper = "0.13.8"
+warp = "0.3.0"
+hyper = "0.14.4"
 serde_utils = { path = "../consensus/serde_utils" }
 libsecp256k1 = "0.3.5"
 ring = "0.16.19"

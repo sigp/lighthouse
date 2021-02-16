@@ -7,7 +7,8 @@
 - [How do I update lighthouse?](#how-do-i-update-lighthouse)
 - [I can't compile lighthouse](#i-cant-compile-lighthouse)
 - [What is "Syncing eth1 block cache"](#what-is-syncing-eth1-block-cache)
-
+- [Can I use redundancy in my staking setup?](#can-i-use-redundancy-in-my-staking-setup)
+- [How can I monitor my validators](#how-can-i-monitor-my-validators)
 
 ### Why does it take so long for a validator to be activated?
 
@@ -182,3 +183,9 @@ duplicate your JSON keystores and don't run `lighthouse vc` twice). This will le
 
 However, there are some components which can be configured with redundancy. See the
 [Redundancy](./redundancy.md) guide for more information.
+
+### How can I monitor my validators?
+
+Apart from using block explorers, you may use the "Validator Monitor" built into Lighthouse which
+provides logging and Prometheus/Grafana metrics for individual validators. See [Validator
+Monitoring](./validator-monitoring.md) for more information.

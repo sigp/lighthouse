@@ -1,6 +1,7 @@
 #![cfg(test)]
 use super::*;
 use crate::test_utils::*;
+use std::ops::Mul;
 
 ssz_and_tree_hash_tests!(FoundationBeaconState);
 
@@ -49,13 +50,13 @@ fn test_beacon_proposer_index<T: EthSpec>() {
 
     // Test where we have two validators per slot.
     // 0th candidate should be chosen every time.
-    let state = build_state(T::slots_per_epoch() as usize * 2);
+    let state = build_state((T::slots_per_epoch() as usize).mul(2));
     for i in 0..T::slots_per_epoch() {
         test(&state, Slot::from(i), 0);
     }
 
     // Test with two validators per slot, first validator has zero balance.
-    let mut state = build_state(T::slots_per_epoch() as usize * 2);
+    let mut state = build_state((T::slots_per_epoch() as usize).mul(2));
     let slot0_candidate0 = ith_candidate(&state, Slot::new(0), 0, &spec);
     state.validators[slot0_candidate0].effective_balance = 0;
     test(&state, Slot::new(0), 1);
@@ -74,8 +75,8 @@ fn beacon_proposer_index() {
 /// 1. Using the cache before it's built fails.
 /// 2. Using the cache after it's build passes.
 /// 3. Using the cache after it's dropped fails.
-fn test_cache_initialization<'a, T: EthSpec>(
-    state: &'a mut BeaconState<T>,
+fn test_cache_initialization<T: EthSpec>(
+    state: &mut BeaconState<T>,
     relative_epoch: RelativeEpoch,
     spec: &ChainSpec,
 ) {
@@ -126,7 +127,7 @@ fn cache_initialization() {
 }
 
 fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: CloneConfig) {
-    let state = base_state.clone_with(clone_config.clone());
+    let state = base_state.clone_with(clone_config);
     if clone_config.committee_caches {
         state
             .committee_cache(RelativeEpoch::Previous)
@@ -260,6 +261,7 @@ fn tree_hash_cache() {
 mod committees {
     use super::*;
     use crate::beacon_state::MinimalEthSpec;
+    use std::ops::{Add, Div};
     use swap_or_not_shuffle::shuffle_list;
 
     fn execute_committee_consistency_test<T: EthSpec>(
@@ -295,7 +297,10 @@ mod committees {
             // of committees in an epoch.
             assert_eq!(
                 beacon_committees.len() as u64,
-                state.get_epoch_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
+                state
+                    .get_epoch_committee_count(relative_epoch)
+                    .unwrap()
+                    .div(T::slots_per_epoch())
             );
 
             for (committee_index, bc) in beacon_committees.iter().enumerate() {
@@ -372,10 +377,11 @@ mod committees {
     fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
         let spec = T::default_spec();
 
-        let validator_count = spec.max_committees_per_slot
-            * T::slots_per_epoch() as usize
-            * spec.target_committee_size
-            + 1;
+        let validator_count = spec
+            .max_committees_per_slot
+            .mul(T::slots_per_epoch() as usize)
+            .mul(spec.target_committee_size)
+            .add(1);
 
         committee_consistency_test::<T>(validator_count as usize, Epoch::new(0), cached_epoch);
 
@@ -387,7 +393,10 @@ mod committees {
 
         committee_consistency_test::<T>(
             validator_count as usize,
-            T::genesis_epoch() + T::slots_per_historical_root() as u64 * T::slots_per_epoch() * 4,
+            T::genesis_epoch()
+                + (T::slots_per_historical_root() as u64)
+                    .mul(T::slots_per_epoch())
+                    .mul(4),
             cached_epoch,
         );
     }

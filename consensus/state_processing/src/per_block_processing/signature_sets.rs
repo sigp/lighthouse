@@ -44,10 +44,10 @@ impl From<BeaconStateError> for Error {
 }
 
 /// Helper function to get a public key from a `state`.
-pub fn get_pubkey_from_state<'a, T>(
-    state: &'a BeaconState<T>,
+pub fn get_pubkey_from_state<T>(
+    state: &BeaconState<T>,
     validator_index: usize,
-) -> Option<Cow<'a, PublicKey>>
+) -> Option<Cow<PublicKey>>
 where
     T: EthSpec,
 {
@@ -156,14 +156,14 @@ where
             get_pubkey(proposer_index)
                 .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
-        )?,
+        ),
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_2,
             get_pubkey(proposer_index)
                 .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
-        )?,
+        ),
     ))
 }
 
@@ -173,7 +173,7 @@ fn block_header_signature_set<'a, T: EthSpec>(
     signed_header: &'a SignedBeaconBlockHeader,
     pubkey: Cow<'a, PublicKey>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
+) -> SignatureSet<'a> {
     let domain = spec.get_domain(
         signed_header.message.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
@@ -183,11 +183,7 @@ fn block_header_signature_set<'a, T: EthSpec>(
 
     let message = signed_header.message.signing_root(domain);
 
-    Ok(SignatureSet::single_pubkey(
-        &signed_header.signature,
-        pubkey,
-        message,
-    ))
+    SignatureSet::single_pubkey(&signed_header.signature, pubkey, message)
 }
 
 /// Returns the signature set for the given `indexed_attestation`.
@@ -202,13 +198,12 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let pubkeys = indexed_attestation
-        .attesting_indices
-        .into_iter()
-        .map(|&validator_idx| {
-            Ok(get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?)
-        })
-        .collect::<Result<_>>()?;
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
+    for &validator_idx in &indexed_attestation.attesting_indices {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
@@ -236,13 +231,12 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let pubkeys = indexed_attestation
-        .attesting_indices
-        .into_iter()
-        .map(|&validator_idx| {
-            Ok(get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?)
-        })
-        .collect::<Result<_>>()?;
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
+    for &validator_idx in &indexed_attestation.attesting_indices {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,

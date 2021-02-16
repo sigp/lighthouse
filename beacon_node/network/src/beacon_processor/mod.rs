@@ -236,6 +236,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         attestation: Attestation<T::EthSpec>,
         subnet_id: SubnetId,
         should_import: bool,
+        seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: true,
@@ -245,6 +246,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 attestation: Box::new(attestation),
                 subnet_id,
                 should_import,
+                seen_timestamp,
             },
         }
     }
@@ -253,7 +255,12 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn aggregated_attestation(
         message_id: MessageId,
         peer_id: PeerId,
+<<<<<<< HEAD
         aggregate: SignedAggregateAndProof<T::EthSpec>,
+=======
+        aggregate: SignedAggregateAndProof<E>,
+        seen_timestamp: Duration,
+>>>>>>> unstable
     ) -> Self {
         Self {
             drop_during_sync: true,
@@ -261,6 +268,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 message_id,
                 peer_id,
                 aggregate: Box::new(aggregate),
+                seen_timestamp,
             },
         }
     }
@@ -269,7 +277,12 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn gossip_beacon_block(
         message_id: MessageId,
         peer_id: PeerId,
+<<<<<<< HEAD
         block: Box<SignedBeaconBlock<T::EthSpec>>,
+=======
+        block: Box<SignedBeaconBlock<E>>,
+        seen_timestamp: Duration,
+>>>>>>> unstable
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -277,6 +290,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 message_id,
                 peer_id,
                 block,
+                seen_timestamp,
             },
         }
     }
@@ -419,20 +433,31 @@ pub enum Work<T: BeaconChainTypes> {
         attestation: Box<Attestation<T::EthSpec>>,
         subnet_id: SubnetId,
         should_import: bool,
+        seen_timestamp: Duration,
     },
     GossipAggregate {
         message_id: MessageId,
         peer_id: PeerId,
+<<<<<<< HEAD
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+=======
+        aggregate: Box<SignedAggregateAndProof<E>>,
+        seen_timestamp: Duration,
+>>>>>>> unstable
     },
     GossipBlock {
         message_id: MessageId,
         peer_id: PeerId,
+<<<<<<< HEAD
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     },
     DelayedImportBlock {
         peer_id: PeerId,
         block: Box<GossipVerifiedBlock<T>>,
+=======
+        block: Box<SignedBeaconBlock<E>>,
+        seen_timestamp: Duration,
+>>>>>>> unstable
     },
     GossipVoluntaryExit {
         message_id: MessageId,
@@ -960,12 +985,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         attestation,
                         subnet_id,
                         should_import,
+                        seen_timestamp,
                     } => worker.process_gossip_attestation(
                         message_id,
                         peer_id,
                         *attestation,
                         subnet_id,
                         should_import,
+                        seen_timestamp,
                     ),
                     /*
                      * Aggregated attestation verification.
@@ -974,7 +1001,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         aggregate,
-                    } => worker.process_gossip_aggregate(message_id, peer_id, *aggregate),
+                        seen_timestamp,
+                    } => worker.process_gossip_aggregate(
+                        message_id,
+                        peer_id,
+                        *aggregate,
+                        seen_timestamp,
+                    ),
                     /*
                      * Verification for beacon blocks received on gossip.
                      */
@@ -982,6 +1015,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         block,
+<<<<<<< HEAD
                     } => worker.process_gossip_block(message_id, peer_id, *block, delayed_block_tx),
                     /*
                      * Import for blocks that we received earlier than their intended slot.
@@ -989,6 +1023,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     Work::DelayedImportBlock { peer_id, block } => {
                         worker.process_gossip_verified_block(peer_id, *block)
                     }
+=======
+                        seen_timestamp,
+                    } => worker.process_gossip_block(message_id, peer_id, *block, seen_timestamp),
+>>>>>>> unstable
                     /*
                      * Voluntary exits received on gossip.
                      */

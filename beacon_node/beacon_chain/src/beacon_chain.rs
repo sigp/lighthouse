@@ -2,6 +2,7 @@ use crate::attestation_verification::{
     Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
 };
+use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
@@ -23,6 +24,10 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_monitor::{
+    get_block_delay_ms, get_slot_delay_ms, timestamp_now, ValidatorMonitor,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
+};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
@@ -228,8 +233,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: Arc<HeadTracker>,
     /// A cache dedicated to block processing.
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
-    /// Caches the shuffling for a given epoch and state root.
+    /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
+    pub(crate) beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
@@ -243,6 +250,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) graffiti: Graffiti,
     /// Optional slasher.
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    /// Provides monitoring of a set of explicitly defined validators.
+    pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
@@ -448,9 +457,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         let head = self.head()?;
-        let slot = head.beacon_state.slot;
+        let head_slot = head.beacon_state.slot;
+        let head_state_root = head.beacon_state_root();
         let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
-        let iter = std::iter::once(Ok((head.beacon_state_root, slot)))
+        let iter = std::iter::once(Ok((head_state_root, head_slot)))
             .chain(iter)
             .map(|result| result.map_err(Into::into));
         Ok(iter)
@@ -594,7 +604,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
-                state_root: head.beacon_state_root,
+                state_root: head.beacon_state_root(),
                 current_justified_checkpoint: head.beacon_state.current_justified_checkpoint,
                 finalized_checkpoint: head.beacon_state.finalized_checkpoint,
                 fork: head.beacon_state.fork,
@@ -640,7 +650,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let start_slot = head_state.slot;
                 let task_start = Instant::now();
-                let max_task_runtime = Duration::from_millis(self.spec.milliseconds_per_slot);
+                let max_task_runtime = Duration::from_secs(self.spec.seconds_per_slot);
 
                 let head_state_slot = head_state.slot;
                 let mut state = head_state;
@@ -671,7 +681,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             warn!(
                                 self.log,
                                 "Unable to load state at slot";
-                                "error" => format!("{:?}", e),
+                                "error" => ?e,
                                 "head_slot" => head_state_slot,
                                 "requested_slot" => slot
                             );
@@ -854,37 +864,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Cow::Borrowed(&head.beacon_state),
             )
         } else {
-            // Note: this method will fail if `slot` is more than `state.block_roots.len()` slots
-            // prior to the head.
+            // We disallow producing attestations *prior* to the current head since such an
+            // attestation would require loading a `BeaconState` from disk. Loading `BeaconState`
+            // from disk is very resource intensive and proposes a DoS risk from validator clients.
             //
-            // This seems reasonable, producing an attestation at a slot so far
-            // in the past seems useless, definitely in mainnet spec. In minimal spec, when the
-            // block roots only contain two epochs of history, it's possible that you will fail to
-            // produce an attestation that would be valid to be included in a block. Given that
-            // minimal is only for testing, I think this is fine.
+            // Although we generally allow validator clients to do things that might harm us (i.e.,
+            // we trust them), sometimes we need to protect the BN from accidental errors which
+            // could cause it significant harm.
             //
-            // It is important to note that what's _not_ allowed here is attesting to a slot in the
-            // past. You can still attest to a block an arbitrary distance in the past, just not as
-            // if you are in a slot in the past.
-            let beacon_block_root = *head.beacon_state.get_block_root(slot)?;
-            let state_root = *head.beacon_state.get_state_root(slot)?;
-
-            // Avoid holding a lock on the head whilst doing database reads. Good boi functions
-            // don't hog locks.
-            drop(head);
-
-            let mut state = self
-                .get_state(&state_root, Some(slot))?
-                .ok_or(Error::MissingBeaconState(state_root))?;
-
-            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-            self.produce_unaggregated_attestation_for_block(
-                slot,
-                index,
-                beacon_block_root,
-                Cow::Owned(state),
-            )
+            // This case is particularity harmful since the HTTP API can effectively call this
+            // function an unlimited amount of times. If `n` validators all happen to call it at
+            // the same time, we're going to load `n` states (and tree hash caches) into memory all
+            // at once. With `n >= 10` we're looking at hundreds of MB or GBs of RAM.
+            Err(Error::AttestingPriorToHead {
+                head_slot: head.beacon_block.slot(),
+                request_slot: slot,
+            })
         }
     }
 
@@ -1033,7 +1028,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(outcome) => trace!(
                 self.log,
                 "Stored unaggregated attestation";
-                "outcome" => format!("{:?}", outcome),
+                "outcome" => ?outcome,
                 "index" => attestation.data.index,
                 "slot" => attestation.data.slot.as_u64(),
             ),
@@ -1052,7 +1047,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error!(
                         self.log,
                         "Failed to store unaggregated attestation";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                         "index" => attestation.data.index,
                         "slot" => attestation.data.slot.as_u64(),
                 );
@@ -1135,7 +1130,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self.log,
                     "Missing pivot block root for attestation";
                     "slot" => pivot_slot,
-                    "error" => format!("{:?}", e),
+                    "error" => ?e,
                 );
                 return false;
             }
@@ -1161,7 +1156,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self.log,
                     "Discarding attestation because of missing ancestor";
                     "pivot_slot" => pivot_slot.as_u64(),
-                    "block_root" => format!("{:?}", block_root),
+                    "block_root" => ?block_root,
                 );
                 false
             }
@@ -1409,7 +1404,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Successfully processed gossip block";
                     "graffiti" => graffiti_string,
                     "slot" => slot,
-                    "root" => format!("{:?}", verified.block_root()),
+                    "root" => ?verified.block_root(),
                 );
 
                 Ok(verified)
@@ -1466,8 +1461,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 trace!(
                     self.log,
                     "Beacon block imported";
-                    "block_root" => format!("{:?}", block_root),
-                    "block_slot" => format!("{:?}", block.slot().as_u64()),
+                    "block_root" => ?block_root,
+                    "block_slot" => %block.slot(),
                 );
 
                 // Increment the Prometheus counter for block processing successes.
@@ -1481,7 +1476,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 crit!(
                     self.log,
                     "Beacon block processing error";
-                    "error" => format!("{:?}", e),
+                    "error" => ?e,
                 );
                 Err(BlockError::BeaconChainError(e))
             }
@@ -1559,7 +1554,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // For the current and next epoch of this state, ensure we have the shuffling from this
         // block in our cache.
         for relative_epoch in &[RelativeEpoch::Current, RelativeEpoch::Next] {
-            let shuffling_id = ShufflingId::new(block_root, &state, *relative_epoch)?;
+            let shuffling_id = AttestationShufflingId::new(block_root, &state, *relative_epoch)?;
 
             let shuffling_is_cached = self
                 .shuffling_cache
@@ -1601,12 +1596,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     crit!(
                         self.log,
                         "Weak subjectivity checkpoint verification failed while importing block!";
-                        "block_root" => format!("{:?}", block_root),
-                        "parent_root" => format!("{:?}", block.parent_root),
-                        "old_finalized_epoch" => format!("{:?}", old_finalized_checkpoint.epoch),
-                        "new_finalized_epoch" => format!("{:?}", new_finalized_checkpoint.epoch),
-                        "weak_subjectivity_epoch" => format!("{:?}", wss_checkpoint.epoch),
-                        "error" => format!("{:?}", e),
+                        "block_root" => ?block_root,
+                        "parent_root" => ?block.parent_root,
+                        "old_finalized_epoch" => ?old_finalized_checkpoint.epoch,
+                        "new_finalized_epoch" => ?new_finalized_checkpoint.epoch,
+                        "weak_subjectivity_epoch" => ?wss_checkpoint.epoch,
+                        "error" => ?e,
                     );
                     crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
                     shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
@@ -1625,6 +1620,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
+        // Allow the validator monitor to learn about a new valid state.
+        self.validator_monitor
+            .write()
+            .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
+        let validator_monitor = self.validator_monitor.read();
+
         // Register each attestation in the block with the fork choice service.
         for attestation in &block.body.attestations[..] {
             let _fork_choice_attestation_timer =
@@ -1642,7 +1643,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
+
+            // Only register this with the validator monitor when the block is sufficiently close to
+            // the current slot.
+            if VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64 * T::EthSpec::slots_per_epoch()
+                + block.slot.as_u64()
+                >= current_slot.as_u64()
+            {
+                validator_monitor.register_attestation_in_block(
+                    &indexed_attestation,
+                    &block,
+                    &self.spec,
+                );
+            }
         }
+
+        for exit in &block.body.voluntary_exits {
+            validator_monitor.register_block_voluntary_exit(&exit.message)
+        }
+
+        for slashing in &block.body.attester_slashings {
+            validator_monitor.register_block_attester_slashing(slashing)
+        }
+
+        for slashing in &block.body.proposer_slashings {
+            validator_monitor.register_block_proposer_slashing(slashing)
+        }
+
+        drop(validator_monitor);
 
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
@@ -1690,24 +1718,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
 
+        // Log metrics to track the delay between when the block was made and when we imported it.
+        //
+        // We're declaring the block "imported" at this point, since fork choice and the DB know
+        // about it.
+        metrics::observe_duration(
+            &metrics::BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME,
+            get_block_delay_ms(timestamp_now(), &signed_block.message, &self.slot_clock),
+        );
+
         let parent_root = block.parent_root;
         let slot = block.slot;
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::SnapshotCacheLockTimeout)
             .map(|mut snapshot_cache| {
-                snapshot_cache.insert(BeaconSnapshot {
-                    beacon_state: state,
-                    beacon_state_root: signed_block.state_root(),
-                    beacon_block: signed_block,
-                    beacon_block_root: block_root,
-                });
+                snapshot_cache.insert(
+                    BeaconSnapshot {
+                        beacon_state: state,
+                        beacon_block: signed_block,
+                        beacon_block_root: block_root,
+                    },
+                    None,
+                )
             })
-            .unwrap_or_else(|| {
+            .unwrap_or_else(|e| {
                 error!(
                     self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
+                    "Failed to insert snapshot";
+                    "error" => ?e,
                     "task" => "process block"
                 );
             });
@@ -1715,7 +1755,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.head_tracker
             .register_block(block_root, parent_root, slot);
 
-        // send an event to the `events` endpoint after fully processing the block
+        // Send an event to the `events` endpoint after fully processing the block.
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_block_subscribers() {
                 event_handler.register(EventKind::Block(SseBlock {
@@ -1867,7 +1907,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error!(
                     self.log,
                     "Attestation did not transfer to op pool";
-                    "reason" => format!("{:?}", e)
+                    "reason" => ?e
                 );
             }
         }
@@ -1930,7 +1970,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(
             self.log,
             "Produced beacon block";
-            "parent" => format!("{}", block.message.parent_root),
+            "parent" => %block.message.parent_root,
             "attestations" => block.message.body.attestations.len(),
             "slot" => block.message.slot
         );
@@ -1989,7 +2029,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     beacon_block,
                     beacon_block_root,
                     beacon_state,
-                    beacon_state_root,
                 })
             })
             .and_then(|mut snapshot| {
@@ -2020,21 +2059,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             warn!(
                 self.log,
                 "Beacon chain re-org";
-                "previous_head" => format!("{}", current_head.block_root),
+                "previous_head" => %current_head.block_root,
                 "previous_slot" => current_head.slot,
-                "new_head_parent" => format!("{}", new_head.beacon_block.parent_root()),
-                "new_head" => format!("{}", beacon_block_root),
+                "new_head_parent" => %new_head.beacon_block.parent_root(),
+                "new_head" => %beacon_block_root,
                 "new_slot" => new_head.beacon_block.slot(),
             );
         } else {
             debug!(
                 self.log,
                 "Head beacon block";
-                "justified_root" => format!("{}", new_head.beacon_state.current_justified_checkpoint.root),
+                "justified_root" => %new_head.beacon_state.current_justified_checkpoint.root,
                 "justified_epoch" => new_head.beacon_state.current_justified_checkpoint.epoch,
-                "finalized_root" => format!("{}", new_head.beacon_state.finalized_checkpoint.root),
+                "finalized_root" => %new_head.beacon_state.finalized_checkpoint.root,
                 "finalized_epoch" => new_head.beacon_state.finalized_checkpoint.epoch,
-                "root" => format!("{}", beacon_block_root),
+                "root" => %beacon_block_root,
                 "slot" => new_head.beacon_block.slot(),
             );
         };
@@ -2064,7 +2103,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
         // These fields are used for server-sent events
-        let state_root = new_head.beacon_state_root;
+        let state_root = new_head.beacon_state_root();
         let head_slot = new_head.beacon_state.slot;
         let target_epoch_start_slot = new_head
             .beacon_state
@@ -2083,6 +2122,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::CanonicalHeadLockTimeout)? = new_head;
 
         metrics::stop_timer(update_head_timer);
+
+        // Observe the delay between the start of the slot and when we set the block as head.
+        metrics::observe_duration(
+            &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
+            get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock),
+        );
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -2182,7 +2227,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let finalized_checkpoint = state.finalized_checkpoint;
-        info!(self.log, "Verifying the configured weak subjectivity checkpoint"; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root));
+        info!(self.log, "Verifying the configured weak subjectivity checkpoint"; "weak_subjectivity_epoch" => wss_checkpoint.epoch, "weak_subjectivity_root" => ?wss_checkpoint.root);
         // If epochs match, simply compare roots.
         if wss_checkpoint.epoch == finalized_checkpoint.epoch
             && wss_checkpoint.root != finalized_checkpoint.root
@@ -2190,8 +2235,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             crit!(
                 self.log,
                  "Root found at the specified checkpoint differs";
-                  "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
-                  "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
+                  "weak_subjectivity_root" => ?wss_checkpoint.root,
+                  "finalized_checkpoint_root" => ?finalized_checkpoint.root
             );
             return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
         } else if wss_checkpoint.epoch < finalized_checkpoint.epoch {
@@ -2207,15 +2252,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         crit!(
                             self.log,
                              "Root found at the specified checkpoint differs";
-                              "weak_subjectivity_root" => format!("{:?}", wss_checkpoint.root),
-                              "finalized_checkpoint_root" => format!("{:?}", finalized_checkpoint.root)
+                              "weak_subjectivity_root" => ?wss_checkpoint.root,
+                              "finalized_checkpoint_root" => ?finalized_checkpoint.root
                         );
                         return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
                     }
                 }
                 None => {
                     crit!(self.log, "The root at the start slot of the given epoch could not be found";
-                    "wss_checkpoint_slot" => format!("{:?}", slot));
+                    "wss_checkpoint_slot" => ?slot);
                     return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
                 }
             }
@@ -2426,7 +2471,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_block: self.head()?.beacon_block,
             beacon_block_root: self.head()?.beacon_block_root,
             beacon_state: self.head()?.beacon_state,
-            beacon_state_root: self.head()?.beacon_state_root,
         };
 
         dump.push(last_slot.clone());
@@ -2453,7 +2497,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 beacon_block,
                 beacon_block_root,
                 beacon_state,
-                beacon_state_root,
             };
 
             dump.push(slot.clone());
@@ -2604,7 +2647,7 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
             error!(
                 self.log,
                 "Failed to persist on BeaconChain drop";
-                "error" => format!("{:?}", e)
+                "error" => ?e
             )
         } else {
             info!(

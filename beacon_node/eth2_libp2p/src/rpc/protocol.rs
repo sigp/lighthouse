@@ -9,14 +9,15 @@ use crate::rpc::{
     MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
-use futures::prelude::*;
 use futures::prelude::{AsyncRead, AsyncWrite};
+use futures::{FutureExt, SinkExt, StreamExt};
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
+use strum::{AsStaticRef, AsStaticStr};
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
@@ -277,7 +278,7 @@ impl ProtocolName for ProtocolId {
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
-    Framed<TimeoutStream<Compat<TSocket>>, InboundCodec<TSpec>>;
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
 
 impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
 where
@@ -303,7 +304,7 @@ where
             let mut timed_socket = TimeoutStream::new(socket);
             timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
 
-            let socket = Framed::new(timed_socket, codec);
+            let socket = Framed::new(Box::pin(timed_socket), codec);
 
             // MetaData requests should be empty, return the stream
             match protocol_name {
@@ -470,10 +471,12 @@ where
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, AsStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
     // NOTE: in the future a ssz::DecodeError should map to an InvalidData error
+    #[strum(serialize = "decode_error")]
     SSZDecodeError(ssz::DecodeError),
     /// IO Error.
     IoError(String),
@@ -571,22 +574,8 @@ impl RPCError {
     /// Used for metrics.
     pub fn as_static_str(&self) -> &'static str {
         match self {
-            RPCError::SSZDecodeError { .. } => "decode_error",
-            RPCError::IoError { .. } => "io_error",
-            RPCError::ErrorResponse(ref code, ..) => match code {
-                RPCResponseErrorCode::RateLimited => "rate_limited",
-                RPCResponseErrorCode::InvalidRequest => "invalid_request",
-                RPCResponseErrorCode::ServerError => "server_error",
-                RPCResponseErrorCode::ResourceUnavailable => "resource_unavailable",
-                RPCResponseErrorCode::Unknown => "unknown_response_code",
-            },
-            RPCError::StreamTimeout => "stream_timeout",
-            RPCError::UnsupportedProtocol => "unsupported_protocol",
-            RPCError::IncompleteStream => "incomplete_stream",
-            RPCError::InvalidData => "invalid_data",
-            RPCError::InternalError { .. } => "internal_error",
-            RPCError::NegotiationTimeout => "negotiation_timeout",
-            RPCError::HandlerRejected => "handler_rejected",
+            RPCError::ErrorResponse(ref code, ..) => code.as_static(),
+            e => e.as_static(),
         }
     }
 }

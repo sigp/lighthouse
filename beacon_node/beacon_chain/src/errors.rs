@@ -69,9 +69,11 @@ pub enum BeaconChainError {
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
     SszTypesError(SszTypesError),
+    NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
     AttestationCacheLockTimeout,
     ValidatorPubkeyCacheLockTimeout,
+    SnapshotCacheLockTimeout,
     IncorrectStateForAttestation(RelativeEpochError),
     InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheIncomplete(usize),
@@ -92,6 +94,17 @@ pub enum BeaconChainError {
     },
     WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<&'static str>),
+    AttestingPriorToHead {
+        head_slot: Slot,
+        request_slot: Slot,
+    },
+    BadPreState {
+        parent_root: Hash256,
+        parent_slot: Slot,
+        block_root: Hash256,
+        block_slot: Slot,
+        state_slot: Slot,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

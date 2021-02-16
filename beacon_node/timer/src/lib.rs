@@ -3,7 +3,6 @@
 //! This service allows task execution on the beacon node for various functionality.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use futures::stream::StreamExt;
 use slog::info;
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -14,7 +13,7 @@ use tokio::time::{interval_at, Instant};
 pub fn spawn_timer<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    milliseconds_per_slot: u64,
+    seconds_per_slot: u64,
 ) -> Result<(), &'static str> {
     let log = executor.log();
     let start_instant = Instant::now()
@@ -23,10 +22,11 @@ pub fn spawn_timer<T: BeaconChainTypes>(
             .duration_to_next_slot()
             .ok_or("slot_notifier unable to determine time to next slot")?;
 
-    // Warning: `interval_at` panics if `milliseconds_per_slot` = 0.
-    let mut interval = interval_at(start_instant, Duration::from_millis(milliseconds_per_slot));
+    // Warning: `interval_at` panics if `seconds_per_slot` = 0.
+    let mut interval = interval_at(start_instant, Duration::from_secs(seconds_per_slot));
     let timer_future = async move {
-        while interval.next().await.is_some() {
+        loop {
+            interval.tick().await;
             beacon_chain.per_slot_task();
         }
     };

@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256,
-    IndexedAttestation, RelativeEpoch, ShufflingId, Slot,
+    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
+    Hash256, IndexedAttestation, RelativeEpoch, Slot,
 };
 
 use crate::ForkChoiceStore;
@@ -247,10 +247,10 @@ where
         let finalized_block_slot = genesis_block.slot;
         let finalized_block_state_root = genesis_block.state_root;
         let current_epoch_shuffling_id =
-            ShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Current)
+            AttestationShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Current)
                 .map_err(Error::BeaconStateError)?;
         let next_epoch_shuffling_id =
-            ShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Next)
+            AttestationShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
         let proto_array = ProtoArrayForkChoice::new(
@@ -543,10 +543,18 @@ where
             root: block_root,
             parent_root: Some(block.parent_root),
             target_root,
-            current_epoch_shuffling_id: ShufflingId::new(block_root, state, RelativeEpoch::Current)
-                .map_err(Error::BeaconStateError)?,
-            next_epoch_shuffling_id: ShufflingId::new(block_root, state, RelativeEpoch::Next)
-                .map_err(Error::BeaconStateError)?,
+            current_epoch_shuffling_id: AttestationShufflingId::new(
+                block_root,
+                state,
+                RelativeEpoch::Current,
+            )
+            .map_err(Error::BeaconStateError)?,
+            next_epoch_shuffling_id: AttestationShufflingId::new(
+                block_root,
+                state,
+                RelativeEpoch::Next,
+            )
+            .map_err(Error::BeaconStateError)?,
             state_root: block.state_root,
             justified_epoch: state.current_justified_checkpoint.epoch,
             finalized_epoch: state.finalized_checkpoint.epoch,
