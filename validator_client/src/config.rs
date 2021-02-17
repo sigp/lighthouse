@@ -39,6 +39,9 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// If true, monitor the network for attestations or proposals from any of the validators managed
+    /// by this client before starting up.
+    pub doppelganger_detection: bool,
 }
 
 impl Default for Config {
@@ -62,6 +65,7 @@ impl Default for Config {
             graffiti: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            doppelganger_detection: false,
         }
     }
 }
@@ -209,6 +213,10 @@ impl Config {
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
+        }
+
+        if cli_args.is_present("doppelganger-detection") {
+            config.doppelganger_detection.enabled = true;
         }
 
         Ok(config)

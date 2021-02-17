@@ -173,4 +173,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5064).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("doppelganger-detection")
+                .long("doppelganger-detection")
+                .value_name("DOPPELGANGER")
+                .help("Lighthouse will delay startup for two epochs and monitor for attestations on the network by any of the validators managed by this client. This means it is very likely that you are running a second validator client with the same keys. This validator client will immediately shutdown if this is detected in order to avoid potentially committing a slashable offence.")
+                .takes_value(false),
+        )
 }

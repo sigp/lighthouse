@@ -809,6 +809,11 @@ impl FromStr for Accept {
     }
 }
 
+#[derive(Deserialize)]
+pub struct SeenValidatorQuery {
+    pub ids: QueryVec<PublicKeyBytes>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

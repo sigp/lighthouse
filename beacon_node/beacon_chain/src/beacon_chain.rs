@@ -256,6 +256,11 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+
+    pub fn observed_attesters(&self, indices: &[u64]) -> bool {
+        self.observed_attesters.read().contains()
+    }
+
     /// Persists the head tracker and fork choice.
     ///
     /// We do it atomically even though no guarantees need to be made about blocks from

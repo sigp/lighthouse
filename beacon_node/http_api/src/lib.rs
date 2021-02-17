@@ -2356,6 +2356,27 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/seen_validators?ids
+    let get_lighthouse_seen_validators = warp::path("lighthouse")
+        .and(warp::path("seen_validators"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::SeenValidatorQuery>())
+        .and(chain_filter.clone())
+        .and_then(|query: api_types::SeenValidatorQuery, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let indices = chain.head_beacon_state()
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .validators
+                    .iter()
+                    .enumerate()
+                    // filter by validator id(s) if provided
+                    .filter_map(|(index, (validator, _))| {
+                        query.ids.0.find(|pubkey| pubkey == &validator.pubkey).map(|_|index)
+                    }).collect();
+
+            })
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2463,6 +2484,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
+                .or(get_lighthouse_seen_validators.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
