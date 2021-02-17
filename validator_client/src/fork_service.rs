@@ -150,7 +150,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             while let Some(duration_to_next_epoch) =
                 self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
             {
-                // TODO(pawan): double check timing here
                 sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
                 self.clone().do_update().await.ok();
             }

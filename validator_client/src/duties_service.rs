@@ -478,9 +478,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let interval_fut = async move {
             while let Some(duration_to_next_slot) = self.clone().slot_clock.duration_to_next_slot()
             {
-                // TODO(pawan): double check timing here
                 sleep(duration_to_next_slot + TIME_DELAY_FROM_SLOT).await;
-                self.clone().update(&mut block_service_tx, &spec);
+                self.clone()
+                    .spawn_duties_tasks(&mut block_service_tx, &spec);
             }
         };
 
@@ -490,7 +490,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Spawns a new duties update task.
-    fn update(self, block_service_tx: &mut Sender<BlockServiceNotification>, spec: &ChainSpec) {
+    fn spawn_duties_tasks(
+        self,
+        block_service_tx: &mut Sender<BlockServiceNotification>,
+        spec: &ChainSpec,
+    ) {
         let executor = self.inner.context.executor.clone();
         let mut block_service_tx_clone = block_service_tx.clone();
         let inner_spec = spec.clone();
