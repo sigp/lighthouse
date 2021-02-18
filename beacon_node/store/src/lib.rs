@@ -34,6 +34,7 @@ pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
+pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
 pub use types::*;

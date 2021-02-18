@@ -9,8 +9,9 @@ use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    CompactionTimestamp, PruningCheckpoint, SchemaVersion, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
-    CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
+    AnchorInfo, CompactionTimestamp, PruningCheckpoint, SchemaVersion, ANCHOR_INFO_KEY,
+    COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY,
+    SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
 use crate::{
@@ -55,6 +56,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
     /// greater than or equal are in the hot DB.
     split: RwLock<Split>,
+    /// The starting slots for the range of blocks & states stored in the database.
+    pub anchor_info: RwLock<Option<AnchorInfo>>,
     config: StoreConfig,
     /// Cold database containing compact historical data.
     pub cold_db: Cold,
@@ -92,6 +95,7 @@ pub enum HotColdDBError {
     MissingHotStateSummary(Hash256),
     MissingEpochBoundaryState(Hash256),
     MissingSplitState(Hash256, Slot),
+    MissingAnchorInfo,
     HotStateSummaryError(BeaconStateError),
     RestorePointDecodeError(ssz::DecodeError),
     BlockReplayBeaconError(BeaconStateError),
@@ -118,6 +122,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
+            anchor_info: RwLock::new(None),
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
@@ -146,6 +151,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
+            anchor_info: RwLock::new(None),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
@@ -178,6 +184,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         // Load the previous split slot from the database (if any). This ensures we can
         // stop and restart correctly.
         if let Some(split) = db.load_split()? {
+            *db.split.write() = split;
+            *db.anchor_info.write() = db.load_anchor_info()?;
+
             info!(
                 db.log,
                 "Hot-Cold DB initialized";
@@ -185,7 +194,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "split_slot" => split.slot,
                 "split_state" => format!("{:?}", split.state_root)
             );
-            *db.split.write() = split;
         }
 
         // Run a garbage collection pass.
@@ -278,6 +286,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
             let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+            ops.push(ColdStateSummary { slot: state.slot }.as_kv_store_op(*state_root));
             self.store_cold_state(state_root, &state, &mut ops)?;
             self.cold_db.do_atomically(ops)
         } else {
@@ -303,6 +312,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
 
         if let Some(slot) = slot {
+            // Guard against trying to fetch states that don't exist in the database due to weak
+            // subjectivity sync.
+            if self
+                .get_anchor_slot()
+                .map_or(false, |anchor_slot| slot < anchor_slot && slot != 0)
+            {
+                return Ok(None);
+            }
+
             if slot < self.get_split_slot() {
                 // Although we could avoid a DB lookup by shooting straight for the
                 // frozen state using `load_cold_state_by_slot`, that would be incorrect
@@ -818,6 +836,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.split.read().slot
     }
 
+    pub fn set_split(&self, slot: Slot, state_root: Hash256) {
+        *self.split.write() = Split { slot, state_root };
+    }
+
     /// Fetch the slot of the most recently stored restore point.
     pub fn get_latest_restore_point_slot(&self) -> Slot {
         (self.get_split_slot() - 1) / self.config.slots_per_restore_point
@@ -834,6 +856,37 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
     }
 
+    pub fn load_anchor_info(&self) -> Result<Option<AnchorInfo>, Error> {
+        Ok(self.hot_db.get(&ANCHOR_INFO_KEY)?)
+    }
+
+    pub fn store_anchor_info(&self) -> Result<(), Error> {
+        if let Some(ref anchor_info) = *self.anchor_info.read() {
+            Ok(self.hot_db.put(&ANCHOR_INFO_KEY, anchor_info)?)
+        } else {
+            // TODO(sproul): consider deleting here
+            Ok(())
+        }
+    }
+
+    pub fn get_anchor_slot(&self) -> Option<Slot> {
+        self.anchor_info.read().as_ref().map(|a| a.anchor_slot)
+    }
+
+    /*
+    pub fn update_block_start_slot(&self, block_start_slot: Slot) {
+        if let Some(ref mut anchor_info) = *self.anchor_info.write() {
+            anchor_info.block_start_slot = block_start_slot;
+        }
+    }
+
+    pub fn update_state_start_slot(&self, state_start_slot: Slot) {
+        if let Some(ref mut anchor_info) = *self.anchor_info.write() {
+            anchor_info.state_start_slot = state_start_slot;
+        }
+    }
+    */
+
     /// Load previously-stored config from disk.
     fn load_config(&self) -> Result<Option<OnDiskStoreConfig>, Error> {
         self.hot_db.get(&CONFIG_KEY)
@@ -847,6 +900,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Load the split point from disk.
     fn load_split(&self) -> Result<Option<Split>, Error> {
         self.hot_db.get(&SPLIT_KEY)
+    }
+
+    /// Store the split point to disk.
+    pub fn store_split(&self) -> Result<(), Error> {
+        self.hot_db.put_sync(&SPLIT_KEY, &*self.split.read())?;
+        Ok(())
     }
 
     /// Load the state root of a restore point.
@@ -951,6 +1010,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|pc: PruningCheckpoint| pc.checkpoint))
     }
 
+    /// Store the checkpoint to begin pruning from (the "old finalized checkpoint").
+    pub fn store_pruning_checkpoint(&self, checkpoint: Checkpoint) -> Result<(), Error> {
+        Ok(self
+            .hot_db
+            .do_atomically(vec![self.pruning_checkpoint_store_op(checkpoint)])?)
+    }
+
     /// Create a staged store for the pruning checkpoint.
     pub fn pruning_checkpoint_store_op(&self, checkpoint: Checkpoint) -> KeyValueStoreOp {
         PruningCheckpoint { checkpoint }.as_kv_store_op(PRUNING_CHECKPOINT_KEY)
@@ -989,6 +1055,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // The new frozen head must increase the current split slot, and lie on an epoch
     // boundary (in order for the hot state summary scheme to work).
     let current_split_slot = store.split.read().slot;
+    let anchor_slot = store.anchor_info.read().as_ref().map(|a| a.anchor_slot);
 
     if frozen_head.slot < current_split_slot {
         return Err(HotColdDBError::FreezeSlotError {
@@ -1008,7 +1075,10 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // to the cold DB.
     let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
     for maybe_pair in state_root_iter.take_while(|result| match result {
-        Ok((_, slot)) => slot >= &current_split_slot,
+        Ok((_, slot)) => {
+            slot >= &current_split_slot
+                && anchor_slot.map_or(true, |anchor_slot| slot >= &anchor_slot)
+        }
         Err(_) => true,
     }) {
         let (state_root, slot) = maybe_pair?;

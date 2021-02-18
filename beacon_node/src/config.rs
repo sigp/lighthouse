@@ -271,16 +271,51 @@ pub fn get_config<E: EthSpec>(
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
-        // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-        // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-        // effects.
-        client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes,
+    client_config.genesis =
+        if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
+            // Set up weak subjectivity sync, or start from the hardcoded genesis state.
+            if let (Some(initial_state_path), Some(initial_block_path)) = (
+                cli_args.value_of("initial-state"),
+                cli_args.value_of("initial-block"),
+            ) {
+                let read = |path: &str| {
+                    use std::fs::File;
+                    use std::io::Read;
+                    use std::path::Path;
+                    File::open(Path::new(path))
+                        .and_then(|mut f| {
+                            let mut buffer = vec![];
+                            f.read_to_end(&mut buffer)?;
+                            Ok(buffer)
+                        })
+                        .map_err(|e| format!("Unable to open {}: {:?}", path, e))
+                };
+
+                let anchor_state_bytes = read(initial_state_path)?;
+                let anchor_block_bytes = read(initial_block_path)?;
+
+                ClientGenesis::WeakSubjSszBytes {
+                    genesis_state_bytes,
+                    anchor_state_bytes,
+                    anchor_block_bytes,
+                }
+            } else {
+                // Note: re-serializing the genesis state is not so efficient, however it avoids adding
+                // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
+                // effects.
+                ClientGenesis::SszBytes {
+                    genesis_state_bytes,
+                }
+            }
+        } else {
+            if cli_args.is_present("initial-state") {
+                return Err(
+                "Checkpoint sync is not available for this network as no genesis state is known"
+                    .to_string(),
+            );
+            }
+            ClientGenesis::DepositContract
         };
-    } else {
-        client_config.genesis = ClientGenesis::DepositContract;
-    }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
         if graffiti.len() > GRAFFITI_BYTES_LEN {

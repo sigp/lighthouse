@@ -452,6 +452,22 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("initial-state")
+                .long("initial-state")
+                .help("Set an initial state to start syncing from (weak subjectivity sync)")
+                .value_name("STATE_SSZ")
+                .takes_value(true)
+                .requires("initial-block")
+        )
+        .arg(
+            Arg::with_name("initial-block")
+                .long("initial-block")
+                .help("Set an initial block to start syncing from (weak subjectivity sync)")
+                .value_name("BLOCK_SSZ")
+                .takes_value(true)
+                .requires("initial-state")
+        )
+        .arg(
             Arg::with_name("validator-monitor-auto")
                 .long("validator-monitor-auto")
                 .help("Enables the automatic detection and monitoring of validators connected to the \

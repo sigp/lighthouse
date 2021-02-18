@@ -26,6 +26,11 @@ pub enum ClientGenesis {
     /// We include the bytes instead of the `BeaconState<E>` because the `EthSpec` type
     /// parameter would be very annoying.
     SszBytes { genesis_state_bytes: Vec<u8> },
+    WeakSubjSszBytes {
+        genesis_state_bytes: Vec<u8>,
+        anchor_state_bytes: Vec<u8>,
+        anchor_block_bytes: Vec<u8>,
+    },
 }
 
 impl Default for ClientGenesis {

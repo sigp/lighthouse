@@ -24,7 +24,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
+use types::{
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, SignedBeaconBlock,
+};
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
@@ -200,6 +202,24 @@ where
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
+            }
+            ClientGenesis::WeakSubjSszBytes {
+                anchor_state_bytes,
+                anchor_block_bytes,
+                genesis_state_bytes,
+            } => {
+                info!(context.log(), "Starting from weak subjectivity checkpoint");
+
+                let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes)
+                    .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
+                let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes)
+                    .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
+                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+
+                builder
+                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
+                    .map(|v| (v, None))?
             }
             ClientGenesis::DepositContract => {
                 info!(
