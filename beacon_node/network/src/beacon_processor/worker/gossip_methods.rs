@@ -330,10 +330,23 @@ impl<T: BeaconChainTypes> Worker<T> {
         let block_root = verified_block.block_root;
 
         match self.chain.slot() {
+            // We only need to do a simple check about the block slot and the current slot since the
+            // `verify_block_for_gossip` function already ensures that the block is within the
+            // tolerance for block imports.
             Ok(current_slot) if current_slot >= block_slot => {
                 self.process_gossip_verified_block(peer_id, verified_block, seen_duration)
             }
             Ok(_) => {
+                warn!(
+                    self.log,
+                    "Block arrived early";
+                    "block_slot" => %block_slot,
+                    "block_root" => %block_root,
+                    "msg" => "if this happens consistently, check system clock"
+                );
+
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
+
                 if delayed_import_tx
                     .try_send(QueuedBlock {
                         peer_id,
