@@ -2382,7 +2382,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                             };
 
-                            receivers.push(broadcast_stream::BroadcastStream::new(receiver).map(
+                            receivers.push(BroadcastStream::new(receiver).map(
                                 |msg| {
                                     match msg {
                                         Ok(data) => Event::default()
