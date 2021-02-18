@@ -7,7 +7,6 @@
 
 mod beacon_proposer_cache;
 mod block_id;
-mod broadcast_stream;
 mod metrics;
 mod state_id;
 mod validator_inclusion;
@@ -36,7 +35,7 @@ use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_stream::StreamExt;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
     Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
