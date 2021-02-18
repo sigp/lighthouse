@@ -2382,23 +2382,22 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                             };
 
-                            receivers.push(BroadcastStream::new(receiver).map(
-                                |msg| {
-                                    match msg {
-                                        Ok(data) => Event::default()
-                                            .event(data.topic_name())
-                                            .json_data(data)
-                                            .map_err(|e| {
-                                                warp_utils::reject::server_sent_event_error(
-                                                    format!("{:?}", e),
-                                                )
-                                            }),
-                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                            format!("{:?}", e),
-                                        )),
-                                    }
-                                },
-                            ));
+                            receivers.push(BroadcastStream::new(receiver).map(|msg| {
+                                match msg {
+                                    Ok(data) => Event::default()
+                                        .event(data.topic_name())
+                                        .json_data(data)
+                                        .map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                        format!("{:?}", e),
+                                    )),
+                                }
+                            }));
                         }
                     } else {
                         return Err(warp_utils::reject::custom_server_error(
