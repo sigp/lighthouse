@@ -584,11 +584,24 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
 
-        // Used internally to place a delayed beacon block back into the queue.
+        // The delayed block queues are used to re-queue blocks for processing at a later time if
+        // they're received early.
         let (post_delay_block_queue_tx, mut post_delay_block_queue_rx) =
             mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
-        let pre_delay_block_queue_tx =
-            spawn_block_delay_queue(post_delay_block_queue_tx, &self.executor, self.log.clone());
+        let pre_delay_block_queue_tx = {
+            if let Some(chain) = self.beacon_chain.upgrade() {
+                spawn_block_delay_queue(
+                    post_delay_block_queue_tx,
+                    &self.executor,
+                    chain.slot_clock.clone(),
+                    self.log.clone(),
+                )
+            } else {
+                // No need to proceed any further if the beacon chain has been dropped, the client
+                // is shutting down.
+                return;
+            }
+        };
 
         let executor = self.executor.clone();
 
