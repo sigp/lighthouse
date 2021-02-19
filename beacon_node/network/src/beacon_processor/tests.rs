@@ -1,34 +1,22 @@
 // #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
-use crate::beacon_processor::{
-    BeaconProcessor, WorkEvent as BeaconWorkEvent, WorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
-};
+use crate::beacon_processor::{BeaconProcessor, WorkEvent, MAX_WORK_EVENT_QUEUE_LEN};
+use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig,
+    BeaconChain,
 };
-use environment::null_logger;
-use eth2_libp2p::{
-    rpc::methods::MetaData,
-    types::{EnrBitfield, SyncState},
-    Enr, EnrExt, NetworkGlobals, PeerId,
-};
-use futures::stream::{Stream, StreamExt};
-use futures::FutureExt;
-use state_processing::per_slot_processing;
-use std::convert::TryInto;
+use discv5::enr::{CombinedKey, EnrBuilder};
+use environment::{null_logger, EnvironmentBuilder};
+use eth2_libp2p::{rpc::methods::MetaData, types::EnrBitfield, NetworkGlobals};
+use std::cmp;
 use std::iter::Iterator;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
-use tokio::time::Duration;
-use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypairs, AggregateSignature, Attestation, AttesterSlashing,
-    BeaconState, BitList, Domain, EthSpec, Hash256, Keypair, MainnetEthSpec, ProposerSlashing,
-    RelativeEpoch, SelectionProof, SignedBeaconBlock, SignedRoot, SignedVoluntaryExit, Slot,
+    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, Keypair,
+    MainnetEthSpec, ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit,
 };
 
 type E = MainnetEthSpec;
@@ -42,7 +30,6 @@ const FINALIZED_EPOCH: u64 = 3;
 const TCP_PORT: u16 = 42;
 const UDP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
-const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// Skipping the slots around the epoch boundary allows us to check that we're obtaining states
 /// from skipped slots for the finalized and justified checkpoints (instead of the state from the
@@ -54,7 +41,7 @@ const SKIPPED_SLOTS: &[u64] = &[
     FINALIZED_EPOCH * SLOTS_PER_EPOCH,
 ];
 
-struct ApiTester {
+struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: SignedBeaconBlock<E>,
     attestations: Vec<Attestation<E>>,
@@ -63,9 +50,11 @@ struct ApiTester {
     voluntary_exit: SignedVoluntaryExit,
     validator_keypairs: Vec<Keypair>,
     beacon_processor_tx: mpsc::Sender<WorkEvent<T>>,
+    _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
 }
 
-impl ApiTester {
+impl TestRig {
     pub fn new() -> Self {
         let mut harness = BeaconChainHarness::new(
             MainnetEthSpec,
@@ -143,15 +132,38 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let (network_tx, _network_rx) = mpsc::unbounded_channel();
 
         let log = null_logger().unwrap();
 
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
-        let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
-        let network_globals = NetworkGlobals::new(enr, TCP_PORT, UDP_PORT, meta_data, vec![], &log);
+        // Default metadata
+        let meta_data = MetaData {
+            seq_number: SEQ_NUMBER,
+            attnets: EnrBitfield::<MainnetEthSpec>::default(),
+        };
+        let enr_key = CombinedKey::generate_secp256k1();
+        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+        let network_globals = Arc::new(NetworkGlobals::new(
+            enr,
+            TCP_PORT,
+            UDP_PORT,
+            meta_data,
+            vec![],
+            &log,
+        ));
+
+        let mut environment = EnvironmentBuilder::mainnet()
+            .null_logger()
+            .unwrap()
+            .multi_threaded_tokio_runtime()
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let executor = environment.core_context().executor;
 
         BeaconProcessor {
             beacon_chain: Arc::downgrade(&chain),
@@ -163,7 +175,7 @@ impl ApiTester {
             current_workers: 0,
             log: log.clone(),
         }
-        .spawn_manager(beacon_processor_receive);
+        .spawn_manager(beacon_processor_rx);
 
         Self {
             chain,
@@ -174,6 +186,13 @@ impl ApiTester {
             voluntary_exit,
             validator_keypairs: harness.validator_keypairs,
             beacon_processor_tx,
+            _network_rx,
+            _sync_rx,
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn can_build_tester() {
+    TestRig::new();
 }
