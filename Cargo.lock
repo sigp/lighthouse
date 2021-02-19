@@ -4069,6 +4069,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "environment",
  "error-chain",
  "eth2_libp2p",
  "eth2_ssz",

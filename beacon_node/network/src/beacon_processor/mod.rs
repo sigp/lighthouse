@@ -57,6 +57,7 @@ use types::{
 use worker::Worker;
 
 mod block_delay_queue;
+mod tests;
 mod worker;
 
 pub use worker::ProcessId;

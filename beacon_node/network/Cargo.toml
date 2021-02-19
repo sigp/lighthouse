@@ -14,6 +14,7 @@ exit-future = "0.2.0"
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 logging = { path = "../../common/logging" }
+environment = { path = "../../lighthouse/environment" }
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
