@@ -10,7 +10,7 @@ use target_info::Target;
 /// `Lighthouse/v0.2.0-1419501f2+`
 pub const VERSION: &str = git_version!(
     args = ["--always", "--dirty=+", "--abbrev=7"],
-    prefix = "Lighthouse/v1.1.1-",
+    prefix = "Lighthouse/v1.1.2-",
     fallback = "unknown"
 );
 
