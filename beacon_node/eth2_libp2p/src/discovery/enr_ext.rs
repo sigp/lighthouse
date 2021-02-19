@@ -29,7 +29,7 @@ pub trait EnrExt {
 /// Extend ENR CombinedPublicKey for libp2p types.
 pub trait CombinedKeyPublicExt {
     /// Converts the publickey into a peer id, without consuming the key.
-    fn into_peer_id(&self) -> PeerId;
+    fn as_peer_id(&self) -> PeerId;
 }
 
 /// Extend ENR CombinedKey for conversion to libp2p keys.
@@ -41,7 +41,7 @@ pub trait CombinedKeyExt {
 impl EnrExt for Enr {
     /// The libp2p `PeerId` for the record.
     fn peer_id(&self) -> PeerId {
-        self.public_key().into_peer_id()
+        self.public_key().as_peer_id()
     }
 
     /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
@@ -195,7 +195,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
     /// Converts the publickey into a peer id, without consuming the key.
     ///
     /// This is only available with the `libp2p` feature flag.
-    fn into_peer_id(&self) -> PeerId {
+    fn as_peer_id(&self) -> PeerId {
         match self {
             Self::Secp256k1(pk) => {
                 let pk_bytes = pk.to_bytes();

@@ -30,6 +30,8 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
         steps:
             - uses: actions/checkout@v2
+            - name: Update Rust
+              run: rustup update stable
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
@@ -227,6 +229,7 @@ jobs:
 
             - name: Create Release Draft
               env:
+                  GITHUB_USER: sigp
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
               # The formatting here is borrowed from OpenEthereum: https://github.com/openethereum/openethereum/blob/main/.github/workflows/build.yml

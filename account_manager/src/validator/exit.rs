@@ -280,7 +280,7 @@ fn load_voting_keypair(
             .map_err(|e| format!("Error while decrypting keypair: {:?}", e))
     } else {
         // Prompt password from user.
-        eprintln!("");
+        eprintln!();
         eprintln!(
             "{} for validator in {:?}: ",
             PASSWORD_PROMPT, voting_keystore_path
@@ -289,7 +289,7 @@ fn load_voting_keypair(
         match keystore.decrypt_keypair(password.as_ref()) {
             Ok(keypair) => {
                 eprintln!("Password is correct.");
-                eprintln!("");
+                eprintln!();
                 std::thread::sleep(std::time::Duration::from_secs(1)); // Provides nicer UX.
                 Ok(keypair)
             }

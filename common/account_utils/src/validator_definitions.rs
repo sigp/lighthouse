@@ -164,6 +164,12 @@ impl ValidatorDefinitions {
             })
             .collect();
 
+        let known_pubkeys: HashSet<PublicKey> = self
+            .0
+            .iter()
+            .map(|def| def.voting_public_key.clone())
+            .collect();
+
         let mut new_defs = keystore_paths
             .into_iter()
             .filter_map(|voting_keystore_path| {
@@ -200,7 +206,13 @@ impl ValidatorDefinitions {
                 .filter(|path| path.exists());
 
                 let voting_public_key = match keystore.public_key() {
-                    Some(pubkey) => pubkey,
+                    Some(pubkey) => {
+                        if known_pubkeys.contains(&pubkey) {
+                            return None;
+                        } else {
+                            pubkey
+                        }
+                    }
                     None => {
                         error!(
                             log,
