@@ -216,7 +216,7 @@ impl Config {
         }
 
         if cli_args.is_present("doppelganger-detection") {
-            config.doppelganger_detection.enabled = true;
+            config.doppelganger_detection = true;
         }
 
         Ok(config)

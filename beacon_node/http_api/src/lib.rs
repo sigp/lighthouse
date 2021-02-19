@@ -2370,9 +2370,12 @@ pub fn serve<T: BeaconChainTypes>(
                     .iter()
                     .enumerate()
                     // filter by validator id(s) if provided
-                    .filter_map(|(index, (validator, _))| {
-                        query.ids.0.find(|pubkey| pubkey == &validator.pubkey).map(|_|index)
+                    .filter_map(|(index, validator)| {
+                        query.ids.0.iter().find(|pubkey| *pubkey == &validator.pubkey).map(|_|index)
                     }).collect();
+
+                let seen_validator = query.epochs.0.iter().any(|epoch| chain.doppelgangers_exist_at_epoch(indices, epoch));
+                Ok(api_types::GenericResponse::from(seen_validator))
 
             })
         });

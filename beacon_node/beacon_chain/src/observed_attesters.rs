@@ -273,6 +273,15 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         self.items
             .retain(|epoch, _item| *epoch >= lowest_permissible_epoch);
     }
+
+    /// Returns `true` if any of the given `validator_indices` has been stored in `self` at `epoch`.
+    ///
+    /// This is useful for doppelganger detection.
+    pub fn contains_any_at_epoch(&self, validator_indices: &[usize], epoch: &Epoch) -> bool {
+        self.items.get(&epoch).map_or(false, |item| {
+            validator_indices.iter().any(|index|item.contains(*index))
+        })
+    }
 }
 
 #[cfg(test)]
