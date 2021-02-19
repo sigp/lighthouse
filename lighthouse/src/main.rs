@@ -10,6 +10,11 @@ use std::process::exit;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
+/// Global allocator
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+pub static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn bls_library_name() -> &'static str {
