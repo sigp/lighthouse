@@ -287,8 +287,8 @@ fn advance_head<T: BeaconChainTypes>(
         .ok_or(Error::HeadMissingFromSnapshotCache(head_root))?;
 
     // If we have moved into the next slot whilst processing the state then this function is going
-    // to become ineffective and will likely become a hindrance as we're stealing the tree hash
-    // cache from the snapshot cache (which may force the next block to rebuild a new one).
+    // to become ineffective and likely become a hindrance as we're stealing the tree hash cache
+    // from the snapshot cache (which may force the next block to rebuild a new one).
     //
     // If this warning occurs very frequently on well-resourced machines then we should consider
     // starting it earlier in the slot. Otherwise, it's a good indication that the machine is too
