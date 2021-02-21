@@ -286,15 +286,23 @@ fn advance_head<T: BeaconChainTypes>(
         .update_pre_state(head_root, state)
         .ok_or(Error::HeadMissingFromSnapshotCache(head_root))?;
 
+    // If we have moved into the next slot whilst processing the state then this function is going
+    // to become ineffective and likely become a hindrance as we're stealing the tree hash cache
+    // from the snapshot cache (which may force the next block to rebuild a new one).
+    //
+    // If this warning occurs very frequently on well-resourced machines then we should consider
+    // starting it earlier in the slot. Otherwise, it's a good indication that the machine is too
+    // slow/overloaded and will be useful information for the user.
+    let starting_slot = current_slot;
     let current_slot = beacon_chain.slot()?;
-    if final_slot <= current_slot {
+    if starting_slot < current_slot {
         warn!(
             log,
             "State advance too slow";
             "head_root" => %head_root,
             "advanced_slot" => final_slot,
             "current_slot" => current_slot,
-            "initial_slot" => initial_slot,
+            "starting_slot" => starting_slot,
             "msg" => "system resources may be overloaded",
         );
     }
