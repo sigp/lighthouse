@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-discv5 = { git = "https://github.com/sigp/discv5 ", branch = "enr-loop", features = ["libp2p"] }
+discv5 = { git = "https://github.com/sigp/discv5 ", rev = "a3de10f82426942ce9fb97e3d0987f8371638d8f", features = ["libp2p"] }
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }

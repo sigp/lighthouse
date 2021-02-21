@@ -34,4 +34,4 @@ futures = "0.3.8"
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { git = "https://github.com/sigp/discv5 ", branch = "enr-loop", features = ["libp2p"] }
+discv5 = { git = "https://github.com/sigp/discv5 ", rev = "a3de10f82426942ce9fb97e3d0987f8371638d8f", features = ["libp2p"] }

@@ -1610,7 +1610,7 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.3"
-source = "git+https://github.com/sigp/discv5?branch=enr-loop#ead92be331a1862ca4d163978f0f3842fc0340d3"
+source = "git+https://github.com/sigp/discv5?rev=a3de10f82426942ce9fb97e3d0987f8371638d8f#a3de10f82426942ce9fb97e3d0987f8371638d8f"
 dependencies = [
  "aes-ctr",
  "aes-gcm 0.8.0",
