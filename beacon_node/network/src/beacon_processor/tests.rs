@@ -8,7 +8,7 @@ use beacon_chain::{
     BeaconChain,
 };
 use discv5::enr::{CombinedKey, EnrBuilder};
-use environment::{null_logger, EnvironmentBuilder};
+use environment::{null_logger, Environment, EnvironmentBuilder};
 use eth2_libp2p::{rpc::methods::MetaData, types::EnrBitfield, NetworkGlobals};
 use std::cmp;
 use std::iter::Iterator;
@@ -24,22 +24,10 @@ type T = EphemeralHarnessType<E>;
 
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
-const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
-const JUSTIFIED_EPOCH: u64 = 4;
-const FINALIZED_EPOCH: u64 = 3;
+const CHAIN_LENGTH: u64 = 2; // Make `next_block` an epoch transition
 const TCP_PORT: u16 = 42;
 const UDP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
-
-/// Skipping the slots around the epoch boundary allows us to check that we're obtaining states
-/// from skipped slots for the finalized and justified checkpoints (instead of the state from the
-/// block that those roots point to).
-const SKIPPED_SLOTS: &[u64] = &[
-    JUSTIFIED_EPOCH * SLOTS_PER_EPOCH - 1,
-    JUSTIFIED_EPOCH * SLOTS_PER_EPOCH,
-    FINALIZED_EPOCH * SLOTS_PER_EPOCH - 1,
-    FINALIZED_EPOCH * SLOTS_PER_EPOCH,
-];
 
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
@@ -52,7 +40,17 @@ struct TestRig {
     beacon_processor_tx: mpsc::Sender<WorkEvent<T>>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
+    environment: Environment<E>,
 }
+
+/*
+impl Drop for TestRig {
+    fn drop(&mut self) {
+        // This will drop the channel that the `BeaconProcessor` listens to, shutting it down.
+        self.beacon_processor_tx = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0;
+    }
+}
+*/
 
 impl TestRig {
     pub fn new() -> Self {
@@ -64,15 +62,11 @@ impl TestRig {
         harness.advance_slot();
 
         for _ in 0..CHAIN_LENGTH {
-            let slot = harness.chain.slot().unwrap().as_u64();
-
-            if !SKIPPED_SLOTS.contains(&slot) {
-                harness.extend_chain(
-                    1,
-                    BlockStrategy::OnCanonicalHead,
-                    AttestationStrategy::AllValidators,
-                );
-            }
+            harness.extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            );
 
             harness.advance_slot();
         }
@@ -116,21 +110,6 @@ impl TestRig {
         harness.chain.spec.shard_committee_period = 2;
 
         let chain = Arc::new(harness.chain);
-
-        assert_eq!(
-            chain.head_info().unwrap().finalized_checkpoint.epoch,
-            2,
-            "precondition: finality"
-        );
-        assert_eq!(
-            chain
-                .head_info()
-                .unwrap()
-                .current_justified_checkpoint
-                .epoch,
-            3,
-            "precondition: justification"
-        );
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
 
@@ -188,11 +167,20 @@ impl TestRig {
             beacon_processor_tx,
             _network_rx,
             _sync_rx,
+            environment,
         }
+    }
+
+    pub fn shutdown(mut self) {
+        // Drops the sender for the beacon processor, shutting it down.
+        self.beacon_processor_tx = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0;
+        self.environment.shutdown_on_idle();
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn can_build_tester() {
-    TestRig::new();
+// #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test]
+fn can_build_tester() {
+    let rig = TestRig::new();
+    rig.shutdown();
 }
