@@ -292,15 +292,11 @@ fn import_gossip_block_acceptably_early() {
 
     rig.enqueue_next_block();
 
-    rig.assert_event_journal(&[
-        GOSSIP_BLOCK,
-        DELAYED_IMPORT_BLOCK,
-        WORKER_FREED,
-        NOTHING_TO_DO,
-        GOSSIP_BLOCK,
-        WORKER_FREED,
-        NOTHING_TO_DO,
-    ]);
+    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+
+    rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
+
+    rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
         rig.chain.head().unwrap().beacon_block_root,

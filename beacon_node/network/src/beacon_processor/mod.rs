@@ -42,10 +42,16 @@ use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
+use futures::future::poll_fn;
+use futures::stream::{Stream, StreamExt};
+use futures::task::Poll;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Weak};
+use std::task::Context;
 use std::time::{Duration, Instant};
 use task_executor::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
@@ -544,6 +550,12 @@ impl TimeLatch {
     }
 }
 
+enum WorkPoll<T: BeaconChainTypes> {
+    WorkerIdle,
+    WorkEvent(WorkEvent<T>),
+    QueuedBlock(QueuedBlock<T>),
+}
+
 /// A mutli-threaded processor for messages received on the network
 /// that need to be processed by the `BeaconChain`
 ///
@@ -629,10 +641,80 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
         let executor = self.executor.clone();
 
+        struct InboundEvents<T: BeaconChainTypes> {
+            idle_rx: mpsc::Receiver<()>,
+            event_rx: mpsc::Receiver<WorkEvent<T>>,
+            post_delay_block_queue_rx: mpsc::Receiver<QueuedBlock<T>>,
+        }
+
+        impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
+            type Item = WorkPoll<T>;
+
+            fn poll_next(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+            ) -> Poll<Option<Self::Item>> {
+                match self.idle_rx.poll_recv(cx) {
+                    Poll::Ready(Some(())) => return Poll::Ready(Some(WorkPoll::WorkerIdle)),
+                    Poll::Ready(None) => return Poll::Ready(None),
+                    Poll::Pending => (),
+                }
+
+                match self.event_rx.poll_recv(cx) {
+                    Poll::Ready(Some(event)) => {
+                        return Poll::Ready(Some(WorkPoll::WorkEvent(event)))
+                    }
+                    Poll::Ready(None) => return Poll::Ready(None),
+                    Poll::Pending => (),
+                }
+
+                match self.post_delay_block_queue_rx.poll_recv(cx) {
+                    Poll::Ready(Some(queued_block)) => {
+                        dbg!("");
+                        return Poll::Ready(Some(WorkPoll::QueuedBlock(queued_block)));
+                    }
+                    Poll::Ready(None) => return Poll::Ready(None),
+                    Poll::Pending => (),
+                }
+
+                Poll::Pending
+            }
+        }
+
         // The manager future will run on the core executor and delegate tasks to worker
         // threads on the blocking executor.
         let manager_future = async move {
+            let mut inbound_events = InboundEvents {
+                idle_rx,
+                event_rx,
+                post_delay_block_queue_rx,
+            };
+
             loop {
+                let work_event = match inbound_events.next().await {
+                    Some(WorkPoll::WorkerIdle) => {
+                        self.current_workers = self.current_workers.saturating_sub(1);
+                        None
+                    }
+                    Some(WorkPoll::WorkEvent(event)) => Some(event),
+                    Some(WorkPoll::QueuedBlock(queued_block)) => {
+                        Some(WorkEvent::delayed_import_beacon_block(
+                            queued_block.peer_id,
+                            Box::new(queued_block.block),
+                            queued_block.seen_timestamp,
+                        ))
+                    }
+                    None => {
+                        debug!(
+                            self.log,
+                            "Gossip processor stopped";
+                            "msg" => "stream ended"
+                        );
+                        break;
+                    }
+                };
+
+                /*
                 // Listen to both the event and idle channels, acting on whichever is ready
                 // first.
                 //
@@ -671,7 +753,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             );
                             break
                         }
-                    }
+                    },
                     // A worker has delayed a block for later processing.
                     delayed_block_opt = post_delay_block_queue_rx.recv() => {
                         if let Some(delayed_block) = delayed_block_opt {
@@ -695,6 +777,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         }
                     }
                 };
+                */
 
                 let _event_timer =
                     metrics::start_timer(&metrics::BEACON_PROCESSOR_EVENT_HANDLING_SECONDS);
