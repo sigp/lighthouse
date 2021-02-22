@@ -4107,7 +4107,7 @@ dependencies = [
  "tempfile",
  "tokio 1.1.0",
  "tokio-stream",
- "tokio-util 0.4.0",
+ "tokio-util 0.6.3",
  "tree_hash",
  "types",
 ]
@@ -6557,22 +6557,6 @@ dependencies = [
  "log",
  "pin-project-lite 0.1.11",
  "tokio 0.2.24",
-]
-
-[[package]]
-name = "tokio-util"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24793699f4665ba0416ed287dc794fe6b11a4aa5e4e95b58624f45f6c46b97d4"
-dependencies = [
- "bytes 0.5.6",
- "futures-core",
- "futures-io",
- "futures-sink",
- "log",
- "pin-project-lite 0.1.11",
- "slab",
- "tokio 0.3.6",
 ]
 
 [[package]]

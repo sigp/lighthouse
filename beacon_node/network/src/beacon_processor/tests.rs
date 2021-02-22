@@ -296,6 +296,7 @@ fn import_gossip_block_acceptably_early() {
         GOSSIP_BLOCK,
         DELAYED_IMPORT_BLOCK,
         WORKER_FREED,
+        NOTHING_TO_DO,
         GOSSIP_BLOCK,
         WORKER_FREED,
         NOTHING_TO_DO,
