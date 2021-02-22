@@ -64,7 +64,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             current_workers: 0,
             log: log.clone(),
         }
-        .spawn_manager(beacon_processor_receive);
+        .spawn_manager(beacon_processor_receive, None);
 
         Processor {
             chain: beacon_chain,
