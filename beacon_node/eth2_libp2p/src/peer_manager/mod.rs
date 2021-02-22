@@ -317,6 +317,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.inbound_ping_peers.remove(peer_id);
         self.outbound_ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
+
+        // set peer as disconnected in discovery DHT
+        self.discovery.disconnect_peer(peer_id);
     }
 
     /// A dial attempt has failed.
