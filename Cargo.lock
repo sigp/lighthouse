@@ -601,7 +601,7 @@ dependencies = [
  "parking_lot",
  "proto_array",
  "rand 0.7.3",
- "rand_core 0.5.1",
+ "rand_core 0.6.2",
  "rayon",
  "regex",
  "safe_arith",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.1.0"
+version = "1.1.3"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.1.0"
+version = "1.1.3"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1610,8 +1610,7 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6f52d2228d51e8f868a37d5b5b25b82c13552b635d5b47c3a5d53855a6fc4f0"
+source = "git+https://github.com/sigp/discv5?rev=02d2c896c66f8dc2b848c3996fedcd98e1dfec69#02d2c896c66f8dc2b848c3996fedcd98e1dfec69"
 dependencies = [
  "aes-ctr",
  "aes-gcm 0.8.0",
@@ -3276,7 +3275,7 @@ dependencies = [
 
 [[package]]
 name = "lcli"
-version = "1.1.0"
+version = "1.1.3"
 dependencies = [
  "account_utils",
  "bls",
@@ -3648,7 +3647,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.1.0"
+version = "1.1.3"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -4045,12 +4044,12 @@ dependencies = [
 
 [[package]]
 name = "nb-connect"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8123a81538e457d44b933a02faf885d3fe8408806b23fa700e8f01c6c3a98998"
+checksum = "670361df1bc2399ee1ff50406a0d422587dd3bb0da596e1978fe8e05dabddf4f"
 dependencies = [
  "libc",
- "winapi 0.3.9",
+ "socket2",
 ]
 
 [[package]]
@@ -4888,7 +4887,7 @@ checksum = "18519b42a40024d661e1714153e9ad0c3de27cd495760ceb09710920f1098b1e"
 dependencies = [
  "libc",
  "rand_chacha 0.3.0",
- "rand_core 0.6.1",
+ "rand_core 0.6.2",
  "rand_hc 0.3.0",
 ]
 
@@ -4909,7 +4908,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e12735cf05c9e10bf21534da50a147b924d555dc7a547c42e6bb2d5b6017ae0d"
 dependencies = [
  "ppv-lite86",
- "rand_core 0.6.1",
+ "rand_core 0.6.2",
 ]
 
 [[package]]
@@ -4923,9 +4922,9 @@ dependencies = [
 
 [[package]]
 name = "rand_core"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c026d7df8b298d90ccbbc5190bd04d85e159eaf5576caeacf8741da93ccbd2e5"
+checksum = "34cf66eb183df1c5876e2dcf6b13d57340741e8dc255b48e40a26de954d06ae7"
 dependencies = [
  "getrandom 0.2.2",
 ]
@@ -4945,7 +4944,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3190ef7066a446f2e7f42e239d161e905420ccab01eb967c9eb27d21b2322a73"
 dependencies = [
- "rand_core 0.6.1",
+ "rand_core 0.6.2",
 ]
 
 [[package]]
@@ -7080,8 +7079,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dafd0aac2818a94a34df0df1100a7356c493d8ede4393875fd0b5c51bb6bc80"
+source = "git+https://github.com/paulhauner/warp?branch=cors-wildcard#d3fac087253287eb0f716e5d9e49d46b33a02a7d"
 dependencies = [
  "bytes 1.0.1",
  "futures 0.3.12",

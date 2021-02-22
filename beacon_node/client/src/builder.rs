@@ -5,6 +5,7 @@ use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
+    state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
 };
@@ -479,6 +480,12 @@ where
 
         if self.slasher.is_some() {
             self.start_slasher_service()?;
+        }
+
+        if let Some(beacon_chain) = self.beacon_chain.as_ref() {
+            let state_advance_context = runtime_context.service_context("state_advance".into());
+            let log = state_advance_context.log().clone();
+            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone(), log);
         }
 
         Ok(Client {

@@ -2,6 +2,7 @@ use crate::attestation_verification::{
     Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
 };
+use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
@@ -24,7 +25,7 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
-    get_block_delay_ms, timestamp_now, ValidatorMonitor,
+    get_block_delay_ms, get_slot_delay_ms, timestamp_now, ValidatorMonitor,
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -231,8 +232,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: Arc<HeadTracker>,
     /// A cache dedicated to block processing.
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
-    /// Caches the shuffling for a given epoch and state root.
+    /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
+    pub(crate) beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
@@ -453,9 +456,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         let head = self.head()?;
-        let slot = head.beacon_state.slot;
+        let head_slot = head.beacon_state.slot;
+        let head_state_root = head.beacon_state_root();
         let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
-        let iter = std::iter::once(Ok((head.beacon_state_root, slot)))
+        let iter = std::iter::once(Ok((head_state_root, head_slot)))
             .chain(iter)
             .map(|result| result.map_err(Into::into));
         Ok(iter)
@@ -599,7 +603,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
-                state_root: head.beacon_state_root,
+                state_root: head.beacon_state_root(),
                 current_justified_checkpoint: head.beacon_state.current_justified_checkpoint,
                 finalized_checkpoint: head.beacon_state.finalized_checkpoint,
                 fork: head.beacon_state.fork,
@@ -1549,7 +1553,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // For the current and next epoch of this state, ensure we have the shuffling from this
         // block in our cache.
         for relative_epoch in &[RelativeEpoch::Current, RelativeEpoch::Next] {
-            let shuffling_id = ShufflingId::new(block_root, &state, *relative_epoch)?;
+            let shuffling_id = AttestationShufflingId::new(block_root, &state, *relative_epoch)?;
 
             let shuffling_is_cached = self
                 .shuffling_cache
@@ -1727,19 +1731,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::SnapshotCacheLockTimeout)
             .map(|mut snapshot_cache| {
-                snapshot_cache.insert(BeaconSnapshot {
-                    beacon_state: state,
-                    beacon_state_root: signed_block.state_root(),
-                    beacon_block: signed_block,
-                    beacon_block_root: block_root,
-                });
+                snapshot_cache.insert(
+                    BeaconSnapshot {
+                        beacon_state: state,
+                        beacon_block: signed_block,
+                        beacon_block_root: block_root,
+                    },
+                    None,
+                )
             })
-            .unwrap_or_else(|| {
+            .unwrap_or_else(|e| {
                 error!(
                     self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
+                    "Failed to insert snapshot";
+                    "error" => ?e,
                     "task" => "process block"
                 );
             });
@@ -1747,7 +1754,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.head_tracker
             .register_block(block_root, parent_root, slot);
 
-        // send an event to the `events` endpoint after fully processing the block
+        // Send an event to the `events` endpoint after fully processing the block.
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_block_subscribers() {
                 event_handler.register(EventKind::Block(SseBlock {
@@ -2021,7 +2028,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     beacon_block,
                     beacon_block_root,
                     beacon_state,
-                    beacon_state_root,
                 })
             })
             .and_then(|mut snapshot| {
@@ -2096,7 +2102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
         // These fields are used for server-sent events
-        let state_root = new_head.beacon_state_root;
+        let state_root = new_head.beacon_state_root();
         let head_slot = new_head.beacon_state.slot;
         let target_epoch_start_slot = new_head
             .beacon_state
@@ -2115,6 +2121,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::CanonicalHeadLockTimeout)? = new_head;
 
         metrics::stop_timer(update_head_timer);
+
+        // Observe the delay between the start of the slot and when we set the block as head.
+        metrics::observe_duration(
+            &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
+            get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock),
+        );
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -2458,7 +2470,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_block: self.head()?.beacon_block,
             beacon_block_root: self.head()?.beacon_block_root,
             beacon_state: self.head()?.beacon_state,
-            beacon_state_root: self.head()?.beacon_state_root,
         };
 
         dump.push(last_slot.clone());
@@ -2485,7 +2496,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 beacon_block,
                 beacon_block_root,
                 beacon_state,
-                beacon_state_root,
             };
 
             dump.push(slot.clone());
