@@ -3689,6 +3689,7 @@ name = "lighthouse_version"
 version = "0.1.0"
 dependencies = [
  "git-version",
+ "regex",
  "target_info",
 ]
 
