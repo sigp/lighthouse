@@ -548,19 +548,26 @@ impl TimeLatch {
     }
 }
 
+/// Unifies all the messages processed by the `BeaconProcessor`.
 enum InboundEvent<T: BeaconChainTypes> {
+    /// A worker has completed a task and is free.
     WorkerIdle,
+    /// There is new work to be done.
     WorkEvent(WorkEvent<T>),
+    /// A block that was delayed for import at a later slot has become ready.
     QueuedBlock(Box<QueuedBlock<T>>),
 }
 
-/// Combines the varies incoming event streams for the `BeaconProcessor` into a single stream.
+/// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
 ///
 /// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
 struct InboundEvents<T: BeaconChainTypes> {
+    /// Used by workers when they finish a task.
     idle_rx: mpsc::Receiver<()>,
+    /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<T>>,
+    /// Used internally for queuing blocks for processing once their slot arrives.
     post_delay_block_queue_rx: mpsc::Receiver<QueuedBlock<T>>,
 }
 
@@ -580,9 +587,11 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
             Poll::Pending => {}
         }
 
-        match self.event_rx.poll_recv(cx) {
-            Poll::Ready(Some(event)) => {
-                return Poll::Ready(Some(InboundEvent::WorkEvent(event)));
+        // Poll for delayed blocks before polling for new work. It might be the case that a delayed
+        // block is required to successfully process some new work.
+        match self.post_delay_block_queue_rx.poll_recv(cx) {
+            Poll::Ready(Some(queued_block)) => {
+                return Poll::Ready(Some(InboundEvent::QueuedBlock(Box::new(queued_block))));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -590,9 +599,9 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
             Poll::Pending => {}
         }
 
-        match self.post_delay_block_queue_rx.poll_recv(cx) {
-            Poll::Ready(Some(queued_block)) => {
-                return Poll::Ready(Some(InboundEvent::QueuedBlock(Box::new(queued_block))));
+        match self.event_rx.poll_recv(cx) {
+            Poll::Ready(Some(event)) => {
+                return Poll::Ready(Some(InboundEvent::WorkEvent(event)));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -769,7 +778,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
-                        // on the delayed ones..
+                        // on the delayed ones.
                         } else if let Some(item) = delayed_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check gossip blocks before gossip attestations, since a block might be

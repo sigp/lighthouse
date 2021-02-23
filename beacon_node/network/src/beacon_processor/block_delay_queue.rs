@@ -171,6 +171,8 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
                     let block_root = ready_block.block.block_root;
 
                     if !queued_block_roots.remove(&block_root) {
+                        // Log an error to alert that we've made a bad assumption about how this
+                        // program works, but still process the block anyway.
                         error!(
                             log,
                             "Unknown block in delay queue";

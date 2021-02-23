@@ -34,8 +34,10 @@ const TCP_PORT: u16 = 42;
 const UDP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
 
+/// The default time to wait for `BeaconProcessor` events.
 const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Provides utilities for testing the `BeaconProcessor`.
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: SignedBeaconBlock<E>,
@@ -247,6 +249,7 @@ impl TestRig {
             .unwrap()
     }
 
+    /// Assert that the `BeaconProcessor` doesn't produce any events in the given `duration`.
     pub fn assert_no_events_for(&mut self, duration: Duration) {
         self.runtime().block_on(async {
             tokio::select! {
@@ -260,6 +263,12 @@ impl TestRig {
         })
     }
 
+    /// Assert that the `BeaconProcessor` event journal is as `expected`.
+    ///
+    /// ## Note
+    ///
+    /// We wont attempt to listen for an more than `expected.len()` events. As such, it makes sense
+    /// to use the `NOTHING_TO_DO` event to ensure that execution has completed.
     pub fn assert_event_journal(&mut self, expected: &[&str]) {
         let events = self.runtime().block_on(async {
             let mut events = vec![];
@@ -271,10 +280,6 @@ impl TestRig {
                             events.push(event);
 
                             // Break as soon as we collect the desired number of events.
-                            //
-                            // Note that we won't try and listen for any additional events, it's
-                            // therefore important that you try and use the `NOTHING_TO_DO` event to
-                            // ensure that you've reached the end of the stream.
                             if events.len() >= expected.len() {
                                 break;
                             }
