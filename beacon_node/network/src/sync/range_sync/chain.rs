@@ -963,7 +963,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if self
             .to_be_downloaded
             .start_slot(T::EthSpec::slots_per_epoch())
-            > self.target_head_slot
+            >= self.target_head_slot
         {
             return None;
         }
