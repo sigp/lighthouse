@@ -8,6 +8,7 @@ use beacon_chain::{
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
+use slot_clock::SlotClock;
 use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -343,6 +344,19 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block_root" => %block_root,
                     "msg" => "if this happens consistently, check system clock"
                 );
+
+                // Take note of how early this block arrived.
+                if let Some(duration) = self
+                    .chain
+                    .slot_clock
+                    .start_of(block_slot)
+                    .and_then(|start| start.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS,
+                        duration,
+                    );
+                }
 
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
