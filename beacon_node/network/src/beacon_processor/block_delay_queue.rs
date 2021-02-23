@@ -148,13 +148,11 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
                         // doesn't distinguish between a slot that has already arrived and an
                         // error reading the slot clock.
                         if let Some(now) = slot_clock.now() {
-                            if block_slot <= now {
-                                if ready_blocks_tx.try_send(early_block).is_err() {
-                                    error!(
-                                        log,
-                                        "Failed to send block";
-                                    );
-                                }
+                            if block_slot <= now && ready_blocks_tx.try_send(early_block).is_err() {
+                                error!(
+                                    log,
+                                    "Failed to send block";
+                                );
                             }
                         }
                     }

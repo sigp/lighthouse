@@ -551,7 +551,7 @@ impl TimeLatch {
 enum InboundEvent<T: BeaconChainTypes> {
     WorkerIdle,
     WorkEvent(WorkEvent<T>),
-    QueuedBlock(QueuedBlock<T>),
+    QueuedBlock(Box<QueuedBlock<T>>),
 }
 
 /// Combines the varies incoming event streams for the `BeaconProcessor` into a single stream.
@@ -592,7 +592,7 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
 
         match self.post_delay_block_queue_rx.poll_recv(cx) {
             Poll::Ready(Some(queued_block)) => {
-                return Poll::Ready(Some(InboundEvent::QueuedBlock(queued_block)));
+                return Poll::Ready(Some(InboundEvent::QueuedBlock(Box::new(queued_block))));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
