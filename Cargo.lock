@@ -4109,7 +4109,6 @@ dependencies = [
  "exit-future",
  "fnv",
  "futures 0.3.12",
- "futures-core",
  "genesis",
  "hashset_delay",
  "hex",
