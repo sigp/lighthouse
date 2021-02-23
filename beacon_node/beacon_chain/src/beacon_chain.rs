@@ -13,6 +13,7 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
 use crate::head_tracker::HeadTracker;
+use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
 use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
@@ -389,10 +390,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
+    /// Return an iterator over the block roots of the canonical chain in slot-ascending order.
+    ///
+    /// Will return a `BlockOutOfRange` error if the requested start slot is before the period of
+    /// history for which we have blocks stored. See `get_oldest_block_slot`.
     pub fn forwards_iter_block_roots(
         &self,
         start_slot: Slot,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+        let oldest_block_slot = self.get_oldest_block_slot();
+        if start_slot < oldest_block_slot {
+            return Err(Error::HistoricalBlockError(
+                HistoricalBlockError::BlockOutOfRange {
+                    slot: start_slot,
+                    oldest_block_slot,
+                },
+            ));
+        }
+
         let local_head = self.head()?;
 
         let iter = HotColdDB::forwards_block_roots_iterator(
@@ -404,6 +419,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         Ok(iter.map(|result| result.map_err(Into::into)))
+    }
+
+    /// Return the lowest slot `s` such that the database contains all blocks with `b.slot >= s`.
+    pub fn get_oldest_block_slot(&self) -> Slot {
+        self.store
+            .anchor_info
+            .read()
+            .as_ref()
+            .map_or(Slot::new(0), |anchor| anchor.oldest_block_slot)
     }
 
     /// Traverse backwards from `block_root` to find the block roots of its ancestors.

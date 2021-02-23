@@ -6,7 +6,10 @@ use beacon_chain::test_utils::{
     test_logger, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
     HARNESS_SLOT_TIME,
 };
-use beacon_chain::{migrate::MigratorConfig, BeaconSnapshot, ChainConfig, ServerSentEventHandler};
+use beacon_chain::{
+    historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChainError,
+    BeaconSnapshot, ChainConfig, ServerSentEventHandler,
+};
 use lazy_static::lazy_static;
 use maplit::hashset;
 use rand::Rng;
@@ -1657,7 +1660,7 @@ fn garbage_collect_temp_states_from_failed_block() {
 #[test]
 fn weak_subjectivity_sync() {
     // Build an initial chain on one harness, representing a synced node with full history.
-    let num_initial_blocks = E::slots_per_epoch() * 5;
+    let num_initial_blocks = E::slots_per_epoch() * 11;
     let num_final_blocks = E::slots_per_epoch() * 2;
 
     let temp1 = tempdir().unwrap();
@@ -1670,6 +1673,10 @@ fn weak_subjectivity_sync() {
         AttestationStrategy::AllValidators,
     );
 
+    let genesis_state = full_store
+        .get_state(&harness.chain.genesis_state_root, Some(Slot::new(0)))
+        .unwrap()
+        .unwrap();
     let wss_checkpoint = harness.chain.head_info().unwrap().finalized_checkpoint;
     let wss_block = harness.get_block(wss_checkpoint.root.into()).unwrap();
     let wss_state = full_store
@@ -1695,12 +1702,7 @@ fn weak_subjectivity_sync() {
     // FIXME(sproul): abstract over this junk and put it in the test harness
     let beacon_chain = BeaconChainBuilder::new(MinimalEthSpec)
         .store(store.clone())
-        .weak_subjectivity_state(
-            wss_state,
-            wss_block.clone(),
-            harness.chain.genesis_state_root,
-            harness.chain.genesis_block_root,
-        )
+        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
         .unwrap()
         .logger(log.clone())
         .store_migrator_config(MigratorConfig::default().blocking())
@@ -1725,10 +1727,6 @@ fn weak_subjectivity_sync() {
 
     assert_eq!(new_blocks[0].beacon_block.slot(), wss_block.slot() + 1);
 
-    /*
-    beacon_chain.slot_clock.set_slot(wss_block.slot().as_u64());
-    beacon_chain.process_block(wss_block.clone()).unwrap();
-    */
     for snapshot in new_blocks {
         beacon_chain
             .slot_clock
@@ -1736,10 +1734,42 @@ fn weak_subjectivity_sync() {
         beacon_chain
             .process_block(snapshot.beacon_block.clone())
             .unwrap();
+        beacon_chain.fork_choice().unwrap();
     }
 
+    // Forwards iterator from 0 should fail as we lack blocks.
+    assert!(matches!(
+        beacon_chain.forwards_iter_block_roots(Slot::new(0)),
+        Err(BeaconChainError::HistoricalBlockError(
+            HistoricalBlockError::BlockOutOfRange { .. }
+        ))
+    ));
+
     // Supply blocks backwards to reach genesis
-    // TODO
+    let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
+        .iter()
+        .map(|s| s.beacon_block.clone())
+        .collect::<Vec<_>>();
+    beacon_chain
+        .import_historical_block_batch(historical_blocks.clone())
+        .unwrap();
+    assert_eq!(beacon_chain.get_oldest_block_slot(), 0);
+
+    // Resupplying the blocks should fail
+    beacon_chain
+        .import_historical_block_batch(historical_blocks)
+        .unwrap_err();
+
+    // The forwards iterator should now match the original chain
+    assert!(beacon_chain
+        .forwards_iter_block_roots(Slot::new(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .eq(harness
+            .chain
+            .forwards_iter_block_roots(Slot::new(0))
+            .unwrap()
+            .map(Result::unwrap)));
 }
 
 /// Check that the head state's slot matches `expected_slot`.

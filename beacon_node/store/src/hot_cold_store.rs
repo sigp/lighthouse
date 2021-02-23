@@ -873,19 +873,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.anchor_info.read().as_ref().map(|a| a.anchor_slot)
     }
 
-    /*
-    pub fn update_block_start_slot(&self, block_start_slot: Slot) {
-        if let Some(ref mut anchor_info) = *self.anchor_info.write() {
-            anchor_info.block_start_slot = block_start_slot;
-        }
+    pub fn get_oldest_block_parent_root(&self) -> Option<Hash256> {
+        self.anchor_info
+            .read()
+            .as_ref()
+            .map(|a| a.oldest_block_parent)
     }
-
-    pub fn update_state_start_slot(&self, state_start_slot: Slot) {
-        if let Some(ref mut anchor_info) = *self.anchor_info.write() {
-            anchor_info.state_start_slot = state_start_slot;
-        }
-    }
-    */
 
     /// Load previously-stored config from disk.
     fn load_config(&self) -> Result<Option<OnDiskStoreConfig>, Error> {

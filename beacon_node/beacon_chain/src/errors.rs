@@ -1,6 +1,7 @@
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::eth1_chain::Error as Eth1ChainError;
+use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_attestations::Error as ObservedAttestationsError;
@@ -105,6 +106,7 @@ pub enum BeaconChainError {
         block_slot: Slot,
         state_slot: Slot,
     },
+    HistoricalBlockError(HistoricalBlockError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -122,6 +124,7 @@ easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 easy_from_to!(ForkChoiceStoreError, BeaconChainError);
+easy_from_to!(HistoricalBlockError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

@@ -80,21 +80,26 @@ impl StoreItem for CompactionTimestamp {
 }
 
 /// Database parameters relevant to weak subjectivity sync.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Encode, Decode, Clone)]
 pub struct AnchorInfo {
     /// The slot at which the anchor state is present and which we cannot revert.
     pub anchor_slot: Slot,
     /// The slot from which historical blocks are available (>=).
-    pub block_start_slot: Slot,
+    pub oldest_block_slot: Slot,
+    /// The block root of the next block that needs to be added to fill in the history.
+    ///
+    /// Zero if we know all blocks back to genesis.
+    pub oldest_block_parent: Hash256,
     /// The slot from which historical states are available (>=).
     pub state_start_slot: Slot,
 }
 
 impl AnchorInfo {
-    pub fn new(anchor_slot: Slot) -> Self {
+    pub fn new(anchor_slot: Slot, anchor_block_parent: Hash256) -> Self {
         AnchorInfo {
             anchor_slot,
-            block_start_slot: anchor_slot,
+            oldest_block_slot: anchor_slot,
+            oldest_block_parent: anchor_block_parent,
             state_start_slot: anchor_slot,
         }
     }

@@ -395,8 +395,11 @@ where
             .put_item(&weak_subj_block_root, &weak_subj_block)
             .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
 
-        // Store anchor info (protects against processing or retrieving old blocks).
-        *store.anchor_info.write() = Some(AnchorInfo::new(weak_subj_state.slot));
+        // Store anchor info (context for weak subj sync).
+        *store.anchor_info.write() = Some(AnchorInfo::new(
+            weak_subj_state.slot,
+            weak_subj_block.message.parent_root,
+        ));
         store
             .store_anchor_info()
             .map_err(|e| format!("Failed to write anchor info to disk: {:?}", e))?;

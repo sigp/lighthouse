@@ -97,7 +97,7 @@ where
             self.current_chunk = Chunk::load(
                 &self.store.cold_db,
                 F::column(),
-                &chunk_key(self.next_cindex as u64),
+                &chunk_key(self.next_cindex),
             )
             .map_err(|e| {
                 error!(
