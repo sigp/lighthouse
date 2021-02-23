@@ -203,6 +203,19 @@ impl TestRig {
             .unwrap()
     }
 
+    pub fn assert_no_events_for(&mut self, duration: Duration) {
+        self.runtime().block_on(async {
+            tokio::select! {
+                _ = tokio::time::sleep(duration) => (),
+                event = self.work_journal_rx.recv() => panic!(
+                    "received {:?} within {:?} when expecting no events",
+                    event,
+                    duration
+                ),
+            }
+        })
+    }
+
     pub fn assert_event_journal(&mut self, expected: &[&str]) {
         let events = self.runtime().block_on(async {
             let mut events = vec![];
@@ -343,24 +356,12 @@ fn import_gossip_block_unacceptably_early() {
 
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
-    // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
-    // and check the head in the time between the block arrived early and when its due for
-    // processing.
-    //
-    // If this causes issues we might be able to make the block delay queue add a longer delay for
-    // processing, instead of just MAXIMUM_GOSSIP_CLOCK_DISPARITY. Speak to @paulhauner if this test
-    // starts failing.
-    rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
+    // Waiting for 5 seconds is a bit arbtirary, however it *should* be long enough to ensure the
+    // block isn't imported.
+    rig.assert_no_events_for(Duration::from_secs(5));
+
     assert!(
         rig.chain.head().unwrap().beacon_block_root != rig.next_block.canonical_root(),
-        "block not yet be imported"
-    );
-
-    rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
-
-    assert_eq!(
-        rig.chain.head().unwrap().beacon_block_root,
-        rig.next_block.canonical_root(),
-        "block should be imported and become head"
+        "block should not be imported"
     );
 }
