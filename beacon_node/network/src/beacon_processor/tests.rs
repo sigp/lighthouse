@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))] // Tests are too slow in debug.
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::beacon_processor::*;
@@ -18,8 +18,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use types::{
-    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, Keypair,
-    MainnetEthSpec, ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit,
+    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, MainnetEthSpec,
+    ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -37,11 +37,10 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: SignedBeaconBlock<E>,
-    attestations: Vec<Attestation<E>>,
+    attestations: Vec<(Attestation<E>, SubnetId)>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
-    validator_keypairs: Vec<Keypair>,
     beacon_processor_tx: mpsc::Sender<WorkEvent<T>>,
     work_journal_rx: mpsc::Receiver<String>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
@@ -49,8 +48,8 @@ struct TestRig {
     environment: Option<Environment<E>>,
 }
 
-/// This custom drop implementation ensures that we shutdown the tokio runtime. Without it, tests
-/// will hang indefinitely.
+/// This custom drop implementation ensures that we shut down the tokio runtime gracefully. Without
+/// it, tests will hang indefinitely.
 impl Drop for TestRig {
     fn drop(&mut self) {
         // Causes the beacon processor to shutdown.
@@ -97,7 +96,7 @@ impl TestRig {
                 harness.chain.slot().unwrap(),
             )
             .into_iter()
-            .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
+            // .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
             .flatten()
             .collect::<Vec<_>>();
 
@@ -172,7 +171,6 @@ impl TestRig {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
-            validator_keypairs: harness.validator_keypairs,
             beacon_processor_tx,
             work_journal_rx,
             _network_rx,
@@ -181,13 +179,57 @@ impl TestRig {
         }
     }
 
-    pub fn enqueue_next_block(&self) {
+    pub fn enqueue_gossip_block(&self) {
         self.beacon_processor_tx
             .try_send(WorkEvent::gossip_beacon_block(
-                MessageId::new(&[]),
-                PeerId::random(),
+                junk_message_id(),
+                junk_peer_id(),
                 Box::new(self.next_block.clone()),
                 Duration::from_secs(0),
+            ))
+            .unwrap();
+    }
+
+    pub fn enqueue_unaggregated_attestation(&self) {
+        let (attestation, subnet_id) = self.attestations.first().unwrap().clone();
+        self.beacon_processor_tx
+            .try_send(WorkEvent::unaggregated_attestation(
+                junk_message_id(),
+                junk_peer_id(),
+                attestation,
+                subnet_id,
+                true,
+                Duration::from_secs(0),
+            ))
+            .unwrap();
+    }
+
+    pub fn enqueue_gossip_attester_slashing(&self) {
+        self.beacon_processor_tx
+            .try_send(WorkEvent::gossip_attester_slashing(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(self.attester_slashing.clone()),
+            ))
+            .unwrap();
+    }
+
+    pub fn enqueue_gossip_proposer_slashing(&self) {
+        self.beacon_processor_tx
+            .try_send(WorkEvent::gossip_proposer_slashing(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(self.proposer_slashing.clone()),
+            ))
+            .unwrap();
+    }
+
+    pub fn enqueue_gossip_voluntary_exit(&self) {
+        self.beacon_processor_tx
+            .try_send(WorkEvent::gossip_voluntary_exit(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(self.voluntary_exit.clone()),
             ))
             .unwrap();
     }
@@ -228,10 +270,9 @@ impl TestRig {
 
                             // Break as soon as we collect the desired number of events.
                             //
-                            // It's important to notice that we won't try and listen for any
-                            // additional events, so it's important that you try and use the
-                            // `NOTHING_TO_DO` event to ensure that you've reached the end of
-                            // the stream.
+                            // Note that we won't try and listen for any additional events, it's
+                            // therefore important that you try and use the `NOTHING_TO_DO` event to
+                            // ensure that you've reached the end of the stream.
                             if events.len() >= expected.len() {
                                 break;
                             }
@@ -265,6 +306,14 @@ impl TestRig {
     }
 }
 
+fn junk_peer_id() -> PeerId {
+    PeerId::random()
+}
+
+fn junk_message_id() -> MessageId {
+    MessageId::new(&[])
+}
+
 /// Blocks that arrive early should be queued for later processing.
 #[test]
 fn import_gossip_block_acceptably_early() {
@@ -286,7 +335,7 @@ fn import_gossip_block_acceptably_early() {
         "chain should be at the correct slot"
     );
 
-    rig.enqueue_next_block();
+    rig.enqueue_gossip_block();
 
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
@@ -333,7 +382,7 @@ fn import_gossip_block_unacceptably_early() {
         "chain should be at the correct slot"
     );
 
-    rig.enqueue_next_block();
+    rig.enqueue_gossip_block();
 
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
@@ -358,7 +407,7 @@ fn import_gossip_block_at_current_slot() {
         "chain should be at the correct slot"
     );
 
-    rig.enqueue_next_block();
+    rig.enqueue_gossip_block();
 
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
@@ -366,5 +415,63 @@ fn import_gossip_block_at_current_slot() {
         rig.chain.head().unwrap().beacon_block_root,
         rig.next_block.canonical_root(),
         "block should be imported and become head"
+    );
+}
+
+#[test]
+fn import_gossip_unaggregated_attestation() {
+    let mut rig = TestRig::new();
+
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
+
+    rig.enqueue_unaggregated_attestation();
+
+    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        initial_attns + 1,
+        "op pool should have one more attestation"
+    );
+}
+
+#[test]
+fn import_gossip_ops() {
+    let mut rig = TestRig::new();
+
+    let initial_attester_slashings = rig.chain.op_pool.num_attester_slashings();
+
+    rig.enqueue_gossip_attester_slashing();
+
+    rig.assert_event_journal(&[GOSSIP_ATTESTER_SLASHING, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.op_pool.num_attester_slashings(),
+        initial_attester_slashings + 1,
+        "op pool should have one more attester slashing"
+    );
+
+    let initial_proposer_slashings = rig.chain.op_pool.num_proposer_slashings();
+
+    rig.enqueue_gossip_proposer_slashing();
+
+    rig.assert_event_journal(&[GOSSIP_PROPOSER_SLASHING, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.op_pool.num_proposer_slashings(),
+        initial_proposer_slashings + 1,
+        "op pool should have one more proposer slashing"
+    );
+
+    let initial_voluntary_exits = rig.chain.op_pool.num_voluntary_exits();
+
+    rig.enqueue_gossip_voluntary_exit();
+
+    rig.assert_event_journal(&[GOSSIP_VOLUNTARY_EXIT, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.op_pool.num_voluntary_exits(),
+        initial_voluntary_exits + 1,
+        "op pool should have one more exit"
     );
 }

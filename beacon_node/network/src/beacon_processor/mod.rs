@@ -554,7 +554,7 @@ enum InboundEvent<T: BeaconChainTypes> {
     QueuedBlock(QueuedBlock<T>),
 }
 
-/// Combines the varies incoming event streams into a single stream.
+/// Combines the varies incoming event streams for the `BeaconProcessor` into a single stream.
 ///
 /// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
