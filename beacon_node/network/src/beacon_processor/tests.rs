@@ -27,7 +27,9 @@ type T = EphemeralHarnessType<E>;
 
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
-const CHAIN_LENGTH: u64 = 2; // Make `next_block` an epoch transition
+const SMALL_CHAIN: u64 = 2;
+const LONG_CHAIN: u64 = SLOTS_PER_EPOCH * 2;
+
 const TCP_PORT: u16 = 42;
 const UDP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
@@ -59,7 +61,7 @@ impl Drop for TestRig {
 }
 
 impl TestRig {
-    pub fn new() -> Self {
+    pub fn new(chain_length: u64) -> Self {
         let mut harness = BeaconChainHarness::new(
             MainnetEthSpec,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
@@ -67,7 +69,7 @@ impl TestRig {
 
         harness.advance_slot();
 
-        for _ in 0..CHAIN_LENGTH {
+        for _ in 0..chain_length {
             harness.extend_chain(
                 1,
                 BlockStrategy::OnCanonicalHead,
@@ -317,7 +319,7 @@ fn junk_message_id() -> MessageId {
 /// Blocks that arrive early should be queued for later processing.
 #[test]
 fn import_gossip_block_acceptably_early() {
-    let mut rig = TestRig::new();
+    let mut rig = TestRig::new(SMALL_CHAIN);
 
     let slot_start = rig
         .chain
@@ -364,7 +366,7 @@ fn import_gossip_block_acceptably_early() {
 /// Blocks that are *too* early shouldn't got into the delay queue.
 #[test]
 fn import_gossip_block_unacceptably_early() {
-    let mut rig = TestRig::new();
+    let mut rig = TestRig::new(SMALL_CHAIN);
 
     let slot_start = rig
         .chain
@@ -399,7 +401,7 @@ fn import_gossip_block_unacceptably_early() {
 /// Blocks that arrive on-time should be processed normally.
 #[test]
 fn import_gossip_block_at_current_slot() {
-    let mut rig = TestRig::new();
+    let mut rig = TestRig::new(SMALL_CHAIN);
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -418,9 +420,10 @@ fn import_gossip_block_at_current_slot() {
     );
 }
 
+/// Ensure a valid attestation can be imported.
 #[test]
-fn import_gossip_unaggregated_attestation() {
-    let mut rig = TestRig::new();
+fn import_gossip_attestation() {
+    let mut rig = TestRig::new(SMALL_CHAIN);
 
     let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
 
@@ -435,9 +438,15 @@ fn import_gossip_unaggregated_attestation() {
     );
 }
 
+/// Ensure a bunch of valid operations can be imported.
 #[test]
-fn import_gossip_ops() {
-    let mut rig = TestRig::new();
+fn import_misc_gossip_ops() {
+    // Exits need the long chain so validators aren't too young to exit.
+    let mut rig = TestRig::new(LONG_CHAIN);
+
+    /*
+     * Attester slashing
+     */
 
     let initial_attester_slashings = rig.chain.op_pool.num_attester_slashings();
 
@@ -451,6 +460,10 @@ fn import_gossip_ops() {
         "op pool should have one more attester slashing"
     );
 
+    /*
+     * Proposer slashing
+     */
+
     let initial_proposer_slashings = rig.chain.op_pool.num_proposer_slashings();
 
     rig.enqueue_gossip_proposer_slashing();
@@ -462,6 +475,10 @@ fn import_gossip_ops() {
         initial_proposer_slashings + 1,
         "op pool should have one more proposer slashing"
     );
+
+    /*
+     * Voluntary exit
+     */
 
     let initial_voluntary_exits = rig.chain.op_pool.num_voluntary_exits();
 
