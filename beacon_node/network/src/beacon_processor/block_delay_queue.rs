@@ -1,3 +1,12 @@
+//! Provides a mechanism which queues blocks for later processing when they arrive too early.
+//!
+//! When the `beacon_processor::Worker` imports a block that is acceptably early (i.e., within the
+//! gossip propagation tolerance) it will send it to this queue where it will be placed in a
+//! `DelayQueue` until the slot arrives. Once the block has been determined to be ready, it will be
+//! sent back out a channel to be processed by the `BeaconProcessor` again.
+//!
+//! There is the edge-case where the slot arrives before this queue manages to process it. In that
+//! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
 use super::MAX_DELAYED_BLOCK_QUEUE_LEN;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
 use eth2_libp2p::PeerId;
@@ -66,8 +75,8 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
             Poll::Ready(Some(Err(e))) => {
                 return Poll::Ready(Some(InboundEvent::DelayQueueError(e)));
             }
-            // TODO: this `Poll::Ready(None)` must return Pending, otherwise we dont get the events
-            // on the other end of `ready_blocks_tx`... I dont understand why.
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
             Poll::Ready(None) | Poll::Pending => (),
         }
 
@@ -85,6 +94,8 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
     }
 }
 
+/// Spawn a queue which will accept blocks via the returned `Sender`, potentially queue them until
+/// their slot arrives, then send them back out via `ready_blocks_tx`.
 pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
     ready_blocks_tx: Sender<QueuedBlock<T>>,
     executor: &TaskExecutor,
