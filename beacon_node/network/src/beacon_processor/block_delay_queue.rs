@@ -3,7 +3,7 @@ use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
 use eth2_libp2p::PeerId;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use slog::{debug, error, Logger};
+use slog::{crit, debug, error, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::pin::Pin;
@@ -11,6 +11,7 @@ use std::task::Context;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::time::error::Error as TimeError;
 use tokio_util::time::DelayQueue;
 
 const TASK_NAME: &str = "beacon_processor_block_delay_queue";
@@ -24,17 +25,21 @@ const ADDITIONAL_DELAY: Duration = Duration::from_millis(5);
 /// it's nice to have extra protection.
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
+/// A block that arrived early and has been queued for later import.
 pub struct QueuedBlock<T: BeaconChainTypes> {
     pub peer_id: PeerId,
     pub block: GossipVerifiedBlock<T>,
     pub seen_timestamp: Duration,
 }
 
+/// Unifies the different messages processed by the block delay queue.
 enum InboundEvent<T: BeaconChainTypes> {
     /// A block that has been received early that we should queue for later processing.
     EarlyBlock(QueuedBlock<T>),
     /// A block that was queued for later processing and is ready for import.
     ReadyBlock(QueuedBlock<T>),
+    /// The `DelayQueue` returned an error.
+    DelayQueueError(TimeError),
 }
 
 /// Combines the `DelayQueue` and `Receiver` streams into a single stream.
@@ -42,9 +47,8 @@ enum InboundEvent<T: BeaconChainTypes> {
 /// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
 struct InboundEvents<T: BeaconChainTypes> {
-    delay_queue: DelayQueue<QueuedBlock<T>>,
+    pub delay_queue: DelayQueue<QueuedBlock<T>>,
     early_blocks_rx: Receiver<QueuedBlock<T>>,
-    log: Logger,
 }
 
 impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
@@ -60,12 +64,7 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
                 return Poll::Ready(Some(InboundEvent::ReadyBlock(queued_block.into_inner())));
             }
             Poll::Ready(Some(Err(e))) => {
-                error!(
-                    self.log,
-                    "Failed to poll block delay queue";
-                    "e" => ?e
-                );
-                return Poll::Ready(None);
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e)));
             }
             // TODO: this `Poll::Ready(None)` must return Pending, otherwise we dont get the events
             // on the other end of `ready_blocks_tx`... I dont understand why.
@@ -101,7 +100,6 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
         let mut inbound_events = InboundEvents {
             early_blocks_rx,
             delay_queue: DelayQueue::new(),
-            log: log.clone(),
         };
 
         loop {
@@ -176,6 +174,11 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
                         );
                     }
                 }
+                Some(InboundEvent::DelayQueueError(e)) => crit!(
+                    log,
+                    "Failed to poll block delay queue";
+                    "e" => ?e
+                ),
                 None => {
                     debug!(
                         log,
