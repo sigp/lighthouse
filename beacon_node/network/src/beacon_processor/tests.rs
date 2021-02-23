@@ -265,27 +265,7 @@ impl TestRig {
     }
 }
 
-#[test]
-fn import_gossip_block_at_current_slot() {
-    let mut rig = TestRig::new();
-
-    assert_eq!(
-        rig.chain.slot().unwrap(),
-        rig.next_block.slot(),
-        "chain should be at the correct slot"
-    );
-
-    rig.enqueue_next_block();
-
-    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
-
-    assert_eq!(
-        rig.chain.head().unwrap().beacon_block_root,
-        rig.next_block.canonical_root(),
-        "block should be imported and become head"
-    );
-}
-
+/// Blocks that arrive early should be queued for later processing.
 #[test]
 fn import_gossip_block_acceptably_early() {
     let mut rig = TestRig::new();
@@ -332,6 +312,7 @@ fn import_gossip_block_acceptably_early() {
     );
 }
 
+/// Blocks that are *too* early shouldn't got into the delay queue.
 #[test]
 fn import_gossip_block_unacceptably_early() {
     let mut rig = TestRig::new();
@@ -363,5 +344,27 @@ fn import_gossip_block_unacceptably_early() {
     assert!(
         rig.chain.head().unwrap().beacon_block_root != rig.next_block.canonical_root(),
         "block should not be imported"
+    );
+}
+
+/// Blocks that arrive on-time should be processed normally.
+#[test]
+fn import_gossip_block_at_current_slot() {
+    let mut rig = TestRig::new();
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot(),
+        "chain should be at the correct slot"
+    );
+
+    rig.enqueue_next_block();
+
+    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.head().unwrap().beacon_block_root,
+        rig.next_block.canonical_root(),
+        "block should be imported and become head"
     );
 }

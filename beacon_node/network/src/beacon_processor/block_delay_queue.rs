@@ -19,6 +19,11 @@ const TASK_NAME: &str = "beacon_processor_block_delay_queue";
 /// account for any slight drift in the system clock.
 const ADDITIONAL_DELAY: Duration = Duration::from_millis(5);
 
+/// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
+/// we signature-verify blocks before putting them in the queue *should* protect against this, but
+/// it's nice to have extra protection.
+const MAXIMUM_QUEUED_BLOCKS: usize = 16;
+
 pub struct QueuedBlock<T: BeaconChainTypes> {
     pub peer_id: PeerId,
     pub block: GossipVerifiedBlock<T>,
@@ -113,6 +118,18 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
                     }
 
                     if let Some(duration_till_slot) = slot_clock.duration_to_slot(block_slot) {
+                        // Check to ensure this won't over-fill the queue.
+                        if queued_block_roots.len() > MAXIMUM_QUEUED_BLOCKS {
+                            error!(
+                                log,
+                                "Early blocks queue is full";
+                                "queue_size" => MAXIMUM_QUEUED_BLOCKS,
+                                "msg" => "check system clock"
+                            );
+                            // Drop the block.
+                            continue;
+                        }
+
                         queued_block_roots.insert(block_root);
                         // Queue the block until the start of the appropriate slot, plus
                         // `ADDITIONAL_DELAY`.
