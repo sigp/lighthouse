@@ -15,6 +15,7 @@ use std::cmp;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use types::{
     test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, Keypair,
@@ -191,9 +192,8 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn assert_event_journal(&mut self, expected: &[&str]) {
-        let events = self
-            .environment
+    fn runtime(&mut self) -> Arc<Runtime> {
+        self.environment
             .as_mut()
             .unwrap()
             .core_context()
@@ -201,43 +201,46 @@ impl TestRig {
             .runtime()
             .upgrade()
             .unwrap()
-            .block_on(async {
-                let mut events = vec![];
+    }
 
-                let drain_future = async {
-                    loop {
-                        match self.work_journal_rx.recv().await {
-                            Some(event) => {
-                                events.push(event);
+    pub fn assert_event_journal(&mut self, expected: &[&str]) {
+        let events = self.runtime().block_on(async {
+            let mut events = vec![];
 
-                                // Break as soon as we collect the desired number of events.
-                                //
-                                // It's important to notice that we won't try and listen for any
-                                // additional events, so it's important that you try and use the
-                                // `NOTHING_TO_DO` event to ensure that you've reached the end of
-                                // the stream.
-                                if events.len() >= expected.len() {
-                                    break;
-                                }
+            let drain_future = async {
+                loop {
+                    match self.work_journal_rx.recv().await {
+                        Some(event) => {
+                            events.push(event);
+
+                            // Break as soon as we collect the desired number of events.
+                            //
+                            // It's important to notice that we won't try and listen for any
+                            // additional events, so it's important that you try and use the
+                            // `NOTHING_TO_DO` event to ensure that you've reached the end of
+                            // the stream.
+                            if events.len() >= expected.len() {
+                                break;
                             }
-                            None => break,
                         }
+                        None => break,
                     }
-                };
-
-                // Drain the expected number of events from the channel, or time out and give up.
-                tokio::select! {
-                    _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
-                        "timeout ({:?}) expired waiting for events. expected {:?} but got {:?}",
-                        STANDARD_TIMEOUT,
-                        expected,
-                        events
-                    ),
-                    _ = drain_future => {},
                 }
+            };
 
-                events
-            });
+            // Drain the expected number of events from the channel, or time out and give up.
+            tokio::select! {
+                _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
+                    "timeout ({:?}) expired waiting for events. expected {:?} but got {:?}",
+                    STANDARD_TIMEOUT,
+                    expected,
+                    events
+                ),
+                _ = drain_future => {},
+            }
+
+            events
+        });
 
         assert_eq!(
             events,
@@ -294,7 +297,64 @@ fn import_gossip_block_acceptably_early() {
 
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
+    // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
+    // and check the head in the time between the block arrived early and when its due for
+    // processing.
+    //
+    // If this causes issues we might be able to make the block delay queue add a longer delay for
+    // processing, instead of just MAXIMUM_GOSSIP_CLOCK_DISPARITY. Speak to @paulhauner if this test
+    // starts failing.
     rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
+    assert!(
+        rig.chain.head().unwrap().beacon_block_root != rig.next_block.canonical_root(),
+        "block not yet be imported"
+    );
+
+    rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.head().unwrap().beacon_block_root,
+        rig.next_block.canonical_root(),
+        "block should be imported and become head"
+    );
+}
+
+#[test]
+fn import_gossip_block_unacceptably_early() {
+    let mut rig = TestRig::new();
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1));
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    rig.enqueue_next_block();
+
+    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+
+    // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
+    // and check the head in the time between the block arrived early and when its due for
+    // processing.
+    //
+    // If this causes issues we might be able to make the block delay queue add a longer delay for
+    // processing, instead of just MAXIMUM_GOSSIP_CLOCK_DISPARITY. Speak to @paulhauner if this test
+    // starts failing.
+    rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
+    assert!(
+        rig.chain.head().unwrap().beacon_block_root != rig.next_block.canonical_root(),
+        "block not yet be imported"
+    );
 
     rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
