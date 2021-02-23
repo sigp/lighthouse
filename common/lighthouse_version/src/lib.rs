@@ -9,7 +9,7 @@ use target_info::Target;
 ///
 /// `Lighthouse/v0.2.0-1419501f2+`
 pub const VERSION: &str = git_version!(
-    args = ["--always", "--dirty=+", "--abbrev=7"],
+    args = ["--always", "--dirty=+", "--abbrev=7", "--exclude=*"],
     prefix = "Lighthouse/v1.1.3-",
     fallback = "unknown"
 );
@@ -21,4 +21,17 @@ pub const VERSION: &str = git_version!(
 /// `Lighthouse/v0.2.0-1419501f2+/x86_64-linux`
 pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, Target::arch(), Target::os())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use regex::Regex;
+
+    #[test]
+    fn version_formatting() {
+        let re = Regex::new(r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-rc.[0-9])?-[[:xdigit:]]{7}\+?$")
+            .unwrap();
+        assert!(re.is_match(VERSION), VERSION);
+    }
 }
