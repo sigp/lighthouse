@@ -46,4 +46,5 @@ slasher = { path = "../../slasher" }
 slasher_service = { path = "../../slasher/service" }
 
 [features]
-jemalloc = ["http_metrics/jemalloc"]
+# Use the system allocator instead of jemalloc. This replicates default Rust behaviour.
+sysalloc = ["http_metrics/sysalloc"]

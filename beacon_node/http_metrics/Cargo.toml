@@ -28,4 +28,5 @@ environment = { path = "../../lighthouse/environment" }
 types = { path = "../../consensus/types" }
 
 [features]
-jemalloc = ["warp_utils/jemalloc"]
+# Use the system allocator instead of jemalloc. This replicates default Rust behaviour.
+sysalloc = ["warp_utils/sysalloc"]

@@ -18,7 +18,8 @@ tokio = { version = "1.1.0", features = ["sync"] }
 headers = "0.3.2"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 lazy_static = "1.4.0"
-jemalloc-ctl = { version = "0.3.3", optional = true }
+jemalloc-ctl = { version = "0.3.3" }
 
 [features]
-jemalloc = ["jemalloc-ctl"]
+# Use the system allocator instead of jemalloc. This replicates default Rust behaviour.
+sysalloc = []

@@ -1,7 +1,7 @@
 use eth2::lighthouse::Health;
 use lighthouse_metrics::*;
 
-#[cfg(feature = "jemalloc")]
+#[cfg(not(feature = "sysalloc"))]
 use jemalloc_ctl::{arenas, epoch, stats};
 
 lazy_static::lazy_static! {
@@ -83,7 +83,7 @@ pub fn scrape_health_metrics() {
     scrape_jemalloc_metrics();
 }
 
-#[cfg(feature = "jemalloc")]
+#[cfg(not(feature = "sysalloc"))]
 pub fn scrape_jemalloc_metrics() {
     if epoch::advance().is_ok() {
         if let Ok(allocated) = stats::allocated::read() {
@@ -110,7 +110,7 @@ pub fn scrape_jemalloc_metrics() {
     }
 }
 
-#[cfg(not(feature = "jemalloc"))]
+#[cfg(feature = "sysalloc")]
 pub fn scrape_jemalloc_metrics() {
     // NO OP
 }

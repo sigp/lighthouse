@@ -5,7 +5,6 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [features]
-default = ["jemalloc"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -18,8 +17,8 @@ milagro = ["bls/milagro"]
 spec-minimal = []
 # Support spec v0.12 (used by Medalla testnet).
 spec-v12 = []
-# Use jemalloc as the global allocator
-jemalloc = ["beacon_node/jemalloc", "jemallocator", "libc", "jemalloc-sys"]
+# Use the system allocator instead of jemalloc. This replicates default Rust behaviour.
+sysalloc = ["beacon_node/sysalloc"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
@@ -44,9 +43,9 @@ directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
 remote_signer = { "path" = "../remote_signer" }
-jemallocator = { version = "0.3.2", optional = true }
-jemalloc-sys = { version = "0.3.2", optional = true }
-libc = { version = "0.2.86", optional = true }
+jemallocator = { version = "0.3.2" }
+jemalloc-sys = { version = "0.3.2" }
+libc = { version = "0.2.86" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

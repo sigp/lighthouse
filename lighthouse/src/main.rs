@@ -11,16 +11,17 @@ use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 /// Global allocator
-#[cfg(feature = "jemalloc")]
+#[cfg(not(feature = "sysalloc"))]
 #[global_allocator]
 pub static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
+#[cfg(not(feature = "sysalloc"))]
 union U {
     x: &'static u8,
     y: &'static libc::c_char,
 }
 
-#[cfg(feature = "jemalloc")]
+#[cfg(not(feature = "sysalloc"))]
 #[allow(non_upper_case_globals)]
 #[export_name = "_rjem_malloc_conf"]
 pub static malloc_conf: Option<&'static libc::c_char> = Some(unsafe {
