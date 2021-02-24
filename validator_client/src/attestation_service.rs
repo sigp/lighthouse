@@ -222,6 +222,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 );
             });
 
+        // Schedule pruning of the slashing protection database once all unaggregated
+        // attestations have (hopefully) been signed, i.e. at the same time as aggregate
+        // production.
+        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
+
         Ok(())
     }
 
@@ -565,6 +570,32 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         }
 
         Ok(())
+    }
+
+    /// Spawn a blocking task to run the slashing protection pruning process.
+    ///
+    /// Start the task at `pruning_instant` to avoid interference with other tasks.
+    fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
+        let attestation_service = self.clone();
+        let executor = self.inner.context.executor.clone();
+        let current_epoch = slot.epoch(E::slots_per_epoch());
+
+        // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
+        self.inner.context.executor.spawn(
+            async move {
+                sleep_until(pruning_instant).await;
+
+                executor.spawn_blocking(
+                    move || {
+                        attestation_service
+                            .validator_store
+                            .prune_slashing_protection_db(current_epoch, false)
+                    },
+                    "slashing_protection_pruning",
+                )
+            },
+            "slashing_protection_pre_pruning",
+        );
     }
 }
 
