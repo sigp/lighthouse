@@ -267,7 +267,7 @@ impl TestRig {
     ///
     /// ## Note
     ///
-    /// We wont attempt to listen for an more than `expected.len()` events. As such, it makes sense
+    /// We won't attempt to listen for any more than `expected.len()` events. As such, it makes sense
     /// to use the `NOTHING_TO_DO` event to ensure that execution has completed.
     pub fn assert_event_journal(&mut self, expected: &[&str]) {
         let events = self.runtime().block_on(async {
@@ -356,7 +356,7 @@ fn import_gossip_block_acceptably_early() {
     rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
     assert!(
         rig.chain.head().unwrap().beacon_block_root != rig.next_block.canonical_root(),
-        "block not yet be imported"
+        "block not yet imported"
     );
 
     rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
@@ -368,7 +368,7 @@ fn import_gossip_block_acceptably_early() {
     );
 }
 
-/// Blocks that are *too* early shouldn't got into the delay queue.
+/// Blocks that are *too* early shouldn't get into the delay queue.
 #[test]
 fn import_gossip_block_unacceptably_early() {
     let mut rig = TestRig::new(SMALL_CHAIN);

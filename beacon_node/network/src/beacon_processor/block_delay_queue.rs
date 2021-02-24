@@ -3,7 +3,7 @@
 //! When the `beacon_processor::Worker` imports a block that is acceptably early (i.e., within the
 //! gossip propagation tolerance) it will send it to this queue where it will be placed in a
 //! `DelayQueue` until the slot arrives. Once the block has been determined to be ready, it will be
-//! sent back out a channel to be processed by the `BeaconProcessor` again.
+//! sent back out on a channel to be processed by the `BeaconProcessor` again.
 //!
 //! There is the edge-case where the slot arrives before this queue manages to process it. In that
 //! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
@@ -115,7 +115,7 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
 
         loop {
             match inbound_events.next().await {
-                // Some block has been indicated as "early" and should be processed with the
+                // Some block has been indicated as "early" and should be processed when the
                 // appropriate slot arrives.
                 Some(InboundEvent::EarlyBlock(early_block)) => {
                     let block_slot = early_block.block.block.slot();
