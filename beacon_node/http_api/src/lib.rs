@@ -498,7 +498,6 @@ pub fn serve<T: BeaconChainTypes>(
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
-                            let finalized_epoch = state.finalized_checkpoint.epoch;
                             let far_future_epoch = chain.spec.far_future_epoch;
 
                             Ok(state
@@ -522,17 +521,18 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by status(es) if provided and map the result
                                 .filter_map(|(index, (validator, balance))| {
                                     let status = api_types::ValidatorStatus::from_validator(
-                                        Some(validator),
+                                        validator,
                                         epoch,
-                                        finalized_epoch,
                                         far_future_epoch,
                                     );
 
-                                    if query
-                                        .status
-                                        .as_ref()
-                                        .map_or(true, |statuses| statuses.0.contains(&status))
-                                    {
+                                    let status_matches =
+                                        query.status.as_ref().map_or(true, |statuses| {
+                                            statuses.0.contains(&status)
+                                                || statuses.0.contains(&status.superstatus())
+                                        });
+
+                                    if status_matches {
                                         Some(api_types::ValidatorData {
                                             index: index as u64,
                                             balance: *balance,
@@ -577,16 +577,14 @@ pub fn serve<T: BeaconChainTypes>(
                                     let validator = state.validators.get(index)?;
                                     let balance = *state.balances.get(index)?;
                                     let epoch = state.current_epoch();
-                                    let finalized_epoch = state.finalized_checkpoint.epoch;
                                     let far_future_epoch = chain.spec.far_future_epoch;
 
                                     Some(api_types::ValidatorData {
                                         index: index as u64,
                                         balance,
                                         status: api_types::ValidatorStatus::from_validator(
-                                            Some(validator),
+                                            validator,
                                             epoch,
-                                            finalized_epoch,
                                             far_future_epoch,
                                         ),
                                         validator: validator.clone(),
