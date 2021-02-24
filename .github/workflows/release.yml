@@ -30,6 +30,8 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
         steps:
             - uses: actions/checkout@v2
+            - name: Update Rust
+              run: rustup update stable
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
