@@ -128,7 +128,7 @@ pub fn spawn_block_delay_queue<T: BeaconChainTypes>(
 
                     if let Some(duration_till_slot) = slot_clock.duration_to_slot(block_slot) {
                         // Check to ensure this won't over-fill the queue.
-                        if queued_block_roots.len() > MAXIMUM_QUEUED_BLOCKS {
+                        if queued_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
                             error!(
                                 log,
                                 "Early blocks queue is full";
