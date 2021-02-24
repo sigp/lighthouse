@@ -575,9 +575,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Spawn a blocking task to run the slashing protection pruning process.
     ///
     /// Start the task at `pruning_instant` to avoid interference with other tasks.
-    ///
-    /// The first run could take several minutes on a DB for 1000s of validators, during
-    /// which time CRITs will be thrown by other tasks trying to access slashing protection.
     fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
         let attestation_service = self.clone();
         let executor = self.inner.context.executor.clone();
@@ -592,7 +589,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     move || {
                         attestation_service
                             .validator_store
-                            .prune_slashing_protection_db(current_epoch)
+                            .prune_slashing_protection_db(current_epoch, false)
                     },
                     "slashing_protection_pruning",
                 )

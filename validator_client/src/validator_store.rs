@@ -370,8 +370,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Prune the slashing protection database so that it remains performant.
     ///
     /// This function will only do actual pruning periodically, so it should usually be
-    /// cheap to call.
-    pub fn prune_slashing_protection_db(&self, current_epoch: Epoch) {
+    /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
+    /// runs.
+    pub fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool) {
         // Attempt to prune every SLASHING_PROTECTION_HISTORY_EPOCHs, with a tolerance for
         // missing the epoch that aligns exactly.
         let mut last_prune = self.slashing_protection_last_prune.lock();
@@ -381,7 +382,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             return;
         }
 
-        info!(self.log, "Pruning slashing protection DB"; "epoch" => current_epoch);
+        if first_run {
+            info!(
+                self.log,
+                "Pruning slashing protection DB";
+                "epoch" => current_epoch,
+                "msg" => "pruning may take several minutes the first time it runs"
+            );
+        } else {
+            info!(self.log, "Pruning slashing protection DB"; "epoch" => current_epoch);
+        }
 
         let _timer = metrics::start_timer(&metrics::SLASHING_PROTECTION_PRUNE_TIMES);
 
