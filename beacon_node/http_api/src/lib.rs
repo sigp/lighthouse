@@ -872,11 +872,35 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone());
 
     // GET beacon/blocks/{block_id}
-    let get_beacon_block = beacon_blocks_path.clone().and(warp::path::end()).and_then(
-        |block_id: BlockId, chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || block_id.block(&chain).map(api_types::GenericResponse::from))
-        },
-    );
+    let get_beacon_block = beacon_blocks_path
+        .clone()
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |block_id: BlockId,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let block = block_id.block(&chain)?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(block.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(
+                            warp::reply::json(&api_types::GenericResponseRef::from(&block))
+                                .into_response(),
+                        ),
+                    }
+                })
+            },
+        );
 
     // GET beacon/blocks/{block_id}/root
     let get_beacon_block_root = beacon_blocks_path

@@ -955,16 +955,18 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let result = self
+            let expected = self.get_block(block_id);
+
+            let json_result = self
                 .client
                 .get_beacon_blocks(block_id)
                 .await
                 .unwrap()
                 .map(|res| res.data);
+            assert_eq!(json_result, expected, "{:?}", block_id);
 
-            let expected = self.get_block(block_id);
-
-            assert_eq!(result, expected, "{:?}", block_id);
+            let ssz_result = self.client.get_beacon_blocks_ssz(block_id).await.unwrap();
+            assert_eq!(ssz_result, expected, "{:?}", block_id);
         }
 
         self
