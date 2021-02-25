@@ -3,6 +3,7 @@ extern crate log;
 mod change_genesis_time;
 mod check_deposit_data;
 mod deploy_deposit_contract;
+mod deposit_insecure_validators;
 mod eth1_genesis;
 mod generate_bootnode_enr;
 mod insecure_validators;
