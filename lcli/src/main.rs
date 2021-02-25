@@ -479,19 +479,19 @@ fn main() {
                         .help("Produces validators in the range of 0..count."),
                 )
                 .arg(
-                    Arg::with_name("validators-dir")
-                        .long("validators-dir")
-                        .value_name("VALIDATOR_DIR")
+                    Arg::with_name("base-dir")
+                        .long("base-dir")
+                        .value_name("BASE_DIR")
                         .takes_value(true)
-                        .help("The directory for storing validators."),
+                        .help("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
-                    Arg::with_name("secrets-dir")
-                        .long("secrets-dir")
-                        .value_name("SECRETS_DIR")
+                    Arg::with_name("node-count")
+                        .long("node-count")
+                        .value_name("NODE_COUNT")
                         .takes_value(true)
-                        .help("The directory for storing secrets."),
-                ),
+                        .help("The number of nodes to divide the validator keys to"),
+                )
         )
         .get_matches();
 
