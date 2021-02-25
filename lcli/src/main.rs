@@ -377,6 +377,13 @@ fn main() {
                         ),
                 )
                 .arg(
+                    Arg::with_name("eth1-id")
+                        .long("eth1-id")
+                        .value_name("ETH1_ID")
+                        .takes_value(true)
+                        .help("The chain id and network id for the eth1 testnet."),
+                )
+                .arg(
                     Arg::with_name("deposit-contract-address")
                         .long("deposit-contract-address")
                         .value_name("ETH1_ADDRESS")

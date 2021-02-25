@@ -8,11 +8,20 @@
 source ./vars.env
 
 lcli \
+	deploy-deposit-contract \
+	--eth1-http http://localhost:8545 \
+	--confirmations 1 \
+	--validator-count $VALIDATOR_COUNT
+
+lcli \
 	--spec mainnet \
 	new-testnet \
-	--deposit-contract-address 1234567890123456789012345678901234567890 \
+	--deposit-contract-address $DEPOSIT_CONTRACT_ADDRESS \
 	--testnet-dir $TESTNET_DIR \
 	--min-genesis-active-validator-count $VALIDATOR_COUNT \
+	--genesis-delay $GENESIS_DELAY
+	--genesis-fork-version $GENESIS_FORK_VERSION \
+	--eth1-id 4242 \
 	--force
 
 echo Specification generated at $TESTNET_DIR.
@@ -21,8 +30,8 @@ echo "Generating $VALIDATOR_COUNT validators concurrently... (this may take a wh
 lcli \
 	insecure-validators \
 	--count $VALIDATOR_COUNT \
-	--validators-dir $VALIDATORS_DIR \
-	--secrets-dir $SECRETS_DIR
+	--base-dir $DATADIR \
+	--node-count $BEACON_NODE_COUNT
 
 echo Validators generated at $VALIDATORS_DIR with keystore passwords at $SECRETS_DIR.
 echo "Building genesis state... (this might take a while)"

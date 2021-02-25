@@ -48,6 +48,8 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     maybe_update!("ejection-balance", ejection_balance);
     maybe_update!("eth1-follow-distance", eth1_follow_distance);
     maybe_update!("genesis-delay", genesis_delay);
+    maybe_update!("eth1-id", deposit_chain_id);
+    maybe_update!("eth1-id", deposit_network_id);
 
     if let Some(v) = parse_ssz_optional(matches, "genesis-fork-version")? {
         spec.genesis_fork_version = v;
