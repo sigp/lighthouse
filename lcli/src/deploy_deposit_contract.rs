@@ -6,12 +6,10 @@ use deposit_contract::{
 use environment::Environment;
 use types::EthSpec;
 
-use ethers::{
-    contract::ContractFactory,
-    core::types::{Address, TransactionRequest},
-    providers::{Http, Provider},
-    utils::CompiledContract,
-};
+use ethers_contract::ContractFactory;
+use ethers_core::types::{Address, TransactionRequest};
+use ethers_core::utils::CompiledContract;
+use ethers_providers::{Http, Provider};
 use std::convert::TryFrom;
 use std::sync::Arc;
 

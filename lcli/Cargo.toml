@@ -38,5 +38,6 @@ directory = { path = "../common/directory" }
 account_utils = { path = "../common/account_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 ethers-contract = "0.2.1"
-ethers = "0.2.1"
+ethers-core = "0.2.1"
+ethers-providers = "0.2.1"
 serde_json = "1.0.62"
