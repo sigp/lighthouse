@@ -3,7 +3,6 @@ extern crate log;
 mod change_genesis_time;
 mod check_deposit_data;
 mod deploy_deposit_contract;
-mod deposit_insecure_validators;
 mod eth1_genesis;
 mod generate_bootnode_enr;
 mod insecure_validators;
@@ -172,21 +171,21 @@ fn main() {
                         .required(true)
                 )
                 .arg(
-                    Arg::with_name("from-address")
-                        .long("from-address")
-                        .short("f")
-                        .value_name("FROM_ETH1_ADDRESS")
-                        .help("The address that will submit the contract creation. Must be unlocked.")
-                        .takes_value(true)
-                        .required(true)
-                )
-                .arg(
                     Arg::with_name("confirmations")
                         .value_name("INTEGER")
                         .long("confirmations")
                         .takes_value(true)
                         .default_value("3")
                         .help("The number of block confirmations before declaring the contract deployed."),
+                )
+                .arg(
+                    Arg::with_name("validator-count")
+                        .value_name("VALIDATOR_COUNT")
+                        .long("validator-count")
+                        .takes_value(true)
+                        .help("If present, makes `validator_count` number of INSECURE deterministic deposits after \
+                                deploying the deposit contract."
+                        ),
                 )
         )
         .subcommand(

@@ -54,7 +54,7 @@ impl GanacheEth1Instance {
 #[derive(Clone, Debug)]
 pub struct DepositContract {
     web3: Web3<Http>,
-    contract: Contract<Http>,
+    pub contract: Contract<Http>,
 }
 
 impl DepositContract {
