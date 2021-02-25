@@ -2,6 +2,7 @@
 extern crate log;
 mod change_genesis_time;
 mod check_deposit_data;
+mod deploy_deposit_contract;
 mod eth1_genesis;
 mod generate_bootnode_enr;
 mod insecure_validators;
@@ -154,6 +155,38 @@ fn main() {
                         .required(true)
                         .help("SSZ encoded as 0x-prefixed hex"),
                 ),
+        )
+        .subcommand(
+            SubCommand::with_name("deploy-deposit-contract")
+                .about(
+                    "Deploy a testing eth1 deposit contract.",
+                )
+                .arg(
+                    Arg::with_name("eth1-http")
+                        .long("eth1-http")
+                        .short("e")
+                        .value_name("ETH1_HTTP_PATH")
+                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
+                        .takes_value(true)
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("from-address")
+                        .long("from-address")
+                        .short("f")
+                        .value_name("FROM_ETH1_ADDRESS")
+                        .help("The address that will submit the contract creation. Must be unlocked.")
+                        .takes_value(true)
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("confirmations")
+                        .value_name("INTEGER")
+                        .long("confirmations")
+                        .takes_value(true)
+                        .default_value("3")
+                        .help("The number of block confirmations before declaring the contract deployed."),
+                )
         )
         .subcommand(
             SubCommand::with_name("eth1-genesis")
@@ -539,6 +572,10 @@ fn run<T: EthSpec>(
         }
         ("pretty-hex", Some(matches)) => {
             run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+        }
+        ("deploy-deposit-contract", Some(matches)) => {
+            deploy_deposit_contract::run::<T>(env, matches)
+                .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
