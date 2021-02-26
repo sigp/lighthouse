@@ -30,7 +30,9 @@ lcli \
 	--min-genesis-time $GENESIS_TIME \
 	--genesis-delay $GENESIS_DELAY \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
-	--eth1-id 4242 \
+	--eth1-id $BOOTNODE_PORT \
+	--eth1-follow-distance 1 \
+	--seconds-per-eth1-block 1 \
 	--force
 
 echo Specification generated at $TESTNET_DIR.
@@ -42,14 +44,14 @@ lcli \
 	--base-dir $DATADIR \
 	--node-count $BEACON_NODE_COUNT
 
-echo Validators generated at $VALIDATORS_DIR with keystore passwords at $SECRETS_DIR.
+echo Validators generated with keystore passwords at $DATADIR.
 echo "Building genesis state... (this might take a while)"
 
 lcli \
 	--spec mainnet \
 	interop-genesis \
-	--genesis-time $genesis \
+	--genesis-time $GENESIS_TIME \
 	--testnet-dir $TESTNET_DIR \
-	$VALIDATOR_COUNT
+	$GENESIS_VALIDATOR_COUNT
 
 echo Created genesis state in $TESTNET_DIR

@@ -377,6 +377,13 @@ fn main() {
                         ),
                 )
                 .arg(
+                    Arg::with_name("seconds-per-eth1-block")
+                        .long("seconds-per-eth1-block")
+                        .value_name("SECONDS")
+                        .takes_value(true)
+                        .help("Eth1 block time"),
+                )
+                .arg(
                     Arg::with_name("eth1-id")
                         .long("eth1-id")
                         .value_name("ETH1_ID")
