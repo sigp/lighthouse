@@ -1,12 +1,12 @@
 use crate::wallet::create::{PASSWORD_FLAG, STDIN_INPUTS_FLAG};
 use account_utils::{
     eth2_keystore::Keystore,
-    is_password_sufficiently_complex, read_password_from_user, strip_off_newlines,
+    read_password_from_user,
     validator_definitions::{
         recursively_find_voting_keystores, ValidatorDefinition, ValidatorDefinitions,
         CONFIG_FILENAME,
     },
-    PlainText, ZeroizeString,
+    ZeroizeString,
 };
 use clap::{App, Arg, ArgMatches};
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
@@ -150,11 +150,11 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
     // Initialize to the password at the given path if provided, or else `None`.
     let mut previous_password: Option<ZeroizeString> = keystore_password_path
-        .map(|path| {
-            let password: ZeroizeString = fs::read(&path)
-                .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
-                .map(|bytes| strip_off_newlines(bytes).into())?;
-            Ok(password)
+        .map::<Result<ZeroizeString, String>, _>(|path| {
+            let password: ZeroizeString = fs::read_to_string(&path)
+                .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
+                .into();
+            Ok(password.without_newlines())
         })
         .transpose()?;
 
