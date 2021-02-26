@@ -978,6 +978,38 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET lighthouse/seen_validators?ids,epochs`
+    pub async fn get_lighthouse_seen_validators(
+        &self,
+        pubkeys: &[PublicKey],
+        epochs: &[Epoch],
+    ) -> Result<GenericResponse<bool>, Error> {
+        let mut path = self.server.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("seen_validators");
+
+        let pubkey_string = pubkeys
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let epoch_string = epochs
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        path.query_pairs_mut()
+            .append_pair("ids", &pubkey_string)
+            .append_pair("epochs", &epoch_string);
+
+        self.get(path).await
+    }
+
     /// `POST validator/duties/attester/{epoch}`
     pub async fn post_validator_duties_attester(
         &self,

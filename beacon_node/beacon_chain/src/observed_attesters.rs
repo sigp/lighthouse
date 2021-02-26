@@ -279,7 +279,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
     /// This is useful for doppelganger detection.
     pub fn contains_any_at_epoch(&self, validator_indices: &[usize], epoch: &Epoch) -> bool {
         self.items.get(&epoch).map_or(false, |item| {
-            validator_indices.iter().any(|index|item.contains(*index))
+            validator_indices.iter().any(|index| item.contains(*index))
         })
     }
 }

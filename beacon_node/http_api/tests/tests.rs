@@ -1958,6 +1958,49 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_lighthouse_seen_validators(self) -> Self {
+        let result = self
+            .client
+            .get_lighthouse_seen_validators(
+                self.validator_keypairs
+                    .iter()
+                    .cloned()
+                    .map(|keypair| keypair.pk)
+                    .collect::<Vec<PublicKey>>()
+                    .as_slice(),
+                &[self.chain.epoch().unwrap()],
+            )
+            .await
+            .unwrap()
+            .data;
+
+        assert!(!result);
+
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let result = self
+            .client
+            .get_lighthouse_seen_validators(
+                self.validator_keypairs
+                    .iter()
+                    .cloned()
+                    .map(|keypair| keypair.pk)
+                    .collect::<Vec<PublicKey>>()
+                    .as_slice(),
+                &[self.chain.epoch().unwrap()],
+            )
+            .await
+            .unwrap()
+            .data;
+
+        assert!(result);
+
+        self
+    }
+
     pub async fn test_get_events(self) -> Self {
         // Subscribe to all events
         let topics = vec![
@@ -2409,5 +2452,7 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_beacon_states_ssz()
         .await
         .test_get_lighthouse_staking()
+        .await
+        .test_get_lighthouse_seen_validators()
         .await;
 }

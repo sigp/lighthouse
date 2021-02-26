@@ -256,7 +256,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-
     /// Persists the head tracker and fork choice.
     ///
     /// We do it atomically even though no guarantees need to be made about blocks from
@@ -2637,7 +2636,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if attestations have been seen from any of the given `validator_indices` at the
     /// given `epoch`
     pub fn doppelgangers_exist_at_epoch(&self, validator_indices: &[usize], epoch: &Epoch) -> bool {
-        self.observed_attesters.read().contains_any_at_epoch(validator_indices, epoch) || self.observed_aggregators.read().contains_any_at_epoch(validator_indices, epoch)
+        self.observed_attesters
+            .read()
+            .contains_any_at_epoch(validator_indices, epoch)
+            || self
+                .observed_aggregators
+                .read()
+                .contains_any_at_epoch(validator_indices, epoch)
     }
 }
 

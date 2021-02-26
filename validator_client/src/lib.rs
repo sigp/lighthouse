@@ -44,7 +44,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
-use types::{EthSpec, Fork, Hash256};
+use types::{Epoch, EthSpec, Fork, Hash256};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -53,8 +53,16 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
+/// The time between polls when waiting for beacon node to sync.
+const WAITING_FOR_SYNC_POLL_TIME: Duration = Duration::from_secs(12);
+
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
+
+/// The amount of time we will spend scanning the network for doppelgangers before attesting.
+///
+/// This must be greater than zero
+pub const DOPPELGANGER_DETECTION_EPOCHS: u64 = 2;
 
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
@@ -291,21 +299,55 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
 
-        let block_service = BlockServiceBuilder::new()
-            .slot_clock(slot_clock.clone())
-            .validator_store(validator_store.clone())
-            .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("block".into()))
-            .graffiti(config.graffiti)
-            .build()?;
+        // Configure doppelganger detection if enabled.
+        let (block_service, attestation_service) = if config.doppelganger_detection {
+            // block until node is synced
+            tokio::select! {
+                result = poll_whilst_waiting_for_sync(&beacon_nodes, context.log()) => result?,
+            };
+            let doppelganger_detection_epoch = slot_clock
+                .now()
+                .ok_or("Unable to read slot")?
+                .epoch(T::slots_per_epoch())
+                + Epoch::new(DOPPELGANGER_DETECTION_EPOCHS);
 
-        let attestation_service = AttestationServiceBuilder::new()
-            .duties_service(duties_service.clone())
-            .slot_clock(slot_clock)
-            .validator_store(validator_store.clone())
-            .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("attestation".into()))
-            .build()?;
+            let block_service = BlockServiceBuilder::new()
+                .slot_clock(slot_clock.clone())
+                .validator_store(validator_store.clone())
+                .beacon_nodes(beacon_nodes.clone())
+                .runtime_context(context.service_context("block".into()))
+                .graffiti(config.graffiti)
+                .doppelganger_detection_epoch(doppelganger_detection_epoch)
+                .build()?;
+
+            let attestation_service = AttestationServiceBuilder::new()
+                .duties_service(duties_service.clone())
+                .slot_clock(slot_clock.clone())
+                .validator_store(validator_store.clone())
+                .beacon_nodes(beacon_nodes.clone())
+                .runtime_context(context.service_context("attestation".into()))
+                .doppelganger_detection_epoch(doppelganger_detection_epoch)
+                .build()?;
+            (block_service, attestation_service)
+        } else {
+            let block_service = BlockServiceBuilder::new()
+                .slot_clock(slot_clock.clone())
+                .validator_store(validator_store.clone())
+                .beacon_nodes(beacon_nodes.clone())
+                .runtime_context(context.service_context("block".into()))
+                .graffiti(config.graffiti)
+                .build()?;
+
+            let attestation_service = AttestationServiceBuilder::new()
+                .duties_service(duties_service.clone())
+                .slot_clock(slot_clock.clone())
+                .validator_store(validator_store.clone())
+                .beacon_nodes(beacon_nodes.clone())
+                .runtime_context(context.service_context("attestation".into()))
+                .build()?;
+
+            (block_service, attestation_service)
+        };
 
         // Wait until genesis has occured.
         //
@@ -578,5 +620,43 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
         }
 
         sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
+    }
+}
+
+/// Request sync data from the node, looping back and trying again on failure. Exit once the node
+/// is synced.
+async fn poll_whilst_waiting_for_sync<E: EthSpec>(
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+    log: &Logger,
+) -> Result<(), String> {
+    loop {
+        match beacon_nodes
+            .first_success(RequireSynced::No, |beacon_node| async move {
+                beacon_node.get_node_syncing().await
+            })
+            .await
+        {
+            Ok(sync_data) => {
+                if sync_data.data.is_syncing {
+                    info!(
+                        log,
+                        "Waiting for beacon node to sync";
+                        "head_slot" => sync_data.data.head_slot,
+                        "sync_distance" => sync_data.data.sync_distance
+                    );
+                } else {
+                    break Ok(());
+                }
+            }
+            Err(e) => {
+                error!(
+                    log,
+                    "Error polling beacon node for sync status";
+                    "error" => %e
+                );
+            }
+        }
+
+        sleep(WAITING_FOR_SYNC_POLL_TIME).await;
     }
 }
