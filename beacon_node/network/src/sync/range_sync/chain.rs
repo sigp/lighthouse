@@ -96,7 +96,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     validated_batches: u64,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: Sender<BeaconWorkEvent<T>>,
 
     /// The chain's log.
     log: slog::Logger,
@@ -123,7 +123,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
-        beacon_processor_send: Sender<BeaconWorkEvent<T::EthSpec>>,
+        beacon_processor_send: Sender<BeaconWorkEvent<T>>,
         log: &slog::Logger,
     ) -> Self {
         let mut peers = FnvHashMap::default();
@@ -963,7 +963,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if self
             .to_be_downloaded
             .start_slot(T::EthSpec::slots_per_epoch())
-            > self.target_head_slot
+            >= self.target_head_slot
         {
             return None;
         }

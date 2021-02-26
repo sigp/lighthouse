@@ -215,6 +215,14 @@ lazy_static! {
         "beacon_processor_gossip_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
     );
+    pub static ref BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_gossip_block_requeued_total",
+        "Total number of gossip blocks that arrived early and were re-queued for later processing."
+    );
+    pub static ref BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS: Result<Histogram> = try_create_histogram(
+        "beacon_processor_gossip_block_early_seconds",
+        "Whenever a gossip block is received early this metrics is set to how early that block was."
+    );
     // Gossip Exits.
     pub static ref BEACON_PROCESSOR_EXIT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_exit_queue_total",

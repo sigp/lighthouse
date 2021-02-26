@@ -37,6 +37,10 @@ impl ManualSlotClock {
             self.genesis_duration + self.slot_duration * slots_since_genesis;
     }
 
+    pub fn set_current_time(&self, duration: Duration) {
+        *self.current_time.write() = duration;
+    }
+
     pub fn advance_slot(&self) {
         self.set_slot(self.now().unwrap().as_u64() + 1)
     }

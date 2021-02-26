@@ -8,6 +8,7 @@ use types::{
 pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
+#[derive(Debug)]
 pub struct PreProcessingSnapshot<T: EthSpec> {
     /// This state is equivalent to the `self.beacon_block.state_root()` state that has been
     /// advanced forward one slot using `per_slot_processing`. This state is "primed and ready" for

@@ -638,7 +638,6 @@ impl ApiTester {
 
                     let expected = state_opt.map(|state| {
                         let epoch = state.current_epoch();
-                        let finalized_epoch = state.finalized_checkpoint.epoch;
                         let far_future_epoch = self.chain.spec.far_future_epoch;
 
                         let mut validators = Vec::with_capacity(validator_indices.len());
@@ -649,12 +648,14 @@ impl ApiTester {
                             }
                             let validator = state.validators[i as usize].clone();
                             let status = ValidatorStatus::from_validator(
-                                Some(&validator),
+                                &validator,
                                 epoch,
-                                finalized_epoch,
                                 far_future_epoch,
                             );
-                            if statuses.contains(&status) || statuses.is_empty() {
+                            if statuses.contains(&status)
+                                || statuses.is_empty()
+                                || statuses.contains(&status.superstatus())
+                            {
                                 validators.push(ValidatorData {
                                     index: i as u64,
                                     balance: state.balances[i as usize],
@@ -706,16 +707,14 @@ impl ApiTester {
 
                     let expected = {
                         let epoch = state.current_epoch();
-                        let finalized_epoch = state.finalized_checkpoint.epoch;
                         let far_future_epoch = self.chain.spec.far_future_epoch;
 
                         ValidatorData {
                             index: i as u64,
                             balance: state.balances[i],
                             status: ValidatorStatus::from_validator(
-                                Some(&validator),
+                                &validator,
                                 epoch,
-                                finalized_epoch,
                                 far_future_epoch,
                             ),
                             validator: validator.clone(),
@@ -956,16 +955,18 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let result = self
+            let expected = self.get_block(block_id);
+
+            let json_result = self
                 .client
                 .get_beacon_blocks(block_id)
                 .await
                 .unwrap()
                 .map(|res| res.data);
+            assert_eq!(json_result, expected, "{:?}", block_id);
 
-            let expected = self.get_block(block_id);
-
-            assert_eq!(result, expected, "{:?}", block_id);
+            let ssz_result = self.client.get_beacon_blocks_ssz(block_id).await.unwrap();
+            assert_eq!(ssz_result, expected, "{:?}", block_id);
         }
 
         self
@@ -1444,18 +1445,19 @@ impl ApiTester {
             vec![],
             vec![ValidatorStatus::Active],
             vec![
-                ValidatorStatus::Unknown,
-                ValidatorStatus::WaitingForEligibility,
-                ValidatorStatus::WaitingForFinality,
-                ValidatorStatus::WaitingInQueue,
-                ValidatorStatus::StandbyForActive,
-                ValidatorStatus::Active,
-                ValidatorStatus::ActiveAwaitingVoluntaryExit,
-                ValidatorStatus::ActiveAwaitingSlashedExit,
-                ValidatorStatus::ExitedVoluntarily,
+                ValidatorStatus::PendingInitialized,
+                ValidatorStatus::PendingQueued,
+                ValidatorStatus::ActiveOngoing,
+                ValidatorStatus::ActiveExiting,
+                ValidatorStatus::ActiveSlashed,
+                ValidatorStatus::ExitedUnslashed,
                 ValidatorStatus::ExitedSlashed,
-                ValidatorStatus::Withdrawable,
-                ValidatorStatus::Withdrawn,
+                ValidatorStatus::WithdrawalPossible,
+                ValidatorStatus::WithdrawalDone,
+                ValidatorStatus::Active,
+                ValidatorStatus::Pending,
+                ValidatorStatus::Exited,
+                ValidatorStatus::Withdrawal,
             ],
         ];
         interesting

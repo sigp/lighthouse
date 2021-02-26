@@ -385,6 +385,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
 /// the p2p network.
+#[derive(Debug)]
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,

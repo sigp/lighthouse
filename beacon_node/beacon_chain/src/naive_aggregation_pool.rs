@@ -228,6 +228,11 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         outcome
     }
 
+    /// Returns the total number of attestations stored in `self`.
+    pub fn num_attestations(&self) -> usize {
+        self.maps.iter().map(|(_, map)| map.len()).sum()
+    }
+
     /// Returns an aggregated `Attestation` with the given `data`, if any.
     pub fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
         self.maps.get(&data.slot).and_then(|map| map.get(data))

@@ -104,7 +104,8 @@ impl From<SQLError> for NotSafe {
 
 impl From<r2d2::Error> for NotSafe {
     fn from(error: r2d2::Error) -> Self {
-        NotSafe::SQLPoolError(format!("{:?}", error))
+        // Use `Display` impl to print "timed out waiting for connection"
+        NotSafe::SQLPoolError(format!("{}", error))
     }
 }
 
