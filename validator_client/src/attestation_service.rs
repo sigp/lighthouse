@@ -140,22 +140,31 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let executor = self.context.executor.clone();
 
         let interval_fut = async move {
-            while let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                // TODO(pawan): double check timing here
-                sleep(duration_to_next_slot + slot_duration / 3).await;
-                let log = self.context.log();
+            loop {
+                match self.slot_clock.duration_to_next_slot() {
+                    Some(duration_to_next_slot) => {
+                        sleep(duration_to_next_slot + slot_duration / 3).await;
+                        let log = self.context.log();
 
-                if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
-                    crit!(
-                        log,
-                        "Failed to spawn attestation tasks";
-                        "error" => e
-                    )
-                } else {
-                    trace!(
-                        log,
-                        "Spawned attestation tasks";
-                    )
+                        if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                            crit!(
+                                log,
+                                "Failed to spawn attestation tasks";
+                                "error" => e
+                            )
+                        } else {
+                            trace!(
+                                log,
+                                "Spawned attestation tasks";
+                            )
+                        }
+                    }
+                    None => {
+                        error!(log, "Failed to read slot clock");
+                        // If we can't read the slot clock, just wait another slot.
+                        sleep(slot_duration).await;
+                        continue;
+                    }
                 }
             }
         };

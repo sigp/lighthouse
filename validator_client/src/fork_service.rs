@@ -4,8 +4,8 @@ use environment::RuntimeContext;
 use eth2::types::StateId;
 use futures::future::FutureExt;
 use parking_lot::RwLock;
-use slog::Logger;
 use slog::{debug, trace};
+use slog::{error, Logger};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -145,13 +145,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             .spawn(self.clone().do_update().map(|_| ()), "fork service update");
 
         let executor = context.executor.clone();
+        let log = context.log().clone();
+        let spec = E::default_spec();
 
         let interval_fut = async move {
-            while let Some(duration_to_next_epoch) =
-                self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
-            {
-                sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
-                self.clone().do_update().await.ok();
+            loop {
+                match self.slot_clock.duration_to_next_epoch(E::slots_per_epoch()) {
+                    Some(duration_to_next_epoch) => {
+                        sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
+                        self.clone().do_update().await.ok();
+                    }
+                    None => {
+                        error!(log, "Failed to read slot clock");
+                        // If we can't read the slot clock, just wait another slot.
+                        sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+                        continue;
+                    }
+                }
             }
         };
 

@@ -474,13 +474,23 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         );
 
         let executor = self.inner.context.executor.clone();
+        let log = self.context.log().clone();
 
         let interval_fut = async move {
-            while let Some(duration_to_next_slot) = self.clone().slot_clock.duration_to_next_slot()
-            {
-                sleep(duration_to_next_slot + TIME_DELAY_FROM_SLOT).await;
-                self.clone()
-                    .spawn_duties_tasks(&mut block_service_tx, &spec);
+            loop {
+                match self.clone().slot_clock.duration_to_next_slot() {
+                    Some(duration_to_next_slot) => {
+                        sleep(duration_to_next_slot + TIME_DELAY_FROM_SLOT).await;
+                        self.clone()
+                            .spawn_duties_tasks(&mut block_service_tx, &spec);
+                    }
+                    None => {
+                        error!(log, "Failed to read slot clock");
+                        // If we can't read the slot clock, just wait another slot.
+                        sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+                        continue;
+                    }
+                }
             }
         };
 
