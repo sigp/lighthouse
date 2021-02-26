@@ -27,7 +27,7 @@ create the testnet directory, genesis state and validator keys with:
 ./setup.sh
 ```
 
-Generate bootnode enr and start a discv5 bootnode
+Generate bootnode enr and start a discv5 bootnode so that multiple beacon nodes can find each other
 ```bash
 ./bootnode.sh
 ```
@@ -53,13 +53,15 @@ e.g. to attach to the above created beacon node
 ./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000
 ```
 
-In a new terminal, start the second beacon node which will peer with the first:
-
-```bash
-./second_beacon_node.sh
-```
+You can create additional beacon node and validator client instances with appropriate parameters.
 
 ## Additional Info
+
+### Adjusting number and distribution of validators
+The `VALIDATOR_COUNT` parameter is used to specify the number of insecure validator keystores to generate and make deposits for.
+The `NODE_COUNT` parameter is used to adjust the division of these generated keys among separate validator client instances.
+For e.g. for `VALIDATOR_COUNT=80` and `NODE_COUNT=4`, the validator keys are distributed over 4 datadirs with 20 keystores per datadir. The datadirs are located in `$DATADIR/node_{i}` which can be passed to separate validator client
+instances using the `--datadir` parameter.
 
 ### Starting fresh
 
