@@ -23,6 +23,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("port")
+                .long("port")
                 .value_name("PORT")
                 .help("The UDP port to listen on.")
                 .default_value("9000")

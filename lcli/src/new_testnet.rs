@@ -3,7 +3,7 @@ use clap_utils::{
     parse_optional, parse_path_with_default_in_home_dir, parse_required, parse_ssz_optional,
 };
 use eth2_network_config::Eth2NetworkConfig;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 use types::{Address, EthSpec, YamlConfig};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
@@ -36,6 +36,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     }
 
     spec.deposit_contract_address = deposit_contract_address;
+    spec.eth1_follow_distance = 16;
 
     maybe_update!("min-genesis-time", min_genesis_time);
     maybe_update!("min-deposit-amount", min_deposit_amount);

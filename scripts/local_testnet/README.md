@@ -1,38 +1,56 @@
 # Simple Local Testnet
 
-These scripts allow for running a small local testnet with two beacon nodes and
-one validator client. This setup can be useful for testing and development.
+These scripts allow for running a small local testnet with multiple beacon nodes and validator clients.
+This setup can be useful for testing and development.
 
 ## Requirements
 
-The scripts require `lci` and `lighthouse` to be installed on `PATH`. From the
+The scripts require `lcli` and `lighthouse` to be installed on `PATH`. From the
 root of this repository, run:
 
 ```bash
-cargo install --path lighthouse --force --locked
-cargo install --path lcli --force --locked
+make
+make install-lcli
 ```
 
 ## Starting the testnet
 
-Assuming you are happy with the configuration in `var.env`, create the testnet
-directory, genesis state and validator keys with:
+Start a local eth1 ganache server
+```bash
+./ganache_test_node.sh
+```
+
+Assuming you are happy with the configuration in `var.env`, deploy the deposit contract, make deposits, 
+create the testnet directory, genesis state and validator keys with:
 
 ```bash
 ./setup.sh
 ```
 
-Start the first beacon node:
+Generate bootnode enr and start a discv5 bootnode
+```bash
+./bootnode.sh
+```
+
+Start a beacon node:
 
 ```bash
-./beacon_node.sh
+./beacon_node.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <OPTIONAL-DEBUG-LEVEL>
+```
+e.g.
+```bash
+./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000
 ```
 
 In a new terminal, start the validator client which will attach to the first
 beacon node:
 
 ```bash
-./validator_client.sh
+./validator_client.sh <DATADIR> <BEACON-NODE-HTTP> <OPTIONAL-DEBUG-LEVEL>
+```
+e.g. to attach to the above created beacon node
+```bash
+./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000
 ```
 
 In a new terminal, start the second beacon node which will peer with the first:
@@ -43,17 +61,6 @@ In a new terminal, start the second beacon node which will peer with the first:
 
 ## Additional Info
 
-### Debug level
-
-The beacon nodes and validator client have their `--debug-level` set to `info`.
-Specify a different debug level like this:
-
-```bash
-./validator_client.sh debug
-./beacon_node.sh trace
-./second_beacon_node.sh warn
-```
-
 ### Starting fresh
 
 Delete the current testnet and all related files using:
@@ -61,7 +68,6 @@ Delete the current testnet and all related files using:
 ```bash
 ./clean.sh
 ```
-
 
 ### Updating the genesis time of the beacon state
 

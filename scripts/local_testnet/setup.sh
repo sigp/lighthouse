@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 
 #
+# Deploys the deposit contract and makes deposits for $VALIDATOR_COUNT insecure deterministic validators.
 # Produces a testnet specification and a genesis state where the genesis time
-# is now.
+# is now + $GENESIS_DELAY.
+#
+# Generates datadirs for multiple validator keys according to the 
+# $VALIDATOR_COUNT and $BEACON_NODE_COUNT variables.
 #
 
 source ./vars.env
@@ -13,13 +17,18 @@ lcli \
 	--confirmations 1 \
 	--validator-count $VALIDATOR_COUNT
 
+NOW=`date +%s`
+GENESIS_TIME=`expr $NOW + $GENESIS_DELAY`
+
+
 lcli \
 	--spec mainnet \
 	new-testnet \
 	--deposit-contract-address $DEPOSIT_CONTRACT_ADDRESS \
 	--testnet-dir $TESTNET_DIR \
-	--min-genesis-active-validator-count $VALIDATOR_COUNT \
-	--genesis-delay $GENESIS_DELAY
+	--min-genesis-active-validator-count $GENESIS_VALIDATOR_COUNT \
+	--min-genesis-time $GENESIS_TIME \
+	--genesis-delay $GENESIS_DELAY \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
 	--eth1-id 4242 \
 	--force
@@ -39,6 +48,7 @@ echo "Building genesis state... (this might take a while)"
 lcli \
 	--spec mainnet \
 	interop-genesis \
+	--genesis-time $genesis \
 	--testnet-dir $TESTNET_DIR \
 	$VALIDATOR_COUNT
 
