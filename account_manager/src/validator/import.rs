@@ -74,9 +74,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The path to the file containing the password which will unlock all \
                     keystores being imported. This flag must be used with the `--reuse-password`. \
                     The password will be copied to the `validator_definitions.yml` file, so after \
-                    import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH. \
-                    If the file provided is empty, no password will be saved and a password will \
-                    be required on start-up.",
+                    import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH.",
                 )
                 .takes_value(true),
         )
@@ -147,16 +145,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     // Skip keystores that already exist, but exit early if any operation fails.
     // Reuses the same password for all keystores if the `REUSE_PASSWORD_FLAG` flag is set.
     let mut num_imported_keystores = 0;
-
-    // Initialize to the password at the given path if provided, or else `None`.
-    let mut previous_password: Option<ZeroizeString> = keystore_password_path
-        .map::<Result<ZeroizeString, String>, _>(|path| {
-            let password: ZeroizeString = fs::read_to_string(&path)
-                .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
-                .into();
-            Ok(password.without_newlines())
-        })
-        .transpose()?;
+    let mut previous_password: Option<ZeroizeString> = None;
 
     for src_keystore in &keystore_paths {
         let keystore = Keystore::from_json_file(src_keystore)
@@ -182,13 +171,23 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             eprintln!();
             eprintln!("{}", PASSWORD_PROMPT);
 
-            let password = read_password_from_user(stdin_inputs)?;
-
-            if password.as_ref().is_empty() {
-                eprintln!("Continuing without password.");
-                sleep(Duration::from_secs(1)); // Provides nicer UX.
-                break None;
-            }
+            let password = match keystore_password_path.as_ref() {
+                Some(path) => {
+                    let password_from_file: ZeroizeString = fs::read_to_string(&path)
+                        .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
+                        .into();
+                    password_from_file.without_newlines()
+                }
+                None => {
+                    let password_from_user = read_password_from_user(stdin_inputs)?;
+                    if password_from_user.as_ref().is_empty() {
+                        eprintln!("Continuing without password.");
+                        sleep(Duration::from_secs(1)); // Provides nicer UX.
+                        break None;
+                    }
+                    password_from_user
+                }
+            };
 
             match keystore.decrypt_keypair(password.as_ref()) {
                 Ok(_) => {
