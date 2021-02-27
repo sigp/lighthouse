@@ -162,16 +162,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 interval.tick().await;
                 let log = self.context.log();
 
-                // this relies on the beacon node properly subscribing to subnets
-                //
-                // if epoch < doppelganger Epoch, check the seen validators endpoint
-                if let Some(epoch) = self.doppelganger_detection_epoch {
+                // Check for doppelgangers if configured
+                if let Some(doppelganger_epoch) = self.doppelganger_detection_epoch {
                     if let Some(slot) = self.slot_clock.now() {
-                        if epoch <= slot.epoch(E::slots_per_epoch()) {
+                        let epoch = slot.epoch(E::slots_per_epoch());
+                        if doppelganger_epoch <= epoch {
                             let mut epochs =
                                 Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
                             for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
-                                epochs.push(epoch - Epoch::new(i));
+                                epochs.push(doppelganger_epoch - Epoch::new(i));
                             }
                             let epochs_slice = epochs.as_slice();
 
@@ -192,7 +191,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 .await
                                 .map_err(|e| format!("Failed query for seen validators: {}", e));
 
-                            // send shutdown signal
+                            // Send shutdown signal if necessary
                             match doppelganger_detected {
                                 Ok(true) => {
                                     crit!(
@@ -207,7 +206,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         .shutdown_sender()
                                         .try_send("Doppelganger detected.");
                                 }
-                                Ok(false) => {}
+                                Ok(false) => {
+                                    info!(log, "No doppelgangers detected yet."; "slot" => slot, "epoch" => epoch, "doppelganger_detection_epoch" => epoch);
+                                }
                                 Err(e) => {
                                     crit!(log, "Failed complete query for doppelganger detection... Exiting."; "error" => format!("{:?}", e));
                                     let _ = self
