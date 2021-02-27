@@ -209,9 +209,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         .shutdown_sender()
                                         .try_send("Doppelganger detected.");
                                 }
-                                Ok(false) => {
-                                    info!(log, "No doppelgangers detected yet."; "slot" => slot, "epoch" => epoch, "doppelganger_detection_epoch" => epoch);
-                                }
+                                Ok(false) => {}
                                 Err(e) => {
                                     crit!(log, "Failed complete query for doppelganger detection... Exiting."; "error" => format!("{:?}", e));
                                     let _ = self
