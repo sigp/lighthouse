@@ -208,6 +208,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         .executor
                                         .shutdown_sender()
                                         .try_send("Doppelganger detected.");
+                                    break;
                                 }
                                 Ok(false) => continue,
                                 Err(e) => {
@@ -217,6 +218,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         .executor
                                         .shutdown_sender()
                                         .try_send("Doppelganger detected.");
+                                    break;
                                 }
                             }
                         }
