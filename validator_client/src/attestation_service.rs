@@ -166,6 +166,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 if let Some(doppelganger_epoch) = self.doppelganger_detection_epoch {
                     if let Some(slot) = self.slot_clock.now() {
                         let epoch = slot.epoch(E::slots_per_epoch());
+
+                        info!(log, "Monitoring for doppelganers"; "epoch" => epoch, "slot" => slot, "doppelganger_detection_epoch" => doppelganger_epoch);
+
                         if doppelganger_epoch <= epoch {
                             let mut epochs =
                                 Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
