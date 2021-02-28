@@ -317,9 +317,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.inbound_ping_peers.remove(peer_id);
         self.outbound_ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
-
-        // set peer as disconnected in discovery DHT
-        self.discovery.disconnect_peer(peer_id);
     }
 
     /// A dial attempt has failed.
@@ -330,6 +327,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn notify_dial_failure(&mut self, peer_id: &PeerId) {
         if !self.network_globals.peers.read().is_connected(peer_id) {
             self.notify_disconnect(peer_id);
+            // set peer as disconnected in discovery DHT
+            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+            self.discovery.disconnect_peer(peer_id);
         }
     }
 
@@ -726,6 +726,25 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
+    /// Immediately dial peers that have been newly inserted into the discovery DHT so that they
+    /// can be filtered on dial failure
+    fn peer_inserted_dht(&mut self, peer_id: PeerId) {
+        if !self
+            .network_globals
+            .peers
+            .read()
+            .is_connected_or_dialing(&peer_id)
+            && !self
+                .network_globals
+                .peers
+                .read()
+                .is_banned_or_disconnected(&peer_id)
+        {
+            debug!(self.log, "Dialing inserted peer"; "peer_id" => %peer_id);
+            self.dial_peer(&peer_id);
+        }
+    }
+
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
     /// dialed or connecting to us.
     ///
@@ -984,6 +1003,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             match event {
                 DiscoveryEvent::SocketUpdated(socket_addr) => self.socket_updated(socket_addr),
                 DiscoveryEvent::QueryResult(results) => self.peers_discovered(results),
+                DiscoveryEvent::PeerInserted(peer_id) => self.peer_inserted_dht(peer_id),
             }
         }
 
