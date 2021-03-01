@@ -2365,22 +2365,20 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |query: api_types::SeenValidatorQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let indices: Vec<usize> = chain
-                        .head_beacon_state()
-                        .map_err(warp_utils::reject::beacon_chain_error)?
-                        .validators
+                    let indices: Vec<usize> = query
+                        .ids
+                        .0
                         .iter()
-                        .enumerate()
-                        // filter by validator id(s) if provided
-                        .filter_map(|(index, validator)| {
-                            query
-                                .ids
-                                .0
-                                .iter()
-                                .find(|pubkey| *pubkey == &validator.pubkey)
-                                .map(|_| index)
+                        .map(|pubkey| {
+                            chain
+                                .validator_index(pubkey)
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .ok_or_else(|| warp_utils::reject::custom_not_found(format!(
+                                    "Could not find index for validator public key: {}",
+                                    pubkey
+                                )))
                         })
-                        .collect();
+                        .collect::<Result<_, _>>()?;
 
                     let seen_validator =
                         query.epochs.0.iter().any(|epoch| {
