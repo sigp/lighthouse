@@ -47,19 +47,13 @@ pub fn run(matches: &ArgMatches) -> Result<(), String> {
             .collect::<Vec<_>>();
 
         for (i, indices) in indices_range.iter().enumerate() {
-            let validators_dir = base_dir
-                .clone()
-                .join(format!("node_{}", i + 1))
-                .join("validators");
-            let secrets_dir = base_dir
-                .clone()
-                .join(format!("node_{}", i + 1))
-                .join("secrets");
+            let validators_dir = base_dir.join(format!("node_{}", i + 1)).join("validators");
+            let secrets_dir = base_dir.join(format!("node_{}", i + 1)).join("secrets");
             generate_validator_dirs(indices, validators_dir, secrets_dir)?;
         }
     } else {
-        let validators_dir = base_dir.clone().join("validators");
-        let secrets_dir = base_dir.clone().join("secrets");
+        let validators_dir = base_dir.join("validators");
+        let secrets_dir = base_dir.join("secrets");
         generate_validator_dirs(
             (0..validator_count).collect::<Vec<_>>().as_slice(),
             validators_dir,

@@ -6,7 +6,7 @@
 # is now + $GENESIS_DELAY.
 #
 # Generates datadirs for multiple validator keys according to the 
-# $VALIDATOR_COUNT and $BEACON_NODE_COUNT variables.
+# $VALIDATOR_COUNT and $NODE_COUNT variables.
 #
 
 source ./vars.env
@@ -42,7 +42,7 @@ lcli \
 	insecure-validators \
 	--count $VALIDATOR_COUNT \
 	--base-dir $DATADIR \
-	--node-count $BEACON_NODE_COUNT
+	--node-count $NODE_COUNT
 
 echo Validators generated with keystore passwords at $DATADIR.
 echo "Building genesis state... (this might take a while)"
