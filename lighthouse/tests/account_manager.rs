@@ -524,7 +524,9 @@ fn validator_import_launchpad_password_file() {
 
     // Create a password file in the src dir.
     File::create(src_dir.path().join(PASSWORD_FILE_NAME))
-        .map(|mut file| file.write(PASSWORD.as_ref())).unwrap().unwrap();
+        .map(|mut file| file.write(PASSWORD.as_ref()))
+        .unwrap()
+        .unwrap();
 
     let mut child = validator_cmd()
         .arg(format!("--{}", VALIDATOR_DIR_FLAG))
