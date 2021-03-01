@@ -720,6 +720,7 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::Attestation(_) => "attestation",
             EventKind::VoluntaryExit(_) => "voluntary_exit",
             EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
+            EventKind::ChainReorg(_) => "chain_reorg",
         }
     }
 
