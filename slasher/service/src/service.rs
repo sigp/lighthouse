@@ -10,11 +10,15 @@ use slasher::{
 };
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
-use state_processing::VerifyOperation;
+use state_processing::{
+    per_block_processing::errors::{
+        AttesterSlashingInvalid, BlockOperationError, ProposerSlashingInvalid,
+    },
+    VerifyOperation,
+};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::stream::StreamExt;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
@@ -78,7 +82,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         // https://github.com/sigp/lighthouse/issues/1861
         let mut interval = interval_at(Instant::now(), Duration::from_secs(update_period));
 
-        while interval.next().await.is_some() {
+        loop {
+            interval.tick().await;
             if let Some(current_slot) = beacon_chain.slot_clock.now() {
                 let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
                 if let Err(TrySendError::Disconnected(_)) = notif_sender.try_send(current_epoch) {
@@ -175,12 +180,22 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                 )
             }) {
                 Ok(verified) => verified,
+                Err(BeaconChainError::AttesterSlashingValidationError(
+                    BlockOperationError::Invalid(AttesterSlashingInvalid::NoSlashableIndices),
+                )) => {
+                    debug!(
+                        log,
+                        "Skipping attester slashing for slashed validators";
+                        "slashing" => ?slashing,
+                    );
+                    continue;
+                }
                 Err(e) => {
                     warn!(
                         log,
                         "Attester slashing produced is invalid";
-                        "error" => format!("{:?}", e),
-                        "slashing" => format!("{:?}", slashing),
+                        "error" => ?e,
+                        "slashing" => ?slashing,
                     );
                     continue;
                 }
@@ -191,8 +206,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                 error!(
                     log,
                     "Beacon chain refused attester slashing";
-                    "error" => format!("{:?}", e),
-                    "slashing" => format!("{:?}", slashing),
+                    "error" => ?e,
+                    "slashing" => ?slashing,
                 );
             }
 
@@ -204,7 +219,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                     debug!(
                         log,
                         "Unable to publish attester slashing";
-                        "error" => format!("{:?}", e),
+                        "error" => e,
                     );
                 }
             }
@@ -221,19 +236,29 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
         for slashing in proposer_slashings {
             let verified_slashing = match beacon_chain.with_head(|head| {
-                Ok::<_, BeaconChainError>(
-                    slashing
-                        .clone()
-                        .validate(&head.beacon_state, &beacon_chain.spec)?,
-                )
+                Ok(slashing
+                    .clone()
+                    .validate(&head.beacon_state, &beacon_chain.spec)?)
             }) {
                 Ok(verified) => verified,
+                Err(BeaconChainError::ProposerSlashingValidationError(
+                    BlockOperationError::Invalid(ProposerSlashingInvalid::ProposerNotSlashable(
+                        index,
+                    )),
+                )) => {
+                    debug!(
+                        log,
+                        "Skipping proposer slashing for slashed validator";
+                        "validator_index" => index,
+                    );
+                    continue;
+                }
                 Err(e) => {
                     error!(
                         log,
                         "Proposer slashing produced is invalid";
-                        "error" => format!("{:?}", e),
-                        "slashing" => format!("{:?}", slashing),
+                        "error" => ?e,
+                        "slashing" => ?slashing,
                     );
                     continue;
                 }
@@ -247,7 +272,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                     debug!(
                         log,
                         "Unable to publish proposer slashing";
-                        "error" => format!("{:?}", e),
+                        "error" => e,
                     );
                 }
             }

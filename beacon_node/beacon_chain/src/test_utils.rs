@@ -15,7 +15,7 @@ use genesis::interop_genesis_state;
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
 use rand::Rng;
-use rand_core::SeedableRng;
+use rand::SeedableRng;
 use rayon::prelude::*;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
@@ -198,7 +198,11 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(log, 1)))
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+                log.clone(),
+                1,
+            )))
+            .monitor_validators(true, vec![], log)
             .build()
             .expect("should build");
 
@@ -243,6 +247,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .monitor_validators(true, vec![], log)
             .build()
             .expect("should build");
 
@@ -284,6 +289,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .monitor_validators(true, vec![], log)
             .build()
             .expect("should build");
 

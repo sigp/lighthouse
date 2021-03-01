@@ -1,12 +1,12 @@
-use crate::types::{GossipKind, MessageData};
+use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
-    FastMessageId, GenericGossipsubConfig, GenericGossipsubConfigBuilder, GenericGossipsubMessage,
-    MessageId, RawGossipsubMessage, ValidationMode,
+    FastMessageId, GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId,
+    RawGossipsubMessage, ValidationMode,
 };
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
@@ -15,13 +15,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
-const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
+
+// We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
+// specification. We leave it here for posterity.
+// const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
 pub const MESH_N_LOW: usize = 6;
-
-pub type GossipsubConfig = GenericGossipsubConfig<MessageData>;
-pub type GossipsubConfigBuilder = GenericGossipsubConfigBuilder<MessageData>;
-pub type GossipsubMessage = GenericGossipsubMessage<MessageData>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -110,35 +109,28 @@ impl Default for Config {
 
         // The function used to generate a gossipsub message id
         // We use the first 8 bytes of SHA256(data) for content addressing
-        let fast_gossip_message_id =
-            |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..]);
+        let fast_gossip_message_id = |message: &RawGossipsubMessage| {
+            FastMessageId::from(&Sha256::digest(&message.data)[..8])
+        };
 
         fn prefix(prefix: [u8; 4], data: &[u8]) -> Vec<u8> {
-            prefix
-                .to_vec()
-                .into_iter()
-                .chain(data.iter().cloned())
-                .collect()
+            let mut vec = Vec::with_capacity(prefix.len() + data.len());
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(data);
+            vec
         }
 
         let gossip_message_id = |message: &GossipsubMessage| {
             MessageId::from(
-                &Sha256::digest(
-                    {
-                        match &message.data.decompressed {
-                            Ok(decompressed) => prefix(MESSAGE_DOMAIN_VALID_SNAPPY, decompressed),
-                            _ => prefix(MESSAGE_DOMAIN_INVALID_SNAPPY, &message.data.raw),
-                        }
-                    }
-                    .as_slice(),
-                )[..20],
+                &Sha256::digest(prefix(MESSAGE_DOMAIN_VALID_SNAPPY, &message.data).as_slice())
+                    [..20],
             )
         };
 
         // gossipsub configuration
         // Note: The topics by default are sent as plain strings. Hashes are an optional
         // parameter.
-        let gs_config = GossipsubConfigBuilder::new()
+        let gs_config = GossipsubConfigBuilder::default()
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_millis(700))
             .mesh_n(8)
@@ -147,6 +139,7 @@ impl Default for Config {
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
             .history_length(6)
+            .max_messages_per_rpc(Some(10))
             .history_gossip(3)
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Anonymous)

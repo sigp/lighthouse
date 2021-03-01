@@ -3,7 +3,8 @@ use eth2_libp2p::Enr;
 use eth2_libp2p::EnrExt;
 use eth2_libp2p::Multiaddr;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{GossipsubConfigBuilder, Libp2pEvent, NetworkConfig};
+use eth2_libp2p::{Libp2pEvent, NetworkConfig};
+use libp2p::gossipsub::GossipsubConfigBuilder;
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
 use std::sync::Weak;
@@ -12,7 +13,7 @@ use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
-use tempdir::TempDir;
+use tempfile::Builder as TempBuilder;
 
 pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);
 
@@ -75,7 +76,10 @@ pub fn unused_port(transport: &str) -> Result<u16, String> {
 
 pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
-    let path = TempDir::new(&format!("libp2p_test{}", port)).unwrap();
+    let path = TempBuilder::new()
+        .prefix(&format!("libp2p_test{}", port))
+        .tempdir()
+        .unwrap();
 
     config.libp2p_port = port; // tcp port
     config.discovery_port = port; // udp port
@@ -122,8 +126,7 @@ pub async fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    let enr = node.swarm.local_enr().clone();
-    enr
+    node.swarm.local_enr()
 }
 
 // Returns `n` libp2p peers in fully connected topology.

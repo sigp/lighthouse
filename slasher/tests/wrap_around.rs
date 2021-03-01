@@ -2,12 +2,12 @@ use slasher::{
     test_utils::{indexed_att, logger},
     Config, Error, Slasher,
 };
-use tempdir::TempDir;
+use tempfile::tempdir;
 use types::Epoch;
 
 #[test]
 fn attestation_pruning_empty_wrap_around() {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
@@ -30,7 +30,7 @@ fn attestation_pruning_empty_wrap_around() {
 
     // Add an attestation that would be surrounded with the modulo considered
     slasher.accept_attestation(indexed_att(
-        v.clone(),
+        v,
         2 * history_length - 3,
         2 * history_length - 2,
         1,
@@ -41,14 +41,14 @@ fn attestation_pruning_empty_wrap_around() {
 // Test that pruning can recover from a `MapFull` error
 #[test]
 fn pruning_with_map_full() {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
     config.history_length = 1024;
     config.max_db_size_mbs = 1;
 
-    let slasher = Slasher::open(config.clone(), logger()).unwrap();
+    let slasher = Slasher::open(config, logger()).unwrap();
 
     let v = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 

@@ -13,7 +13,7 @@ environment = { path = "../../lighthouse/environment" }
 tokio-compat-02 = "0.1"
 
 [dependencies]
-reqwest = { version = "0.10.8", features = ["native-tls-vendored"] }
+reqwest = { version = "0.11.0", features = ["native-tls-vendored"] }
 futures = "0.3.7"
 serde_json = "1.0.58"
 serde = { version = "1.0.116", features = ["derive"] }
@@ -26,7 +26,7 @@ tree_hash = "0.1.1"
 eth2_hashing = "0.1.0"
 parking_lot = "0.11.0"
 slog = "2.5.2"
-tokio = { version = "0.3.2", features = ["full"] }
+tokio = { version = "1.1.0", features = ["full"] }
 state_processing = { path = "../../consensus/state_processing" }
 libflate = "1.0.2"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics"}

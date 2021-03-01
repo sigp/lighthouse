@@ -190,7 +190,7 @@ where
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
         let rpc_event = RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
-            peer_id: peer_id.clone(),
+            peer_id: *peer_id,
             handler: NotifyHandler::Any,
             event: rpc_event,
         });

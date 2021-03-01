@@ -2,14 +2,14 @@ use slasher::{
     test_utils::{block as test_block, logger, E},
     Config, Slasher,
 };
-use tempdir::TempDir;
+use tempfile::tempdir;
 use types::{Epoch, EthSpec};
 
 #[test]
 fn empty_pruning() {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
-    let slasher = Slasher::<E>::open(config.clone(), logger()).unwrap();
+    let slasher = Slasher::<E>::open(config, logger()).unwrap();
     slasher.prune_database(Epoch::new(0)).unwrap();
 }
 
@@ -17,7 +17,7 @@ fn empty_pruning() {
 fn block_pruning() {
     let slots_per_epoch = E::slots_per_epoch();
 
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
     config.chunk_size = 2;
     config.history_length = 2;

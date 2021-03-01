@@ -20,6 +20,7 @@ use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
 
 use crate::metrics;
 
+#[cfg(test)]
 mod tests;
 
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
@@ -32,7 +33,7 @@ const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150;
 // 30 mins at a 12s slot time
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
-/// Note: The time is calculated as `time = milliseconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
+/// Note: The time is calculated as `time = seconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
 const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 /// The default number of slots before items in hash delay sets used by this class should expire.
 ///  36s at 12s slot time
@@ -583,13 +584,13 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// We don't keep track of a specific validator to random subnet, rather the ratio of active
     /// validators to random subnets. So when a validator goes offline, we can simply remove the
     /// allocated amount of random subnets.
-    fn handle_known_validator_expiry(&mut self) -> Result<(), ()> {
+    fn handle_known_validator_expiry(&mut self) {
         let spec = &self.beacon_chain.spec;
         let subnet_count = spec.attestation_subnet_count;
         let random_subnets_per_validator = spec.random_subnets_per_validator;
         if self.known_validators.len() as u64 * random_subnets_per_validator >= subnet_count {
             // have too many validators, ignore
-            return Ok(());
+            return;
         }
 
         let subscribed_subnets = self.random_subnets.keys().cloned().collect::<Vec<_>>();
@@ -615,7 +616,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .push_back(AttServiceMessage::EnrRemove(*subnet_id));
             self.random_subnets.remove(subnet_id);
         }
-        Ok(())
     }
 }
 

@@ -4,8 +4,11 @@ use node_test_rig::{
     ClientConfig, LocalBeaconNode, LocalValidatorClient, ValidatorConfig, ValidatorFiles,
 };
 use parking_lot::RwLock;
-use std::ops::Deref;
-use std::sync::Arc;
+use std::{
+    ops::Deref,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use std::{sync::Arc, time::Duration};
 use types::{Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
@@ -101,14 +104,15 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
         }
 
-        let index = self.beacon_nodes.read().len();
+        let mut write_lock = self_1.beacon_nodes.write();
+        let index = write_lock.len();
 
         let beacon_node = LocalBeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
         )
         .await?;
-        self_1.beacon_nodes.write().push(beacon_node);
+        write_lock.push(beacon_node);
         Ok(())
     }
 
@@ -121,8 +125,9 @@ impl<E: EthSpec> LocalNetwork<E> {
         validator_files: ValidatorFiles,
         invalid_first_beacon_node: bool, //to test beacon node fallbacks
     ) -> Result<(), String> {
-        let index = self.validator_clients.read().len();
-        let context = self.context.service_context(format!("validator_{}", index));
+        let context = self
+            .context
+            .service_context(format!("validator_{}", beacon_node));
         let self_1 = self.clone();
         let socket_addr = {
             let read_lock = self.beacon_nodes.read();
@@ -170,5 +175,20 @@ impl<E: EthSpec> LocalNetwork<E> {
             .await
             .map_err(|e| format!("Cannot get head: {:?}", e))
             .map(|body| body.unwrap().data.finalized.epoch)
+    }
+
+    pub async fn duration_to_genesis(&self) -> Duration {
+        let nodes = self.remote_nodes().expect("Failed to get remote nodes");
+        let bootnode = nodes.first().expect("Should contain bootnode");
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let genesis_time = Duration::from_secs(
+            bootnode
+                .get_beacon_genesis()
+                .await
+                .unwrap()
+                .data
+                .genesis_time,
+        );
+        genesis_time - now
     }
 }

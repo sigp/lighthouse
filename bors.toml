@@ -16,4 +16,4 @@ status = [
 ]
 use_squash_merge = true
 timeout_sec = 7200
-pr_status = ["license/cla"]
+pr_status = ["license/cla", "target-branch-check"]

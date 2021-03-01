@@ -11,7 +11,7 @@ use std::io::Write;
 use std::net::IpAddr::{V4, V6};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use tempdir::TempDir;
+use tempfile::TempDir;
 use types::{
     AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconBlock,
     BeaconBlockHeader, BitList, Checkpoint, Deposit, DepositData, Epoch, EthSpec, FixedVector,
@@ -102,11 +102,8 @@ pub fn get_block<E: EthSpec>(seed: u64) -> BeaconBlock<E> {
         signature: Signature::empty(),
     };
     let indexed_attestation: IndexedAttestation<E> = IndexedAttestation {
-        attesting_indices: VariableList::new(vec![
-            0 as u64;
-            E::MaxValidatorsPerCommittee::to_usize()
-        ])
-        .unwrap(),
+        attesting_indices: VariableList::new(vec![0_u64; E::MaxValidatorsPerCommittee::to_usize()])
+            .unwrap(),
         data: AttestationData::default(),
         signature: AggregateSignature::empty(),
     };

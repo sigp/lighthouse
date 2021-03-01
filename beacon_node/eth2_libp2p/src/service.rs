@@ -9,7 +9,8 @@ use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use futures::prelude::*;
 use libp2p::core::{
-    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
+    connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
+    transport::Boxed,
 };
 use libp2p::{
     bandwidth::{BandwidthLogging, BandwidthSinks},
@@ -28,7 +29,7 @@ use types::{ChainSpec, EnrForkId, EthSpec};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
-const MAX_CONNECTIONS_PER_PEER: usize = 1;
+const MAX_CONNECTIONS_PER_PEER: u32 = 1;
 /// The filename to store our local metadata.
 pub const METADATA_FILENAME: &str = "metadata";
 
@@ -123,13 +124,20 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     self.0.spawn(f, "libp2p");
                 }
             }
+
+            // sets up the libp2p connection limits
+            let limits = ConnectionLimits::default()
+                .with_max_pending_incoming(Some(5))
+                .with_max_pending_outgoing(Some(16))
+                .with_max_established_incoming(Some((config.target_peers as f64 * 1.2) as u32))
+                .with_max_established_outgoing(Some((config.target_peers as f64 * 1.2) as u32))
+                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
+
             (
-                SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
-                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(32).expect("Not zero"))
+                SwarmBuilder::new(transport, behaviour, local_peer_id)
+                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
                     .connection_event_buffer_size(64)
-                    .incoming_connection_limit(10)
-                    .outgoing_connection_limit(config.target_peers * 2)
-                    .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
+                    .connection_limits(limits)
                     .executor(Box::new(Executor(executor)))
                     .build(),
                 bandwidth,
@@ -146,7 +154,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         match Swarm::listen_on(&mut swarm, listen_multiaddr.clone()) {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
-                log_address.push(Protocol::P2p(local_peer_id.clone().into()));
+                log_address.push(Protocol::P2p(local_peer_id.into()));
                 info!(log, "Listening established"; "address" => %log_address);
             }
             Err(err) => {

@@ -9,6 +9,7 @@ use eth2_libp2p::{MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Res
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, ChainSpec, EthSpec, ProposerSlashing, SignedAggregateAndProof,
@@ -25,7 +26,7 @@ pub struct Processor<T: BeaconChainTypes> {
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -63,7 +64,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             current_workers: 0,
             log: log.clone(),
         }
-        .spawn_manager(beacon_processor_receive);
+        .spawn_manager(beacon_processor_receive, None);
 
         Processor {
             chain: beacon_chain,
@@ -126,11 +127,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         // ignore status responses if we are shutting down
         if let Ok(status_message) = status_message(&self.chain) {
             // Say status back.
-            self.network.send_response(
-                peer_id.clone(),
-                Response::Status(status_message),
-                request_id,
-            );
+            self.network
+                .send_response(peer_id, Response::Status(status_message), request_id);
         }
 
         self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))
@@ -233,7 +231,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
-            message_id, peer_id, block,
+            message_id,
+            peer_id,
+            block,
+            timestamp_now(),
         ))
     }
 
@@ -251,6 +252,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             unaggregated_attestation,
             subnet_id,
             should_process,
+            timestamp_now(),
         ))
     }
 
@@ -261,7 +263,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::aggregated_attestation(
-            message_id, peer_id, aggregate,
+            message_id,
+            peer_id,
+            aggregate,
+            timestamp_now(),
         ))
     }
 
@@ -304,7 +309,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
-    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T::EthSpec>) {
+    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T>) {
         self.beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {
@@ -392,4 +397,10 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             reason,
         })
     }
+}
+
+fn timestamp_now() -> Duration {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
 }

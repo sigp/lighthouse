@@ -116,7 +116,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         for root in request.block_roots.iter() {
             if let Ok(Some(block)) = self.chain.store.get_block(root) {
                 self.send_response(
-                    peer_id.clone(),
+                    peer_id,
                     Response::BlocksByRoot(Some(Box::new(block))),
                     request_id,
                 );
@@ -212,7 +212,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 {
                     blocks_sent += 1;
                     self.send_network_message(NetworkMessage::SendResponse {
-                        peer_id: peer_id.clone(),
+                        peer_id,
                         response: Response::BlocksByRange(Some(Box::new(block))),
                         id: request_id,
                     });

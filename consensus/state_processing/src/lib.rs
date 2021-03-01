@@ -1,4 +1,5 @@
 #![deny(clippy::integer_arithmetic)]
+#![deny(clippy::disallowed_method)]
 
 #[macro_use]
 mod macros;

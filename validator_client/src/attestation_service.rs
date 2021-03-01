@@ -6,7 +6,6 @@ use crate::{
 };
 use environment::RuntimeContext;
 use futures::future::FutureExt;
-use futures::StreamExt;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -126,7 +125,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -149,7 +148,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let executor = self.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 let log = self.context.log();
 
                 if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
@@ -221,6 +221,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     "attestation publish",
                 );
             });
+
+        // Schedule pruning of the slashing protection database once all unaggregated
+        // attestations have (hopefully) been signed, i.e. at the same time as aggregate
+        // production.
+        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
 
         Ok(())
     }
@@ -565,6 +570,32 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         }
 
         Ok(())
+    }
+
+    /// Spawn a blocking task to run the slashing protection pruning process.
+    ///
+    /// Start the task at `pruning_instant` to avoid interference with other tasks.
+    fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
+        let attestation_service = self.clone();
+        let executor = self.inner.context.executor.clone();
+        let current_epoch = slot.epoch(E::slots_per_epoch());
+
+        // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
+        self.inner.context.executor.spawn(
+            async move {
+                sleep_until(pruning_instant).await;
+
+                executor.spawn_blocking(
+                    move || {
+                        attestation_service
+                            .validator_store
+                            .prune_slashing_protection_db(current_epoch, false)
+                    },
+                    "slashing_protection_pruning",
+                )
+            },
+            "slashing_protection_pre_pruning",
+        );
     }
 }
 

@@ -88,12 +88,12 @@ pub mod tests_commons {
     pub use crate::Storage;
     use helpers::*;
     use sloggers::{null::NullLoggerBuilder, Build};
-    use tempdir::TempDir;
+    use tempfile::{tempdir, TempDir};
 
     type T = StorageRawDir;
 
     pub fn new_storage_with_tmp_dir() -> (T, TempDir) {
-        let tmp_dir = TempDir::new("bls-remote-signer-test").unwrap();
+        let tmp_dir = tempdir().unwrap();
         let storage = StorageRawDir::new(tmp_dir.path().to_str().unwrap()).unwrap();
         (storage, tmp_dir)
     }
@@ -104,7 +104,7 @@ pub mod tests_commons {
     }
 
     pub fn new_backend_for_get_keys() -> (Backend<T>, TempDir) {
-        let tmp_dir = TempDir::new("bls-remote-signer-test").unwrap();
+        let tmp_dir = tempdir().unwrap();
 
         let matches = set_matches(vec![
             "this_test",
@@ -135,7 +135,7 @@ pub mod tests_commons {
     pub fn assert_backend_new_error(matches: &ArgMatches, error_msg: &str) {
         match Backend::new(matches, &get_null_logger()) {
             Ok(_) => panic!("This invocation to Backend::new() should return error"),
-            Err(e) => assert_eq!(e.to_string(), error_msg),
+            Err(e) => assert_eq!(e, error_msg),
         }
     }
 }
@@ -145,7 +145,7 @@ pub mod backend_new {
     use super::*;
     use crate::tests_commons::*;
     use helpers::*;
-    use tempdir::TempDir;
+    use tempfile::tempdir;
 
     #[test]
     fn no_storage_type_supplied() {
@@ -170,7 +170,7 @@ pub mod backend_new {
 
     #[test]
     fn given_inaccessible() {
-        let tmp_dir = TempDir::new("bls-remote-signer-test").unwrap();
+        let tmp_dir = tempdir().unwrap();
         set_permissions(tmp_dir.path(), 0o40311);
 
         let matches = set_matches(vec![
@@ -188,7 +188,7 @@ pub mod backend_new {
 
         match result {
             Ok(_) => panic!("This invocation to Backend::new() should return error"),
-            Err(e) => assert_eq!(e.to_string(), "Storage Raw Dir: PermissionDenied",),
+            Err(e) => assert_eq!(e, "Storage Raw Dir: PermissionDenied",),
         }
     }
 

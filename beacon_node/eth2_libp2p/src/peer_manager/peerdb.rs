@@ -328,7 +328,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// A peer is being dialed.
     pub fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
         info.enr = enr;
 
         if info.is_disconnected() {
@@ -347,7 +347,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Update min ttl of a peer.
     pub fn update_min_ttl(&mut self, peer_id: &PeerId, min_ttl: Instant) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
 
         // only update if the ttl is longer
         if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
@@ -388,7 +388,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         enr: Option<Enr>,
         direction: ConnectionDirection,
     ) {
-        let info = self.peers.entry(peer_id.clone()).or_default();
+        let info = self.peers.entry(*peer_id).or_default();
         info.enr = enr;
 
         if info.is_disconnected() {
@@ -465,7 +465,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     // peer's score to be a banned state.
     pub fn disconnect_and_ban(&mut self, peer_id: &PeerId) -> bool {
         let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
+        let info = self.peers.entry(*peer_id).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
                 "peer_id" => %peer_id);
             PeerInfo::default()
@@ -523,7 +523,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// If this is called for a banned peer, it will error.
     pub fn unban(&mut self, peer_id: &PeerId) -> Result<(), &'static str> {
         let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
+        let info = self.peers.entry(*peer_id).or_insert_with(|| {
             warn!(log_ref, "UnBanning unknown peer";
                 "peer_id" => %peer_id);
             PeerInfo::default()
@@ -563,7 +563,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             {
                 self.banned_peers_count
                     .remove_banned_peer(info.seen_addresses());
-                Some(id.clone())
+                Some(*id)
             } else {
                 // If there is no minimum, this is a coding error.
                 crit!(
@@ -590,7 +590,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     _ => None,
                 })
                 .min_by_key(|(_, since)| *since)
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| *id)
             {
                 debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop);
                 self.peers.remove(&to_drop);
@@ -651,6 +651,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_peer_connected_successfully() {
         let mut pdb = get_db();
         let random_peer = PeerId::random();
@@ -751,7 +752,7 @@ mod tests {
         assert!(the_best.is_some());
         // Consistency check
         let best_peers = pdb.best_peers_by_status(PeerInfo::is_connected);
-        assert_eq!(the_best, best_peers.iter().next().map(|p| p.0));
+        assert_eq!(the_best.unwrap(), best_peers.get(0).unwrap().0);
     }
 
     #[test]
@@ -845,7 +846,7 @@ mod tests {
         pdb.notify_disconnect(&random_peer2);
         pdb.disconnect_and_ban(&random_peer3);
         pdb.notify_disconnect(&random_peer3);
-        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr, None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -1027,10 +1028,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer.clone()], &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], &log);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 

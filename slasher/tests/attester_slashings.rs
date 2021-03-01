@@ -6,7 +6,7 @@ use slasher::{
     Config, Slasher,
 };
 use std::collections::HashSet;
-use tempdir::TempDir;
+use tempfile::tempdir;
 use types::{AttesterSlashing, Epoch, IndexedAttestation};
 
 #[test]
@@ -107,7 +107,7 @@ fn surrounds_existing_single_val_single_chunk() {
 fn surrounds_existing_multi_vals_single_chunk() {
     let validators = vec![0, 16, 1024, 300_000, 300_001];
     let att1 = indexed_att(validators.clone(), 1, 2, 0);
-    let att2 = indexed_att(validators.clone(), 0, 3, 0);
+    let att2 = indexed_att(validators, 0, 3, 0);
     let slashings = hashset![att_slashing(&att2, &att1)];
     slasher_test_indiv(&[att1, att2], &slashings, 3);
 }
@@ -169,7 +169,7 @@ fn slasher_test(
     current_epoch: u64,
     should_process_after: impl Fn(usize) -> bool,
 ) {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
@@ -196,7 +196,7 @@ fn parallel_slasher_test(
     expected_slashed_validators: HashSet<u64>,
     current_epoch: u64,
 ) {
-    let tempdir = TempDir::new("slasher").unwrap();
+    let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);

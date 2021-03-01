@@ -16,7 +16,7 @@ pub use types::Slot;
 /// A clock that reports the current slot.
 ///
 /// The clock is not required to be monotonically increasing and may go backwards.
-pub trait SlotClock: Send + Sync + Sized {
+pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occurred
     /// `genesis_duration` after the `UNIX_EPOCH` and each slot is `slot_duration` apart.
     fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self;
@@ -58,6 +58,9 @@ pub trait SlotClock: Send + Sync + Sized {
 
     /// Returns the duration until the first slot of the next epoch.
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
+
+    /// Returns the start time of the slot, as a duration since `UNIX_EPOCH`.
+    fn start_of(&self, slot: Slot) -> Option<Duration>;
 
     /// Returns the first slot to be returned at the genesis time.
     fn genesis_slot(&self) -> Slot;

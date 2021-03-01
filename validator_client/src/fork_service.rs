@@ -3,7 +3,6 @@ use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
 use futures::future::FutureExt;
-use futures::StreamExt;
 use parking_lot::RwLock;
 use slog::Logger;
 use slog::{debug, trace};
@@ -34,6 +33,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
         }
     }
 
+    pub fn fork(mut self, fork: Fork) -> Self {
+        self.fork = Some(fork);
+        self
+    }
+
     pub fn slot_clock(mut self, slot_clock: T) -> Self {
         self.slot_clock = Some(slot_clock);
         self
@@ -52,7 +56,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
     pub fn build(self) -> Result<ForkService<T, E>, String> {
         Ok(ForkService {
             inner: Arc::new(Inner {
-                fork: RwLock::new(self.fork),
+                fork: RwLock::new(self.fork.ok_or("Cannot build ForkService without fork")?),
                 slot_clock: self
                     .slot_clock
                     .ok_or("Cannot build ForkService without slot_clock")?,
@@ -83,7 +87,7 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
             eth2::Url::parse("http://127.0.0.1").unwrap(),
         ))];
         let mut beacon_nodes = BeaconNodeFallback::new(candidates, spec, log.clone());
-        beacon_nodes.set_slot_clock(slot_clock.clone());
+        beacon_nodes.set_slot_clock(slot_clock);
 
         Self {
             fork: Some(types::Fork::default()),
@@ -100,7 +104,7 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    fork: RwLock<Option<Fork>>,
+    fork: RwLock<Fork>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     log: Logger,
     slot_clock: T,
@@ -129,7 +133,7 @@ impl<T, E: EthSpec> Deref for ForkService<T, E> {
 
 impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     /// Returns the last fork downloaded from the beacon node, if any.
-    pub fn fork(&self) -> Option<Fork> {
+    pub fn fork(&self) -> Fork {
         *self.fork.read()
     }
 
@@ -143,7 +147,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             .ok_or("Unable to determine duration to next epoch")?;
 
         let mut interval = {
-            let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+            let slot_duration = Duration::from_secs(spec.seconds_per_slot);
             // Note: interval_at panics if `slot_duration * E::slots_per_epoch()` = 0
             interval_at(
                 Instant::now() + duration_to_next_epoch + TIME_DELAY_FROM_SLOT,
@@ -159,7 +163,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let executor = context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
+            loop {
+                interval.tick().await;
                 self.clone().do_update().await.ok();
             }
         };
@@ -201,8 +206,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             .await
             .map_err(|_| ())?;
 
-        if self.fork.read().as_ref() != Some(&fork) {
-            *(self.fork.write()) = Some(fork);
+        if *(self.fork.read()) != fork {
+            *(self.fork.write()) = fork;
         }
 
         debug!(self.log, "Fork update success");

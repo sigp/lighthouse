@@ -179,7 +179,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     single_block_lookups: FnvHashMap<RequestId, SingleBlockRequest>,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -210,7 +210,7 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(
@@ -713,7 +713,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // The sent block is not the correct block, remove the head block and downvote
             // the peer
             let _ = parent_request.downloaded_blocks.pop();
-            let peer = parent_request.last_submitted_peer.clone();
+            let peer = parent_request.last_submitted_peer;
 
             warn!(self.log, "Peer sent invalid parent.";
                 "peer_id" => %peer,
@@ -759,7 +759,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                     let process_id = ProcessId::ParentLookup(
-                        parent_request.last_submitted_peer.clone(),
+                        parent_request.last_submitted_peer,
                         chain_block_hash,
                     );
                     let blocks = parent_request.downloaded_blocks;
@@ -852,7 +852,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // We continue to search for the chain of blocks from the same peer. Other peers are not
         // guaranteed to have this chain of blocks.
-        let peer_id = parent_request.last_submitted_peer.clone();
+        let peer_id = parent_request.last_submitted_peer;
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
             // if the request was successful add the queue back into self

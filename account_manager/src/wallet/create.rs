@@ -215,7 +215,7 @@ pub fn read_new_wallet_password_from_cli(
             Ok(password)
         }
         None => loop {
-            eprintln!("");
+            eprintln!();
             eprintln!("{}", NEW_WALLET_PASSWORD_PROMPT);
             let password =
                 PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());

@@ -119,7 +119,7 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --all -- -D warnings
+	cargo clippy --all --tests -- -D warnings
 
 # Runs the makefile in the `ef_tests` repo.
 #
@@ -137,7 +137,7 @@ arbitrary-fuzz:
 audit:
 	cargo install --force cargo-audit
 	# TODO: we should address this --ignore.
-	cargo audit --ignore RUSTSEC-2016-0002 --ignore RUSTSEC-2020-0008 --ignore RUSTSEC-2017-0002
+	cargo audit --ignore RUSTSEC-2016-0002 --ignore RUSTSEC-2020-0008 --ignore RUSTSEC-2017-0002 --ignore RUSTSEC-2021-0020
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:

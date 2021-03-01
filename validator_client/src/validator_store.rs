@@ -2,18 +2,23 @@ use crate::{
     fork_service::ForkService, http_metrics::metrics, initialized_validators::InitializedValidators,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
-use slog::{crit, error, warn, Logger};
+use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::path::Path;
 use std::sync::Arc;
-use tempdir::TempDir;
+use tempfile::TempDir;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 use validator_dir::ValidatorDir;
+
+/// Number of epochs of slashing protection history to keep.
+///
+/// This acts as a maximum safe-guard against clock drift.
+const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 
 struct LocalValidator {
     validator_dir: ValidatorDir,
@@ -44,6 +49,7 @@ impl PartialEq for LocalValidator {
 pub struct ValidatorStore<T, E: EthSpec> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
+    slashing_protection_last_prune: Arc<Mutex<Epoch>>,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
     log: Logger,
@@ -63,6 +69,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Self {
             validators: Arc::new(RwLock::new(validators)),
             slashing_protection,
+            slashing_protection_last_prune: Arc::new(Mutex::new(Epoch::new(0))),
             genesis_validators_root,
             spec: Arc::new(spec),
             log,
@@ -120,13 +127,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().num_enabled()
     }
 
-    fn fork(&self) -> Option<Fork> {
-        if self.fork_service.fork().is_none() {
-            error!(
-                self.log,
-                "Unable to get Fork for signing";
-            );
-        }
+    fn fork(&self) -> Fork {
         self.fork_service.fork()
     }
 
@@ -134,16 +135,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .voting_keypair(validator_pubkey)
-            .and_then(|voting_keypair| {
+            .map(|voting_keypair| {
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
-                    &self.fork()?,
+                    &self.fork(),
                     self.genesis_validators_root,
                 );
                 let message = epoch.signing_root(domain);
 
-                Some(voting_keypair.sk.sign(message))
+                voting_keypair.sk.sign(message)
             })
     }
 
@@ -165,7 +166,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Check for slashing conditions.
-        let fork = self.fork()?;
+        let fork = self.fork();
         let domain = self.spec.get_domain(
             block.epoch(),
             Domain::BeaconProposer,
@@ -237,7 +238,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
-        let fork = self.fork()?;
+        let fork = self.fork();
 
         let domain = self.spec.get_domain(
             attestation.data.target.epoch,
@@ -339,7 +340,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             aggregate,
             Some(selection_proof),
             &voting_keypair.sk,
-            &self.fork()?,
+            &self.fork(),
             self.genesis_validators_root,
             &self.spec,
         ))
@@ -360,9 +361,70 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Some(SelectionProof::new::<E>(
             slot,
             &voting_keypair.sk,
-            &self.fork()?,
+            &self.fork(),
             self.genesis_validators_root,
             &self.spec,
         ))
+    }
+
+    /// Prune the slashing protection database so that it remains performant.
+    ///
+    /// This function will only do actual pruning periodically, so it should usually be
+    /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
+    /// runs.
+    pub fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool) {
+        // Attempt to prune every SLASHING_PROTECTION_HISTORY_EPOCHs, with a tolerance for
+        // missing the epoch that aligns exactly.
+        let mut last_prune = self.slashing_protection_last_prune.lock();
+        if current_epoch / SLASHING_PROTECTION_HISTORY_EPOCHS
+            <= *last_prune / SLASHING_PROTECTION_HISTORY_EPOCHS
+        {
+            return;
+        }
+
+        if first_run {
+            info!(
+                self.log,
+                "Pruning slashing protection DB";
+                "epoch" => current_epoch,
+                "msg" => "pruning may take several minutes the first time it runs"
+            );
+        } else {
+            info!(self.log, "Pruning slashing protection DB"; "epoch" => current_epoch);
+        }
+
+        let _timer = metrics::start_timer(&metrics::SLASHING_PROTECTION_PRUNE_TIMES);
+
+        let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
+        let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
+
+        let validators = self.validators.read();
+        if let Err(e) = self
+            .slashing_protection
+            .prune_all_signed_attestations(validators.iter_voting_pubkeys(), new_min_target_epoch)
+        {
+            error!(
+                self.log,
+                "Error during pruning of signed attestations";
+                "error" => ?e,
+            );
+            return;
+        }
+
+        if let Err(e) = self
+            .slashing_protection
+            .prune_all_signed_blocks(validators.iter_voting_pubkeys(), new_min_slot)
+        {
+            error!(
+                self.log,
+                "Error during pruning of signed blocks";
+                "error" => ?e,
+            );
+            return;
+        }
+
+        *last_prune = current_epoch;
+
+        info!(self.log, "Completed pruning of slashing protection DB");
     }
 }
