@@ -1019,8 +1019,10 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             }
         }
 
-        if !matches!(self.network_globals.sync_state(), SyncState::SyncingFinalized{..}|SyncState::SyncingHead{..})
-        {
+        if !matches!(
+            self.network_globals.sync_state(),
+            SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. }
+        ) {
             loop {
                 match self.status_peers.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(peer_id))) => {

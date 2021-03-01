@@ -137,14 +137,20 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// If we are connected or currently dialing the peer returns true.
     pub fn is_connected_or_dialing(&self, peer_id: &PeerId) -> bool {
-        matches!(self.connection_status(peer_id), Some(PeerConnectionStatus::Connected { .. })
-             | Some(PeerConnectionStatus::Dialing { .. }))
+        matches!(
+            self.connection_status(peer_id),
+            Some(PeerConnectionStatus::Connected { .. })
+                | Some(PeerConnectionStatus::Dialing { .. })
+        )
     }
 
     /// If we are connected or in the process of disconnecting
     pub fn is_connected_or_disconnecting(&self, peer_id: &PeerId) -> bool {
-        matches!(self.connection_status(peer_id), Some(PeerConnectionStatus::Connected { .. })
-             | Some(PeerConnectionStatus::Disconnecting { .. }))
+        matches!(
+            self.connection_status(peer_id),
+            Some(PeerConnectionStatus::Connected { .. })
+                | Some(PeerConnectionStatus::Disconnecting { .. })
+        )
     }
 
     /// Returns true if the peer is synced at least to our current head.

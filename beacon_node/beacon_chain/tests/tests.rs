@@ -160,14 +160,16 @@ fn find_reorgs() {
         .unwrap();
 
     // because genesis is more than `SLOTS_PER_HISTORICAL_ROOT` away, this should return with the
-    // slot at a depth of `SLOTS_PER_HISTORICAL_ROOT` - 1.
+    // finalized slot.
     assert_eq!(
         harness
             .chain
             .find_reorg_slot(&genesis_state, &harness.chain.genesis_block_root)
-            .unwrap()
             .unwrap(),
-        head_slot - Slot::new(MinimalEthSpec::slots_per_historical_root() as u64 - 1)
+        head_state
+            .finalized_checkpoint
+            .epoch
+            .start_slot(MinimalEthSpec::slots_per_epoch())
     );
     assert_eq!(
         harness
@@ -176,7 +178,6 @@ fn find_reorgs() {
                 &head_state,
                 &harness.chain.head_beacon_block().unwrap().canonical_root()
             )
-            .unwrap()
             .unwrap(),
         head_slot
     );

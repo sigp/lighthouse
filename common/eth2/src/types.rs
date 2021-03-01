@@ -720,7 +720,7 @@ impl<T: EthSpec> EventKind<T> {
                 |e| ServerError::InvalidServerSentEvent(format!("Block: {:?}", e)),
             )?)),
             "chain_reorg" => Ok(EventKind::ChainReorg(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Block: {:?}", e)),
+                |e| ServerError::InvalidServerSentEvent(format!("Chain Reorg: {:?}", e)),
             )?)),
             "finalized_checkpoint" => Ok(EventKind::FinalizedCheckpoint(
                 serde_json::from_str(data).map_err(|e| {

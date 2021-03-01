@@ -205,7 +205,11 @@ mod tests {
         let events = get_events(&mut attestation_service, None, 1).await;
         assert_matches!(
             events[..3],
-            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
+            [
+                AttServiceMessage::DiscoverPeers(_),
+                AttServiceMessage::Subscribe(_any1),
+                AttServiceMessage::EnrAdd(_any3)
+            ]
         );
 
         // If the long lived and short lived subnets are the same, there should be no more events
@@ -283,7 +287,11 @@ mod tests {
         let events = get_events(&mut attestation_service, None, 1).await;
         assert_matches!(
             events[..3],
-            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
+            [
+                AttServiceMessage::DiscoverPeers(_),
+                AttServiceMessage::Subscribe(_any1),
+                AttServiceMessage::EnrAdd(_any3)
+            ]
         );
 
         let expected = AttServiceMessage::Subscribe(subnet_id1);
