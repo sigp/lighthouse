@@ -72,7 +72,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires(REUSE_PASSWORD_FLAG)
                 .help(
                     "The path to the file containing the password which will unlock all \
-                    keystores being imported. This flag must be used with the `--reuse-password`. \
+                    keystores being imported. This flag must be used with `--reuse-password`. \
                     The password will be copied to the `validator_definitions.yml` file, so after \
                     import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH.",
                 )
