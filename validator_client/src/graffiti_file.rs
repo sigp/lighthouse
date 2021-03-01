@@ -11,7 +11,7 @@ use types::{graffiti::GraffitiString, Graffiti};
 #[derive(Debug)]
 pub enum Error {
     InvalidFile(std::io::Error),
-    InvalidLine,
+    InvalidLine(String),
     InvalidPublicKey(String),
     InvalidGraffiti(String),
 }
@@ -60,7 +60,7 @@ impl GraffitiFile {
         let lines = reader.lines();
 
         for line in lines {
-            let line = line.map_err(|_| Error::InvalidLine)?;
+            let line = line.map_err(|e| Error::InvalidLine(e.to_string()))?;
             let (pk_opt, graffiti) = read_line(&line)?;
             match pk_opt {
                 Some(pk) => {
@@ -94,7 +94,7 @@ fn read_line(line: &str) -> Result<(Option<PublicKey>, Graffiti), Error> {
             Ok((Some(pk), graffiti))
         }
     } else {
-        Err(Error::InvalidLine)
+        Err(Error::InvalidLine(format!("Missing delimiter: {}", line)))
     }
 }
 
