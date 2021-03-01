@@ -302,9 +302,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // Configure doppelganger detection if enabled.
         let (block_service, attestation_service) = if config.doppelganger_detection {
             // block until node is synced
-            tokio::select! {
-                result = poll_whilst_waiting_for_sync(&beacon_nodes, context.log()) => result?,
-            };
+            poll_whilst_waiting_for_sync(&beacon_nodes, context.log());
+
             let doppelganger_detection_epoch = slot_clock
                 .now()
                 .ok_or("Unable to read slot")?
