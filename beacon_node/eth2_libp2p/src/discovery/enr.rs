@@ -178,7 +178,7 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
 pub fn load_enr_from_disk(dir: &Path) -> Result<Enr, String> {
     let enr_f = dir.join(ENR_FILENAME);
     let mut enr_file =
-        File::open(enr_f.clone()).map_err(|e| format!("Failed to open enr file: {:?}", e))?;
+        File::open(enr_f).map_err(|e| format!("Failed to open enr file: {:?}", e))?;
     let mut enr_string = String::new();
     match enr_file.read_to_string(&mut enr_string) {
         Err(_) => Err("Could not read ENR from file".to_string()),
