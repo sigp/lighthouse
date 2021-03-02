@@ -859,12 +859,12 @@ pub fn serve<T: BeaconChainTypes>(
                             //
                             // Check to see the thresholds are non-zero to avoid logging errors with small
                             // slot times (e.g., during testing)
-                            let error_threshold = chain.spec.seconds_per_slot / 3;
+                            let crit_threshold = chain.spec.seconds_per_slot / 3;
                             let warn_threshold = chain.spec.seconds_per_slot / 6;
-                            if error_threshold > 0 && delay.as_secs() > error_threshold {
-                                error!(
+                            if crit_threshold > 0 && delay.as_secs() > crit_threshold {
+                                crit!(
                                     log,
-                                    "Block is broadcast too late";
+                                    "Block was broadcast too late";
                                     "root" => ?root,
                                     "slot" => block.slot(),
                                     "delay_ms" => delay.as_millis(),
