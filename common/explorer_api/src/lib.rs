@@ -1,4 +1,4 @@
-mod types;
+pub mod types;
 use std::time::Duration;
 
 use futures::stream::StreamExt;

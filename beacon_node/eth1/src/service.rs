@@ -723,6 +723,7 @@ impl Service {
 
         let mut interval = interval_at(Instant::now(), update_interval);
 
+        let endpoint_len = self.config().endpoints.len() as i64;
         let update_future = async move {
             loop {
                 interval.tick().await;
@@ -731,10 +732,7 @@ impl Service {
         };
 
         // Set the number of configured eth1 servers
-        metrics::set_gauge(
-            &metrics::ETH1_FALLBACK_CONFIGURED,
-            self.config().endpoints.len(),
-        );
+        metrics::set_gauge(&metrics::ETH1_FALLBACK_CONFIGURED, endpoint_len);
         handle.spawn(update_future, "eth1");
     }
 

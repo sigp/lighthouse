@@ -1,3 +1,5 @@
+use prometheus::proto::MetricFamily;
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ExplorerMetrics {
     process_metrics: ProcessMetrics,
@@ -66,4 +68,24 @@ pub struct BeaconMetrics {
 pub struct ValidatorMetrics {
     validator_total: u64,
     validator_active: u64,
+}
+
+impl ValidatorMetrics {
+    pub fn metric_names() -> &'static [&'static str] {
+        &["vc_validators_enabled_count", "vc_validators_total_count"]
+    }
+
+    pub fn from_metrics(metrics: &[MetricFamily]) -> Self {
+        let mut validator_metrics = ValidatorMetrics::default();
+        for metric in metrics {
+            if metric.get_name() == "vc_validators_enabled_count" {
+                validator_metrics.validator_total =
+                    metric.get_metric()[0].get_gauge().get_value() as u64;
+            } else if metric.get_name() == "vc_validators_total_count" {
+                validator_metrics.validator_total =
+                    metric.get_metric()[0].get_gauge().get_value() as u64;
+            }
+        }
+        validator_metrics
+    }
 }

@@ -1101,7 +1101,7 @@ dependencies = [
  "network",
  "parking_lot",
  "prometheus",
- "reqwest",
+ "reqwest 0.11.1",
  "serde",
  "serde_derive",
  "serde_yaml",
@@ -1482,7 +1482,7 @@ dependencies = [
  "eth2_ssz",
  "ethabi",
  "hex",
- "reqwest",
+ "reqwest 0.11.1",
  "serde_json",
  "sha2 0.9.3",
  "tree_hash",
@@ -1890,7 +1890,7 @@ dependencies = [
  "lighthouse_metrics",
  "merkle_proof",
  "parking_lot",
- "reqwest",
+ "reqwest 0.11.1",
  "serde",
  "serde_json",
  "slog",
@@ -1935,7 +1935,7 @@ dependencies = [
  "procinfo",
  "proto_array",
  "psutil",
- "reqwest",
+ "reqwest 0.11.1",
  "ring",
  "serde",
  "serde_json",
@@ -2192,10 +2192,11 @@ dependencies = [
 name = "explorer_api"
 version = "0.1.0"
 dependencies = [
- "futures 0.3.8",
- "reqwest",
+ "futures 0.3.13",
+ "prometheus",
+ "reqwest 0.10.10",
  "task_executor",
- "tokio 0.3.6",
+ "tokio 0.3.7",
 ]
 
 [[package]]
@@ -2898,7 +2899,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "prometheus",
- "reqwest",
+ "reqwest 0.11.1",
  "serde",
  "slog",
  "slot_clock",
@@ -4225,7 +4226,7 @@ dependencies = [
  "eth2_config",
  "futures 0.3.13",
  "genesis",
- "reqwest",
+ "reqwest 0.11.1",
  "serde",
  "tempfile",
  "types",
@@ -5194,7 +5195,7 @@ version = "0.2.0"
 dependencies = [
  "rand 0.7.3",
  "remote_signer_test",
- "reqwest",
+ "reqwest 0.11.1",
  "serde",
  "tokio 1.2.0",
  "types",
@@ -5210,7 +5211,7 @@ dependencies = [
  "httpmock",
  "remote_signer_client",
  "remote_signer_consumer",
- "reqwest",
+ "reqwest 0.11.1",
  "serde",
  "serde_json",
  "tempfile",
@@ -5225,6 +5226,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
 dependencies = [
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "reqwest"
+version = "0.10.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0718f81a8e14c4dbb3b34cf23dc6aaf9ab8a0dfec160c534b3dbca1aaa21f47c"
+dependencies = [
+ "base64 0.13.0",
+ "bytes 0.5.6",
+ "encoding_rs",
+ "futures-core",
+ "futures-util",
+ "http",
+ "http-body 0.3.1",
+ "hyper 0.13.10",
+ "hyper-tls 0.4.3",
+ "ipnet",
+ "js-sys",
+ "lazy_static",
+ "log",
+ "mime",
+ "mime_guess",
+ "native-tls",
+ "percent-encoding",
+ "pin-project-lite 0.2.4",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio 0.2.25",
+ "tokio-tls",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "winreg",
 ]
 
 [[package]]
@@ -6537,8 +6574,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46409491c9375a693ce7032101970a54f8a2010efb77e13f70788f0d84489e39"
 dependencies = [
  "autocfg 1.0.1",
+ "bytes 0.6.0",
  "futures-core",
+ "libc",
+ "memchr",
+ "mio 0.7.9",
+ "num_cpus",
+ "once_cell",
+ "parking_lot",
  "pin-project-lite 0.2.4",
+ "signal-hook-registry",
+ "slab",
+ "tokio-macros 0.3.2",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -6589,6 +6637,17 @@ name = "tokio-macros"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e44da00bfc73a25f814cd8d7e57a68a5c31b74b3152a0a1d1f590c97ed06265a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46dfffa59fc3c8aad216ed61bdc2c263d2b9d87a9c8ac9de0c11a813e51b6db7"
 dependencies = [
  "proc-macro2",
  "quote",
