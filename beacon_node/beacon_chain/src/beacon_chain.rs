@@ -1793,16 +1793,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_info = self
             .head_info()
             .map_err(BlockProductionError::UnableToGetHeadInfo)?;
-        let state = if head_info.slot < slot {
+        let (state, state_root_opt) = if head_info.slot < slot {
             // Normal case: proposing a block atop the current head. Use the snapshot cache.
-            if let Some(snapshot) = self
+            if let Some(pre_state) = self
                 .snapshot_cache
                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
                 .and_then(|snapshot_cache| {
-                    snapshot_cache.get_cloned(head_info.block_root, CloneConfig::all())
+                    snapshot_cache.get_state_for_block_production(head_info.block_root)
                 })
             {
-                snapshot.beacon_state
+                (pre_state.pre_state, pre_state.state_root)
             } else {
                 warn!(
                     self.log,
@@ -1810,8 +1810,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "message" => "this block is more likely to be orphaned",
                     "slot" => slot,
                 );
-                self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
+                let state = self
+                    .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+
+                (state, None)
             }
         } else {
             warn!(
@@ -1820,15 +1823,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "message" => "this block is more likely to be orphaned",
                 "slot" => slot,
             );
-            self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
+            let state = self
+                .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+
+            (state, None)
         };
         drop(state_load_timer);
 
-        self.produce_block_on_state(state, slot, randao_reveal, validator_graffiti)
+        self.produce_block_on_state(
+            state,
+            state_root_opt,
+            slot,
+            randao_reveal,
+            validator_graffiti,
+        )
     }
 
     /// Produce a block for some `slot` upon the given `state`.
+    ///
+    /// TODO: mention pre-state stuff.
     ///
     /// Typically the `self.produce_block()` function should be used, instead of calling this
     /// function directly. This function is useful for purposefully creating forks or blocks at
@@ -1839,6 +1853,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn produce_block_on_state(
         &self,
         mut state: BeaconState<T::EthSpec>,
+        mut state_root: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
@@ -1854,7 +1869,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Note: supplying some `state_root` when it it is known would be a cheap and easy
         // optimization.
         while state.slot < produce_at_slot {
-            per_slot_processing(&mut state, None, &self.spec)?;
+            // Using `state_root.take()` here ensures that we consume the `state_root` on the first
+            // iteration and never use it again.
+            per_slot_processing(&mut state, state_root.take(), &self.spec)?;
         }
         drop(slot_timer);
 
