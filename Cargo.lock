@@ -2927,9 +2927,9 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
-version = "0.13.9"
+version = "0.13.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6ad767baac13b44d4529fcf58ba2cd0995e36e7b435bc5b039de6f47e880dbf"
+checksum = "8a6f157065790a3ed2f88679250419b5cdd96e714a0d65f7797fd337186e96bb"
 dependencies = [
  "bytes 0.5.6",
  "futures-channel",
@@ -2982,7 +2982,7 @@ dependencies = [
  "bytes 0.5.6",
  "futures 0.3.12",
  "http",
- "hyper 0.13.9",
+ "hyper 0.13.10",
  "hyper-tls 0.4.3",
  "native-tls",
  "tokio 0.2.24",
@@ -2998,7 +2998,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d979acc56dcb5b8dddba3917601745e877576475aa046df3226eabdecef78eed"
 dependencies = [
  "bytes 0.5.6",
- "hyper 0.13.9",
+ "hyper 0.13.10",
  "native-tls",
  "tokio 0.2.24",
  "tokio-tls",
@@ -7303,7 +7303,7 @@ dependencies = [
  "futures 0.3.12",
  "futures-timer",
  "hex",
- "hyper 0.13.9",
+ "hyper 0.13.10",
  "hyper-proxy",
  "hyper-tls 0.4.3",
  "jsonrpc-core",
