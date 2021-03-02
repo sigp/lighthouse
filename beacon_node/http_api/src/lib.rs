@@ -831,32 +831,6 @@ pub fn serve<T: BeaconChainTypes>(
                         delay,
                     );
 
-                    // Perform some logging to inform users if their blocks are being produced
-                    // late.
-                    //
-                    // Check to see the thresholds are non-zero to avoid logging errors with small
-                    // slot times (e.g., during testing)
-                    let error_threshold = chain.spec.seconds_per_slot / 3;
-                    let warn_threshold = chain.spec.seconds_per_slot / 6;
-                    if error_threshold > 0 && delay.as_secs() > error_threshold {
-                        error!(
-                            log,
-                            "Block is broadcast too late";
-                            "root" => ?block.canonical_root(),
-                            "slot" => block.slot(),
-                            "delay_ms" => delay.as_millis(),
-                            "msg" => "system may be overloaded, block likely to be orphaned",
-                        )
-                    } else if warn_threshold > 0 && delay.as_secs() > warn_threshold {
-                        warn!(
-                            log,
-                            "Block broadcast was delayed";
-                            "root" => ?block.canonical_root(),
-                            "slot" => block.slot(),
-                            "delay_ms" => delay.as_millis(),
-                            "msg" => "system may be overloaded",
-                        )
-                    }
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
@@ -879,6 +853,33 @@ pub fn serve<T: BeaconChainTypes>(
                             chain
                                 .fork_choice()
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                            // Perform some logging to inform users if their blocks are being produced
+                            // late.
+                            //
+                            // Check to see the thresholds are non-zero to avoid logging errors with small
+                            // slot times (e.g., during testing)
+                            let error_threshold = chain.spec.seconds_per_slot / 3;
+                            let warn_threshold = chain.spec.seconds_per_slot / 6;
+                            if error_threshold > 0 && delay.as_secs() > error_threshold {
+                                error!(
+                                    log,
+                                    "Block is broadcast too late";
+                                    "root" => ?root,
+                                    "slot" => block.slot(),
+                                    "delay_ms" => delay.as_millis(),
+                                    "msg" => "system may be overloaded, block likely to be orphaned",
+                                )
+                            } else if warn_threshold > 0 && delay.as_secs() > warn_threshold {
+                                warn!(
+                                    log,
+                                    "Block broadcast was delayed";
+                                    "root" => ?root,
+                                    "slot" => block.slot(),
+                                    "delay_ms" => delay.as_millis(),
+                                    "msg" => "system may be overloaded, block may be orphaned",
+                                )
+                            }
 
                             Ok(())
                         }
