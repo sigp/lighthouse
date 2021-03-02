@@ -1,0 +1,5 @@
+# Disallow sum and product methods which are prone to overflow.
+disallowed-methods = [
+    "core::iter::traits::iterator::Iterator::sum",
+    "core::iter::traits::iterator::Iterator::product",
+]

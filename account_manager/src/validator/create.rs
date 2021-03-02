@@ -137,6 +137,18 @@ pub fn cli_run<T: EthSpec>(
     let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;
     let at_most: Option<usize> = clap_utils::parse_optional(matches, AT_MOST_FLAG)?;
 
+    // The command will always fail if the wallet dir does not exist.
+    if !wallet_base_dir.exists() {
+        return Err(format!(
+            "No wallet directory at {:?}. Use the `lighthouse --network {} {} {} {}` command to create a wallet",
+            wallet_base_dir,
+            matches.value_of("network").unwrap_or("<NETWORK>"),
+            crate::CMD,
+            crate::wallet::CMD,
+            crate::wallet::create::CMD
+        ));
+    }
+
     ensure_dir_exists(&validator_dir)?;
     ensure_dir_exists(&secrets_dir)?;
 
