@@ -1,21 +1,15 @@
+mod types;
 use std::time::Duration;
 
 use futures::stream::StreamExt;
 pub use reqwest;
 use task_executor::TaskExecutor;
 use tokio::time::{interval_at, Instant};
+use types::*;
 
 /// Placeholder
 const DEFAULT_EXPLORER_ENDPOINT: &str = "https://beaconcha.in/tbd/metrics";
 const DEFAULT_UPDATE_DURATION: u64 = 60;
-
-#[derive(Debug, Default, Clone)]
-struct Metrics {
-    /// Metrics version
-    version: u64,
-    /// Unix timestamp in seconds
-    timestamp: u64,
-}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -47,7 +41,7 @@ impl Default for Config {
 pub struct ExplorerHttpClient {
     client: reqwest::Client,
     config: Config,
-    metrics: Metrics,
+    metrics: ExplorerMetrics,
 }
 
 impl ExplorerHttpClient {
