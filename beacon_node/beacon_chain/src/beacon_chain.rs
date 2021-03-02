@@ -1842,18 +1842,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Produce a block for some `slot` upon the given `state`.
     ///
-    /// TODO: mention pre-state stuff.
-    ///
     /// Typically the `self.produce_block()` function should be used, instead of calling this
     /// function directly. This function is useful for purposefully creating forks or blocks at
     /// non-current slots.
     ///
-    /// The given state will be advanced to the given `produce_at_slot`, then a block will be
-    /// produced at that slot height.
+    /// If required, the given state will be advanced to the given `produce_at_slot`, then a block
+    /// will be produced at that slot height.
+    ///
+    /// The provided `state_root_opt` should only ever be set to `Some` if the contained value is
+    /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
+    /// performing a tree hash in some scenarios.
     pub fn produce_block_on_state(
         &self,
         mut state: BeaconState<T::EthSpec>,
-        mut state_root: Option<Hash256>,
+        mut state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
@@ -1863,6 +1865,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_ref()
             .ok_or(BlockProductionError::NoEth1ChainConnection)?;
 
+        // It is invalid to try to produce a block using a state from a future slot.
+        if state.slot > produce_at_slot {
+            return Err(BlockProductionError::StateSlotTooHigh {
+                produce_at_slot,
+                state_slot: state.slot,
+            });
+        }
+
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
         // If required, transition the new state to the present slot.
         //
@@ -1871,7 +1881,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         while state.slot < produce_at_slot {
             // Using `state_root.take()` here ensures that we consume the `state_root` on the first
             // iteration and never use it again.
-            per_slot_processing(&mut state, state_root.take(), &self.spec)?;
+            per_slot_processing(&mut state, state_root_opt.take(), &self.spec)?;
         }
         drop(slot_timer);
 
