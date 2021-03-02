@@ -85,6 +85,9 @@ impl EndpointsCache {
         *value = Some(state);
         if state.is_err() {
             crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_ERRORS, &[&endpoint.0]);
+            crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 0);
+        } else {
+            crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 1);
         }
         state
     }
@@ -727,6 +730,11 @@ impl Service {
             }
         };
 
+        // Set the number of configured eth1 servers
+        metrics::set_gauge(
+            &metrics::ETH1_FALLBACK_CONFIGURED,
+            self.config().endpoints.len(),
+        );
         handle.spawn(update_future, "eth1");
     }
 

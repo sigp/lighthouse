@@ -26,4 +26,23 @@ lazy_static! {
     pub static ref ENDPOINT_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
         "eth1_endpoint_requests", "The number of eth1 requests for each endpoint", &["endpoint"]
     );
+
+    /*
+     * Eth1 rpc connection
+     */
+
+    pub static ref ETH1_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "eth1_sync_connected", "Check if eth1 node is connected"
+    );
+
+    pub static ref ETH1_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
+        "eth1_sync_fallback_configured", "Number of configured eth1 fallbacks"
+    );
+
+    // TODO(pawan): how to check fallbacks connection status? Should we refactor to enable this
+    pub static ref ETH1_FALLBACK_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "eth1_sync_fallback_connected", "Check if eth1 fallback node is configured"
+    );
+
+
 }
