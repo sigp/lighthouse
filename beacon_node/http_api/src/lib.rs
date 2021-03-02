@@ -13,7 +13,8 @@ mod validator_inclusion;
 
 use beacon_chain::{
     attestation_verification::SignatureVerifiedAttestation,
-    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
+    observed_operations::ObservationOutcome,
+    validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use beacon_proposer_cache::BeaconProposerCache;
@@ -821,6 +822,41 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         PubsubMessage::BeaconBlock(Box::new(block.clone())),
                     )?;
+
+                    // Determine the delay after the start of the slot, register it with metrics.
+                    let delay =
+                        get_block_delay_ms(seen_timestamp, &block.message, &chain.slot_clock);
+                    metrics::observe_duration(
+                        &metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES,
+                        delay,
+                    );
+
+                    // Perform some logging to inform users if their blocks are being produced
+                    // late.
+                    //
+                    // Check to see the thresholds are non-zero to avoid logging errors with small
+                    // slot times (e.g., during testing)
+                    let error_threshold = chain.spec.seconds_per_slot / 3;
+                    let warn_threshold = chain.spec.seconds_per_slot / 6;
+                    if error_threshold > 0 && delay.as_secs() > error_threshold {
+                        error!(
+                            log,
+                            "Block is broadcast too late";
+                            "root" => ?block.canonical_root(),
+                            "slot" => block.slot(),
+                            "delay_ms" => delay.as_millis(),
+                            "msg" => "system may be overloaded, block likely to be orphaned",
+                        )
+                    } else if warn_threshold > 0 && delay.as_secs() > warn_threshold {
+                        warn!(
+                            log,
+                            "Block broadcast was delayed";
+                            "root" => ?block.canonical_root(),
+                            "slot" => block.slot(),
+                            "delay_ms" => delay.as_millis(),
+                            "msg" => "system may be overloaded",
+                        )
+                    }
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
