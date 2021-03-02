@@ -136,7 +136,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0146
+	cargo audit
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
