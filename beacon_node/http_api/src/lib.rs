@@ -7,7 +7,6 @@
 
 mod beacon_proposer_cache;
 mod block_id;
-mod broadcast_stream;
 mod metrics;
 mod state_id;
 mod validator_inclusion;
@@ -36,7 +35,7 @@ use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_stream::StreamExt;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
     Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
@@ -2405,23 +2404,22 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                             };
 
-                            receivers.push(broadcast_stream::BroadcastStream::new(receiver).map(
-                                |msg| {
-                                    match msg {
-                                        Ok(data) => Event::default()
-                                            .event(data.topic_name())
-                                            .json_data(data)
-                                            .map_err(|e| {
-                                                warp_utils::reject::server_sent_event_error(
-                                                    format!("{:?}", e),
-                                                )
-                                            }),
-                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                            format!("{:?}", e),
-                                        )),
-                                    }
-                                },
-                            ));
+                            receivers.push(BroadcastStream::new(receiver).map(|msg| {
+                                match msg {
+                                    Ok(data) => Event::default()
+                                        .event(data.topic_name())
+                                        .json_data(data)
+                                        .map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                        format!("{:?}", e),
+                                    )),
+                                }
+                            }));
                         }
                     } else {
                         return Err(warp_utils::reject::custom_server_error(

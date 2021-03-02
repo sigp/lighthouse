@@ -65,6 +65,10 @@ lazy_static::lazy_static! {
         "Duration to perform attestation service tasks",
         &["task"]
     );
+    pub static ref SLASHING_PROTECTION_PRUNE_TIMES: Result<Histogram> = try_create_histogram(
+        "vc_slashing_protection_prune_times_seconds",
+        "Time required to prune the slashing protection DB",
+    );
     pub static ref BLOCK_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
         "vc_beacon_block_service_task_times_seconds",
         "Duration to perform beacon block service tasks",

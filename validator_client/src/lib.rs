@@ -277,6 +277,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
+        // Perform pruning of the slashing protection database on start-up. In case the database is
+        // oversized from having not been pruned (by a prior version) we don't want to prune
+        // concurrently, as it will hog the lock and cause the attestation service to spew CRITs.
+        if let Some(slot) = slot_clock.now() {
+            validator_store.prune_slashing_protection_db(slot.epoch(T::slots_per_epoch()), true);
+        }
+
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())

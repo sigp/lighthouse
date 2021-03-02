@@ -4,6 +4,7 @@
 #![recursion_limit = "128"]
 // Clippy lint set up
 #![deny(clippy::integer_arithmetic)]
+#![deny(clippy::disallowed_method)]
 
 #[macro_use]
 extern crate lazy_static;
