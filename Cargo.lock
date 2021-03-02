@@ -3721,6 +3721,8 @@ dependencies = [
  "environment",
  "eth2_network_config",
  "futures 0.3.13",
+ "lazy_static",
+ "lighthouse_metrics",
  "lighthouse_version",
  "logging",
  "remote_signer",
