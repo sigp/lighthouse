@@ -565,6 +565,10 @@ fn validator_import_launchpad_password_file() {
         !dst_dir.path().join(NOT_KEYSTORE_NAME).exists(),
         "not-keystore should not be present in dst dir"
     );
+    assert!(
+        !dst_dir.path().join(PASSWORD_FILE_NAME).exists(),
+        "password file should not be present in dst dir"
+    );
 
     // Validator should be registered with slashing protection.
     check_slashing_protection(&dst_dir, std::iter::once(keystore.public_key().unwrap()));
