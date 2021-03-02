@@ -80,7 +80,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
-    data_dir: Option<PathBuf>,
     pubkey_cache_path: Option<PathBuf>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
@@ -120,7 +119,6 @@ where
             shutdown_sender: None,
             head_tracker: None,
             pubkey_cache_path: None,
-            data_dir: None,
             disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
@@ -183,7 +181,6 @@ where
     /// Should generally be called early in the build chain.
     pub fn data_dir(mut self, path: PathBuf) -> Self {
         self.pubkey_cache_path = Some(path.join(PUBKEY_CACHE_FILENAME));
-        self.data_dir = Some(path);
         self
     }
 
