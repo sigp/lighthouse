@@ -6,7 +6,7 @@ ganache-cli \
 	--defaultBalanceEther 1000000000 \
 	--gasLimit 1000000000 \
 	--accounts 10 \
-	--mnemonic $ETH1_NETWORK_MNEMONIC \
+	--mnemonic "$ETH1_NETWORK_MNEMONIC" \
 	--port 8545 \
 	--blockTime 3 \
 	--networkId 4242 \
