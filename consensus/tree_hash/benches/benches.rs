@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use lazy_static::lazy_static;
