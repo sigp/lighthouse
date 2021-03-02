@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
-use types::{Keypair, PublicKey};
+use types::{Graffiti, Keypair, PublicKey};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
@@ -86,6 +86,7 @@ pub enum SigningMethod {
 /// A validator that is ready to sign messages.
 pub struct InitializedValidator {
     signing_method: SigningMethod,
+    graffiti: Option<Graffiti>,
 }
 
 impl InitializedValidator {
@@ -213,6 +214,7 @@ impl InitializedValidator {
                         voting_keystore: voting_keystore.clone(),
                         voting_keypair,
                     },
+                    graffiti: def.graffiti.map(Into::into),
                 })
             }
         }
@@ -361,6 +363,11 @@ impl InitializedValidators {
             .iter()
             .find(|def| def.voting_public_key == *voting_public_key)
             .map(|def| def.enabled)
+    }
+
+    /// Returns the `graffiti` for a given public key specified in the `ValidatorDefinitions`.
+    pub fn graffiti(&self, public_key: &PublicKey) -> Option<Graffiti> {
+        self.validators.get(public_key).and_then(|v| v.graffiti)
     }
 
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
@@ -533,7 +540,7 @@ impl InitializedValidators {
                                 info!(
                                     self.log,
                                     "Enabled validator";
-                                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
+                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
                                 );
 
                                 if let Some(lockfile_path) = existing_lockfile_path {
