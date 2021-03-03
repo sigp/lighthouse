@@ -13,6 +13,11 @@ pub const ATTESTATIONS: &str = "attestations";
 pub const AGGREGATES: &str = "aggregates";
 pub const CURRENT_EPOCH: &str = "current_epoch";
 pub const NEXT_EPOCH: &str = "next_epoch";
+pub const DOWNLOAD_DUTIES_TOTAL: &str = "download_duties";
+pub const DOWNLOAD_ATTESTER_DUTIES: &str = "download_attester_duties";
+pub const DOWNLOAD_PROPOSER_DUTIES: &str = "download_proposer_duties";
+pub const COMBINE_DUTIES: &str = "combine_duties";
+pub const REGISTER_DUTIES: &str = "register_duties";
 
 pub use lighthouse_metrics::*;
 

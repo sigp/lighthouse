@@ -1,3 +1,4 @@
+use crate::http_metrics::metrics;
 use eth2::{
     types::{BeaconCommitteeSubscription, StateId, ValidatorId},
     BeaconNodeHttpClient,
@@ -81,6 +82,11 @@ impl ValidatorDuty {
             }
         }
 
+        let proposer_duties = metrics::start_timer_vec(
+            &metrics::DUTIES_SERVICE_TIMES,
+            &[metrics::DOWNLOAD_PROPOSER_DUTIES],
+        );
+
         // Query for all block proposer duties in the current epoch and map the response by index.
         let proposal_slots_by_index: HashMap<u64, Vec<Slot>> = if current_epoch == request_epoch {
             beacon_node
@@ -103,6 +109,12 @@ impl ValidatorDuty {
             HashMap::new()
         };
 
+        drop(proposer_duties);
+        let attester_duties = metrics::start_timer_vec(
+            &metrics::DUTIES_SERVICE_TIMES,
+            &[metrics::DOWNLOAD_ATTESTER_DUTIES],
+        );
+
         let query_indices = pubkeys
             .iter()
             .filter_map(|(_, index_opt)| *index_opt)
@@ -121,6 +133,10 @@ impl ValidatorDuty {
                     map
                 },
             );
+
+        drop(attester_duties);
+        let combine_duties =
+            metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::COMBINE_DUTIES]);
 
         let duties = pubkeys
             .into_iter()
@@ -160,6 +176,8 @@ impl ValidatorDuty {
                 }
             })
             .collect();
+
+        drop(combine_duties);
 
         Ok(duties)
     }

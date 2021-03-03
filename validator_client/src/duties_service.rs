@@ -611,6 +611,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             })
             .collect();
 
+        let download_timer = metrics::start_timer_vec(
+            &metrics::DUTIES_SERVICE_TIMES,
+            &[metrics::DOWNLOAD_DUTIES_TOTAL],
+        );
+
         let mut validator_subscriptions = vec![];
         let pubkeys_ref = &pubkeys;
         let remote_duties: Vec<ValidatorDuty> = match self
@@ -637,6 +642,10 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 vec![]
             }
         };
+
+        drop(download_timer);
+        let register_timer =
+            metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::REGISTER_DUTIES]);
 
         remote_duties.iter().for_each(|remote_duty| {
             // Convert the remote duties into our local representation.
@@ -688,6 +697,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 ),
             }
         });
+
+        drop(register_timer);
 
         if invalid > 0 {
             error!(
