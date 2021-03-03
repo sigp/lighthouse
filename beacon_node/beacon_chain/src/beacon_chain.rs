@@ -156,6 +156,7 @@ pub struct HeadInfo {
     pub fork: Fork,
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
+    pub proposer_shuffling_decision_root: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -235,7 +236,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
-    pub(crate) beacon_proposer_cache: Mutex<BeaconProposerCache>,
+    pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// A list of any hard-coded forks that have been disabled.
@@ -600,6 +601,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// A summarized version of `Self::head` that involves less cloning.
     pub fn head_info(&self) -> Result<HeadInfo, Error> {
         self.with_head(|head| {
+            let proposer_shuffling_decision_slot =
+                head.beacon_state.proposer_shuffling_decision_slot();
+            let proposer_shuffling_decision_root =
+                if proposer_shuffling_decision_slot == head.beacon_block.slot() {
+                    head.beacon_block_root
+                } else {
+                    *head
+                        .beacon_state
+                        .get_block_root(proposer_shuffling_decision_slot)?
+                };
+
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
@@ -609,6 +621,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 fork: head.beacon_state.fork,
                 genesis_time: head.beacon_state.genesis_time,
                 genesis_validators_root: head.beacon_state.genesis_validators_root,
+                proposer_shuffling_decision_root,
             })
         })
     }

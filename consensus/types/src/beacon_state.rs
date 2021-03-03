@@ -444,6 +444,13 @@ impl<T: EthSpec> BeaconState<T> {
         cache.get_all_beacon_committees()
     }
 
+    /// Returns the slot at which the proposer shuffling was decided. The block root at this slot
+    /// can be used to key the proposer shuffling for the current epoch.
+    pub fn proposer_shuffling_decision_slot(&self) -> Slot {
+        // Taking advantage of saturating subtraction on slot.
+        self.current_epoch().start_slot(T::slots_per_epoch()) - 1
+    }
+
     /// Compute the proposer (not necessarily for the Beacon chain) from a list of indices.
     ///
     /// Spec v0.12.1
