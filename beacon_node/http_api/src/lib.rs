@@ -5,7 +5,6 @@
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.
 
-mod beacon_proposer_cache;
 mod block_id;
 mod metrics;
 mod state_id;
@@ -17,13 +16,11 @@ use beacon_chain::{
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -239,30 +236,6 @@ pub fn serve<T: BeaconChainTypes>(
     }
 
     let eth1_v1 = warp::path(API_PREFIX).and(warp::path(API_VERSION));
-
-    // Instantiate the beacon proposer cache.
-    let beacon_proposer_cache = ctx
-        .chain
-        .as_ref()
-        .map(|chain| BeaconProposerCache::new(&chain))
-        .transpose()
-        .map_err(|e| format!("Unable to initialize beacon proposer cache: {:?}", e))?
-        .map(Mutex::new)
-        .map(Arc::new);
-
-    // Create a `warp` filter that provides access to the proposer cache.
-    let beacon_proposer_cache = || {
-        warp::any()
-            .map(move || beacon_proposer_cache.clone())
-            .and_then(|beacon_proposer_cache| async move {
-                match beacon_proposer_cache {
-                    Some(cache) => Ok(cache),
-                    None => Err(warp_utils::reject::custom_not_found(
-                        "Beacon proposer cache is not initialized.".to_string(),
-                    )),
-                }
-            })
-    };
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -1674,189 +1647,203 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
-        .and(beacon_proposer_cache())
-        .and_then(
-            |epoch: Epoch,
-             chain: Arc<BeaconChain<T>>,
-             beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>| {
-                blocking_json_task(move || {
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .and_then(|epoch: Epoch, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let current_epoch = chain
+                    .epoch()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    if epoch > current_epoch {
-                        return Err(warp_utils::reject::custom_bad_request(format!(
-                            "request epoch {} is ahead of the current epoch {}",
-                            epoch, current_epoch
-                        )));
-                    }
+                if epoch > current_epoch {
+                    return Err(warp_utils::reject::custom_bad_request(format!(
+                        "request epoch {} is ahead of the current epoch {}",
+                        epoch, current_epoch
+                    )));
+                }
 
-                    // If the request is for the current epoch, use the proposer cache on the beacon
-                    // chain.
-                    //
-                    // Otherwise, if the request is for an earlier epoch, load the state from disk
-                    // and don't bother with the proposer cache.
-                    if epoch == current_epoch {
-                        let dependent_root = {
-                            let head = chain.head_info()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
-                            let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
+                // If the request is for the current epoch, use the proposer cache on the beacon
+                // chain.
+                //
+                // Otherwise, if the request is for an earlier epoch, load the state from disk
+                // and don't bother with the proposer cache.
+                if epoch == current_epoch {
+                    let dependent_root = {
+                        let head = chain
+                            .head_info()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
 
-                            if head_epoch == current_epoch {
-                                head.proposer_shuffling_decision_root
-                            } else if head_epoch < current_epoch {
-                                head.block_root
-                            } else {
-                                return Err(warp_utils::reject::custom_server_error(format!(
-                                    "head epoch {} is later than current epoch {}",
-                                    head_epoch,
-                                    current_epoch
-                                )))
-                            }
-                        };
-
-                        let cached_proposers =
-                            chain.beacon_proposer_cache.lock().get_epoch::<T::EthSpec>(dependent_root, current_epoch).cloned();
-
-                        let (dependent_root, indices) = if let Some(proposers) = cached_proposers {
-                            /*
-                             * There was a cache hit.
-                             */
-                            (dependent_root, proposers.to_vec())
+                        if head_epoch == current_epoch {
+                            head.proposer_shuffling_decision_root
+                        } else if head_epoch < current_epoch {
+                            head.block_root
                         } else {
-                            /*
-                             * There was a cache miss.
-                             *
-                             * Load the shuffling manually and update the proposer cache.
-                             */
-                            let head = chain.head()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
-                            let mut state = head.beacon_state;
-                            let head_block_root = head.beacon_block_root;
-                            let head_block_slot = head.beacon_block.slot();
-                            let head_state_root = head.beacon_block.state_root();
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "head epoch {} is later than current epoch {}",
+                                head_epoch, current_epoch
+                            )));
+                        }
+                    };
 
-                            // TODO: protect against state that is later than current epoch.
+                    let cached_proposers = chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<T::EthSpec>(dependent_root, current_epoch)
+                        .cloned();
 
-                            while state.current_epoch() < current_epoch {
-                                let state_root_opt = if state.slot == head_block_slot {
-                                    Some(head_state_root)
-                                } else {
-                                    // Don't calculate state roots since they aren't required for calculating
-                                    // shuffling (achieved by providing Hash256::zero()).
-                                    Some(Hash256::zero())
-                                };
+                    let (dependent_root, indices) = if let Some(proposers) = cached_proposers {
+                        /*
+                         * There was a cache hit.
+                         */
+                        (dependent_root, proposers.to_vec())
+                    } else {
+                        /*
+                         * There was a cache miss.
+                         *
+                         * Load the shuffling manually and update the proposer cache.
+                         */
+                        let head = chain
+                            .head()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        let mut state = head.beacon_state;
+                        let head_block_root = head.beacon_block_root;
+                        let head_block_slot = head.beacon_block.slot();
+                        let head_state_root = head.beacon_block.state_root();
 
-                                per_slot_processing(&mut state, state_root_opt, &chain.spec).map_err(BeaconChainError::from)
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
-                            }
+                        // TODO: protect against state that is later than current epoch.
 
-                            let proposers = state.get_beacon_proposer_indices(&chain.spec)
+                        while state.current_epoch() < current_epoch {
+                            let state_root_opt = if state.slot == head_block_slot {
+                                Some(head_state_root)
+                            } else {
+                                // Don't calculate state roots since they aren't required for calculating
+                                // shuffling (achieved by providing Hash256::zero()).
+                                Some(Hash256::zero())
+                            };
+
+                            per_slot_processing(&mut state, state_root_opt, &chain.spec)
                                 .map_err(BeaconChainError::from)
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
+                        }
 
-                            let dependent_slot =
-                                state.proposer_shuffling_decision_slot();
-                            let dependent_root =
-                                if dependent_slot == head_block_slot {
-                                    head_block_root
-                                } else {
-                                    *state
-                                        .get_block_root(dependent_slot)
-                                        .map_err(BeaconChainError::from)
-                                        .map_err(warp_utils::reject::beacon_chain_error)?
-                                };
+                        let proposers = state
+                            .get_beacon_proposer_indices(&chain.spec)
+                            .map_err(BeaconChainError::from)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                            dbg!(dependent_slot, dependent_root, head_block_root, head_block_slot);
+                        let dependent_slot = state.proposer_shuffling_decision_slot();
+                        let dependent_root = if dependent_slot == head_block_slot {
+                            head_block_root
+                        } else {
+                            *state
+                                .get_block_root(dependent_slot)
+                                .map_err(BeaconChainError::from)
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                        };
 
-                            // Prime the proposer shuffling cache with the newly-learned value.
-                            chain.beacon_proposer_cache.lock().insert(
+                        dbg!(
+                            dependent_slot,
+                            dependent_root,
+                            head_block_root,
+                            head_block_slot
+                        );
+
+                        // Prime the proposer shuffling cache with the newly-learned value.
+                        chain
+                            .beacon_proposer_cache
+                            .lock()
+                            .insert(
                                 state.current_epoch(),
                                 dependent_root,
                                 proposers.clone(),
                                 state.fork,
                             )
-                                .map_err(BeaconChainError::from)
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                            .map_err(BeaconChainError::from)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                            dbg!("this here boi");
+                        dbg!("this here boi");
 
-                            (dependent_root, proposers)
-                        };
+                        (dependent_root, proposers)
+                    };
 
-                        Ok(api_types::DutiesResponse {
-                            dependent_root,
-                            data: indices
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, validator_index)| {
-                                    let pubkey = chain
-                                        .validator_pubkey(validator_index)
-                                        .map_err(warp_utils::reject::beacon_chain_error)?
-                                        .ok_or_else(|| warp_utils::reject::custom_server_error(format!(
+                    Ok(api_types::DutiesResponse {
+                        dependent_root,
+                        data: indices
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, validator_index)| {
+                                let pubkey = chain
+                                    .validator_pubkey(validator_index)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .ok_or_else(|| {
+                                        warp_utils::reject::custom_server_error(format!(
                                             "unable to resolve validator index {}",
                                             i
-                                        )))?;
+                                        ))
+                                    })?;
+
+                                Ok(api_types::ProposerData {
+                                    pubkey: pubkey.into(),
+                                    validator_index: validator_index as u64,
+                                    slot: epoch.start_slot(T::EthSpec::slots_per_epoch())
+                                        + Slot::from(i),
+                                })
+                            })
+                            .collect::<Result<Vec<_>, warp::reject::Rejection>>()?,
+                    })
+                } else {
+                    let state = StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                        .state(&chain)?;
+
+                    let dependent_root_slot = state
+                        .current_epoch()
+                        .start_slot(T::EthSpec::slots_per_epoch())
+                        - 1;
+                    let dependent_root = if dependent_root_slot
+                        > chain
+                            .best_slot()
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                    {
+                        chain
+                            .head_beacon_block_root()
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                    } else {
+                        chain
+                            .root_at_slot(dependent_root_slot)
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            .unwrap_or(chain.genesis_block_root)
+                    };
+
+                    epoch
+                        .slot_iter(T::EthSpec::slots_per_epoch())
+                        .map(|slot| {
+                            state
+                                .get_beacon_proposer_index(slot, &chain.spec)
+                                .map_err(warp_utils::reject::beacon_state_error)
+                                .and_then(|i| {
+                                    let pubkey = chain
+                                        .validator_pubkey(i)
+                                        .map_err(warp_utils::reject::beacon_chain_error)?
+                                        .ok_or_else(|| {
+                                            warp_utils::reject::beacon_chain_error(
+                                                BeaconChainError::ValidatorPubkeyCacheIncomplete(i),
+                                            )
+                                        })?;
 
                                     Ok(api_types::ProposerData {
-                                        pubkey: pubkey.into(),
-                                        validator_index: validator_index as u64,
-                                        slot: epoch.start_slot(T::EthSpec::slots_per_epoch()) + Slot::from(i)
+                                        pubkey: PublicKeyBytes::from(pubkey),
+                                        validator_index: i as u64,
+                                        slot,
                                     })
                                 })
-                                .collect::<Result<Vec<_>, warp::reject::Rejection>>()?,
                         })
-
-                    } else {
-                        let state =
-                            StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                                .state(&chain)?;
-
-                        let dependent_root_slot = state.current_epoch()
-                            .start_slot(T::EthSpec::slots_per_epoch()) - 1;
-                        let dependent_root = if dependent_root_slot > chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)? {
-                            chain.head_beacon_block_root().map_err(warp_utils::reject::beacon_chain_error)?
-                        } else {
-                            chain
-                                .root_at_slot(dependent_root_slot)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .unwrap_or(chain.genesis_block_root)
-                        };
-
-                        epoch
-                            .slot_iter(T::EthSpec::slots_per_epoch())
-                            .map(|slot| {
-                                state
-                                    .get_beacon_proposer_index(slot, &chain.spec)
-                                    .map_err(warp_utils::reject::beacon_state_error)
-                                    .and_then(|i| {
-                                        let pubkey =
-                                            chain.validator_pubkey(i)
-                                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                                .ok_or_else(||
-                                                    warp_utils::reject::beacon_chain_error(
-                                                        BeaconChainError::ValidatorPubkeyCacheIncomplete(i)
-                                                    )
-                                                )?;
-
-                                        Ok(api_types::ProposerData {
-                                            pubkey: PublicKeyBytes::from(pubkey),
-                                            validator_index: i as u64,
-                                            slot,
-                                        })
-                                    })
-                            })
-                            .collect::<Result<Vec<api_types::ProposerData>, _>>()
-                            .map(|duties| {
-                                api_types::DutiesResponse {
-                                    dependent_root,
-                                    data: duties,
-                                }
-                            })
-                    }
-                })
-            },
-        );
+                        .collect::<Result<Vec<api_types::ProposerData>, _>>()
+                        .map(|duties| api_types::DutiesResponse {
+                            dependent_root,
+                            data: duties,
+                        })
+                }
+            })
+        });
 
     // GET validator/blocks/{slot}
     let get_validator_blocks = eth1_v1
