@@ -19,6 +19,7 @@ pub enum Error {
     NoContinuationData,
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
+    SchemaMigrationError(String),
 }
 
 impl From<DecodeError> for Error {
