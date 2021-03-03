@@ -81,6 +81,7 @@ pub enum BeaconChainError {
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
     DuplicateValidatorPublicKey,
     ValidatorPubkeyCacheFileError(String),
+    ValidatorIndexUnknown(usize),
     OpPoolError(OpPoolError),
     NaiveAggregationError(NaiveAggregationError),
     ObservedAttestationsError(ObservedAttestationsError),

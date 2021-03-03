@@ -156,6 +156,7 @@ pub struct HeadInfo {
     pub fork: Fork,
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
+    pub validator_count: usize,
     pub proposer_shuffling_decision_root: Hash256,
 }
 
@@ -621,6 +622,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 fork: head.beacon_state.fork,
                 genesis_time: head.beacon_state.genesis_time,
                 genesis_validators_root: head.beacon_state.genesis_validators_root,
+                validator_count: head.beacon_state.validators.len(),
                 proposer_shuffling_decision_root,
             })
         })
@@ -814,15 +816,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Information is read from the current state, so only information from the present and prior
     /// epoch is available.
-    pub fn validator_attestation_duty(
+    pub fn validator_attestation_duties(
         &self,
-        validator_index: usize,
+        validator_indices: &[u64],
         epoch: Epoch,
-    ) -> Result<Option<AttestationDuty>, Error> {
-        let head_block_root = self.head_beacon_block_root()?;
+        head_block_root: Hash256,
+    ) -> Result<(Vec<AttestationDuty>, Hash256), Error> {
+        self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
+            let duties = validator_indices
+                .iter()
+                .map(|validator_index| {
+                    let validator_index = *validator_index as usize;
+                    committee_cache
+                        .get_attestation_duties(validator_index)
+                        .ok_or_else(|| Error::ValidatorIndexUnknown(validator_index))
+                })
+                .collect::<Result<_, _>>()?;
 
-        self.with_committee_cache(head_block_root, epoch, |committee_cache| {
-            Ok(committee_cache.get_attestation_duties(validator_index))
+            Ok((duties, dependent_root))
         })
     }
 
@@ -2401,7 +2412,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         map_fn: F,
     ) -> Result<R, Error>
     where
-        F: Fn(&CommitteeCache) -> Result<R, Error>,
+        F: Fn(&CommitteeCache, Hash256) -> Result<R, Error>,
     {
         let head_block = self
             .fork_choice
@@ -2432,7 +2443,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(cache_wait_timer);
 
         if let Some(committee_cache) = shuffling_cache.get(&shuffling_id) {
-            map_fn(committee_cache)
+            map_fn(committee_cache, shuffling_id.shuffling_decision_block)
         } else {
             // Drop the shuffling cache to avoid holding the lock for any longer than
             // required.
@@ -2480,6 +2491,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
             let committee_cache = state.committee_cache(relative_epoch)?;
+            let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
@@ -2488,7 +2500,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             metrics::stop_timer(committee_building_timer);
 
-            map_fn(&committee_cache)
+            map_fn(&committee_cache, shuffling_decision_block)
         }
     }
 
