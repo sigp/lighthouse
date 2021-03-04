@@ -1242,8 +1242,9 @@ fn load_parent<T: BeaconChainTypes>(
     let result = if let Some(snapshot) = chain
         .snapshot_cache
         .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-        .and_then(|mut snapshot_cache| snapshot_cache.try_remove(block.parent_root()))
-    {
+        .and_then(|mut snapshot_cache| {
+            snapshot_cache.get_state_for_block_processing(block.parent_root())
+        }) {
         Ok((snapshot.into_pre_state(), block))
     } else {
         // Load the blocks parent block from the database, returning invalid if that block is not
