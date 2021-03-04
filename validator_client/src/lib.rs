@@ -5,6 +5,7 @@ mod check_synced;
 mod cli;
 mod config;
 mod duties_service;
+mod duties_service_v2;
 mod fork_service;
 mod http_metrics;
 mod initialized_validators;

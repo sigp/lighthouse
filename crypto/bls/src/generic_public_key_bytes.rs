@@ -69,6 +69,11 @@ impl<Pub> GenericPublicKeyBytes<Pub> {
         self.bytes
     }
 
+    /// Returns `self.serialize()` as a `0x`-prefixed hex string.
+    pub fn to_hex_string(&self) -> String {
+        format!("{:?}", self)
+    }
+
     /// Instantiates `Self` from bytes.
     ///
     /// The bytes are not fully verified (i.e., they may not represent a valid BLS point). Only the

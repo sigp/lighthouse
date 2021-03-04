@@ -217,7 +217,7 @@ pub fn cli_run<T: EthSpec>(
         })?;
 
         slashing_protection
-            .register_validator(&voting_pubkey)
+            .register_validator(voting_pubkey.compress())
             .map_err(|e| {
                 format!(
                     "Error registering validator {}: {:?}",
