@@ -380,7 +380,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .validator_store
                 .sign_attestation(
                     &duty.pubkey,
-                    duty.committee_index as usize,
+                    duty.validator_committee_index as usize,
                     &mut attestation,
                     current_epoch,
                 )

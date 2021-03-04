@@ -213,7 +213,8 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 ) {
     let log = duties_service.context.log();
     for pubkey in duties_service.validator_store.voting_pubkeys() {
-        let is_known = !duties_service.indices.read().contains_key(&pubkey);
+        // This is on its own line to avoid some weirdness with locks and if statements.
+        let is_known = duties_service.indices.read().contains_key(&pubkey);
 
         if !is_known {
             let download_result = duties_service
