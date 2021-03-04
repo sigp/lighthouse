@@ -35,7 +35,7 @@ fn testnet_url() -> String {
 fn main() {
     match get_all_contracts() {
         Ok(()) => (),
-        Err(e) => std::panic::panic_any(e),
+        Err(e) => panic!(e),
     }
 }
 
