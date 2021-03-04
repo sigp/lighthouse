@@ -102,6 +102,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("GRAFFITI")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("graffiti-file")
+                .long("graffiti-file")
+                .help("Specify a graffiti file to load validator graffitis from.")
+                .value_name("GRAFFITI-FILE")
+                .takes_value(true)
+                .conflicts_with("graffiti")
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

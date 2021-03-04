@@ -491,6 +491,27 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET beacon/blocks` as SSZ
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_blocks_ssz<T: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Option<SignedBeaconBlock<T>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blocks")
+            .push(&block_id.to_string());
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+            .await?
+            .map(|bytes| SignedBeaconBlock::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .transpose()
+    }
+
     /// `GET beacon/blocks/{block_id}/root`
     ///
     /// Returns `Ok(None)` on a 404 error.

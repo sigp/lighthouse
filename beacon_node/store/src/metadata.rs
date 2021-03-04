@@ -2,7 +2,7 @@ use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{Checkpoint, Hash256};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(2);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(3);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //

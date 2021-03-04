@@ -13,6 +13,10 @@ pub const ATTESTATIONS: &str = "attestations";
 pub const AGGREGATES: &str = "aggregates";
 pub const CURRENT_EPOCH: &str = "current_epoch";
 pub const NEXT_EPOCH: &str = "next_epoch";
+pub const UPDATE_INDICES: &str = "update_indices";
+pub const UPDATE_ATTESTERS_CURRENT_EPOCH: &str = "update_attesters_current_epoch";
+pub const UPDATE_ATTESTERS_NEXT_EPOCH: &str = "update_attesters_next_epoch";
+pub const UPDATE_PROPOSERS: &str = "update_proposers";
 
 pub use lighthouse_metrics::*;
 
@@ -64,6 +68,10 @@ lazy_static::lazy_static! {
         "vc_attestation_service_task_times_seconds",
         "Duration to perform attestation service tasks",
         &["task"]
+    );
+    pub static ref SLASHING_PROTECTION_PRUNE_TIMES: Result<Histogram> = try_create_histogram(
+        "vc_slashing_protection_prune_times_seconds",
+        "Time required to prune the slashing protection DB",
     );
     pub static ref BLOCK_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
         "vc_beacon_block_service_task_times_seconds",

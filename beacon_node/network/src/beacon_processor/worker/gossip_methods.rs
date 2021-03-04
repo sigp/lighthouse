@@ -4,18 +4,20 @@ use beacon_chain::{
     attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
     observed_operations::ObservationOutcome,
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
+use slot_clock::SlotClock;
 use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
-use super::Worker;
+use super::{super::block_delay_queue::QueuedBlock, Worker};
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
@@ -236,6 +238,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
+        delayed_import_tx: mpsc::Sender<QueuedBlock<T>>,
         seen_duration: Duration,
     ) {
         // Log metrics to track delay from other nodes on the network.
@@ -324,6 +327,80 @@ impl<T: BeaconChainTypes> Worker<T> {
             &self.chain.slot_clock,
         );
 
+        let block_slot = verified_block.block.slot();
+        let block_root = verified_block.block_root;
+
+        // Try read the current slot to determine if this block should be imported now or after some
+        // delay.
+        match self.chain.slot() {
+            // We only need to do a simple check about the block slot and the current slot since the
+            // `verify_block_for_gossip` function already ensures that the block is within the
+            // tolerance for block imports.
+            Ok(current_slot) if block_slot > current_slot => {
+                warn!(
+                    self.log,
+                    "Block arrived early";
+                    "block_slot" => %block_slot,
+                    "block_root" => %block_root,
+                    "msg" => "if this happens consistently, check system clock"
+                );
+
+                // Take note of how early this block arrived.
+                if let Some(duration) = self
+                    .chain
+                    .slot_clock
+                    .start_of(block_slot)
+                    .and_then(|start| start.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS,
+                        duration,
+                    );
+                }
+
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
+
+                if delayed_import_tx
+                    .try_send(QueuedBlock {
+                        peer_id,
+                        block: verified_block,
+                        seen_timestamp: seen_duration,
+                    })
+                    .is_err()
+                {
+                    error!(
+                        self.log,
+                        "Failed to defer block import";
+                        "block_slot" => %block_slot,
+                        "block_root" => %block_root,
+                        "location" => "block gossip"
+                    )
+                }
+            }
+            Ok(_) => self.process_gossip_verified_block(peer_id, verified_block, seen_duration),
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to defer block import";
+                    "error" => ?e,
+                    "block_slot" => %block_slot,
+                    "block_root" => %block_root,
+                    "location" => "block gossip"
+                )
+            }
+        }
+    }
+
+    /// Process the beacon block that has already passed gossip verification.
+    ///
+    /// Raises a log if there are errors.
+    pub fn process_gossip_verified_block(
+        self,
+        peer_id: PeerId,
+        verified_block: GossipVerifiedBlock<T>,
+        // This value is not used presently, but it might come in handy for debugging.
+        _seen_duration: Duration,
+    ) {
         let block = Box::new(verified_block.block.clone());
 
         match self.chain.process_block(verified_block) {

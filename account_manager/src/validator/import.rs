@@ -210,7 +210,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .public_key()
             .ok_or_else(|| format!("Keystore public key is invalid: {}", keystore.pubkey()))?;
         slashing_protection
-            .register_validator(&voting_pubkey)
+            .register_validator(voting_pubkey.compress())
             .map_err(|e| {
                 format!(
                     "Error registering validator {}: {:?}",
@@ -223,7 +223,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         num_imported_keystores += 1;
 
         let validator_def =
-            ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt)
+            ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt, None)
                 .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         defs.push(validator_def);

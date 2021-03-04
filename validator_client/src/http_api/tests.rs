@@ -210,6 +210,7 @@ impl ApiTester {
             .map(|i| ValidatorRequest {
                 enable: !s.disabled.contains(&i),
                 description: format!("boi #{}", i),
+                graffiti: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -339,6 +340,7 @@ impl ApiTester {
                     .unwrap()
                     .into(),
                 keystore,
+                graffiti: None,
             };
 
             self.client
@@ -355,6 +357,7 @@ impl ApiTester {
                 .unwrap()
                 .into(),
             keystore,
+            graffiti: None,
         };
 
         let response = self

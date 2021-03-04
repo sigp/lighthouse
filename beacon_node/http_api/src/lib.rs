@@ -5,25 +5,22 @@
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.
 
-mod beacon_proposer_cache;
 mod block_id;
-mod broadcast_stream;
 mod metrics;
 mod state_id;
 mod validator_inclusion;
 
 use beacon_chain::{
     attestation_verification::SignatureVerifiedAttestation,
-    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
+    observed_operations::ObservationOutcome,
+    validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use beacon_proposer_cache::BeaconProposerCache;
 use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -36,11 +33,11 @@ use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_stream::StreamExt;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
-    Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
+    Attestation, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec, Hash256,
+    ProposerSlashing, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, Slot, YamlConfig,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -239,30 +236,6 @@ pub fn serve<T: BeaconChainTypes>(
     }
 
     let eth1_v1 = warp::path(API_PREFIX).and(warp::path(API_VERSION));
-
-    // Instantiate the beacon proposer cache.
-    let beacon_proposer_cache = ctx
-        .chain
-        .as_ref()
-        .map(|chain| BeaconProposerCache::new(&chain))
-        .transpose()
-        .map_err(|e| format!("Unable to initialize beacon proposer cache: {:?}", e))?
-        .map(Mutex::new)
-        .map(Arc::new);
-
-    // Create a `warp` filter that provides access to the proposer cache.
-    let beacon_proposer_cache = || {
-        warp::any()
-            .map(move || beacon_proposer_cache.clone())
-            .and_then(|beacon_proposer_cache| async move {
-                match beacon_proposer_cache {
-                    Some(cache) => Ok(cache),
-                    None => Err(warp_utils::reject::custom_not_found(
-                        "Beacon proposer cache is not initialized.".to_string(),
-                    )),
-                }
-            })
-    };
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -498,7 +471,6 @@ pub fn serve<T: BeaconChainTypes>(
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
-                            let finalized_epoch = state.finalized_checkpoint.epoch;
                             let far_future_epoch = chain.spec.far_future_epoch;
 
                             Ok(state
@@ -522,17 +494,18 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by status(es) if provided and map the result
                                 .filter_map(|(index, (validator, balance))| {
                                     let status = api_types::ValidatorStatus::from_validator(
-                                        Some(validator),
+                                        validator,
                                         epoch,
-                                        finalized_epoch,
                                         far_future_epoch,
                                     );
 
-                                    if query
-                                        .status
-                                        .as_ref()
-                                        .map_or(true, |statuses| statuses.0.contains(&status))
-                                    {
+                                    let status_matches =
+                                        query.status.as_ref().map_or(true, |statuses| {
+                                            statuses.0.contains(&status)
+                                                || statuses.0.contains(&status.superstatus())
+                                        });
+
+                                    if status_matches {
                                         Some(api_types::ValidatorData {
                                             index: index as u64,
                                             balance: *balance,
@@ -577,16 +550,14 @@ pub fn serve<T: BeaconChainTypes>(
                                     let validator = state.validators.get(index)?;
                                     let balance = *state.balances.get(index)?;
                                     let epoch = state.current_epoch();
-                                    let finalized_epoch = state.finalized_checkpoint.epoch;
                                     let far_future_epoch = chain.spec.far_future_epoch;
 
                                     Some(api_types::ValidatorData {
                                         index: index as u64,
                                         balance,
                                         status: api_types::ValidatorStatus::from_validator(
-                                            Some(validator),
+                                            validator,
                                             epoch,
-                                            finalized_epoch,
                                             far_future_epoch,
                                         ),
                                         validator: validator.clone(),
@@ -825,6 +796,15 @@ pub fn serve<T: BeaconChainTypes>(
                         PubsubMessage::BeaconBlock(Box::new(block.clone())),
                     )?;
 
+                    // Determine the delay after the start of the slot, register it with metrics.
+                    let delay =
+                        get_block_delay_ms(seen_timestamp, &block.message, &chain.slot_clock);
+                    metrics::observe_duration(
+                        &metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES,
+                        delay,
+                    );
+
+
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
                             info!(
@@ -846,6 +826,33 @@ pub fn serve<T: BeaconChainTypes>(
                             chain
                                 .fork_choice()
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                            // Perform some logging to inform users if their blocks are being produced
+                            // late.
+                            //
+                            // Check to see the thresholds are non-zero to avoid logging errors with small
+                            // slot times (e.g., during testing)
+                            let crit_threshold = chain.spec.seconds_per_slot / 3;
+                            let warn_threshold = chain.spec.seconds_per_slot / 6;
+                            if crit_threshold > 0 && delay.as_secs() > crit_threshold {
+                                crit!(
+                                    log,
+                                    "Block was broadcast too late";
+                                    "root" => ?root,
+                                    "slot" => block.slot(),
+                                    "delay_ms" => delay.as_millis(),
+                                    "msg" => "system may be overloaded, block likely to be orphaned",
+                                )
+                            } else if warn_threshold > 0 && delay.as_secs() > warn_threshold {
+                                warn!(
+                                    log,
+                                    "Block broadcast was delayed";
+                                    "root" => ?root,
+                                    "slot" => block.slot(),
+                                    "delay_ms" => delay.as_millis(),
+                                    "msg" => "system may be overloaded, block may be orphaned",
+                                )
+                            }
 
                             Ok(())
                         }
@@ -874,11 +881,35 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone());
 
     // GET beacon/blocks/{block_id}
-    let get_beacon_block = beacon_blocks_path.clone().and(warp::path::end()).and_then(
-        |block_id: BlockId, chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || block_id.block(&chain).map(api_types::GenericResponse::from))
-        },
-    );
+    let get_beacon_block = beacon_blocks_path
+        .clone()
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |block_id: BlockId,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let block = block_id.block(&chain)?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(block.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(
+                            warp::reply::json(&api_types::GenericResponseRef::from(&block))
+                                .into_response(),
+                        ),
+                    }
+                })
+            },
+        );
 
     // GET beacon/blocks/{block_id}/root
     let get_beacon_block_root = beacon_blocks_path
@@ -1616,89 +1647,195 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
-        .and(beacon_proposer_cache())
-        .and_then(
-            |epoch: Epoch,
-             chain: Arc<BeaconChain<T>>,
-             beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>| {
-                blocking_json_task(move || {
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .and_then(|epoch: Epoch, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let current_epoch = chain
+                    .epoch()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    if epoch > current_epoch {
-                        return Err(warp_utils::reject::custom_bad_request(format!(
-                            "request epoch {} is ahead of the current epoch {}",
-                            epoch, current_epoch
-                        )));
-                    }
+                if epoch > current_epoch {
+                    return Err(warp_utils::reject::custom_bad_request(format!(
+                        "request epoch {} is ahead of the current epoch {}",
+                        epoch, current_epoch
+                    )));
+                }
 
-                    if epoch == current_epoch {
-                        let dependent_root_slot = current_epoch
-                            .start_slot(T::EthSpec::slots_per_epoch()) - 1;
-                        let dependent_root = if dependent_root_slot > chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)? {
-                            chain.head_beacon_block_root().map_err(warp_utils::reject::beacon_chain_error)?
+                // If the request is for the current epoch, use the proposer cache on the beacon
+                // chain.
+                //
+                // Otherwise, if the request is for an earlier epoch, load the state from disk
+                // and don't bother with the proposer cache.
+                if epoch == current_epoch {
+                    let dependent_root = {
+                        let head = chain
+                            .head_info()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
+
+                        #[allow(clippy::comparison_chain)]
+                        if head_epoch == current_epoch {
+                            head.proposer_shuffling_decision_root
+                        } else if head_epoch < current_epoch {
+                            head.block_root
                         } else {
-                            chain
-                                .root_at_slot(dependent_root_slot)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .unwrap_or(chain.genesis_block_root)
-                        };
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "head epoch {} is later than current epoch {}",
+                                head_epoch, current_epoch
+                            )));
+                        }
+                    };
 
-                        beacon_proposer_cache
-                            .lock()
-                            .get_proposers(&chain, epoch)
-                            .map(|duties| api_types::DutiesResponse { data: duties, dependent_root })
+                    let cached_proposers = chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<T::EthSpec>(dependent_root, current_epoch)
+                        .cloned();
+
+                    let (dependent_root, indices) = if let Some(proposers) = cached_proposers {
+                        /*
+                         * There was a cache hit.
+                         */
+                        (dependent_root, proposers.to_vec())
                     } else {
-                        let state =
-                            StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                                .state(&chain)?;
+                        /*
+                         * There was a cache miss.
+                         *
+                         * Load the shuffling manually and update the proposer cache.
+                         */
+                        let head = chain
+                            .head()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        let mut state = head.beacon_state;
+                        let head_block_root = head.beacon_block_root;
+                        let head_block_slot = head.beacon_block.slot();
+                        let head_state_root = head.beacon_block.state_root();
 
-                        let dependent_root_slot = state.current_epoch()
-                            .start_slot(T::EthSpec::slots_per_epoch()) - 1;
-                        let dependent_root = if dependent_root_slot > chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)? {
-                            chain.head_beacon_block_root().map_err(warp_utils::reject::beacon_chain_error)?
+                        // TODO: protect against state that is later than current epoch.
+
+                        while state.current_epoch() < current_epoch {
+                            let state_root_opt = if state.slot == head_block_slot {
+                                Some(head_state_root)
+                            } else {
+                                // Don't calculate state roots since they aren't required for calculating
+                                // shuffling (achieved by providing Hash256::zero()).
+                                Some(Hash256::zero())
+                            };
+
+                            per_slot_processing(&mut state, state_root_opt, &chain.spec)
+                                .map_err(BeaconChainError::from)
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                        }
+
+                        let proposers = state
+                            .get_beacon_proposer_indices(&chain.spec)
+                            .map_err(BeaconChainError::from)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                        let dependent_slot = state.proposer_shuffling_decision_slot();
+                        let dependent_root = if dependent_slot == head_block_slot {
+                            head_block_root
                         } else {
-                            chain
-                                .root_at_slot(dependent_root_slot)
+                            *state
+                                .get_block_root(dependent_slot)
+                                .map_err(BeaconChainError::from)
                                 .map_err(warp_utils::reject::beacon_chain_error)?
-                                .unwrap_or(chain.genesis_block_root)
                         };
 
-                        epoch
-                            .slot_iter(T::EthSpec::slots_per_epoch())
-                            .map(|slot| {
-                                state
-                                    .get_beacon_proposer_index(slot, &chain.spec)
-                                    .map_err(warp_utils::reject::beacon_state_error)
-                                    .and_then(|i| {
-                                        let pubkey =
-                                            chain.validator_pubkey(i)
-                                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                                .ok_or_else(||
-                                                    warp_utils::reject::beacon_chain_error(
-                                                        BeaconChainError::ValidatorPubkeyCacheIncomplete(i)
-                                                    )
-                                                )?;
+                        // Prime the proposer shuffling cache with the newly-learned value.
+                        chain
+                            .beacon_proposer_cache
+                            .lock()
+                            .insert(
+                                state.current_epoch(),
+                                dependent_root,
+                                proposers.clone(),
+                                state.fork,
+                            )
+                            .map_err(BeaconChainError::from)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                                        Ok(api_types::ProposerData {
-                                            pubkey: PublicKeyBytes::from(pubkey),
-                                            validator_index: i as u64,
-                                            slot,
-                                        })
+                        (dependent_root, proposers)
+                    };
+
+                    Ok(api_types::DutiesResponse {
+                        dependent_root,
+                        data: indices
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, validator_index)| {
+                                let pubkey = chain
+                                    .validator_pubkey_bytes(validator_index)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .ok_or_else(|| {
+                                        warp_utils::reject::custom_server_error(format!(
+                                            "unable to resolve validator index {}",
+                                            i
+                                        ))
+                                    })?;
+
+                                Ok(api_types::ProposerData {
+                                    pubkey,
+                                    validator_index: validator_index as u64,
+                                    slot: epoch.start_slot(T::EthSpec::slots_per_epoch())
+                                        + Slot::from(i),
+                                })
+                            })
+                            .collect::<Result<Vec<_>, warp::reject::Rejection>>()?,
+                    })
+                } else {
+                    let state = StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                        .state(&chain)?;
+
+                    let dependent_root_slot = state
+                        .current_epoch()
+                        .start_slot(T::EthSpec::slots_per_epoch())
+                        - 1;
+                    let dependent_root = if dependent_root_slot
+                        > chain
+                            .best_slot()
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                    {
+                        chain
+                            .head_beacon_block_root()
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                    } else {
+                        chain
+                            .root_at_slot(dependent_root_slot)
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            .unwrap_or(chain.genesis_block_root)
+                    };
+
+                    epoch
+                        .slot_iter(T::EthSpec::slots_per_epoch())
+                        .map(|slot| {
+                            state
+                                .get_beacon_proposer_index(slot, &chain.spec)
+                                .map_err(warp_utils::reject::beacon_state_error)
+                                .and_then(|i| {
+                                    let pubkey = chain
+                                        .validator_pubkey(i)
+                                        .map_err(warp_utils::reject::beacon_chain_error)?
+                                        .ok_or_else(|| {
+                                            warp_utils::reject::beacon_chain_error(
+                                                BeaconChainError::ValidatorPubkeyCacheIncomplete(i),
+                                            )
+                                        })?;
+
+                                    Ok(api_types::ProposerData {
+                                        pubkey: PublicKeyBytes::from(pubkey),
+                                        validator_index: i as u64,
+                                        slot,
                                     })
-                            })
-                            .collect::<Result<Vec<api_types::ProposerData>, _>>()
-                            .map(|duties| {
-                                api_types::DutiesResponse {
-                                    dependent_root,
-                                    data: duties,
-                                }
-                            })
-                    }
-                })
-            },
-        );
+                                })
+                        })
+                        .collect::<Result<Vec<api_types::ProposerData>, _>>()
+                        .map(|duties| api_types::DutiesResponse {
+                            dependent_root,
+                            data: duties,
+                        })
+                }
+            })
+        });
 
     // GET validator/blocks/{slot}
     let get_validator_blocks = eth1_v1
@@ -1818,113 +1955,64 @@ pub fn serve<T: BeaconChainTypes>(
                         )));
                     }
 
-                    let validator_count = StateId::head()
-                        .map_state(&chain, |state| Ok(state.validators.len() as u64))?;
+                    // TODO: test this with inactive validators.
 
-                    let pubkeys = indices
+                    let head = chain
+                        .head_info()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    // Filter out any validator indices we don't know.
+                    let indices = indices
                         .0
-                        .iter()
-                        .filter(|i| **i < validator_count as u64)
-                        .map(|i| {
-                            let pubkey = chain
-                                .validator_pubkey(*i as usize)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .ok_or_else(|| {
-                                    warp_utils::reject::custom_bad_request(format!(
-                                        "unknown validator index {}",
-                                        *i
-                                    ))
-                                })?;
+                        .into_iter()
+                        .filter(|i| *i < head.validator_count as u64)
+                        .collect::<Vec<_>>();
 
-                            Ok((*i, pubkey))
-                        })
-                        .collect::<Result<Vec<_>, warp::Rejection>>()?;
-
-                    // Converts the internal Lighthouse `AttestationDuty` struct into an
-                    // API-conforming `AttesterData` struct.
-                    let convert = |validator_index: u64,
-                                   pubkey: PublicKey,
-                                   duty: AttestationDuty|
-                     -> api_types::AttesterData {
-                        api_types::AttesterData {
-                            pubkey: pubkey.into(),
-                            validator_index,
-                            committees_at_slot: duty.committees_at_slot,
-                            committee_index: duty.index,
-                            committee_length: duty.committee_len as u64,
-                            validator_committee_index: duty.committee_position as u64,
-                            slot: duty.slot,
-                        }
-                    };
-
-                    // Here we have two paths:
-                    //
-                    // ## Fast
-                    //
-                    // If the request epoch is the current epoch, use the cached beacon chain
-                    // method.
-                    //
-                    // ## Slow
-                    //
-                    // If the request epoch is prior to the current epoch, load a beacon state from
-                    // disk
-                    //
-                    // The idea is to stop historical requests from washing out the cache on the
-                    // beacon chain, whilst allowing a VC to request duties quickly.
-                    let (duties, dependent_root) = if epoch == current_epoch {
-                        // Fast path.
-                        let duties = pubkeys
-                            .into_iter()
-                            // Exclude indices which do not represent a known public key and a
-                            // validator duty.
-                            .filter_map(|(i, pubkey)| {
-                                Some(
-                                    chain
-                                        .validator_attestation_duty(i as usize, epoch)
-                                        .transpose()?
-                                        .map_err(warp_utils::reject::beacon_chain_error)
-                                        .map(|duty| convert(i, pubkey, duty)),
-                                )
-                            })
-                            .collect::<Result<Vec<_>, warp::Rejection>>()?;
-
-                        let dependent_root_slot =
-                            (epoch - 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
-                        let dependent_root = if dependent_root_slot
-                            > chain
-                                .best_slot()
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                        {
-                            chain
-                                .head_beacon_block_root()
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                        } else {
-                            chain
-                                .root_at_slot(dependent_root_slot)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .unwrap_or(chain.genesis_block_root)
-                        };
+                    let (duties, dependent_root) = if epoch > current_epoch + 1 {
+                        /*
+                         * Request too far in the future.
+                         */
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is too far beyond current epoch {}",
+                            epoch, current_epoch
+                        )));
+                    } else if epoch >= current_epoch {
+                        /*
+                         * Request is current or next epoch.
+                         */
+                        let (duties, dependent_root) = chain
+                            .validator_attestation_duties(&indices, epoch, head.block_root)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
                         (duties, dependent_root)
                     } else {
+                        /*
+                         * Request is historical
+                         */
                         // If the head state is equal to or earlier than the request epoch, use it.
-                        let mut state = chain
+                        let (mut state, state_root) = chain
                             .with_head(|head| {
                                 if head.beacon_state.current_epoch() <= epoch {
-                                    Ok(Some(
+                                    Ok(Some((
                                         head.beacon_state
                                             .clone_with(CloneConfig::committee_caches_only()),
-                                    ))
+                                        head.beacon_state_root(),
+                                    )))
                                 } else {
                                     Ok(None)
                                 }
                             })
                             .map_err(warp_utils::reject::beacon_chain_error)?
-                            .map(Result::Ok)
+                            .map(Result::Ok::<_, warp::reject::Rejection>)
                             .unwrap_or_else(|| {
-                                StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                                    .state(&chain)
+                                let state_root =
+                                    StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                                        .root(&chain)?;
+                                let state = StateId::from_root(state_root).state(&chain)?;
+                                Ok((state, state_root))
                             })?;
+
+                        let initial_state_slot = state.slot;
 
                         // Only skip forward to the epoch prior to the request, since we have a
                         // one-epoch look-ahead on shuffling.
@@ -1933,9 +2021,15 @@ pub fn serve<T: BeaconChainTypes>(
                             .map_err(warp_utils::reject::beacon_state_error)?
                             < epoch
                         {
-                            // Don't calculate state roots since they aren't required for calculating
-                            // shuffling (achieved by providing Hash256::zero()).
-                            per_slot_processing(&mut state, Some(Hash256::zero()), &chain.spec)
+                            let state_root = if state.slot == initial_state_slot {
+                                state_root
+                            } else {
+                                // Don't calculate state roots since they aren't required for calculating
+                                // shuffling (achieved by providing Hash256::zero()).
+                                Hash256::zero()
+                            };
+
+                            per_slot_processing(&mut state, Some(state_root), &chain.spec)
                                 .map_err(warp_utils::reject::slot_processing_error)?;
                         }
 
@@ -1943,7 +2037,7 @@ pub fn serve<T: BeaconChainTypes>(
                             RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(
                                 |e| {
                                     warp_utils::reject::custom_server_error(format!(
-                                        "unable to obtain suitable state: {:?}",
+                                        "invalid epoch for state: {:?}",
                                         e
                                     ))
                                 },
@@ -1951,39 +2045,61 @@ pub fn serve<T: BeaconChainTypes>(
 
                         state
                             .build_committee_cache(relative_epoch, &chain.spec)
-                            .map_err(warp_utils::reject::beacon_state_error)?;
-                        let duties = pubkeys
-                            .into_iter()
-                            .filter_map(|(i, pubkey)| {
-                                Some(
-                                    state
-                                        .get_attestation_duties(i as usize, relative_epoch)
-                                        .transpose()?
-                                        .map_err(warp_utils::reject::beacon_state_error)
-                                        .map(|duty| convert(i, pubkey, duty)),
-                                )
-                            })
-                            .collect::<Result<Vec<_>, warp::Rejection>>()?;
+                            .map_err(BeaconChainError::from)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                        let dependent_root_slot =
-                            (epoch - 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
-                        let dependent_root = if dependent_root_slot
-                            > chain
-                                .best_slot()
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                        {
-                            chain
-                                .head_beacon_block_root()
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                        } else {
-                            chain
-                                .root_at_slot(dependent_root_slot)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .unwrap_or(chain.genesis_block_root)
-                        };
+                        let dependent_slot = state.attester_shuffling_decision_slot(relative_epoch);
+                        let dependent_root = *state
+                            .get_block_root(dependent_slot)
+                            .map_err(BeaconChainError::from)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                        let duties = indices
+                            .iter()
+                            .map(|i| {
+                                let validator_index = *i as usize;
+                                state
+                                    .get_attestation_duties(validator_index, relative_epoch)
+                                    .map_err(BeaconChainError::from)?
+                                    .ok_or(BeaconChainError::ValidatorIndexUnknown(validator_index))
+                            })
+                            .collect::<Result<_, _>>()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
                         (duties, dependent_root)
                     };
+
+                    if duties.len() != indices.len() {
+                        return Err(warp_utils::reject::custom_server_error(format!(
+                            "duties length {} does not match indices length {}",
+                            duties.len(),
+                            indices.len()
+                        )));
+                    }
+
+                    let duties = duties
+                        .into_iter()
+                        .zip(indices.into_iter())
+                        .map(|(duty, validator_index)| {
+                            Ok(api_types::AttesterData {
+                                pubkey: chain
+                                    .validator_pubkey_bytes(validator_index as usize)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .ok_or_else(|| {
+                                        warp_utils::reject::custom_server_error(format!(
+                                            "unable to resolve validator index {}",
+                                            validator_index
+                                        ))
+                                    })?,
+                                validator_index,
+                                committees_at_slot: duty.committees_at_slot,
+                                committee_index: duty.index,
+                                committee_length: duty.committee_len as u64,
+                                validator_committee_index: duty.committee_position as u64,
+                                slot: duty.slot,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, warp::reject::Rejection>>()?;
 
                     Ok(api_types::DutiesResponse {
                         dependent_root,
@@ -2418,23 +2534,22 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                             };
 
-                            receivers.push(broadcast_stream::BroadcastStream::new(receiver).map(
-                                |msg| {
-                                    match msg {
-                                        Ok(data) => Event::default()
-                                            .event(data.topic_name())
-                                            .json_data(data)
-                                            .map_err(|e| {
-                                                warp_utils::reject::server_sent_event_error(
-                                                    format!("{:?}", e),
-                                                )
-                                            }),
-                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                            format!("{:?}", e),
-                                        )),
-                                    }
-                                },
-                            ));
+                            receivers.push(BroadcastStream::new(receiver).map(|msg| {
+                                match msg {
+                                    Ok(data) => Event::default()
+                                        .event(data.topic_name())
+                                        .json_data(data)
+                                        .map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                        format!("{:?}", e),
+                                    )),
+                                }
+                            }));
                         }
                     } else {
                         return Err(warp_utils::reject::custom_server_error(

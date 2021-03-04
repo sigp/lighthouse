@@ -156,6 +156,8 @@ pub struct HeadInfo {
     pub fork: Fork,
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
+    pub validator_count: usize,
+    pub proposer_shuffling_decision_root: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -175,6 +177,14 @@ pub type BeaconForkChoice<T> = ForkChoice<
     <T as BeaconChainTypes>::EthSpec,
 >;
 
+pub type BeaconStore<T> = Arc<
+    HotColdDB<
+        <T as BeaconChainTypes>::EthSpec,
+        <T as BeaconChainTypes>::HotStore,
+        <T as BeaconChainTypes>::ColdStore,
+    >,
+>;
+
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
@@ -182,7 +192,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Configuration for `BeaconChain` runtime behaviour.
     pub config: ChainConfig,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
-    pub store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    pub store: BeaconStore<T>,
     /// Database migrator for running background maintenance on the store.
     pub store_migrator: BackgroundMigrator<T::EthSpec, T::HotStore, T::ColdStore>,
     /// Reports the current slot, typically based upon the system clock.
@@ -235,9 +245,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
-    pub(crate) beacon_proposer_cache: Mutex<BeaconProposerCache>,
+    pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
-    pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
+    pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -300,9 +310,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Load fork choice from disk, returning `None` if it isn't found.
-    pub fn load_fork_choice(
-        store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    ) -> Result<Option<BeaconForkChoice<T>>, Error> {
+    pub fn load_fork_choice(store: BeaconStore<T>) -> Result<Option<BeaconForkChoice<T>>, Error> {
         let persisted_fork_choice =
             match store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)? {
                 Some(fc) => fc,
@@ -600,6 +608,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// A summarized version of `Self::head` that involves less cloning.
     pub fn head_info(&self) -> Result<HeadInfo, Error> {
         self.with_head(|head| {
+            let proposer_shuffling_decision_slot =
+                head.beacon_state.proposer_shuffling_decision_slot();
+            let proposer_shuffling_decision_root =
+                if proposer_shuffling_decision_slot == head.beacon_block.slot() {
+                    head.beacon_block_root
+                } else {
+                    *head
+                        .beacon_state
+                        .get_block_root(proposer_shuffling_decision_slot)?
+                };
+
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
@@ -609,6 +628,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 fork: head.beacon_state.fork,
                 genesis_time: head.beacon_state.genesis_time,
                 genesis_validators_root: head.beacon_state.genesis_validators_root,
+                validator_count: head.beacon_state.validators.len(),
+                proposer_shuffling_decision_root,
             })
         })
     }
@@ -767,6 +788,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(pubkey_cache.get(validator_index).cloned())
     }
 
+    /// As per `Self::validator_pubkey`, but returns `PublicKeyBytes`.
+    pub fn validator_pubkey_bytes(
+        &self,
+        validator_index: usize,
+    ) -> Result<Option<PublicKeyBytes>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        Ok(pubkey_cache.get_pubkey_bytes(validator_index).cloned())
+    }
+
     /// Returns the block canonical root of the current canonical chain at a given slot.
     ///
     /// Returns `None` if the given slot doesn't exist in the chain.
@@ -801,15 +835,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Information is read from the current state, so only information from the present and prior
     /// epoch is available.
-    pub fn validator_attestation_duty(
+    pub fn validator_attestation_duties(
         &self,
-        validator_index: usize,
+        validator_indices: &[u64],
         epoch: Epoch,
-    ) -> Result<Option<AttestationDuty>, Error> {
-        let head_block_root = self.head_beacon_block_root()?;
+        head_block_root: Hash256,
+    ) -> Result<(Vec<AttestationDuty>, Hash256), Error> {
+        self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
+            let duties = validator_indices
+                .iter()
+                .map(|validator_index| {
+                    let validator_index = *validator_index as usize;
+                    committee_cache
+                        .get_attestation_duties(validator_index)
+                        .ok_or(Error::ValidatorIndexUnknown(validator_index))
+                })
+                .collect::<Result<_, _>>()?;
 
-        self.with_committee_cache(head_block_root, epoch, |committee_cache| {
-            Ok(committee_cache.get_attestation_duties(validator_index))
+            Ok((duties, dependent_root))
         })
     }
 
@@ -1793,16 +1836,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_info = self
             .head_info()
             .map_err(BlockProductionError::UnableToGetHeadInfo)?;
-        let state = if head_info.slot < slot {
+        let (state, state_root_opt) = if head_info.slot < slot {
             // Normal case: proposing a block atop the current head. Use the snapshot cache.
-            if let Some(snapshot) = self
+            if let Some(pre_state) = self
                 .snapshot_cache
                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
                 .and_then(|snapshot_cache| {
-                    snapshot_cache.get_cloned(head_info.block_root, CloneConfig::all())
+                    snapshot_cache.get_state_for_block_production(head_info.block_root)
                 })
             {
-                snapshot.beacon_state
+                (pre_state.pre_state, pre_state.state_root)
             } else {
                 warn!(
                     self.log,
@@ -1810,8 +1853,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "message" => "this block is more likely to be orphaned",
                     "slot" => slot,
                 );
-                self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
+                let state = self
+                    .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+
+                (state, None)
             }
         } else {
             warn!(
@@ -1820,12 +1866,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "message" => "this block is more likely to be orphaned",
                 "slot" => slot,
             );
-            self.state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?
+            let state = self
+                .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+
+            (state, None)
         };
         drop(state_load_timer);
 
-        self.produce_block_on_state(state, slot, randao_reveal, validator_graffiti)
+        self.produce_block_on_state(
+            state,
+            state_root_opt,
+            slot,
+            randao_reveal,
+            validator_graffiti,
+        )
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -1834,11 +1889,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// function directly. This function is useful for purposefully creating forks or blocks at
     /// non-current slots.
     ///
-    /// The given state will be advanced to the given `produce_at_slot`, then a block will be
-    /// produced at that slot height.
+    /// If required, the given state will be advanced to the given `produce_at_slot`, then a block
+    /// will be produced at that slot height.
+    ///
+    /// The provided `state_root_opt` should only ever be set to `Some` if the contained value is
+    /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
+    /// performing a tree hash in some scenarios.
     pub fn produce_block_on_state(
         &self,
         mut state: BeaconState<T::EthSpec>,
+        mut state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
@@ -1848,13 +1908,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_ref()
             .ok_or(BlockProductionError::NoEth1ChainConnection)?;
 
+        // It is invalid to try to produce a block using a state from a future slot.
+        if state.slot > produce_at_slot {
+            return Err(BlockProductionError::StateSlotTooHigh {
+                produce_at_slot,
+                state_slot: state.slot,
+            });
+        }
+
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
         // If required, transition the new state to the present slot.
         //
         // Note: supplying some `state_root` when it it is known would be a cheap and easy
         // optimization.
         while state.slot < produce_at_slot {
-            per_slot_processing(&mut state, None, &self.spec)?;
+            // Using `state_root.take()` here ensures that we consume the `state_root` on the first
+            // iteration and never use it again.
+            per_slot_processing(&mut state, state_root_opt.take(), &self.spec)?;
         }
         drop(slot_timer);
 
@@ -2361,7 +2431,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         map_fn: F,
     ) -> Result<R, Error>
     where
-        F: Fn(&CommitteeCache) -> Result<R, Error>,
+        F: Fn(&CommitteeCache, Hash256) -> Result<R, Error>,
     {
         let head_block = self
             .fork_choice
@@ -2392,7 +2462,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(cache_wait_timer);
 
         if let Some(committee_cache) = shuffling_cache.get(&shuffling_id) {
-            map_fn(committee_cache)
+            map_fn(committee_cache, shuffling_id.shuffling_decision_block)
         } else {
             // Drop the shuffling cache to avoid holding the lock for any longer than
             // required.
@@ -2440,6 +2510,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
             let committee_cache = state.committee_cache(relative_epoch)?;
+            let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
@@ -2448,7 +2519,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             metrics::stop_timer(committee_building_timer);
 
-            map_fn(&committee_cache)
+            map_fn(&committee_cache, shuffling_decision_block)
         }
     }
 
