@@ -14,6 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, SelectionProof, Slot};
+use crate::initialized_validators::InitializedValidator;
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -755,4 +756,67 @@ fn duties_match_epoch(duties: &ValidatorDuty, epoch: Epoch, slots_per_epoch: u64
                 .iter()
                 .all(|slot| slot.epoch(slots_per_epoch) == epoch)
         })
+}
+
+fn doppelganger_detection_filter(validator: &InitializedValidator, current_epoch: Epoch) -> bool {
+
+    // Check for doppelgangers if configured
+    if let Some(doppelganger_detection_epoch) =validator.doppelganger_detection_epoch() {
+
+            if doppelganger_detection_epoch >= current_epoch {
+                info!(log, "Monitoring for doppelgangers"; "epoch" => epoch, "slot" => slot, "doppelganger_detection_epoch" => doppelganger_detection_epoch);
+
+                let mut epochs =
+                    Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
+                for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
+                    epochs.push(doppelganger_detection_epoch - Epoch::new(i));
+                }
+                let epochs_slice = epochs.as_slice();
+
+                let pubkeys = self.validator_store.voting_pubkeys();
+                let pubkeys_slice = pubkeys.as_slice();
+
+                let doppelganger_detected = self
+                    .beacon_nodes
+                    .first_success(RequireSynced::Yes, |beacon_node| async move {
+                        beacon_node
+                            .get_lighthouse_seen_validators(pubkeys_slice, epochs_slice)
+                            .await
+                            .map_err(|e| {
+                                format!("Failed query for seen validators: {:?}", e)
+                            })
+                            .map(|result| result.data)
+                    })
+                    .await
+                    .map_err(|e| format!("Failed query for seen validators: {}", e));
+
+                // Send shutdown signal if necessary
+                match doppelganger_detected {
+                    Ok(true) => {
+                        crit!(
+                                        log,
+                                        "Doppelganger detected! Shutting down. Ensure you aren't already \
+                                        running a validator client with the same keys."
+                                    );
+
+                        let _ = self
+                            .context
+                            .executor
+                            .shutdown_sender()
+                            .try_send("Doppelganger detected.");
+                        break;
+                    }
+                    Ok(false) => continue,
+                    Err(e) => {
+                        crit!(log, "Failed complete query for doppelganger detection... Exiting."; "error" => format!("{:?}", e));
+                        let _ = self
+                            .context
+                            .executor
+                            .shutdown_sender()
+                            .try_send("Doppelganger detected.");
+                        break;
+                    }
+                }
+        }
+    }
 }

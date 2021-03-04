@@ -20,13 +20,17 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
-use types::{Keypair, PublicKey};
+use types::{Epoch, Keypair, PublicKey, EthSpec};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
+use slot_clock::SlotClock;
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
+
+/// The amount of time we will spend scanning the network for doppelgangers before attesting.
+pub const DOPPELGANGER_DETECTION_EPOCHS: u64 = 2;
 
 #[derive(Debug)]
 pub enum Error {
@@ -61,6 +65,10 @@ pub enum Error {
     TokioJoin(tokio::task::JoinError),
     /// Cannot initialize the same validator twice.
     DuplicatePublicKey,
+    /// The public key does not exist in the set of initialized validators.
+    ValidatorNotInitialized(PublicKey),
+    /// Unable to read the slot clock.
+    SlotClockError,
 }
 
 impl From<LockfileError> for Error {
@@ -86,6 +94,7 @@ pub enum SigningMethod {
 /// A validator that is ready to sign messages.
 pub struct InitializedValidator {
     signing_method: SigningMethod,
+    doppelganger_detection_epoch: Option<Epoch>,
 }
 
 impl InitializedValidator {
@@ -129,6 +138,7 @@ impl InitializedValidator {
         def: ValidatorDefinition,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
+        doppelganger_detection_epoch: Option<Epoch>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -213,6 +223,7 @@ impl InitializedValidator {
                         voting_keystore: voting_keystore.clone(),
                         voting_keypair,
                     },
+                    doppelganger_detection_epoch,
                 })
             }
         }
@@ -230,6 +241,11 @@ impl InitializedValidator {
         match &self.signing_method {
             SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
         }
+    }
+
+    /// Returns the epoch doppelganger detection should be performed until for this validator.
+    pub fn doppelganger_detection_epoch(&self) -> Option<Epoch> {
+        self.doppelganger_detection_epoch
     }
 }
 
@@ -276,28 +292,36 @@ fn unlock_keystore_via_stdin_password(
 /// `ValidatorDefinition`. The `ValidatorDefinition` file is maintained as `self` is modified.
 ///
 /// Forms the fundamental list of validators that are managed by this validator client instance.
-pub struct InitializedValidators {
+pub struct InitializedValidators<T : SlotClock, E : EthSpec> {
     /// A list of validator definitions which can be stored on-disk.
     definitions: ValidatorDefinitions,
     /// The directory that the `self.definitions` will be saved into.
     validators_dir: PathBuf,
     /// The canonical set of validators.
     validators: HashMap<PublicKey, InitializedValidator>,
+    /// The slot clock.
+    slot_clock: T,
+    /// Should doppelganger detection be performed.
+    disable_doppelganger_detection: bool,
     /// For logging via `slog`.
     log: Logger,
 }
 
-impl InitializedValidators {
+impl <T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
     /// Instantiates `Self`, initializing all validators in `definitions`.
     pub async fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
+        slot_clock: T,
+        disable_doppelganger_detection: bool,
         log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
             validators_dir,
             definitions,
             validators: HashMap::default(),
+            slot_clock,
+            disable_doppelganger_detection,
             log,
         };
         this.update_validators().await?;
@@ -514,10 +538,17 @@ impl InitializedValidators {
                             disabled_uuids.remove(key_store.uuid());
                         }
 
+                        let doppelganger_detection_epoch = if disable_doppelganger_detection {
+                           None
+                        } else {
+                            self.determine_doppelganger_detection_epoch()?
+                        };
+
                         match InitializedValidator::from_definition(
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            doppelganger_detection_epoch
                         )
                         .await
                         {
@@ -605,5 +636,49 @@ impl InitializedValidators {
             debug!(log, "Key cache not modified");
         }
         Ok(())
+    }
+
+    /// Returns the epoch a validator should perform doppelganger detection until, starting
+    /// from when this method is called.
+    ///
+    /// This will return `None` if the current epoch is the genesis epoch or if we are prior to genesis.
+    /// This is because we cannot perform doppelganger detection in the first epoch after genesis
+    /// or we risk having no validators to propose blocks.
+    fn determine_doppelganger_detection_epoch(&self) -> Result<Option<Epoch>, String> {
+        let slot_clock = self.slot_clock.clone();
+        let current_epoch = slot_clock
+            .now()
+            .ok_or(Error::SlotClockError)?
+            .epoch(E::slots_per_epoch());
+        if current_epoch > slot_clock.genesis_slot().epoch(E::slots_per_epoch()) {
+            Ok(current_epoch + Epoch::new(DOPPELGANGER_DETECTION_EPOCHS))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Updates the doppelganger detection epoch of all initialized validators based on the current
+    /// epoch.
+    pub fn update_all_doppelganger_detection_epochs(&mut self) -> Result<(), String> {
+        let detection_epoch = self.determine_doppelganger_detection_epoch()?;
+        for (_,val) in self.validators.iter_mut() {
+            *val.doppelganger_detection_epoch = detection_epoch;
+        }
+    }
+
+    /// Gets all validators doppelganger detection epoch of all initialized validators based on the current
+    /// epoch.
+    pub fn get_all_doppelganger_detecting_validators(&self) -> Result<HashMap<Epoch, Vec<PublicKey>>, String> {
+        let current_epoch = self.slot_clock
+            .now()
+            .ok_or(Error::SlotClockError)?
+            .epoch(E::slots_per_epoch());
+        let map =  self.validators.iter().filter(|(_,val)| val.doppelganger_detection_epoch.map_or(false,|doppelganger_epoch| doppelganger_epoch <= current_epoch)).fold(HashMap::new(), |mut map, (pubkey,val)| {
+            if let Some(epoch) = val.doppelganger_detection_epoch {
+                map.entry(epoch).or_insert_with(Vec::new).push(pubkey.clone());
+            }
+            map
+        });
+        Ok(map)
     }
 }

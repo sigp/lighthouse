@@ -17,7 +17,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
-    doppelganger_detection_epoch: Option<Epoch>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -28,7 +27,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             beacon_nodes: None,
             context: None,
             graffiti: None,
-            doppelganger_detection_epoch: None,
         }
     }
 
@@ -57,11 +55,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn doppelganger_detection_epoch(mut self, epoch: Epoch) -> Self {
-        self.doppelganger_detection_epoch = Some(epoch);
-        self
-    }
-
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -78,7 +71,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .context
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
-                doppelganger_detection_epoch: self.doppelganger_detection_epoch,
             }),
         })
     }
@@ -91,7 +83,6 @@ pub struct Inner<T, E: EthSpec> {
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
-    doppelganger_detection_epoch: Option<Epoch>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.

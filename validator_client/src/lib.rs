@@ -14,6 +14,7 @@ mod validator_duty;
 mod validator_store;
 
 pub mod http_api;
+mod doppelganger_service;
 
 pub use cli::cli_app;
 pub use config::Config;
@@ -46,6 +47,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
 use types::{Epoch, EthSpec, Fork, Hash256};
 use validator_store::ValidatorStore;
+use crate::initialized_validators::InitializedValidator;
 
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -58,11 +60,6 @@ const WAITING_FOR_SYNC_POLL_TIME: Duration = Duration::from_secs(12);
 
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
-
-/// The amount of time we will spend scanning the network for doppelgangers before attesting.
-///
-/// This must be greater than zero
-pub const DOPPELGANGER_DETECTION_EPOCHS: u64 = 2;
 
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
@@ -148,9 +145,17 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             );
         }
 
+        let slot_clock = SystemTimeSlotClock::new(
+            context.eth2_config.spec.genesis_slot,
+            Duration::from_secs(genesis_time),
+            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
+        );
+
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
+            slot_clock.clone(),
+            config.disable_doppelganger_detection,
             log.clone(),
         )
         .await
@@ -253,12 +258,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
-        let slot_clock = SystemTimeSlotClock::new(
-            context.eth2_config.spec.genesis_slot,
-            Duration::from_secs(genesis_time),
-            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
-        );
-
         beacon_nodes.set_slot_clock(slot_clock.clone());
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
@@ -285,6 +284,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
+        let doppelganger_detection_filter = if config.disable_doppelganger_detection {
+            |val: &InitializedValidator| -> bool { true }
+        }else{
+            |val: &InitializedValidator| -> bool {
+                // compare doppelganger detection epoch to current epoch
+            }
+        };
+
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
@@ -299,60 +306,35 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
 
-        // Configure doppelganger detection if enabled.
-        let (block_service, attestation_service) = if config.doppelganger_detection {
-            // block until node is synced
-            poll_whilst_waiting_for_sync(&beacon_nodes, context.log());
+        let block_service = BlockServiceBuilder::new()
+            .slot_clock(slot_clock.clone())
+            .validator_store(validator_store.clone())
+            .beacon_nodes(beacon_nodes.clone())
+            .runtime_context(context.service_context("block".into()))
+            .graffiti(config.graffiti)
+            .build()?;
 
-            let doppelganger_detection_epoch = slot_clock
-                .now()
-                .ok_or("Unable to read slot")?
-                .epoch(T::slots_per_epoch())
-                + Epoch::new(DOPPELGANGER_DETECTION_EPOCHS);
-
-            let block_service = BlockServiceBuilder::new()
-                .slot_clock(slot_clock.clone())
-                .validator_store(validator_store.clone())
-                .beacon_nodes(beacon_nodes.clone())
-                .runtime_context(context.service_context("block".into()))
-                .graffiti(config.graffiti)
-                .doppelganger_detection_epoch(doppelganger_detection_epoch)
-                .build()?;
-
-            let attestation_service = AttestationServiceBuilder::new()
-                .duties_service(duties_service.clone())
-                .slot_clock(slot_clock.clone())
-                .validator_store(validator_store.clone())
-                .beacon_nodes(beacon_nodes.clone())
-                .runtime_context(context.service_context("attestation".into()))
-                .doppelganger_detection_epoch(doppelganger_detection_epoch)
-                .build()?;
-            (block_service, attestation_service)
-        } else {
-            let block_service = BlockServiceBuilder::new()
-                .slot_clock(slot_clock.clone())
-                .validator_store(validator_store.clone())
-                .beacon_nodes(beacon_nodes.clone())
-                .runtime_context(context.service_context("block".into()))
-                .graffiti(config.graffiti)
-                .build()?;
-
-            let attestation_service = AttestationServiceBuilder::new()
-                .duties_service(duties_service.clone())
-                .slot_clock(slot_clock.clone())
-                .validator_store(validator_store.clone())
-                .beacon_nodes(beacon_nodes.clone())
-                .runtime_context(context.service_context("attestation".into()))
-                .build()?;
-
-            (block_service, attestation_service)
-        };
+        let attestation_service = AttestationServiceBuilder::new()
+            .duties_service(duties_service.clone())
+            .slot_clock(slot_clock.clone())
+            .validator_store(validator_store.clone())
+            .beacon_nodes(beacon_nodes.clone())
+            .runtime_context(context.service_context("attestation".into()))
+            .build()?;
 
         // Wait until genesis has occured.
         //
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
+
+        // Block until node is synced.
+        poll_whilst_waiting_for_sync(&beacon_nodes, context.log());
+
+        // Update all doppelganger detection epochs after genesis and/or sync.
+        if !config.disable_doppelganger_detection {
+            validator_store.initialized_validators().write().update_all_doppelganger_detection_epochs();
+        }
 
         Ok(Self {
             context,

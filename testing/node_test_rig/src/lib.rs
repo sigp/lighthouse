@@ -119,7 +119,7 @@ pub fn testing_validator_doppelganger_config() -> ValidatorConfig {
     ValidatorConfig {
         init_slashing_protection: true,
         disable_auto_discover: false,
-        doppelganger_detection: true,
+        disable_doppelganger_detection: true,
         ..ValidatorConfig::default()
     }
 }
