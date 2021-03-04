@@ -175,6 +175,14 @@ pub type BeaconForkChoice<T> = ForkChoice<
     <T as BeaconChainTypes>::EthSpec,
 >;
 
+pub type BeaconStore<T> = Arc<
+    HotColdDB<
+        <T as BeaconChainTypes>::EthSpec,
+        <T as BeaconChainTypes>::HotStore,
+        <T as BeaconChainTypes>::ColdStore,
+    >,
+>;
+
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
@@ -182,7 +190,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Configuration for `BeaconChain` runtime behaviour.
     pub config: ChainConfig,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
-    pub store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    pub store: BeaconStore<T>,
     /// Database migrator for running background maintenance on the store.
     pub store_migrator: BackgroundMigrator<T::EthSpec, T::HotStore, T::ColdStore>,
     /// Reports the current slot, typically based upon the system clock.
@@ -237,7 +245,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub(crate) beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
-    pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
+    pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -300,9 +308,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Load fork choice from disk, returning `None` if it isn't found.
-    pub fn load_fork_choice(
-        store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    ) -> Result<Option<BeaconForkChoice<T>>, Error> {
+    pub fn load_fork_choice(store: BeaconStore<T>) -> Result<Option<BeaconForkChoice<T>>, Error> {
         let persisted_fork_choice =
             match store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)? {
                 Some(fc) => fc,

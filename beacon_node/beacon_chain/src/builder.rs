@@ -31,8 +31,6 @@ use types::{
     SignedBeaconBlock, Slot,
 };
 
-pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
-
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
 pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>(
@@ -81,8 +79,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
     data_dir: Option<PathBuf>,
-    pubkey_cache_path: Option<PathBuf>,
-    validator_pubkey_cache: Option<ValidatorPubkeyCache>,
+    validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
     disabled_forks: Vec<String>,
@@ -119,7 +116,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             head_tracker: None,
-            pubkey_cache_path: None,
             data_dir: None,
             disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
@@ -182,7 +178,6 @@ where
     ///
     /// Should generally be called early in the build chain.
     pub fn data_dir(mut self, path: PathBuf) -> Self {
-        self.pubkey_cache_path = Some(path.join(PUBKEY_CACHE_FILENAME));
         self.data_dir = Some(path);
         self
     }
@@ -223,11 +218,6 @@ where
     /// May initialize several components; including the op_pool and finalized checkpoints.
     pub fn resume_from_db(mut self) -> Result<Self, String> {
         let log = self.log.as_ref().ok_or("resume_from_db requires a log")?;
-
-        let pubkey_cache_path = self
-            .pubkey_cache_path
-            .as_ref()
-            .ok_or("resume_from_db requires a data_dir")?;
 
         info!(
             log,
@@ -274,7 +264,7 @@ where
                 .unwrap_or_else(OperationPool::new),
         );
 
-        let pubkey_cache = ValidatorPubkeyCache::load_from_file(pubkey_cache_path)
+        let pubkey_cache = ValidatorPubkeyCache::load_from_store(store)
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
@@ -496,12 +486,8 @@ where
             }
         }
 
-        let pubkey_cache_path = self
-            .pubkey_cache_path
-            .ok_or("Cannot build without a pubkey cache path")?;
-
         let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
+            ValidatorPubkeyCache::new(&canonical_head.beacon_state, store.clone())
                 .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
         })?;
 

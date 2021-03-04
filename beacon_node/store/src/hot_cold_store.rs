@@ -135,16 +135,20 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
     ///
     /// The `slots_per_restore_point` parameter must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
+    ///
+    /// The `migrate_schema` function is passed in so that the parent `BeaconChain` can provide
+    /// context and access `BeaconChain`-level code without creating a circular dependency.
     pub fn open(
         hot_path: &Path,
         cold_path: &Path,
+        migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion) -> Result<(), Error>,
         config: StoreConfig,
         spec: ChainSpec,
         log: Logger,
-    ) -> Result<HotColdDB<E, LevelDB<E>, LevelDB<E>>, Error> {
+    ) -> Result<Arc<Self>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
-        let db = HotColdDB {
+        let db = Arc::new(HotColdDB {
             split: RwLock::new(Split::default()),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
@@ -153,7 +157,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             spec,
             log,
             _phantom: PhantomData,
-        };
+        });
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
@@ -164,7 +168,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "from_version" => schema_version.as_u64(),
                 "to_version" => CURRENT_SCHEMA_VERSION.as_u64(),
             );
-            db.migrate_schema(schema_version, CURRENT_SCHEMA_VERSION)?;
+            migrate_schema(db.clone(), schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
             db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
         }
@@ -830,7 +834,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Store the database schema version.
-    pub(crate) fn store_schema_version(&self, schema_version: SchemaVersion) -> Result<(), Error> {
+    pub fn store_schema_version(&self, schema_version: SchemaVersion) -> Result<(), Error> {
         self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
     }
 
