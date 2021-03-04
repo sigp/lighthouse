@@ -11,7 +11,6 @@ mod http_metrics;
 mod initialized_validators;
 mod key_cache;
 mod notifier;
-mod validator_duty;
 mod validator_store;
 
 pub mod http_api;
