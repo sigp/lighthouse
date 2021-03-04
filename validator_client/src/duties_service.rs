@@ -4,15 +4,13 @@ use crate::{
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
-use futures::channel::mpsc::Sender;
-use futures::SinkExt;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::ArithError;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::time::{interval_at, Duration, Instant};
+use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
 #[derive(Debug)]
@@ -58,7 +56,7 @@ impl DutyAndProof {
     }
 }
 
-pub struct IndicesMap<T: SlotClock + 'static, E: EthSpec> {
+pub struct IndicesMap<T, E: EthSpec> {
     map: HashMap<PublicKeyBytes, u64>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     log: Logger,
@@ -103,16 +101,16 @@ type DependentRoot = Hash256;
 type AttesterMap = HashMap<PublicKeyBytes, HashMap<Epoch, (DependentRoot, DutyAndProof)>>;
 type ProposerMap = HashMap<Epoch, (DependentRoot, Vec<ProposerData>)>;
 
-pub struct DutiesService<T: SlotClock + 'static, E: EthSpec> {
-    attesters: RwLock<AttesterMap>,
-    proposers: RwLock<ProposerMap>,
-    indices: Mutex<IndicesMap<T, E>>,
-    validator_store: ValidatorStore<T, E>,
-    pub(crate) slot_clock: T,
-    pub(crate) beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    require_synced: RequireSynced,
-    context: RuntimeContext<E>,
-    spec: Arc<ChainSpec>,
+pub struct DutiesService<T, E: EthSpec> {
+    pub attesters: RwLock<AttesterMap>,
+    pub proposers: RwLock<ProposerMap>,
+    pub indices: Mutex<IndicesMap<T, E>>,
+    pub validator_store: ValidatorStore<T, E>,
+    pub slot_clock: T,
+    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    pub require_synced: RequireSynced,
+    pub context: RuntimeContext<E>,
+    pub spec: ChainSpec,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
@@ -171,19 +169,65 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .cloned()
             .collect()
     }
-
-    /// Start the service that periodically polls the beacon node for validator duties.
-    pub fn start_update_service(
-        self,
-        block_service_tx: Sender<BlockServiceNotification>,
-        spec: Arc<ChainSpec>,
-    ) -> Result<Arc<Self>, String> {
-        todo!();
-    }
 }
 
-async fn poll_beacon_attesters<T: SlotClock, E: EthSpec>(
+/// Start the service that periodically polls the beacon node for validator duties.
+pub fn start_update_service<T: SlotClock, E: EthSpec>(
     duties_service: Arc<DutiesService<T, E>>,
+    block_service_tx: Sender<BlockServiceNotification>,
+) {
+    let log = duties_service.context.log();
+
+    duties_service.context.executor.spawn(
+        async move {
+            loop {
+                match duties_service.slot_clock.duration_to_next_slot() {
+                    Some(duration) => sleep(duration).await,
+                    None => {
+                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        continue;
+                    }
+                }
+
+                if let Err(e) = poll_beacon_proposers(&duties_service, &mut block_service_tx).await
+                {
+                    error!(
+                       log,
+                       "Failed to poll beacon proposers";
+                       "error" => ?e
+                    )
+                }
+            }
+        },
+        "duties_service_proposers",
+    );
+
+    duties_service.context.executor.spawn(
+        async move {
+            loop {
+                match duties_service.slot_clock.duration_to_next_slot() {
+                    Some(duration) => sleep(duration).await,
+                    None => {
+                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        continue;
+                    }
+                }
+
+                if let Err(e) = poll_beacon_attesters(&duties_service).await {
+                    error!(
+                       log,
+                       "Failed to poll beacon attesters";
+                       "error" => ?e
+                    );
+                }
+            }
+        },
+        "duties_service_attesters",
+    );
+}
+
+async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: &DutiesService<T, E>,
 ) -> Result<(), Error> {
     let log = duties_service.context.log();
 
@@ -212,6 +256,7 @@ async fn poll_beacon_attesters<T: SlotClock, E: EthSpec>(
             local_indices.push(validator_index)
         }
     }
+    drop(indices_map);
 
     if let Err(e) =
         poll_beacon_attesters_for_epoch(&duties_service, epoch, &local_indices, &local_pubkeys)
@@ -278,7 +323,7 @@ async fn poll_beacon_attesters<T: SlotClock, E: EthSpec>(
     Ok(())
 }
 
-async fn poll_beacon_attesters_for_epoch<T: SlotClock, E: EthSpec>(
+async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     epoch: Epoch,
     local_indices: &[u64],
@@ -341,13 +386,14 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock, E: EthSpec>(
             }
         }
     }
+    drop(attesters_map);
 
     Ok(())
 }
 
-async fn poll_beacon_proposers<T: SlotClock, E: EthSpec>(
-    duties_service: Arc<DutiesService<T, E>>,
-    mut block_service_tx: Sender<BlockServiceNotification>,
+async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: &DutiesService<T, E>,
+    block_service_tx: &mut Sender<BlockServiceNotification>,
 ) -> Result<(), Error> {
     let log = duties_service.context.log();
 
@@ -427,7 +473,7 @@ async fn poll_beacon_proposers<T: SlotClock, E: EthSpec>(
         error!(
             log,
             "Failed to notify block service";
-            "error" => format!("{:?}", e)
+            "error" => %e
         );
     };
 

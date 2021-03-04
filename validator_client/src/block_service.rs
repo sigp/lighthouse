@@ -2,12 +2,12 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
-use futures::channel::mpsc::Receiver;
 use futures::{StreamExt, TryFutureExt};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use types::{EthSpec, PublicKeyBytes, Slot};
 
 /// Builds a `BlockService`.
@@ -115,7 +115,7 @@ pub struct BlockServiceNotification {
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     pub fn start_update_service(
         self,
-        notification_rx: Receiver<BlockServiceNotification>,
+        notification_rx: mpsc::Receiver<BlockServiceNotification>,
     ) -> Result<(), String> {
         let log = self.context.log().clone();
 
