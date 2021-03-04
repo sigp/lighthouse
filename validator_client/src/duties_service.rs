@@ -13,6 +13,8 @@ use std::sync::Arc;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
+const SUBSCRIPTION_BUFFER: u64 = 16;
+
 #[derive(Debug)]
 pub enum Error {
     UnableToReadSlotClock,
@@ -309,26 +311,42 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
+    drop(current_epoch_timer);
+    let _next_epoch_timer = metrics::start_timer_vec(
+        &metrics::DUTIES_SERVICE_TIMES,
+        &[metrics::UPDATE_ATTESTERS_NEXT_EPOCH],
+    );
+
+    if let Err(e) =
+        poll_beacon_attesters_for_epoch(&duties_service, next_epoch, &local_indices, &local_pubkeys)
+            .await
+    {
+        error!(
+            log,
+            "Failed to download attester duties";
+            "current_epoch" => epoch,
+            "request_epoch" => next_epoch,
+            "err" => ?e,
+        )
+    }
+
+    // TODO: check if we should try subscriptions for this epoch too..
     let subscriptions = duties_service
         .attesters
         .read()
         .iter()
-        .filter_map(|(_, map)| map.get(&epoch))
-        .filter_map(|(_, duty_and_proof)| {
+        .filter_map(|(_, map)| map.get(&next_epoch))
+        .filter(|(_, duty_and_proof)| slot + SUBSCRIPTION_BUFFER < duty_and_proof.duty.slot)
+        .map(|(_, duty_and_proof)| {
             let duty = &duty_and_proof.duty;
             let is_aggregator = duty_and_proof.selection_proof.is_some();
 
-            // Only attempt subscriptions later than the current slot.
-            if duty.slot > slot {
-                Some(BeaconCommitteeSubscription {
-                    validator_index: duty.validator_index,
-                    committee_index: duty.committee_index,
-                    committees_at_slot: duty.committees_at_slot,
-                    slot: duty.slot,
-                    is_aggregator,
-                })
-            } else {
-                None
+            BeaconCommitteeSubscription {
+                validator_index: duty.validator_index,
+                committee_index: duty.committee_index,
+                committees_at_slot: duty.committees_at_slot,
+                slot: duty.slot,
+                is_aggregator,
             }
         })
         .collect::<Vec<_>>();
@@ -347,25 +365,6 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             log,
             "Failed to subscribe validators";
             "error" => %e
-        )
-    }
-
-    drop(current_epoch_timer);
-    let _next_epoch_timer = metrics::start_timer_vec(
-        &metrics::DUTIES_SERVICE_TIMES,
-        &[metrics::UPDATE_ATTESTERS_NEXT_EPOCH],
-    );
-
-    if let Err(e) =
-        poll_beacon_attesters_for_epoch(&duties_service, next_epoch, &local_indices, &local_pubkeys)
-            .await
-    {
-        error!(
-            log,
-            "Failed to download attester duties";
-            "current_epoch" => epoch,
-            "request_epoch" => next_epoch,
-            "err" => ?e,
         )
     }
 
