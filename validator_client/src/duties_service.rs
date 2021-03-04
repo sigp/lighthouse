@@ -4,9 +4,9 @@ use crate::{
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use safe_arith::ArithError;
-use slog::{debug, error, warn, Logger};
+use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -16,7 +16,6 @@ use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, 
 #[derive(Debug)]
 pub enum Error {
     UnableToReadSlotClock,
-    FailedToDownloadProposers(String),
     FailedToDownloadAttesters(String),
     FailedToProduceSelectionProof,
     InvalidModulo(ArithError),
@@ -56,55 +55,16 @@ impl DutyAndProof {
     }
 }
 
-pub struct IndicesMap<T, E: EthSpec> {
-    map: HashMap<PublicKeyBytes, u64>,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    log: Logger,
-}
-
-impl<T: SlotClock + 'static, E: EthSpec> IndicesMap<T, E> {
-    async fn get(&mut self, pubkey: PublicKeyBytes) -> Option<u64> {
-        if let Some(i) = self.map.get(&pubkey) {
-            return Some(*i);
-        }
-
-        let download_result = self
-            .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(pubkey))
-                    .await
-            })
-            .await;
-
-        match download_result {
-            Ok(response) => {
-                let i = response?.data.index;
-                self.map.insert(pubkey, i);
-                Some(i)
-            }
-            Err(e) => {
-                error!(
-                    self.log,
-                    "Failed to resolve pubkey to index";
-                    "error" => %e,
-                    "pubkey" => %pubkey,
-                );
-                None
-            }
-        }
-    }
-}
-
 type DependentRoot = Hash256;
 
 type AttesterMap = HashMap<PublicKeyBytes, HashMap<Epoch, (DependentRoot, DutyAndProof)>>;
 type ProposerMap = HashMap<Epoch, (DependentRoot, Vec<ProposerData>)>;
+type IndicesMap = HashMap<PublicKeyBytes, u64>;
 
 pub struct DutiesService<T, E: EthSpec> {
     pub attesters: RwLock<AttesterMap>,
     pub proposers: RwLock<ProposerMap>,
-    pub indices: Mutex<IndicesMap<T, E>>,
+    pub indices: RwLock<IndicesMap>,
     pub validator_store: ValidatorStore<T, E>,
     pub slot_clock: T,
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
@@ -172,13 +132,33 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 }
 
 /// Start the service that periodically polls the beacon node for validator duties.
-pub fn start_update_service<T: SlotClock, E: EthSpec>(
-    duties_service: Arc<DutiesService<T, E>>,
-    block_service_tx: Sender<BlockServiceNotification>,
+pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
+    core_duties_service: Arc<DutiesService<T, E>>,
+    mut block_service_tx: Sender<BlockServiceNotification>,
 ) {
-    let log = duties_service.context.log();
+    let duties_service = core_duties_service.clone();
+    core_duties_service.context.executor.spawn(
+        async move {
+            loop {
+                // Run this poll before the wait, this should hopefully download all the indices
+                // before the block/attestation tasks need them.
+                poll_validator_indices(&duties_service).await;
 
-    duties_service.context.executor.spawn(
+                match duties_service.slot_clock.duration_to_next_slot() {
+                    Some(duration) => sleep(duration).await,
+                    None => {
+                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        continue;
+                    }
+                }
+            }
+        },
+        "duties_service_indices",
+    );
+
+    let duties_service = core_duties_service.clone();
+    let log = core_duties_service.context.log().clone();
+    core_duties_service.context.executor.spawn(
         async move {
             loop {
                 match duties_service.slot_clock.duration_to_next_slot() {
@@ -202,7 +182,9 @@ pub fn start_update_service<T: SlotClock, E: EthSpec>(
         "duties_service_proposers",
     );
 
-    duties_service.context.executor.spawn(
+    let duties_service = core_duties_service.clone();
+    let log = core_duties_service.context.log().clone();
+    core_duties_service.context.executor.spawn(
         async move {
             loop {
                 match duties_service.slot_clock.duration_to_next_slot() {
@@ -224,6 +206,51 @@ pub fn start_update_service<T: SlotClock, E: EthSpec>(
         },
         "duties_service_attesters",
     );
+}
+
+async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: &DutiesService<T, E>,
+) {
+    let log = duties_service.context.log();
+    for pubkey in duties_service.validator_store.voting_pubkeys() {
+        let is_known = !duties_service.indices.read().contains_key(&pubkey);
+
+        if !is_known {
+            let download_result = duties_service
+                .beacon_nodes
+                .first_success(RequireSynced::Yes, |beacon_node| async move {
+                    beacon_node
+                        .get_beacon_states_validator_id(
+                            StateId::Head,
+                            &ValidatorId::PublicKey(pubkey),
+                        )
+                        .await
+                })
+                .await;
+
+            match download_result {
+                Ok(Some(response)) => {
+                    let i = response.data.index;
+                    duties_service.indices.write().insert(pubkey, i);
+                }
+                Ok(None) => {
+                    debug!(
+                        log,
+                        "Validator without index";
+                        "pubkey" => ?pubkey
+                    )
+                }
+                Err(e) => {
+                    error!(
+                        log,
+                        "Failed to resolve pubkey to index";
+                        "error" => %e,
+                        "pubkey" => ?pubkey,
+                    )
+                }
+            }
+        }
+    }
 }
 
 async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
@@ -249,14 +276,16 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         return Ok(());
     }
 
-    let mut local_indices = Vec::with_capacity(local_pubkeys.len());
-    let mut indices_map = duties_service.indices.lock();
-    for &pubkey in &local_pubkeys {
-        if let Some(validator_index) = indices_map.get(pubkey).await {
-            local_indices.push(validator_index)
+    let local_indices = {
+        let mut local_indices = Vec::with_capacity(local_pubkeys.len());
+        let indices_map = duties_service.indices.read();
+        for &pubkey in &local_pubkeys {
+            if let Some(validator_index) = indices_map.get(&pubkey) {
+                local_indices.push(*validator_index)
+            }
         }
-    }
-    drop(indices_map);
+        local_indices
+    };
 
     if let Err(e) =
         poll_beacon_attesters_for_epoch(&duties_service, epoch, &local_indices, &local_pubkeys)

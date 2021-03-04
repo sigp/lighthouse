@@ -5,7 +5,7 @@ use crate::{
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
-use futures::{StreamExt, TryFutureExt};
+use futures::TryFutureExt;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -127,7 +127,7 @@ pub struct BlockServiceNotification {
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     pub fn start_update_service(
         self,
-        notification_rx: mpsc::Receiver<BlockServiceNotification>,
+        mut notification_rx: mpsc::Receiver<BlockServiceNotification>,
     ) -> Result<(), String> {
         let log = self.context.log().clone();
 
@@ -135,14 +135,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let executor = self.inner.context.executor.clone();
 
-        let block_service_fut = notification_rx.for_each(move |notif| {
-            let service = self.clone();
+        executor.spawn(
             async move {
-                service.do_update(notif).await.ok();
-            }
-        });
-
-        executor.spawn(block_service_fut, "block_service");
+                while let Some(notif) = notification_rx.recv().await {
+                    let service = self.clone();
+                    service.do_update(notif).await.ok();
+                }
+            },
+            "block_service",
+        );
 
         Ok(())
     }

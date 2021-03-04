@@ -26,7 +26,7 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use duties_service::{DutiesService, IndicesMap};
+use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::types::StateId;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
@@ -34,7 +34,7 @@ use fork_service::{ForkService, ForkServiceBuilder};
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -291,11 +291,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let duties_service = Arc::new(DutiesService {
             attesters: <_>::default(),
             proposers: <_>::default(),
-            indices: Mutex::new(IndicesMap {
-                map: <_>::default(),
-                beacon_nodes: beacon_nodes.clone(),
-                log: duties_context.log().clone(),
-            }),
+            indices: <_>::default(),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
