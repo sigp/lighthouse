@@ -314,16 +314,21 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         .read()
         .iter()
         .filter_map(|(_, map)| map.get(&epoch))
-        .map(|(_, duty_and_proof)| {
+        .filter_map(|(_, duty_and_proof)| {
             let duty = &duty_and_proof.duty;
             let is_aggregator = duty_and_proof.selection_proof.is_some();
 
-            BeaconCommitteeSubscription {
-                validator_index: duty.validator_index,
-                committee_index: duty.committee_index,
-                committees_at_slot: duty.committees_at_slot,
-                slot: duty.slot,
-                is_aggregator,
+            // Only attempt subscriptions later than the current slot.
+            if duty.slot > slot {
+                Some(BeaconCommitteeSubscription {
+                    validator_index: duty.validator_index,
+                    committee_index: duty.committee_index,
+                    committees_at_slot: duty.committees_at_slot,
+                    slot: duty.slot,
+                    is_aggregator,
+                })
+            } else {
+                None
             }
         })
         .collect::<Vec<_>>();
