@@ -385,6 +385,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
 /// the p2p network.
+#[derive(Debug)]
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
@@ -1354,7 +1355,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
 fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> Result<RwLockReadGuard<ValidatorPubkeyCache>, BlockError<T::EthSpec>> {
+) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BlockError<T::EthSpec>> {
     chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
@@ -1366,11 +1367,11 @@ fn get_validator_pubkey_cache<T: BeaconChainTypes>(
 ///
 /// The signature verifier is empty because it does not yet have any of this block's signatures
 /// added to it. Use `Self::apply_to_signature_verifier` to apply the signatures.
-fn get_signature_verifier<'a, E: EthSpec>(
-    state: &'a BeaconState<E>,
-    validator_pubkey_cache: &'a ValidatorPubkeyCache,
+fn get_signature_verifier<'a, T: BeaconChainTypes>(
+    state: &'a BeaconState<T::EthSpec>,
+    validator_pubkey_cache: &'a ValidatorPubkeyCache<T>,
     spec: &'a ChainSpec,
-) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone> {
+) -> BlockSignatureVerifier<'a, T::EthSpec, impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone> {
     BlockSignatureVerifier::new(
         state,
         move |validator_index| {

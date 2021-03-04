@@ -662,15 +662,16 @@ impl SlashingDatabase {
             )?;
         }
 
-        // Prune attestations less than the min source and target from this interchange file.
-        // See the rationale for blocks above.
-        if let Some((new_min_source, new_min_target)) = record
+        // Prune attestations less than the min target from this interchange file.
+        // See the rationale for blocks above, and the doc comment for `prune_signed_attestations`
+        // for why we don't need to separately prune for the min source.
+        if let Some(new_min_target) = record
             .signed_attestations
             .iter()
-            .map(|attestation| (attestation.source_epoch, attestation.target_epoch))
+            .map(|attestation| attestation.target_epoch)
             .min()
         {
-            self.prune_signed_attestations(&record.pubkey, new_min_source, new_min_target, txn)?;
+            self.prune_signed_attestations(&record.pubkey, new_min_target, txn)?;
         }
 
         let summary = self.validator_summary(&record.pubkey, txn)?;
@@ -754,7 +755,7 @@ impl SlashingDatabase {
     }
 
     /// Remove all blocks for `public_key` with slots less than `new_min_slot`.
-    pub fn prune_signed_blocks(
+    fn prune_signed_blocks(
         &self,
         public_key: &PublicKey,
         new_min_slot: Slot,
@@ -764,36 +765,79 @@ impl SlashingDatabase {
 
         txn.execute(
             "DELETE FROM signed_blocks
-             WHERE validator_id = ?1 AND slot < ?2",
+             WHERE
+                validator_id = ?1 AND
+                slot < ?2 AND
+                slot < (SELECT MAX(slot)
+                        FROM signed_blocks
+                        WHERE validator_id = ?1)",
             params![validator_id, new_min_slot],
         )?;
 
         Ok(())
     }
 
-    /// Remove all attestations for `public_key` with
-    /// `(source, target) < (new_min_source, new_min_target)`.
-    pub fn prune_signed_attestations(
+    /// Prune the signed blocks table for the given public keys.
+    pub fn prune_all_signed_blocks<'a>(
+        &self,
+        mut public_keys: impl Iterator<Item = &'a PublicKey>,
+        new_min_slot: Slot,
+    ) -> Result<(), NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+        public_keys.try_for_each(|pubkey| self.prune_signed_blocks(pubkey, new_min_slot, &txn))?;
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Remove all attestations for `public_key` with `target < new_min_target`.
+    ///
+    /// Pruning every attestation with target less than `new_min_target` also has the effect of
+    /// making the new minimum source the source of the attestation with `target == new_min_target`
+    /// (if any exists). This is exactly what's required for pruning after importing an interchange
+    /// file, whereby we want to update the new minimum source to the min source from the
+    /// interchange.
+    ///
+    /// If the `new_min_target` was plucked out of thin air and doesn't necessarily correspond to
+    /// an extant attestation then this function is still safe. It will never delete *all* the
+    /// attestations in the database.
+    fn prune_signed_attestations(
         &self,
         public_key: &PublicKey,
-        new_min_source: Epoch,
         new_min_target: Epoch,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
 
-        // Delete attestations with source *and* target less than the minimums.
-        // Assuming `(new_min_source, new_min_target)` was successfully
-        // inserted into the database, then any other attestation in the database
-        // can't have just its source or just its target less than the new minimum.
-        // I.e. the following holds:
-        //   a.source < new_min_source <--> a.target < new_min_target
+        // The following holds:
+        //   a.target < new_min_target --> a.source <= new_min_source
+        //
+        // The `MAX(target_epoch)` acts as a guard to prevent accidentally clearing the DB.
         txn.execute(
             "DELETE FROM signed_attestations
-             WHERE validator_id = ?1 AND source_epoch < ?2 AND target_epoch < ?3",
-            params![validator_id, new_min_source, new_min_target],
+             WHERE
+                validator_id = ?1 AND
+                target_epoch < ?2 AND
+                target_epoch < (SELECT MAX(target_epoch)
+                                FROM signed_attestations
+                                WHERE validator_id = ?1)",
+            params![validator_id, new_min_target],
         )?;
 
+        Ok(())
+    }
+
+    /// Prune the signed attestations table for the given validator keys.
+    pub fn prune_all_signed_attestations<'a>(
+        &self,
+        mut public_keys: impl Iterator<Item = &'a PublicKey>,
+        new_min_target: Epoch,
+    ) -> Result<(), NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+        public_keys
+            .try_for_each(|pubkey| self.prune_signed_attestations(pubkey, new_min_target, &txn))?;
+        txn.commit()?;
         Ok(())
     }
 

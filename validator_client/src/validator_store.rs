@@ -2,18 +2,24 @@ use crate::{
     fork_service::ForkService, http_metrics::metrics, initialized_validators::InitializedValidators,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
-use slog::{crit, error, warn, Logger};
+use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    graffiti::GraffitiString, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
+    Graffiti, Hash256, Keypair, PublicKey, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedRoot, Slot,
 };
 use validator_dir::ValidatorDir;
+
+/// Number of epochs of slashing protection history to keep.
+///
+/// This acts as a maximum safe-guard against clock drift.
+const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 
 struct LocalValidator {
     validator_dir: ValidatorDir,
@@ -44,6 +50,7 @@ impl PartialEq for LocalValidator {
 pub struct ValidatorStore<T, E: EthSpec> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
+    slashing_protection_last_prune: Arc<Mutex<Epoch>>,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
     log: Logger,
@@ -63,6 +70,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Self {
             validators: Arc::new(RwLock::new(validators)),
             slashing_protection,
+            slashing_protection_last_prune: Arc::new(Mutex::new(Epoch::new(0))),
             genesis_validators_root,
             spec: Arc::new(spec),
             log,
@@ -88,10 +96,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         voting_keystore_path: P,
         password: ZeroizeString,
         enable: bool,
+        graffiti: Option<GraffitiString>,
     ) -> Result<ValidatorDefinition, String> {
-        let mut validator_def =
-            ValidatorDefinition::new_keystore_with_password(voting_keystore_path, Some(password))
-                .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
+        let mut validator_def = ValidatorDefinition::new_keystore_with_password(
+            voting_keystore_path,
+            Some(password),
+            graffiti.map(Into::into),
+        )
+        .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
         self.slashing_protection
             .register_validator(&validator_def.voting_public_key)
@@ -139,6 +151,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
                 voting_keypair.sk.sign(message)
             })
+    }
+
+    pub fn graffiti(&self, validator_pubkey: &PublicKey) -> Option<Graffiti> {
+        self.validators.read().graffiti(validator_pubkey)
     }
 
     pub fn sign_block(
@@ -358,5 +374,66 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             self.genesis_validators_root,
             &self.spec,
         ))
+    }
+
+    /// Prune the slashing protection database so that it remains performant.
+    ///
+    /// This function will only do actual pruning periodically, so it should usually be
+    /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
+    /// runs.
+    pub fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool) {
+        // Attempt to prune every SLASHING_PROTECTION_HISTORY_EPOCHs, with a tolerance for
+        // missing the epoch that aligns exactly.
+        let mut last_prune = self.slashing_protection_last_prune.lock();
+        if current_epoch / SLASHING_PROTECTION_HISTORY_EPOCHS
+            <= *last_prune / SLASHING_PROTECTION_HISTORY_EPOCHS
+        {
+            return;
+        }
+
+        if first_run {
+            info!(
+                self.log,
+                "Pruning slashing protection DB";
+                "epoch" => current_epoch,
+                "msg" => "pruning may take several minutes the first time it runs"
+            );
+        } else {
+            info!(self.log, "Pruning slashing protection DB"; "epoch" => current_epoch);
+        }
+
+        let _timer = metrics::start_timer(&metrics::SLASHING_PROTECTION_PRUNE_TIMES);
+
+        let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
+        let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
+
+        let validators = self.validators.read();
+        if let Err(e) = self
+            .slashing_protection
+            .prune_all_signed_attestations(validators.iter_voting_pubkeys(), new_min_target_epoch)
+        {
+            error!(
+                self.log,
+                "Error during pruning of signed attestations";
+                "error" => ?e,
+            );
+            return;
+        }
+
+        if let Err(e) = self
+            .slashing_protection
+            .prune_all_signed_blocks(validators.iter_voting_pubkeys(), new_min_slot)
+        {
+            error!(
+                self.log,
+                "Error during pruning of signed blocks";
+                "error" => ?e,
+            );
+            return;
+        }
+
+        *last_prune = current_epoch;
+
+        info!(self.log, "Completed pruning of slashing protection DB");
     }
 }

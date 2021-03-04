@@ -21,6 +21,7 @@ pub enum Error {
     NoContinuationData,
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
+    SchemaMigrationError(String),
     /// The block or state is unavailable due to weak subjectivity sync.
     HistoryUnavailable,
 }

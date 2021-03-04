@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod graffiti_file;
 mod http_metrics;
 mod initialized_validators;
 mod key_cache;
@@ -277,6 +278,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
+        // Perform pruning of the slashing protection database on start-up. In case the database is
+        // oversized from having not been pruned (by a prior version) we don't want to prune
+        // concurrently, as it will hog the lock and cause the attestation service to spew CRITs.
+        if let Some(slot) = slot_clock.now() {
+            validator_store.prune_slashing_protection_db(slot.epoch(T::slots_per_epoch()), true);
+        }
+
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
@@ -297,6 +305,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
+            .graffiti_file(config.graffiti_file.clone())
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()

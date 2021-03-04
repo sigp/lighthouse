@@ -7,7 +7,6 @@
 
 mod beacon_proposer_cache;
 mod block_id;
-mod broadcast_stream;
 mod metrics;
 mod state_id;
 mod validator_inclusion;
@@ -36,7 +35,7 @@ use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_stream::StreamExt;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationDuty, AttesterSlashing, CloneConfig, CommitteeCache, Epoch, EthSpec,
     Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, RelativeEpoch, SignedAggregateAndProof,
@@ -498,7 +497,6 @@ pub fn serve<T: BeaconChainTypes>(
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
-                            let finalized_epoch = state.finalized_checkpoint.epoch;
                             let far_future_epoch = chain.spec.far_future_epoch;
 
                             Ok(state
@@ -522,17 +520,18 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by status(es) if provided and map the result
                                 .filter_map(|(index, (validator, balance))| {
                                     let status = api_types::ValidatorStatus::from_validator(
-                                        Some(validator),
+                                        validator,
                                         epoch,
-                                        finalized_epoch,
                                         far_future_epoch,
                                     );
 
-                                    if query
-                                        .status
-                                        .as_ref()
-                                        .map_or(true, |statuses| statuses.0.contains(&status))
-                                    {
+                                    let status_matches =
+                                        query.status.as_ref().map_or(true, |statuses| {
+                                            statuses.0.contains(&status)
+                                                || statuses.0.contains(&status.superstatus())
+                                        });
+
+                                    if status_matches {
                                         Some(api_types::ValidatorData {
                                             index: index as u64,
                                             balance: *balance,
@@ -577,16 +576,14 @@ pub fn serve<T: BeaconChainTypes>(
                                     let validator = state.validators.get(index)?;
                                     let balance = *state.balances.get(index)?;
                                     let epoch = state.current_epoch();
-                                    let finalized_epoch = state.finalized_checkpoint.epoch;
                                     let far_future_epoch = chain.spec.far_future_epoch;
 
                                     Some(api_types::ValidatorData {
                                         index: index as u64,
                                         balance,
                                         status: api_types::ValidatorStatus::from_validator(
-                                            Some(validator),
+                                            validator,
                                             epoch,
-                                            finalized_epoch,
                                             far_future_epoch,
                                         ),
                                         validator: validator.clone(),
@@ -874,11 +871,35 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone());
 
     // GET beacon/blocks/{block_id}
-    let get_beacon_block = beacon_blocks_path.clone().and(warp::path::end()).and_then(
-        |block_id: BlockId, chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || block_id.block(&chain).map(api_types::GenericResponse::from))
-        },
-    );
+    let get_beacon_block = beacon_blocks_path
+        .clone()
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |block_id: BlockId,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let block = block_id.block(&chain)?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(block.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(
+                            warp::reply::json(&api_types::GenericResponseRef::from(&block))
+                                .into_response(),
+                        ),
+                    }
+                })
+            },
+        );
 
     // GET beacon/blocks/{block_id}/root
     let get_beacon_block_root = beacon_blocks_path
@@ -2383,23 +2404,22 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                             };
 
-                            receivers.push(broadcast_stream::BroadcastStream::new(receiver).map(
-                                |msg| {
-                                    match msg {
-                                        Ok(data) => Event::default()
-                                            .event(data.topic_name())
-                                            .json_data(data)
-                                            .map_err(|e| {
-                                                warp_utils::reject::server_sent_event_error(
-                                                    format!("{:?}", e),
-                                                )
-                                            }),
-                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                            format!("{:?}", e),
-                                        )),
-                                    }
-                                },
-                            ));
+                            receivers.push(BroadcastStream::new(receiver).map(|msg| {
+                                match msg {
+                                    Ok(data) => Event::default()
+                                        .event(data.topic_name())
+                                        .json_data(data)
+                                        .map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                        format!("{:?}", e),
+                                    )),
+                                }
+                            }));
                         }
                     } else {
                         return Err(warp_utils::reject::custom_server_error(

@@ -1,4 +1,3 @@
-use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
@@ -45,13 +44,6 @@ pub fn get_config<E: EthSpec>(
                 .ok_or("Failed to get freezer db path")?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
-
-        // Remove the pubkey cache file if it exists
-        let pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
-        if pubkey_cache_file.exists() {
-            fs::remove_file(&pubkey_cache_file)
-                .map_err(|e| format!("Failed to remove {:?}: {:?}", pubkey_cache_file, e))?;
-        }
     }
 
     // Create `datadir` and any non-existing parent directories.

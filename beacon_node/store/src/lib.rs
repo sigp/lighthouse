@@ -21,10 +21,9 @@ pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
-mod metadata;
+pub mod metadata;
 mod metrics;
 mod partial_beacon_state;
-mod schema_change;
 
 pub mod iter;
 
@@ -156,6 +155,7 @@ pub enum DBColumn {
     OpPool,
     Eth1Cache,
     ForkChoice,
+    PubkeyCache,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
     /// For the mapping from state roots to their slots or summaries.
@@ -181,6 +181,7 @@ impl Into<&'static str> for DBColumn {
             DBColumn::OpPool => "opo",
             DBColumn::Eth1Cache => "etc",
             DBColumn::ForkChoice => "frk",
+            DBColumn::PubkeyCache => "pkc",
             DBColumn::BeaconRestorePoint => "brp",
             DBColumn::BeaconStateSummary => "bss",
             DBColumn::BeaconStateTemporary => "bst",
