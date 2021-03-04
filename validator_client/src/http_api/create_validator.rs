@@ -133,7 +133,12 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
         drop(validator_dir);
 
         validator_store
-            .add_validator_keystore(voting_keystore_path, voting_password_string, request.enable)
+            .add_validator_keystore(
+                voting_keystore_path,
+                voting_password_string,
+                request.enable,
+                request.graffiti.clone(),
+            )
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
@@ -145,6 +150,7 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
         validators.push(api_types::CreatedValidator {
             enabled: request.enable,
             description: request.description.clone(),
+            graffiti: request.graffiti.clone(),
             voting_pubkey,
             eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,
