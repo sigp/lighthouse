@@ -50,7 +50,7 @@ impl From<String> for Error {
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: Clone, E: EthSpec> {
+pub struct Context<T: SlotClock, E: EthSpec> {
     pub runtime: Weak<Runtime>,
     pub api_secret: ApiSecret,
     pub validator_store: Option<ValidatorStore<T, E>>,

@@ -158,19 +158,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             crit!(log, "Duties manager failed to read slot clock");
         })?;
 
-        if let Some(epoch) = self.doppelganger_detection_epoch {
-            if epoch <= slot.epoch(E::slots_per_epoch()) {
-                warn!(
-                    log,
-                    "Skipping block production because the doppelganger detection period has not elapsed.";
-                    "end_doppelganger_detection_epoch" => epoch,
-                    "current_slot" => slot.as_u64(),
-                    "notification_slot" => notification.slot.as_u64(),
-                );
-                return Ok(());
-            }
-        }
-
         if notification.slot != slot {
             warn!(
                 log,

@@ -48,7 +48,7 @@ impl PartialEq for LocalValidator {
 
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
-    validators: Arc<RwLock<InitializedValidators<T,E>>>,
+    validators: Arc<RwLock<InitializedValidators<T, E>>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
     genesis_validators_root: Hash256,
@@ -60,7 +60,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn new(
-        validators: InitializedValidators<T,E>,
+        validators: InitializedValidators<T, E>,
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
@@ -79,12 +79,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators<T,E>>> {
+    pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators<T, E>>> {
         self.validators.clone()
-    }
-
-    pub fn initialized_validators_detecting_doppelgangers(&self) -> Arc<RwLock<InitializedValidators<T,E>>> {
-        self.validators.read().validators.iter().clone()
     }
 
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335

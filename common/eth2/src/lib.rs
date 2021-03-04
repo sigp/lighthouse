@@ -1002,7 +1002,7 @@ impl BeaconNodeHttpClient {
     /// `GET lighthouse/seen_validators?ids,epochs`
     pub async fn get_lighthouse_seen_validators(
         &self,
-        pubkeys: &[PublicKey],
+        pubkeys: &[PublicKeyBytes],
         epochs: &[Epoch],
     ) -> Result<GenericResponse<bool>, Error> {
         let mut path = self.server.clone();

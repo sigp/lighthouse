@@ -1,17 +1,23 @@
-use environment::RuntimeContext;
-use slot_clock::SlotClock;
-use types::{ChainSpec, EthSpec};
-use tokio::time::{interval_at, sleep_until, Duration, Instant};
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::initialized_validators::DOPPELGANGER_DETECTION_EPOCHS;
 use crate::validator_store::ValidatorStore;
+use environment::RuntimeContext;
+use slog::{crit, info, trace};
+use slot_clock::SlotClock;
+use std::sync::Arc;
+use tokio::time::{interval_at, sleep_until, Duration, Instant};
+use types::{ChainSpec, Epoch, EthSpec};
 
-pub struct DoppelgangerService<T,E> {
-    slot_clock: Option<T>,
-    validator_store: ValidatorStore<T, E>,
-    context: RuntimeContext<E>,
+#[derive(Clone)]
+pub struct DoppelgangerService<T: SlotClock, E: EthSpec> {
+    pub slot_clock: T,
+    pub validator_store: ValidatorStore<T, E>,
+    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    pub context: RuntimeContext<E>,
 }
 
-impl <T: SlotClock, E: EthSpec> DoppelgangerService<T,E> {
-    pub fn start_update_service(&self, spec: &ChainSpec) -> Result<(), String> {
+impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
 
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
@@ -28,10 +34,7 @@ impl <T: SlotClock, E: EthSpec> DoppelgangerService<T,E> {
 
         let mut interval = {
             // Note: `interval_at` panics if `slot_duration` is 0
-            interval_at(
-                Instant::now() + duration_to_next_slot,
-                slot_duration,
-            )
+            interval_at(Instant::now() + duration_to_next_slot, slot_duration)
         };
 
         let executor = self.context.executor.clone();
@@ -41,10 +44,10 @@ impl <T: SlotClock, E: EthSpec> DoppelgangerService<T,E> {
                 interval.tick().await;
                 let log = self.context.log();
 
-                if let Err(e) = self.do_update(slot_duration) {
+                if let Err(e) = self.do_update(slot_duration).await {
                     crit!(
                         log,
-                        "Failed to spawn attestation tasks";
+                        "Failed perform doppelganger detection";
                         "error" => e
                     )
                 } else {
@@ -60,75 +63,74 @@ impl <T: SlotClock, E: EthSpec> DoppelgangerService<T,E> {
         Ok(())
     }
 
-    fn do_update(&self, slot_duration: Duration) -> Result<(), String> {
-
+    async fn do_update(&self, slot_duration: Duration) -> Result<(), String> {
+        let log = self.context.log().clone();
 
         // Check for doppelgangers if configured
-         if let Some(slot) = self.slot_clock.now() {
-             let epoch = slot.epoch(E::slots_per_epoch());
+        let slot = self.slot_clock.now().ok_or("Unable to read slot clock")?;
+        let epoch = slot.epoch(E::slots_per_epoch());
+        info!(log, "Monitoring for doppelgangers"; "epoch" => epoch, "slot" => slot);
 
-             let validators  = self.validator_store.initialized_validators().read().get_all_doppelganger_detecting_validators()?;
+        // get all validators in the doppelganger detection epoch
+        let validator_map = self
+            .validator_store
+            .initialized_validators()
+            .read()
+            .get_doppelganger_detecting_validators_by_epoch()
+            .map_err(|e| {
+                format!(
+                    "Unable to determine validator doppelganger detection periods: {:?}",
+                    e
+                )
+            })?;
+        for (epoch, validators) in validator_map {
+            let mut epochs = Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
+            for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
+                epochs.push(epoch - Epoch::new(i));
+            }
+            let epochs_slice = epochs.as_slice();
 
-             // get all validators in the doppelganger detection epoch
+            let pubkeys = self.validator_store.voting_pubkeys();
+            let pubkeys_slice = pubkeys.as_slice();
 
-             if doppelganger_epoch >= epoch {
-                 info!(log, "Monitoring for doppelgangers"; "epoch" => epoch, "slot" => slot, "doppelganger_detection_epoch" => doppelganger_epoch);
+            let doppelganger_detected = self
+                .beacon_nodes
+                .first_success(RequireSynced::Yes, |beacon_node| async move {
+                    beacon_node
+                        .get_lighthouse_seen_validators(pubkeys_slice, epochs_slice)
+                        .await
+                        .map_err(|e| format!("Failed query for seen validators: {:?}", e))
+                        .map(|result| result.data)
+                })
+                .await
+                .map_err(|e| format!("Failed query for seen validators: {}", e));
 
-                 let mut epochs =
-                     Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
-                 for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
-                     epochs.push(doppelganger_epoch - Epoch::new(i));
-                 }
-                 let epochs_slice = epochs.as_slice();
-
-                 let pubkeys = self.validator_store.voting_pubkeys();
-                 let pubkeys_slice = pubkeys.as_slice();
-
-                 let doppelganger_detected = self
-                     .beacon_nodes
-                     .first_success(RequireSynced::Yes, |beacon_node| async move {
-                         beacon_node
-                             .get_lighthouse_seen_validators(pubkeys_slice, epochs_slice)
-                             .await
-                             .map_err(|e| {
-                                 format!("Failed query for seen validators: {:?}", e)
-                             })
-                             .map(|result| result.data)
-                     })
-                     .await
-                     .map_err(|e| format!("Failed query for seen validators: {}", e));
-
-                 // Send shutdown signal if necessary
-                 match doppelganger_detected {
-                     Ok(true) => {
-                         crit!(
-                                     log,
-                                     "Doppelganger detected! Shutting down. Ensure you aren't already \
+            // Send shutdown signal if necessary
+            match doppelganger_detected {
+                Ok(true) => {
+                    crit!(
+                        log,
+                        "Doppelganger detected! Shutting down. Ensure you aren't already \
                                      running a validator client with the same keys."
-                                 );
+                    );
 
-                         let _ = self
-                             .context
-                             .executor
-                             .shutdown_sender()
-                             .try_send("Doppelganger detected.");
-                         break;
-                     }
-                     Ok(false) => continue,
-                     Err(e) => {
-                         crit!(log, "Failed complete query for doppelganger detection... Exiting."; "error" => format!("{:?}", e));
-                         let _ = self
-                             .context
-                             .executor
-                             .shutdown_sender()
-                             .try_send("Doppelganger detected.");
-                         break;
-                     }
-                 }
-             }
-         } else {
-             error!(log, "Unable to read slot clock");
-         }
+                    let _ = self
+                        .context
+                        .executor
+                        .shutdown_sender()
+                        .try_send("Doppelganger detected.");
+                }
+                Ok(false) => continue,
+                Err(e) => {
+                    crit!(log, "Failed complete query for doppelganger detection... Exiting."; "error" => format!("{:?}", e));
+                    let _ = self
+                        .context
+                        .executor
+                        .shutdown_sender()
+                        .try_send("Doppelganger detected.");
+                }
+            }
+        }
+        Ok(())
     }
-
 }

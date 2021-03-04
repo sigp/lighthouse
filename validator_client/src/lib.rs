@@ -13,8 +13,8 @@ mod key_cache;
 mod notifier;
 mod validator_store;
 
-pub mod http_api;
 mod doppelganger_service;
+pub mod http_api;
 
 pub use cli::cli_app;
 pub use config::Config;
@@ -22,6 +22,8 @@ pub use config::Config;
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
+use crate::doppelganger_service::DoppelgangerService;
+use crate::initialized_validators::InitializedValidator;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
@@ -47,9 +49,8 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Fork, Hash256};
+use types::{Epoch, EthSpec, Fork, Hash256};
 use validator_store::ValidatorStore;
-use crate::initialized_validators::InitializedValidator;
 
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -70,6 +71,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
+    doppelganger_service: Option<DoppelgangerService<SystemTimeSlotClock, T>>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
     http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
@@ -147,6 +149,39 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             );
         }
 
+        let beacon_node_urls: Vec<Url> = config
+            .beacon_nodes
+            .iter()
+            .map(|s| s.parse())
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
+        let beacon_nodes: Vec<BeaconNodeHttpClient> = beacon_node_urls
+            .into_iter()
+            .map(|url| {
+                let beacon_node_http_client = ClientBuilder::new()
+                    .timeout(HTTP_TIMEOUT)
+                    .build()
+                    .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
+                Ok(BeaconNodeHttpClient::from_components(
+                    url,
+                    beacon_node_http_client,
+                ))
+            })
+            .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
+
+        let candidates = beacon_nodes
+            .into_iter()
+            .map(CandidateBeaconNode::new)
+            .collect();
+        let mut beacon_nodes: BeaconNodeFallback<_, T> =
+            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
+
+        // Perform some potentially long-running initialization tasks.
+        let (genesis_time, genesis_validators_root, fork) = tokio::select! {
+            tuple = init_from_beacon_node(&beacon_nodes, &context) => tuple?,
+            () = context.executor.exit() => return Err("Shutting down".to_string())
+        };
+
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
@@ -222,39 +257,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 })?;
         }
 
-        let beacon_node_urls: Vec<Url> = config
-            .beacon_nodes
-            .iter()
-            .map(|s| s.parse())
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
-        let beacon_nodes: Vec<BeaconNodeHttpClient> = beacon_node_urls
-            .into_iter()
-            .map(|url| {
-                let beacon_node_http_client = ClientBuilder::new()
-                    .timeout(HTTP_TIMEOUT)
-                    .build()
-                    .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
-                Ok(BeaconNodeHttpClient::from_components(
-                    url,
-                    beacon_node_http_client,
-                ))
-            })
-            .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
-
-        let candidates = beacon_nodes
-            .into_iter()
-            .map(CandidateBeaconNode::new)
-            .collect();
-        let mut beacon_nodes: BeaconNodeFallback<_, T> =
-            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
-
-        // Perform some potentially long-running initialization tasks.
-        let (genesis_time, genesis_validators_root, fork) = tokio::select! {
-            tuple = init_from_beacon_node(&beacon_nodes, &context) => tuple?,
-            () = context.executor.exit() => return Err("Shutting down".to_string())
-        };
-
         // Update the metrics server.
         if let Some(ctx) = &http_metrics_ctx {
             ctx.shared.write().genesis_time = Some(genesis_time);
@@ -285,14 +287,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "Loaded validator keypair store";
             "voting_validators" => validator_store.num_voting_validators()
         );
-
-        let doppelganger_detection_filter = if config.disable_doppelganger_detection {
-            |val: &InitializedValidator| -> bool { true }
-        }else{
-            |val: &InitializedValidator| -> bool {
-                // compare doppelganger detection epoch to current epoch
-            }
-        };
 
         // Perform pruning of the slashing protection database on start-up. In case the database is
         // oversized from having not been pruned (by a prior version) we don't want to prune
@@ -352,8 +346,22 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         // Update all doppelganger detection epochs after genesis and/or sync.
         if !config.disable_doppelganger_detection {
-            validator_store.initialized_validators().write().update_all_doppelganger_detection_epochs();
+            validator_store
+                .initialized_validators()
+                .write()
+                .update_all_doppelganger_detection_epochs();
         }
+
+        let doppelganger_service = if !config.disable_doppelganger_detection {
+            Some(DoppelgangerService {
+                slot_clock: slot_clock.clone(),
+                validator_store: validator_store.clone(),
+                beacon_nodes: beacon_nodes.clone(),
+                context: context.service_context("doppelganger".into()),
+            })
+        } else {
+            None
+        };
 
         Ok(Self {
             context,
@@ -361,6 +369,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             fork_service,
             block_service,
             attestation_service,
+            doppelganger_service,
             validator_store,
             config,
             http_api_listen_addr: None,
@@ -392,6 +401,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
+
+        if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
+            doppelganger_service.clone()
+                .start_update_service(&self.context.eth2_config.spec)
+                .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
+        } else {
+            info!(log, "Doppelganger detection disabled.")
+        }
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
