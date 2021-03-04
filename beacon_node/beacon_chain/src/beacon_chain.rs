@@ -788,6 +788,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(pubkey_cache.get(validator_index).cloned())
     }
 
+    /// As per `Self::validator_pubkey`, but returns `PublicKeyBytes`.
+    pub fn validator_pubkey_bytes(
+        &self,
+        validator_index: usize,
+    ) -> Result<Option<PublicKeyBytes>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        Ok(pubkey_cache.get_pubkey_bytes(validator_index).cloned())
+    }
+
     /// Returns the block canonical root of the current canonical chain at a given slot.
     ///
     /// Returns `None` if the given slot doesn't exist in the chain.

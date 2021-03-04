@@ -1763,7 +1763,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .enumerate()
                             .map(|(i, validator_index)| {
                                 let pubkey = chain
-                                    .validator_pubkey(validator_index)
+                                    .validator_pubkey_bytes(validator_index)
                                     .map_err(warp_utils::reject::beacon_chain_error)?
                                     .ok_or_else(|| {
                                         warp_utils::reject::custom_server_error(format!(
@@ -1773,7 +1773,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     })?;
 
                                 Ok(api_types::ProposerData {
-                                    pubkey: pubkey.into(),
+                                    pubkey,
                                     validator_index: validator_index as u64,
                                     slot: epoch.start_slot(T::EthSpec::slots_per_epoch())
                                         + Slot::from(i),
@@ -2083,17 +2083,15 @@ pub fn serve<T: BeaconChainTypes>(
                         .zip(indices.into_iter())
                         .map(|(duty, validator_index)| {
                             Ok(api_types::AttesterData {
-                                // TODO: make a decompressed getter, avoid .into().
                                 pubkey: chain
-                                    .validator_pubkey(validator_index as usize)
+                                    .validator_pubkey_bytes(validator_index as usize)
                                     .map_err(warp_utils::reject::beacon_chain_error)?
                                     .ok_or_else(|| {
                                         warp_utils::reject::custom_server_error(format!(
                                             "unable to resolve validator index {}",
                                             validator_index
                                         ))
-                                    })?
-                                    .into(),
+                                    })?,
                                 validator_index,
                                 committees_at_slot: duty.committees_at_slot,
                                 committee_index: duty.index,
