@@ -356,6 +356,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
 
             // Ensure that the attestation matches the duties.
+            #[allow(clippy::suspicious_operation_groupings)]
             if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
             {
                 crit!(

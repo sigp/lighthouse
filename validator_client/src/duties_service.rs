@@ -113,7 +113,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     .map(|proposer_data| proposer_data.pubkey)
                     .collect()
             })
-            .unwrap_or_else(|| vec![])
+            .unwrap_or_else(Vec::new)
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
@@ -211,6 +211,9 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
 async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
 ) {
+    let _timer =
+        metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_INDICES]);
+
     let log = duties_service.context.log();
     for pubkey in duties_service.validator_store.voting_pubkeys() {
         // This is on its own line to avoid some weirdness with locks and if statements.
@@ -257,6 +260,11 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
 ) -> Result<(), Error> {
+    let current_epoch_timer = metrics::start_timer_vec(
+        &metrics::DUTIES_SERVICE_TIMES,
+        &[metrics::UPDATE_ATTESTERS_CURRENT_EPOCH],
+    );
+
     let log = duties_service.context.log();
 
     let slot = duties_service
@@ -337,6 +345,12 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
+    drop(current_epoch_timer);
+    let _next_epoch_timer = metrics::start_timer_vec(
+        &metrics::DUTIES_SERVICE_TIMES,
+        &[metrics::UPDATE_ATTESTERS_NEXT_EPOCH],
+    );
+
     if let Err(e) =
         poll_beacon_attesters_for_epoch(&duties_service, next_epoch, &local_indices, &local_pubkeys)
             .await
@@ -402,16 +416,14 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                 proposer_map.insert(epoch, (dependent_root, duty_and_proof))
             {
                 // Only warn once per update, not once per validator.
-                if already_warned.take().is_some() {
-                    if dependent_root != prior_dependent_root {
-                        warn!(
-                            log,
-                            "Attester duties re-org";
-                            "prior_dependent_root" => %prior_dependent_root,
-                            "dependent_root" => %dependent_root,
-                            "msg" => "this may happen from time to time"
-                        )
-                    }
+                if already_warned.take().is_some() && dependent_root != prior_dependent_root {
+                    warn!(
+                        log,
+                        "Attester duties re-org";
+                        "prior_dependent_root" => %prior_dependent_root,
+                        "dependent_root" => %dependent_root,
+                        "msg" => "this may happen from time to time"
+                    )
                 }
             }
         }
@@ -425,6 +437,9 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
 ) -> Result<(), Error> {
+    let _timer =
+        metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_PROPOSERS]);
+
     let log = duties_service.context.log();
 
     let slot = duties_service

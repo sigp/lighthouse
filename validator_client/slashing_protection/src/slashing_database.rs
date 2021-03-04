@@ -207,7 +207,7 @@ impl SlashingDatabase {
         public_key: &PublicKeyBytes,
     ) -> Result<i64, NotSafe> {
         self.get_validator_id_opt(txn, public_key)?
-            .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
+            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))
     }
 
     /// Optional version of `get_validator_id`.
@@ -600,7 +600,7 @@ impl SlashingDatabase {
         let mut import_outcomes = vec![];
 
         for record in interchange.data {
-            let pubkey = record.pubkey.clone();
+            let pubkey = record.pubkey;
             let txn = conn.transaction()?;
             match self.import_interchange_record(record, &txn) {
                 Ok(summary) => {

@@ -848,7 +848,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let validator_index = *validator_index as usize;
                     committee_cache
                         .get_attestation_duties(validator_index)
-                        .ok_or_else(|| Error::ValidatorIndexUnknown(validator_index))
+                        .ok_or(Error::ValidatorIndexUnknown(validator_index))
                 })
                 .collect::<Result<_, _>>()?;
 

@@ -1672,6 +1672,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .map_err(warp_utils::reject::beacon_chain_error)?;
                         let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
 
+                        #[allow(clippy::comparison_chain)]
                         if head_epoch == current_epoch {
                             head.proposer_shuffling_decision_root
                         } else if head_epoch < current_epoch {
@@ -2060,9 +2061,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 state
                                     .get_attestation_duties(validator_index, relative_epoch)
                                     .map_err(BeaconChainError::from)?
-                                    .ok_or_else(|| {
-                                        BeaconChainError::ValidatorIndexUnknown(validator_index)
-                                    })
+                                    .ok_or(BeaconChainError::ValidatorIndexUnknown(validator_index))
                             })
                             .collect::<Result<_, _>>()
                             .map_err(warp_utils::reject::beacon_chain_error)?;
