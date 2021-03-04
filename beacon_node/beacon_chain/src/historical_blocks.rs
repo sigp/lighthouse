@@ -65,6 +65,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             prev_block_slot = block.slot();
+            // TODO(sproul): work out whether to do verification here or elsewhere
             current_block_root = block.message.parent_root;
         }
         chunk_writer.write(&mut io_batch)?;

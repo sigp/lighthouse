@@ -316,7 +316,7 @@ where
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
-            .put_item(&dbg!(beacon_block_root), &beacon_block)
+            .put_item(&beacon_block_root, &beacon_block)
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
@@ -565,16 +565,16 @@ where
         // consistent.
         //
         // This is a sanity check to detect database corruption.
-        /* FIXME(sproul)
         let fc_finalized = fork_choice.finalized_checkpoint();
         let head_finalized = canonical_head.beacon_state.finalized_checkpoint;
         if fc_finalized != head_finalized {
-            if head_finalized.root == Hash256::zero()
+            let is_genesis = head_finalized.root.is_zero()
                 && head_finalized.epoch == fc_finalized.epoch
-                && fc_finalized.root == genesis_block_root
-            {
-                // This is a legal edge-case encountered during genesis.
-            } else {
+                && fc_finalized.root == genesis_block_root;
+            let is_wss = store.get_anchor_slot().map_or(false, |anchor_slot| {
+                fc_finalized.epoch == anchor_slot.epoch(TEthSpec::slots_per_epoch())
+            });
+            if !is_genesis && !is_wss {
                 return Err(format!(
                     "Database corrupt: fork choice is finalized at {:?} whilst head is finalized at \
                     {:?}",
@@ -582,7 +582,6 @@ where
                 ));
             }
         }
-        */
 
         let pubkey_cache_path = self
             .pubkey_cache_path

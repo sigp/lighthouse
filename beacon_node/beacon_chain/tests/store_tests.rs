@@ -1683,6 +1683,7 @@ fn weak_subjectivity_sync() {
         .get_state(&wss_block.state_root(), None)
         .unwrap()
         .unwrap();
+    let wss_slot = wss_block.slot();
 
     // Add more blocks that advance finalization further.
     harness.advance_slot();
@@ -1723,9 +1724,9 @@ fn weak_subjectivity_sync() {
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
-    let new_blocks = &chain_dump[wss_block.slot().as_usize() + 1..];
+    let new_blocks = &chain_dump[wss_slot.as_usize() + 1..];
 
-    assert_eq!(new_blocks[0].beacon_block.slot(), wss_block.slot() + 1);
+    assert_eq!(new_blocks[0].beacon_block.slot(), wss_slot + 1);
 
     for snapshot in new_blocks {
         beacon_chain
@@ -1744,6 +1745,11 @@ fn weak_subjectivity_sync() {
             HistoricalBlockError::BlockOutOfRange { .. }
         ))
     ));
+
+    // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
+    // `root_at_slot` with an old slot for which we don't know the block root. It should
+    // return `None` rather than erroring.
+    assert_eq!(beacon_chain.root_at_slot(Slot::new(1)).unwrap(), None);
 
     // Supply blocks backwards to reach genesis
     let historical_blocks = chain_dump[..wss_block.slot().as_usize()]

@@ -13,12 +13,30 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     PartialBeaconStateError,
     HotColdDBError(HotColdDBError),
-    DBError { message: String },
+    DBError {
+        message: String,
+    },
     RlpError(String),
     BlockNotFound(Hash256),
     NoContinuationData,
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
+    /// The block or state is unavailable due to weak subjectivity sync.
+    HistoryUnavailable,
+}
+
+pub trait HandleUnavailable<T> {
+    fn handle_unavailable(self) -> std::result::Result<Option<T>, Error>;
+}
+
+impl<T> HandleUnavailable<T> for Result<T> {
+    fn handle_unavailable(self) -> std::result::Result<Option<T>, Error> {
+        match self {
+            Ok(x) => Ok(Some(x)),
+            Err(Error::HistoryUnavailable) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl From<DecodeError> for Error {

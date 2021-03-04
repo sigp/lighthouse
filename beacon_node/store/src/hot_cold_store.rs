@@ -880,6 +880,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|a| a.oldest_block_parent)
     }
 
+    pub fn get_oldest_state_slot(&self) -> Slot {
+        self.anchor_info
+            .read()
+            .as_ref()
+            .map_or(self.spec.genesis_slot, |a| a.oldest_state_slot)
+    }
+
     /// Load previously-stored config from disk.
     fn load_config(&self) -> Result<Option<OnDiskStoreConfig>, Error> {
         self.hot_db.get(&CONFIG_KEY)
