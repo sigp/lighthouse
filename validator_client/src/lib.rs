@@ -184,11 +184,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
         );
 
+        let current_epoch = slot_clock
+            .now()
+            .ok_or("Unable to read slot clock")?
+            .epoch(T::slots_per_epoch());
+        let genesis_epoch = slot_clock.genesis_slot().epoch(T::slots_per_epoch());
+
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
-            slot_clock.clone(),
             config.disable_doppelganger_detection,
+            current_epoch,
+            genesis_epoch,
             log.clone(),
         )
         .await
@@ -337,8 +344,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
-        let doppelganger_service = (!config.disable_doppelganger_detection).then(||
-            DoppelgangerService {
+        let doppelganger_service =
+            (!config.disable_doppelganger_detection).then(|| DoppelgangerService {
                 slot_clock: slot_clock.clone(),
                 validator_store: validator_store.clone(),
                 beacon_nodes: beacon_nodes.clone(),
@@ -616,4 +623,3 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
         sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }
-

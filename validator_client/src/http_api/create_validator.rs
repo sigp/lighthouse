@@ -132,12 +132,26 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
         let voting_keystore_path = validator_dir.voting_keystore_path();
         drop(validator_dir);
 
+        let current_epoch = validator_store
+            .slot_clock()
+            .now()
+            .ok_or_else(|| warp_utils::reject::custom_server_error(
+                "failed to read slot clock".to_string(),
+            ))?
+            .epoch(E::slots_per_epoch());
+        let genesis_epoch = validator_store
+            .slot_clock()
+            .genesis_slot()
+            .epoch(E::slots_per_epoch());
+
         validator_store
             .add_validator_keystore(
                 voting_keystore_path,
                 voting_password_string,
                 request.enable,
                 request.graffiti.clone(),
+                current_epoch,
+                genesis_epoch,
             )
             .await
             .map_err(|e| {

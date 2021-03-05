@@ -2705,15 +2705,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Checks if attestations have been seen from any of the given `validator_indices` at the
-    /// given `epoch`
-    pub fn doppelgangers_exist_at_epoch(&self, validator_indices: &[usize], epoch: &Epoch) -> bool {
+    /// given `epoch`. Retruns an iterator over indices we have seen.
+    pub fn doppelgangers_seen_at_epoch(
+        &self,
+        validator_indices: &[usize],
+        epoch: &Epoch,
+    ) -> impl Iterator<Item = usize> + '_ {
         self.observed_attesters
             .read()
-            .contains_any_at_epoch(validator_indices, epoch)
-            || self
-                .observed_aggregators
-                .read()
-                .contains_any_at_epoch(validator_indices, epoch)
+            .indices_seen_at_epoch(validator_indices, epoch)
+            .into_iter()
+            .chain(
+                self.observed_aggregators
+                    .read()
+                    .indices_seen_at_epoch(validator_indices, epoch)
+                    .into_iter(),
+            )
     }
 }
 

@@ -2498,11 +2498,14 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Result<_, _>>()?;
 
-                    let seen_validator =
-                        query.epochs.0.iter().any(|epoch| {
-                            chain.doppelgangers_exist_at_epoch(indices.as_slice(), epoch)
-                        });
-                    Ok(api_types::GenericResponse::from(seen_validator))
+                    let seen_validators: Vec<usize> = query
+                        .epochs
+                        .0
+                        .iter()
+                        .map(|epoch| chain.doppelgangers_seen_at_epoch(indices.as_slice(), epoch))
+                        .flatten()
+                        .collect();
+                    Ok(api_types::GenericResponse::from(seen_validators))
                 })
             },
         );

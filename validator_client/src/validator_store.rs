@@ -48,7 +48,7 @@ impl PartialEq for LocalValidator {
 
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
-    validators: Arc<RwLock<InitializedValidators<T, E>>>,
+    validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
     genesis_validators_root: Hash256,
@@ -60,7 +60,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn new(
-        validators: InitializedValidators<T, E>,
+        validators: InitializedValidators,
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
@@ -79,8 +79,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators<T, E>>> {
+    pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
         self.validators.clone()
+    }
+
+    pub fn slot_clock(&self) -> T {
+        self.fork_service.slot_clock()
     }
 
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
@@ -97,6 +101,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         password: ZeroizeString,
         enable: bool,
         graffiti: Option<GraffitiString>,
+        current_epoch: Epoch,
+        genesis_epoch: Epoch,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
@@ -113,7 +119,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         self.validators
             .write()
-            .add_definition(validator_def.clone())
+            .add_definition(validator_def.clone(), current_epoch, genesis_epoch)
             .await
             .map_err(|e| format!("Unable to add definition: {:?}", e))?;
 
@@ -128,10 +134,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .collect()
     }
 
-    pub fn signing_pubkeys(&self, slot: Slot) -> Vec<PublicKeyBytes> {
+    pub fn signing_pubkeys(&self, current_epoch: Epoch) -> Vec<PublicKeyBytes> {
         self.validators
             .read()
-            .iter_signing_pubkeys(slot)
+            .iter_signing_pubkeys(current_epoch)
             .cloned()
             .collect()
     }
@@ -420,10 +426,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
 
         let validators = self.validators.read();
-        if let Err(e) = self
-            .slashing_protection
-            .prune_all_signed_attestations(validators.iter_duties_collection_pubkeys(), new_min_target_epoch)
-        {
+        if let Err(e) = self.slashing_protection.prune_all_signed_attestations(
+            validators.iter_duties_collection_pubkeys(),
+            new_min_target_epoch,
+        ) {
             error!(
                 self.log,
                 "Error during pruning of signed attestations";

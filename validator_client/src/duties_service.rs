@@ -140,14 +140,19 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
     pub fn block_proposers(&self, slot: Slot) -> HashSet<PublicKeyBytes> {
         let epoch = slot.epoch(E::slots_per_epoch());
-
         self.proposers
             .read()
             .get(&epoch)
             .map(|(_, proposers)| {
                 proposers
                     .iter()
-                    .filter(|proposer_data| proposer_data.slot == slot)
+                    .filter(|proposer_data| {
+                        proposer_data.slot == slot
+                            && self
+                                .validator_store
+                                .signing_pubkeys(epoch)
+                                .contains(&proposer_data.pubkey)
+                    })
                     .map(|proposer_data| proposer_data.pubkey)
                     .collect()
             })
@@ -164,7 +169,13 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             // filter out validators in the doppelganger detection period
             .filter_map(|(_, map)| map.get(&epoch))
             .map(|(_, duty_and_proof)| duty_and_proof)
-            .filter(|duty_and_proof| duty_and_proof.duty.slot == slot)
+            .filter(|duty_and_proof| {
+                duty_and_proof.duty.slot == slot
+                    && self
+                        .validator_store
+                        .signing_pubkeys(epoch)
+                        .contains(&duty_and_proof.duty.pubkey)
+            })
             .cloned()
             .collect()
     }
@@ -665,10 +676,6 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 "err" => %e,
             ),
         }
-
-        let signing_pubkeys = duties_service
-            .validator_store
-            .signing_pubkeys(slot);
 
         // Compute the block proposers for this slot again, now that we've received an update from
         // the BN.

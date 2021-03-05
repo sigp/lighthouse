@@ -2,7 +2,7 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::initialized_validators::DOPPELGANGER_DETECTION_EPOCHS;
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
-use slog::{crit, info, trace};
+use slog::{crit, info, trace, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
@@ -32,16 +32,17 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             "next_update_millis" => duration_to_next_slot.as_millis()
         );
 
+        let current_epoch = self
+            .slot_clock
+            .now()
+            .ok_or("Unable to read slot")?
+            .epoch(E::slots_per_epoch());
+        let genesis_epoch = self.slot_clock.genesis_slot().epoch(E::slots_per_epoch());
+
         self.validator_store
             .initialized_validators()
             .write()
-            .update_all_doppelganger_detection_epochs()
-            .map_err(|e| {
-                format!(
-                    "Unable to update doppelganger detection epochs for validators: {:?}",
-                    e
-                )
-            })?;
+            .update_all_doppelganger_detection_epochs(current_epoch, genesis_epoch);
 
         let mut interval = {
             // Note: `interval_at` panics if `slot_duration` is 0
@@ -55,7 +56,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 interval.tick().await;
                 let log = self.context.log();
 
-                if let Err(e) = self.do_update().await {
+                if let Err(e) = self.detect_doppelgangers().await {
                     crit!(
                         log,
                         "Failed perform doppelganger detection";
@@ -74,10 +75,9 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         Ok(())
     }
 
-    async fn do_update(&self) -> Result<(), String> {
+    async fn detect_doppelgangers(&self) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        // Check for doppelgangers if configured
         let slot = self.slot_clock.now().ok_or("Unable to read slot clock")?;
         let epoch = slot.epoch(E::slots_per_epoch());
         info!(log, "Monitoring for doppelgangers"; "epoch" => epoch, "slot" => slot);
@@ -87,7 +87,8 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .validator_store
             .initialized_validators()
             .read()
-            .get_doppelganger_detecting_validators_by_epoch(slot);
+            .get_doppelganger_detecting_validators_by_epoch(epoch);
+
         for (epoch, validators) in validator_map {
             let mut epochs = Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
             for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
@@ -110,27 +111,36 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
             // Send shutdown signal if necessary
             match doppelganger_detected {
-                Ok(true) => {
-                    crit!(
-                        log,
-                        "Doppelganger detected! Shutting down. Ensure you aren't already \
-                                     running a validator client with the same keys."
-                    );
+                Ok(doppelgangers) => {
+                    if !doppelgangers.is_empty() {
+                        crit!(
+                            log,
+                            "Doppelganger detected! Shutting down. Ensure you aren't already \
+                                         running a validator client with the same keys.";
+                                         "doppelganger_indices" => ?doppelgangers
+                        );
 
-                    let _ = self
-                        .context
-                        .executor
-                        .shutdown_sender()
-                        .try_send("Doppelganger detected.");
+                        let _ = self
+                            .context
+                            .executor
+                            .shutdown_sender()
+                            .try_send("Doppelganger detected.");
+                    }
                 }
-                Ok(false) => continue,
                 Err(e) => {
-                    crit!(log, "Failed complete query for doppelganger detection... Exiting."; "error" => format!("{:?}", e));
-                    let _ = self
-                        .context
-                        .executor
-                        .shutdown_sender()
-                        .try_send("Doppelganger detected.");
+                    warn!(log, "Failed complete query for doppelganger detection... Restarting doppelganger detection process."; "error" => format!("{:?}", e));
+
+                    let current_epoch = self
+                        .slot_clock
+                        .now()
+                        .ok_or("Unable to read slot")?
+                        .epoch(E::slots_per_epoch());
+                    let genesis_epoch = self.slot_clock.genesis_slot().epoch(E::slots_per_epoch());
+
+                    self.validator_store
+                        .initialized_validators()
+                        .write()
+                        .update_all_doppelganger_detection_epochs(current_epoch, genesis_epoch);
                 }
             }
         }

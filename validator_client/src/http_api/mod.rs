@@ -384,6 +384,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     drop(validator_dir);
                     let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
+                    let current_epoch = validator_store
+                        .slot_clock()
+                        .now()
+                        .ok_or_else(|| warp_utils::reject::custom_server_error(
+                            "failed to read slot clock".to_string(),
+                        ))?
+                        .epoch(E::slots_per_epoch());
+                    let genesis_epoch = validator_store
+                        .slot_clock()
+                        .genesis_slot()
+                        .epoch(E::slots_per_epoch());
 
                     let validator_def = {
                         if let Some(runtime) = runtime.upgrade() {
@@ -393,6 +404,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     voting_password,
                                     body.enable,
                                     graffiti,
+                                    current_epoch,
+                                    genesis_epoch,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -442,12 +455,25 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
+                            let current_epoch = validator_store
+                                .slot_clock()
+                                .now()
+                                .ok_or_else(|| warp_utils::reject::custom_server_error(
+                                    "failed to read slot clock".to_string(),
+                                ))?
+                                .epoch(E::slots_per_epoch());
+                            let genesis_epoch = validator_store
+                                .slot_clock()
+                                .genesis_slot()
+                                .epoch(E::slots_per_epoch());
                             if let Some(runtime) = runtime.upgrade() {
                                 runtime
-                                    .block_on(
-                                        initialized_validators
-                                            .set_validator_status(&validator_pubkey, body.enabled),
-                                    )
+                                    .block_on(initialized_validators.set_validator_status(
+                                        &validator_pubkey,
+                                        body.enabled,
+                                        current_epoch,
+                                        genesis_epoch,
+                                    ))
                                     .map_err(|e| {
                                         warp_utils::reject::custom_server_error(format!(
                                             "unable to set validator status: {:?}",

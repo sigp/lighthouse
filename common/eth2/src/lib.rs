@@ -1004,7 +1004,7 @@ impl BeaconNodeHttpClient {
         &self,
         pubkeys: &[PublicKeyBytes],
         epochs: &[Epoch],
-    ) -> Result<GenericResponse<bool>, Error> {
+    ) -> Result<GenericResponse<Vec<usize>>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
