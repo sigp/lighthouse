@@ -22,7 +22,6 @@ use slasher::Slasher;
 use slog::{crit, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
@@ -30,8 +29,6 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
     SignedBeaconBlock, Slot,
 };
-
-pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -80,8 +77,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<&'static str>>,
     head_tracker: Option<HeadTracker>,
-    pubkey_cache_path: Option<PathBuf>,
-    validator_pubkey_cache: Option<ValidatorPubkeyCache>,
+    validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
     disabled_forks: Vec<String>,
@@ -118,7 +114,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             head_tracker: None,
-            pubkey_cache_path: None,
             disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
@@ -176,14 +171,6 @@ where
         self
     }
 
-    /// Sets the location to the pubkey cache file.
-    ///
-    /// Should generally be called early in the build chain.
-    pub fn data_dir(mut self, path: PathBuf) -> Self {
-        self.pubkey_cache_path = Some(path.join(PUBKEY_CACHE_FILENAME));
-        self
-    }
-
     /// Sets a list of hard-coded forks that will not be activated.
     pub fn disabled_forks(mut self, disabled_forks: Vec<String>) -> Self {
         self.disabled_forks = disabled_forks;
@@ -220,11 +207,6 @@ where
     /// May initialize several components; including the op_pool and finalized checkpoints.
     pub fn resume_from_db(mut self) -> Result<Self, String> {
         let log = self.log.as_ref().ok_or("resume_from_db requires a log")?;
-
-        let pubkey_cache_path = self
-            .pubkey_cache_path
-            .as_ref()
-            .ok_or("resume_from_db requires a data_dir")?;
 
         info!(
             log,
@@ -271,7 +253,7 @@ where
                 .unwrap_or_else(OperationPool::new),
         );
 
-        let pubkey_cache = ValidatorPubkeyCache::load_from_file(pubkey_cache_path)
+        let pubkey_cache = ValidatorPubkeyCache::load_from_store(store)
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
@@ -493,12 +475,8 @@ where
             }
         }
 
-        let pubkey_cache_path = self
-            .pubkey_cache_path
-            .ok_or("Cannot build without a pubkey cache path")?;
-
         let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
+            ValidatorPubkeyCache::new(&canonical_head.beacon_state, store.clone())
                 .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
         })?;
 
@@ -707,7 +685,6 @@ mod test {
         > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
             .unwrap();
         let spec = MinimalEthSpec::default_spec();
-        let data_dir = tempdir().expect("should create temporary data_dir");
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -721,7 +698,6 @@ mod test {
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
-            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()

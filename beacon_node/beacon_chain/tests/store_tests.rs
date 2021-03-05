@@ -40,10 +40,8 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let config = StoreConfig::default();
     let log = test_logger();
 
-    Arc::new(
-        HotColdDB::open(&hot_path, &cold_path, config, spec, log)
-            .expect("disk store should initialize"),
-    )
+    HotColdDB::open(&hot_path, &cold_path, |_, _, _| Ok(()), config, spec, log)
+        .expect("disk store should initialize")
 }
 
 fn get_harness(

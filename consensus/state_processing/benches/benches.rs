@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 extern crate env_logger;
 
 use criterion::Criterion;

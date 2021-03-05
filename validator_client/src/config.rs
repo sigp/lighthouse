@@ -1,3 +1,4 @@
+use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
@@ -7,7 +8,7 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use serde_derive::{Deserialize, Serialize};
-use slog::{warn, Logger};
+use slog::{info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -35,6 +36,8 @@ pub struct Config {
     pub init_slashing_protection: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
+    /// Graffiti file to load per validator graffitis.
+    pub graffiti_file: Option<GraffitiFile>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -60,6 +63,7 @@ impl Default for Config {
             disable_auto_discover: false,
             init_slashing_protection: false,
             graffiti: None,
+            graffiti_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
         }
@@ -139,6 +143,15 @@ impl Config {
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
+
+        if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
+            let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
+            graffiti_file
+                .read_graffiti_file()
+                .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
+            config.graffiti_file = Some(graffiti_file);
+            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
+        }
 
         if let Some(input_graffiti) = cli_args.value_of("graffiti") {
             let graffiti_bytes = input_graffiti.as_bytes();

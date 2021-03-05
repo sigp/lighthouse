@@ -42,7 +42,7 @@ regex = "1.3.9"
 strum = { version = "0.20", features = ["derive"] }
 
 [dependencies.libp2p]
-version = "0.34.0"
+version = "0.35.1"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
 

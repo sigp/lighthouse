@@ -1,6 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -121,7 +122,6 @@ where
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
-        let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
         let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
@@ -140,7 +140,6 @@ where
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
-            .data_dir(data_dir)
             .custom_spec(spec.clone())
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
@@ -544,6 +543,7 @@ where
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
         mut self,
+        datadir: &Path,
         hot_path: &Path,
         cold_path: &Path,
         config: StoreConfig,
@@ -561,9 +561,20 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
-        let store = HotColdDB::open(hot_path, cold_path, config, spec, context.log().clone())
-            .map_err(|e| format!("Unable to open database: {:?}", e))?;
-        self.store = Some(Arc::new(store));
+        let schema_upgrade = |db, from, to| {
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to)
+        };
+
+        let store = HotColdDB::open(
+            hot_path,
+            cold_path,
+            schema_upgrade,
+            config,
+            spec,
+            context.log().clone(),
+        )
+        .map_err(|e| format!("Unable to open database: {:?}", e))?;
+        self.store = Some(store);
         Ok(self)
     }
 }

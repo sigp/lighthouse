@@ -137,6 +137,10 @@ pub enum BlockProductionError {
     /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
     /// cannot produce blocks.
     NoEth1ChainConnection,
+    StateSlotTooHigh {
+        produce_at_slot: Slot,
+        state_slot: Slot,
+    },
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

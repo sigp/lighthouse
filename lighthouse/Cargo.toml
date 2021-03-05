@@ -41,6 +41,8 @@ directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
 remote_signer = { "path" = "../remote_signer" }
+lighthouse_metrics = { path = "../common/lighthouse_metrics" }
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 tempfile = "3.1.0"

@@ -1,4 +1,7 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::{
+    beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
+    graffiti_file::GraffitiFile,
+};
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
@@ -17,6 +20,7 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
+    graffiti_file: Option<GraffitiFile>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -27,6 +31,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             beacon_nodes: None,
             context: None,
             graffiti: None,
+            graffiti_file: None,
         }
     }
 
@@ -55,6 +60,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
+    pub fn graffiti_file(mut self, graffiti_file: Option<GraffitiFile>) -> Self {
+        self.graffiti_file = graffiti_file;
+        self
+    }
+
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -71,6 +81,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .context
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
+                graffiti_file: self.graffiti_file,
             }),
         })
     }
@@ -83,6 +94,7 @@ pub struct Inner<T, E: EthSpec> {
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
+    graffiti_file: Option<GraffitiFile>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -226,6 +238,19 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .ok_or("Unable to produce randao reveal")?
             .into();
 
+        let graffiti = self
+            .graffiti_file
+            .clone()
+            .and_then(|mut g| match g.load_graffiti(&validator_pubkey) {
+                Ok(g) => g,
+                Err(e) => {
+                    warn!(log, "Failed to read graffiti file"; "error" => ?e);
+                    None
+                }
+            })
+            .or_else(|| self.validator_store.graffiti(&validator_pubkey))
+            .or(self.graffiti);
+
         let randao_reveal_ref = &randao_reveal;
         let self_ref = &self;
         let validator_pubkey_ref = &validator_pubkey;
@@ -233,7 +258,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 let block = beacon_node
-                    .get_validator_blocks(slot, randao_reveal_ref, self_ref.graffiti.as_ref())
+                    .get_validator_blocks(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
                     .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
                     .data;
@@ -260,6 +285,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "Successfully published block";
             "deposits" => signed_block.message.body.deposits.len(),
             "attestations" => signed_block.message.body.attestations.len(),
+            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
             "slot" => signed_block.slot().as_u64(),
         );
 
