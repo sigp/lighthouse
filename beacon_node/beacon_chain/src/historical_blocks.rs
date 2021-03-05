@@ -12,9 +12,9 @@ pub enum HistoricalBlockError {
         slot: Slot,
         oldest_block_slot: Slot,
     },
+    NoAnchorInfo,
 }
 
-// TODO(sproul): implement and use in sync
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Store a batch of historical blocks in the database.
     ///
@@ -27,8 +27,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let anchor_info = if let Some(ref anc) = *self.store.anchor_info.read() {
             anc.clone()
         } else {
-            // FIXME(sproul): consider error?
-            return Ok(());
+            return Err(HistoricalBlockError::NoAnchorInfo.into());
         };
 
         // Check chain integrity.
