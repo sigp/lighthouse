@@ -981,7 +981,7 @@ mod tests {
         let _db1 = SlashingDatabase::create(&file).unwrap();
 
         let db2 = SlashingDatabase::open(&file).unwrap();
-        db2.register_validator(&pubkey(0)).unwrap_err();
+        db2.register_validator(pubkey(0)).unwrap_err();
     }
 
     // Attempting to create the same database twice should error.

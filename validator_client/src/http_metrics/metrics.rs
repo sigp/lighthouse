@@ -88,6 +88,10 @@ lazy_static::lazy_static! {
         "Number of attesters on this host",
         &["task"]
     );
+    pub static ref PROPOSAL_CHANGED: Result<IntCounter> = try_create_int_counter(
+        "vc_beacon_block_proposal_changed",
+        "A duties update discovered a new block proposer for the current slot",
+    );
     /*
      * Endpoint metrics
      */
