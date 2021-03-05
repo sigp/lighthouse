@@ -14,8 +14,8 @@ use std::sync::Arc;
 use tokio::time::{interval_at, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, Epoch,
-    EthSpec, Slot,
+    AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
+    Slot,
 };
 
 /// Builds an `AttestationService`.

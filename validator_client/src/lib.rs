@@ -23,7 +23,6 @@ use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
-use crate::initialized_validators::InitializedValidator;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
@@ -49,7 +48,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{Epoch, EthSpec, Fork, Hash256};
+use types::{EthSpec, Fork, Hash256};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -342,14 +341,20 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
         // Block until node is synced.
-        poll_whilst_waiting_for_sync(&beacon_nodes, context.log());
+        poll_whilst_waiting_for_sync(&beacon_nodes, context.log()).await?;
 
         // Update all doppelganger detection epochs after genesis and/or sync.
         if !config.disable_doppelganger_detection {
             validator_store
                 .initialized_validators()
                 .write()
-                .update_all_doppelganger_detection_epochs();
+                .update_all_doppelganger_detection_epochs()
+                .map_err(|e| {
+                    format!(
+                        "Unable to update doppelganger detection epochs for validators: {:?}",
+                        e
+                    )
+                })?;
         }
 
         let doppelganger_service = if !config.disable_doppelganger_detection {
@@ -403,7 +408,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
-            doppelganger_service.clone()
+            doppelganger_service
+                .clone()
                 .start_update_service(&self.context.eth2_config.spec)
                 .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
         } else {

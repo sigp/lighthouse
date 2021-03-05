@@ -245,11 +245,6 @@ impl InitializedValidator {
             SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
         }
     }
-
-    /// Returns the epoch doppelganger detection should be performed until for this validator.
-    pub fn doppelganger_detection_epoch(&self) -> Option<Epoch> {
-        self.doppelganger_detection_epoch
-    }
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
@@ -697,7 +692,7 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
                     .map_or(false, |doppelganger_epoch| {
                         doppelganger_epoch <= current_epoch
                     })
-                    .then(|| pubkey.clone())
+                    .then(|| *pubkey)
             })
             .collect())
     }
@@ -723,9 +718,7 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
             })
             .fold(HashMap::new(), |mut map, (pubkey, val)| {
                 if let Some(epoch) = val.doppelganger_detection_epoch {
-                    map.entry(epoch)
-                        .or_insert_with(Vec::new)
-                        .push(pubkey.clone());
+                    map.entry(epoch).or_insert_with(Vec::new).push(*pubkey);
                 }
                 map
             });

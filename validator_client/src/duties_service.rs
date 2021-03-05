@@ -1,5 +1,4 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::initialized_validators::InitializedValidator;
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, validator_store::ValidatorStore,
 };
@@ -22,7 +21,6 @@ pub enum Error {
     FailedToDownloadAttesters(String),
     FailedToProduceSelectionProof,
     InvalidModulo(ArithError),
-    DoppelgangerDetectionError,
 }
 
 #[derive(Clone)]

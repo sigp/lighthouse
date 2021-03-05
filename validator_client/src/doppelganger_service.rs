@@ -5,7 +5,7 @@ use environment::RuntimeContext;
 use slog::{crit, info, trace};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use tokio::time::{interval_at, sleep_until, Duration, Instant};
+use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, Epoch, EthSpec};
 
 #[derive(Clone)]
@@ -44,7 +44,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 interval.tick().await;
                 let log = self.context.log();
 
-                if let Err(e) = self.do_update(slot_duration).await {
+                if let Err(e) = self.do_update().await {
                     crit!(
                         log,
                         "Failed perform doppelganger detection";
@@ -63,7 +63,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         Ok(())
     }
 
-    async fn do_update(&self, slot_duration: Duration) -> Result<(), String> {
+    async fn do_update(&self) -> Result<(), String> {
         let log = self.context.log().clone();
 
         // Check for doppelgangers if configured
@@ -89,15 +89,13 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 epochs.push(epoch - Epoch::new(i));
             }
             let epochs_slice = epochs.as_slice();
-
-            let pubkeys = self.validator_store.voting_pubkeys();
-            let pubkeys_slice = pubkeys.as_slice();
+            let validators_slice = validators.as_slice();
 
             let doppelganger_detected = self
                 .beacon_nodes
                 .first_success(RequireSynced::Yes, |beacon_node| async move {
                     beacon_node
-                        .get_lighthouse_seen_validators(pubkeys_slice, epochs_slice)
+                        .get_lighthouse_seen_validators(validators_slice, epochs_slice)
                         .await
                         .map_err(|e| format!("Failed query for seen validators: {:?}", e))
                         .map(|result| result.data)
