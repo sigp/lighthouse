@@ -141,6 +141,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     let service = self.clone();
                     service.do_update(notif).await.ok();
                 }
+                debug!(log, "Block service shutting down");
             },
             "block_service",
         );

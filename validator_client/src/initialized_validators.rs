@@ -513,7 +513,7 @@ impl InitializedValidators {
                         voting_keystore_path,
                         ..
                     } => {
-                        let pubkey_bytes = (&def.voting_public_key).into();
+                        let pubkey_bytes = def.voting_public_key.compress();
 
                         if self.validators.contains_key(&pubkey_bytes) {
                             continue;
@@ -538,7 +538,7 @@ impl InitializedValidators {
                                     .map(|l| l.path().to_owned());
 
                                 self.validators
-                                    .insert(init.voting_public_key().into(), init);
+                                    .insert(init.voting_public_key().compress(), init);
                                 info!(
                                     self.log,
                                     "Enabled validator";
@@ -571,7 +571,7 @@ impl InitializedValidators {
                     }
                 }
             } else {
-                self.validators.remove(&(&def.voting_public_key).into());
+                self.validators.remove(&def.voting_public_key.compress());
                 match &def.signing_definition {
                     SigningDefinition::LocalKeystore {
                         voting_keystore_path,
