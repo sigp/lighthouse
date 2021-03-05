@@ -1,3 +1,11 @@
+//! The `DutiesService` contains the attester/proposer duties for all local validators.
+//!
+//! It learns of the local validator via the `crate::ValidatorStore` struct. It keeps the duties
+//! up-to-date by polling the beacon node on regular intervals.
+//!
+//! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
+//! block production.
+
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, validator_store::ValidatorStore,
@@ -6,14 +14,23 @@ use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
 use parking_lot::RwLock;
 use safe_arith::ArithError;
-use slog::{debug, error, warn};
+use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
-const SUBSCRIPTION_BUFFER: u64 = 16;
+/// Since the BN does not like it when we subscribe to slots that are close to the current time, we
+/// will only subscribe to slots which are further than `SUBSCRIPTION_BUFFER_SLOTS` away.
+///
+/// This number is based upon `MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD` value in the
+/// `beacon_node::network::attestation_service` crate. It is not imported directly to avoid
+/// bringing in the entire crate.
+const SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
+
+/// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
+const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 
 #[derive(Debug)]
 pub enum Error {
@@ -23,13 +40,16 @@ pub enum Error {
     InvalidModulo(ArithError),
 }
 
+/// Neatly joins the server-generated `AttesterData` with the locally-generated `selection_proof`.
 #[derive(Clone)]
 pub struct DutyAndProof {
     pub duty: AttesterData,
+    /// This value is only set to `Some` if the proof indicates that the validator is an aggregator.
     pub selection_proof: Option<SelectionProof>,
 }
 
 impl DutyAndProof {
+    /// Instantiate `Self`, computing the selection proof as well.
     pub fn new<T: SlotClock + 'static, E: EthSpec>(
         duty: AttesterData,
         validator_store: &ValidatorStore<T, E>,
@@ -46,6 +66,8 @@ impl DutyAndProof {
                 if is_aggregator {
                     Some(selection_proof)
                 } else {
+                    // Don't bother storing the selection proof if the validator isn't an
+                    // aggregator, we won't need it.
                     None
                 }
             })?;
@@ -57,19 +79,33 @@ impl DutyAndProof {
     }
 }
 
+/// To assist with readability, the dependent root for attester/proposer duties.
 type DependentRoot = Hash256;
 
 type AttesterMap = HashMap<PublicKeyBytes, HashMap<Epoch, (DependentRoot, DutyAndProof)>>;
 type ProposerMap = HashMap<Epoch, (DependentRoot, Vec<ProposerData>)>;
 type IndicesMap = HashMap<PublicKeyBytes, u64>;
 
+/// See the module-level documentation.
 pub struct DutiesService<T, E: EthSpec> {
+    /// Maps a validator public key to their duties for each epoch.
     pub attesters: RwLock<AttesterMap>,
+    /// Maps an epoch to all *local* proposers in this epoch. Notably, this does not contain
+    /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
+    /// Maps a public key to a validator index. There is a task which ensures this map is kept
+    /// up-to-date.
     pub indices: RwLock<IndicesMap>,
+    /// Provides the canonical list of locally-managed validators.
     pub validator_store: ValidatorStore<T, E>,
+    /// Tracks the current slot.
     pub slot_clock: T,
+    /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    /// Controls whether or not this function will refuse to interact with non-synced beacon nodes.
+    ///
+    /// This functionality is a little redundant since most BNs will likely reject duties when they
+    /// aren't synced, but we keep it around for an emergency.
     pub require_synced: RequireSynced,
     pub context: RuntimeContext<E>,
     pub spec: ChainSpec,
@@ -102,7 +138,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     ///
     /// It is possible that multiple validators have an identical proposal slot, however that is
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
-    pub fn block_proposers(&self, slot: Slot) -> Vec<PublicKeyBytes> {
+    pub fn block_proposers(&self, slot: Slot) -> HashSet<PublicKeyBytes> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
         self.proposers
@@ -115,7 +151,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     .map(|proposer_data| proposer_data.pubkey)
                     .collect()
             })
-            .unwrap_or_else(Vec::new)
+            .unwrap_or_default()
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
@@ -133,31 +169,48 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 }
 
-/// Start the service that periodically polls the beacon node for validator duties.
+/// Start the service that periodically polls the beacon node for validator duties. This will start
+/// several sub-services.
+///
+/// ## Notes
+///
+/// The loops in this function are structured such that a new instance of that task will only start
+/// once the current one is finished. This means that if a task happens to take more than one slot
+/// to run, we might skip a slot. This is unfortunate, however the alternative is to *always*
+/// process every slot, which has the chance of creating a theoretically unlimited backlog of tasks.
+/// It was a conscious decision to choose to drop tasks on an overloaded/latent system rather than
+/// overload it even more.
 pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
     core_duties_service: Arc<DutiesService<T, E>>,
     mut block_service_tx: Sender<BlockServiceNotification>,
 ) {
+    /*
+     * Spawn the task which updates the map of pubkey to validator index.
+     */
     let duties_service = core_duties_service.clone();
     core_duties_service.context.executor.spawn(
         async move {
             loop {
-                // Run this poll before the wait, this should hopefully download all the indices
-                // before the block/attestation tasks need them.
-                poll_validator_indices(&duties_service).await;
-
                 match duties_service.slot_clock.duration_to_next_slot() {
-                    Some(duration) => sleep(duration).await,
-                    None => {
-                        sleep(duties_service.slot_clock.slot_duration()).await;
-                        continue;
+                    Some(duration) => {
+                        // Run this poll before the wait, this should hopefully download all the indices
+                        // before the block/attestation tasks need them.
+                        poll_validator_indices(&duties_service).await;
+
+                        sleep(duration).await
                     }
+                    // Just sleep for one slot if we are unable to read the system clock, this gives
+                    // us an opportunity for the clock to eventually come good.
+                    None => sleep(duties_service.slot_clock.slot_duration()).await,
                 }
             }
         },
         "duties_service_indices",
     );
 
+    /*
+     * Spawn the task which keeps track of local block proposal duties.
+     */
     let duties_service = core_duties_service.clone();
     let log = core_duties_service.context.log().clone();
     core_duties_service.context.executor.spawn(
@@ -165,6 +218,8 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
             loop {
                 match duties_service.slot_clock.duration_to_next_slot() {
                     Some(duration) => sleep(duration).await,
+                    // Just sleep for one slot if we are unable to read the system clock, this gives
+                    // us an opportunity for the clock to eventually come good.
                     None => {
                         sleep(duties_service.slot_clock.slot_duration()).await;
                         continue;
@@ -184,6 +239,9 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
         "duties_service_proposers",
     );
 
+    /*
+     * Spawn the task which keeps track of local attestation duties.
+     */
     let duties_service = core_duties_service.clone();
     let log = core_duties_service.context.log().clone();
     core_duties_service.context.executor.spawn(
@@ -191,6 +249,8 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
             loop {
                 match duties_service.slot_clock.duration_to_next_slot() {
                     Some(duration) => sleep(duration).await,
+                    // Just sleep for one slot if we are unable to read the system clock, this gives
+                    // us an opportunity for the clock to eventually come good.
                     None => {
                         sleep(duties_service.slot_clock.slot_duration()).await;
                         continue;
@@ -210,6 +270,8 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
     );
 }
 
+/// Iterate through all the voting pubkeys in the `ValidatorStore` and attempt to learn any unknown
+/// validator indices.
 async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
 ) {
@@ -222,9 +284,10 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
         let is_known = duties_service.indices.read().contains_key(&pubkey);
 
         if !is_known {
+            // Query the remote BN to resolve a pubkey to a validator index.
             let download_result = duties_service
                 .beacon_nodes
-                .first_success(RequireSynced::Yes, |beacon_node| async move {
+                .first_success(duties_service.require_synced, |beacon_node| async move {
                     beacon_node
                         .get_beacon_states_validator_id(
                             StateId::Head,
@@ -239,6 +302,8 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                     let i = response.data.index;
                     duties_service.indices.write().insert(pubkey, i);
                 }
+                // This is not necessarily an error, it just means the validator is not yet known to
+                // the beacon chain.
                 Ok(None) => {
                     debug!(
                         log,
@@ -246,6 +311,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         "pubkey" => ?pubkey
                     )
                 }
+                // Don't exit early on an error, keep attempting to resolve other indices.
                 Err(e) => {
                     error!(
                         log,
@@ -259,6 +325,14 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
     }
 }
 
+/// Query the beacon node for attestation duties for any known validators.
+///
+/// This function will perform (in the following order):
+///
+/// 1. Poll for current-epoch duties and update the local `duties_service.attesters` map.
+/// 2. As above, but for the next-epoch.
+/// 3. Push out any attestation subnet subscriptions to the BN.
+/// 4. Prune old entries from `duties_service.attesters`.
 async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
 ) -> Result<(), Error> {
@@ -269,23 +343,18 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
 
     let log = duties_service.context.log();
 
-    let slot = duties_service
+    let current_slot = duties_service
         .slot_clock
         .now()
         .ok_or(Error::UnableToReadSlotClock)?;
-    let epoch = slot.epoch(E::slots_per_epoch());
-    let next_epoch = epoch + 1;
+    let current_epoch = current_slot.epoch(E::slots_per_epoch());
+    let next_epoch = current_epoch + 1;
 
     let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
         .validator_store
         .voting_pubkeys()
         .into_iter()
         .collect();
-
-    // No need to proceed if there are no local validators.
-    if local_pubkeys.is_empty() {
-        return Ok(());
-    }
 
     let local_indices = {
         let mut local_indices = Vec::with_capacity(local_pubkeys.len());
@@ -298,15 +367,20 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         local_indices
     };
 
-    if let Err(e) =
-        poll_beacon_attesters_for_epoch(&duties_service, epoch, &local_indices, &local_pubkeys)
-            .await
+    // Download the duties and update the duties for the current epoch.
+    if let Err(e) = poll_beacon_attesters_for_epoch(
+        &duties_service,
+        current_epoch,
+        &local_indices,
+        &local_pubkeys,
+    )
+    .await
     {
         error!(
             log,
             "Failed to download attester duties";
-            "current_epoch" => epoch,
-            "request_epoch" => epoch,
+            "current_epoch" => current_epoch,
+            "request_epoch" => current_epoch,
             "err" => ?e,
         )
     }
@@ -317,6 +391,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         &[metrics::UPDATE_ATTESTERS_NEXT_EPOCH],
     );
 
+    // Download the duties and update the duties for the next epoch.
     if let Err(e) =
         poll_beacon_attesters_for_epoch(&duties_service, next_epoch, &local_indices, &local_pubkeys)
             .await
@@ -324,53 +399,79 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         error!(
             log,
             "Failed to download attester duties";
-            "current_epoch" => epoch,
+            "current_epoch" => current_epoch,
             "request_epoch" => next_epoch,
             "err" => ?e,
         )
     }
 
-    // TODO: check if we should try subscriptions for this epoch too..
-    let subscriptions = duties_service
-        .attesters
-        .read()
-        .iter()
-        .filter_map(|(_, map)| map.get(&next_epoch))
-        .filter(|(_, duty_and_proof)| slot + SUBSCRIPTION_BUFFER < duty_and_proof.duty.slot)
-        .map(|(_, duty_and_proof)| {
-            let duty = &duty_and_proof.duty;
-            let is_aggregator = duty_and_proof.selection_proof.is_some();
+    // This vector is likely to be a little oversized, but it won't reallocate.
+    let mut subscriptions = Vec::with_capacity(local_pubkeys.len() * 2);
 
-            BeaconCommitteeSubscription {
-                validator_index: duty.validator_index,
-                committee_index: duty.committee_index,
-                committees_at_slot: duty.committees_at_slot,
-                slot: duty.slot,
-                is_aggregator,
-            }
-        })
-        .collect::<Vec<_>>();
+    // For this epoch and the next epoch, produce any beacon committee subscriptions.
+    //
+    // We are *always* pushing out subscriptions, even if we've subscribed before. This is
+    // potentially excessive on the BN in normal cases, but it will help with fast re-subscriptions
+    // if the BN goes offline or we swap to a different one.
+    for epoch in &[current_epoch, next_epoch] {
+        duties_service
+            .attesters
+            .read()
+            .iter()
+            .filter_map(|(_, map)| map.get(&epoch))
+            // The BN doesn't like it if we try and subscribe to current or near-by slots. Give it a
+            // buffer.
+            .filter(|(_, duty_and_proof)| {
+                current_slot + SUBSCRIPTION_BUFFER_SLOTS < duty_and_proof.duty.slot
+            })
+            .for_each(|(_, duty_and_proof)| {
+                let duty = &duty_and_proof.duty;
+                let is_aggregator = duty_and_proof.selection_proof.is_some();
 
-    let subscriptions_ref = &subscriptions;
-    if let Err(e) = duties_service
-        .beacon_nodes
-        .first_success(RequireSynced::No, |beacon_node| async move {
-            beacon_node
-                .post_validator_beacon_committee_subscriptions(subscriptions_ref)
-                .await
-        })
-        .await
-    {
-        error!(
-            log,
-            "Failed to subscribe validators";
-            "error" => %e
-        )
+                subscriptions.push(BeaconCommitteeSubscription {
+                    validator_index: duty.validator_index,
+                    committee_index: duty.committee_index,
+                    committees_at_slot: duty.committees_at_slot,
+                    slot: duty.slot,
+                    is_aggregator,
+                })
+            });
     }
+
+    // If there are any subscriptions, push them out to the beacon node.
+    if !subscriptions.is_empty() {
+        let subscriptions_ref = &subscriptions;
+        if let Err(e) = duties_service
+            .beacon_nodes
+            .first_success(duties_service.require_synced, |beacon_node| async move {
+                beacon_node
+                    .post_validator_beacon_committee_subscriptions(subscriptions_ref)
+                    .await
+            })
+            .await
+        {
+            error!(
+                log,
+                "Failed to subscribe validators";
+                "error" => %e
+            )
+        }
+    }
+
+    // Prune old duties.
+    duties_service
+        .attesters
+        .write()
+        .iter_mut()
+        .for_each(|(_, map)| {
+            map.retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch)
+        });
 
     Ok(())
 }
 
+/// For the given `local_indices` and `local_pubkeys`, download the duties for the given `epoch` and
+/// store them in `duties_service.attesters`.
 async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     epoch: Epoch,
@@ -378,6 +479,16 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     local_pubkeys: &HashSet<PublicKeyBytes>,
 ) -> Result<(), Error> {
     let log = duties_service.context.log();
+
+    // No need to bother the BN if we don't have any validators.
+    if local_indices.is_empty() {
+        debug!(
+            duties_service.context.log(),
+            "No validators, not downloading duties";
+            "epoch" => epoch,
+        );
+        return Ok(());
+    }
 
     let response = duties_service
         .beacon_nodes
@@ -409,6 +520,10 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     for duty in relevant_duties {
         let proposer_map = attesters_map.entry(duty.pubkey).or_default();
 
+        // Only update the duties if either is true:
+        //
+        // - There were no known duties for this epoch.
+        // - The dependent root has changed, signalling a re-org.
         if proposer_map
             .get(&epoch)
             .map_or(true, |(prior, _)| *prior != dependent_root)
@@ -419,8 +534,8 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             if let Some((prior_dependent_root, _)) =
                 proposer_map.insert(epoch, (dependent_root, duty_and_proof))
             {
-                // Only warn once per update, not once per validator.
-                if already_warned.take().is_some() && dependent_root != prior_dependent_root {
+                // Using `already_warned` avoids excessive logs.
+                if dependent_root != prior_dependent_root && already_warned.take().is_some() {
                     warn!(
                         log,
                         "Attester duties re-org";
@@ -432,11 +547,38 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             }
         }
     }
+    // Drop the write-lock.
+    //
+    // This is strictly unnecessary since the function ends immediately afterwards, but we remain
+    // defensive regardless.
     drop(attesters_map);
 
     Ok(())
 }
 
+/// Download the proposer duties for the current epoch and store them in `duties_service.proposers`.
+/// If there are any proposer for this slot, send out a notification to the block proposers.
+///
+/// ## Note
+///
+/// This function will potentially send *two* notifications to the `BlockService`; it will send a
+/// notification initially, then it will download the latest duties and send a *second* notification
+/// if those duties have changed. This behaviour simultaneously achieves the following:
+///
+/// 1. Block production can happen immediately and does not have to wait for the proposer duties to
+///    download.
+/// 2. We won't miss a block if the duties for the current slot happen to change with this poll.
+///
+/// This sounds great, but is it safe? Firstly, the additional notification will only contain block
+/// producers that were not included in the first notification. This should be safety enough.
+/// However, we also have the slashing protection as a second line of defence. These two factors
+/// provide an acceptable level of safety.
+///
+/// It's important to note that since there is a 0-epoch look-ahead (i.e., no look-ahead) for block
+/// proposers then it's very likely that a proposal for the first slot of the epoch will need go
+/// through the slow path every time. I.e., the proposal will only happen after we've been able to
+/// download and process the duties from the BN. This means it is very important to ensure this
+/// function is as fast as possible.
 async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
@@ -446,11 +588,23 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
 
     let log = duties_service.context.log();
 
-    let slot = duties_service
+    let current_slot = duties_service
         .slot_clock
         .now()
         .ok_or(Error::UnableToReadSlotClock)?;
-    let epoch = slot.epoch(E::slots_per_epoch());
+    let current_epoch = current_slot.epoch(E::slots_per_epoch());
+
+    // Notify the block proposal service for any proposals that we have in our cache.
+    //
+    // See the function-level documentation for more information.
+    let initial_block_proposers = duties_service.block_proposers(current_slot);
+    notify_block_production_service(
+        current_slot,
+        &initial_block_proposers,
+        block_service_tx,
+        &log,
+    )
+    .await;
 
     let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
         .validator_store
@@ -458,73 +612,119 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         .into_iter()
         .collect();
 
-    // No need to poll if there are no local validators.
-    if local_pubkeys.is_empty() {
-        return Ok(());
-    }
+    // Only download duties and push out additional block production events if we have some
+    // validators.
+    if !local_pubkeys.is_empty() {
+        let download_result = duties_service
+            .beacon_nodes
+            .first_success(duties_service.require_synced, |beacon_node| async move {
+                beacon_node
+                    .get_validator_duties_proposer(current_epoch)
+                    .await
+            })
+            .await;
 
-    let download_result = duties_service
-        .beacon_nodes
-        .first_success(duties_service.require_synced, |beacon_node| async move {
-            beacon_node.get_validator_duties_proposer(epoch).await
-        })
-        .await;
+        match download_result {
+            Ok(response) => {
+                let dependent_root = response.dependent_root;
 
-    match download_result {
-        Ok(response) => {
-            let dependent_root = response.dependent_root;
+                let relevant_duties = response
+                    .data
+                    .into_iter()
+                    .filter(|proposer_duty| local_pubkeys.contains(&proposer_duty.pubkey))
+                    .collect::<Vec<_>>();
 
-            let relevant_duties = response
-                .data
-                .into_iter()
-                .filter(|proposer_duty| local_pubkeys.contains(&proposer_duty.pubkey))
-                .collect::<Vec<_>>();
+                debug!(
+                    log,
+                    "Downloaded proposer duties";
+                    "dependent_root" => %dependent_root,
+                    "num_relevant_duties" => relevant_duties.len(),
+                );
 
-            debug!(
-                log,
-                "Downloaded proposer duties";
-                "dependent_root" => %dependent_root,
-                "num_relevant_duties" => relevant_duties.len(),
-            );
-
-            if let Some((prior_dependent_root, _)) = duties_service
-                .proposers
-                .write()
-                .insert(epoch, (dependent_root, relevant_duties))
-            {
-                if dependent_root != prior_dependent_root {
-                    warn!(
-                        log,
-                        "Proposer duties re-org";
-                        "prior_dependent_root" => %prior_dependent_root,
-                        "dependent_root" => %dependent_root,
-                        "msg" => "this may happen from time to time"
-                    )
+                if let Some((prior_dependent_root, _)) = duties_service
+                    .proposers
+                    .write()
+                    .insert(current_epoch, (dependent_root, relevant_duties))
+                {
+                    if dependent_root != prior_dependent_root {
+                        warn!(
+                            log,
+                            "Proposer duties re-org";
+                            "prior_dependent_root" => %prior_dependent_root,
+                            "dependent_root" => %dependent_root,
+                            "msg" => "this may happen from time to time"
+                        )
+                    }
                 }
             }
+            // Don't return early here, we still want to try and produce blocks using the cached values.
+            Err(e) => error!(
+                log,
+                "Failed to download proposer duties";
+                "err" => %e,
+            ),
         }
-        // Don't return early here, we still want to try and produce blocks using the cached values.
-        Err(e) => error!(
-            log,
-            "Failed to download proposer duties";
-            "err" => %e,
-        ),
+
+        // Compute the block proposers for this slot again, now that we've received an update from
+        // the BN.
+        //
+        // Then, compute the difference between these two sets to obtain a set of block proposers
+        // which were not included in the initial notification to the `BlockService`.
+        let additional_block_producers = duties_service
+            .block_proposers(current_slot)
+            .difference(&initial_block_proposers)
+            .copied()
+            .collect::<HashSet<PublicKeyBytes>>();
+
+        // If there are any new proposers for this slot, send a notification so they produce a
+        // block.
+        //
+        // See the function-level documentation for more reasoning about this behaviour.
+        if !additional_block_producers.is_empty() {
+            notify_block_production_service(
+                current_slot,
+                &additional_block_producers,
+                block_service_tx,
+                &log,
+            )
+            .await;
+            debug!(
+                log,
+                "Detected new block proposer";
+                "current_slot" => current_slot,
+            );
+            metrics::inc_counter(&metrics::PROPOSAL_CHANGED);
+        }
     }
 
-    // Notify the block service to produce a block.
+    // Prune old duties.
+    duties_service
+        .proposers
+        .write()
+        .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
+
+    Ok(())
+}
+
+/// Notify the block service if it should produce a block.
+async fn notify_block_production_service(
+    current_slot: Slot,
+    block_proposers: &HashSet<PublicKeyBytes>,
+    block_service_tx: &mut Sender<BlockServiceNotification>,
+    log: &Logger,
+) {
     if let Err(e) = block_service_tx
         .send(BlockServiceNotification {
-            slot,
-            block_proposers: duties_service.block_proposers(slot),
+            slot: current_slot,
+            block_proposers: block_proposers.iter().copied().collect(),
         })
         .await
     {
         error!(
             log,
             "Failed to notify block service";
+            "current_slot" => current_slot,
             "error" => %e
         );
     };
-
-    Ok(())
 }
