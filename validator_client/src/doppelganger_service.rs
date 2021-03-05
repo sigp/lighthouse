@@ -32,6 +32,17 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             "next_update_millis" => duration_to_next_slot.as_millis()
         );
 
+        self.validator_store
+            .initialized_validators()
+            .write()
+            .update_all_doppelganger_detection_epochs()
+            .map_err(|e| {
+                format!(
+                    "Unable to update doppelganger detection epochs for validators: {:?}",
+                    e
+                )
+            })?;
+
         let mut interval = {
             // Note: `interval_at` panics if `slot_duration` is 0
             interval_at(Instant::now() + duration_to_next_slot, slot_duration)
@@ -76,13 +87,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .validator_store
             .initialized_validators()
             .read()
-            .get_doppelganger_detecting_validators_by_epoch()
-            .map_err(|e| {
-                format!(
-                    "Unable to determine validator doppelganger detection periods: {:?}",
-                    e
-                )
-            })?;
+            .get_doppelganger_detecting_validators_by_epoch(slot);
         for (epoch, validators) in validator_map {
             let mut epochs = Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
             for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {

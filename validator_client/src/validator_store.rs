@@ -120,10 +120,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(validator_def)
     }
 
-    pub fn voting_pubkeys(&self) -> Vec<PublicKeyBytes> {
+    pub fn duties_collection_pubkeys(&self) -> Vec<PublicKeyBytes> {
         self.validators
             .read()
-            .iter_voting_pubkeys()
+            .iter_duties_collection_pubkeys()
+            .cloned()
+            .collect()
+    }
+
+    pub fn signing_pubkeys(&self, slot: Slot) -> Vec<PublicKeyBytes> {
+        self.validators
+            .read()
+            .iter_signing_pubkeys(slot)
             .cloned()
             .collect()
     }
@@ -414,7 +422,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let validators = self.validators.read();
         if let Err(e) = self
             .slashing_protection
-            .prune_all_signed_attestations(validators.iter_voting_pubkeys(), new_min_target_epoch)
+            .prune_all_signed_attestations(validators.iter_duties_collection_pubkeys(), new_min_target_epoch)
         {
             error!(
                 self.log,
@@ -426,7 +434,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         if let Err(e) = self
             .slashing_protection
-            .prune_all_signed_blocks(validators.iter_voting_pubkeys(), new_min_slot)
+            .prune_all_signed_blocks(validators.iter_duties_collection_pubkeys(), new_min_slot)
         {
             error!(
                 self.log,

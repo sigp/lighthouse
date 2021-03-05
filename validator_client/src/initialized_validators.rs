@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
-use types::{Epoch, EthSpec, Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use types::{Epoch, EthSpec, Graffiti, Keypair, PublicKey, PublicKeyBytes, Slot};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
@@ -339,7 +339,7 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
     }
 
     /// Iterate through all **enabled** voting public keys in `self`.
-    pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
+    pub fn iter_duties_collection_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
         self.validators.iter().map(|(pubkey, _)| pubkey)
     }
 
@@ -545,17 +545,11 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
                             disabled_uuids.remove(key_store.uuid());
                         }
 
-                        let doppelganger_detection_epoch = if self.disable_doppelganger_detection {
-                            None
-                        } else {
-                            self.determine_doppelganger_detection_epoch()?
-                        };
-
                         match InitializedValidator::from_definition(
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
-                            doppelganger_detection_epoch,
+                            self.determine_doppelganger_detection_epoch()?,
                         )
                         .await
                         {
@@ -652,6 +646,10 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
     /// This is because we cannot perform doppelganger detection in the first epoch after genesis
     /// or we risk having no validators to propose blocks.
     fn determine_doppelganger_detection_epoch(&self) -> Result<Option<Epoch>, Error> {
+        if self.disable_doppelganger_detection {
+            return Ok(None)
+        }
+
         let slot_clock = self.slot_clock.clone();
         let current_epoch = slot_clock
             .now()
@@ -670,6 +668,7 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
     /// epoch.
     pub fn update_all_doppelganger_detection_epochs(&mut self) -> Result<(), Error> {
         let detection_epoch = self.determine_doppelganger_detection_epoch()?;
+        info!(self.log, "Monitoring for doppelgangers for all validators"; "detecting_until" => ?detection_epoch);
         for (_, val) in self.validators.iter_mut() {
             val.doppelganger_detection_epoch = detection_epoch;
         }
@@ -678,36 +677,29 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
 
     /// Gets all validators doppelganger detection epoch of all initialized validators based on the current
     /// epoch.
-    pub fn get_doppelganger_detecting_validators(&self) -> Result<Vec<PublicKeyBytes>, Error> {
-        let current_epoch = self
-            .slot_clock
-            .now()
-            .ok_or(Error::SlotClockError)?
+    pub fn iter_signing_pubkeys(&self, slot: Slot) -> impl Iterator<Item = &PublicKeyBytes> {
+        let current_epoch = slot
             .epoch(E::slots_per_epoch());
-        Ok(self
+        self
             .validators
             .iter()
-            .filter_map(|(pubkey, val)| {
+            .filter_map(move |(pubkey, val)| {
                 val.doppelganger_detection_epoch
-                    .map_or(false, |doppelganger_epoch| {
-                        doppelganger_epoch <= current_epoch
+                    .map_or(true, |doppelganger_epoch| {
+                        doppelganger_epoch < current_epoch
                     })
-                    .then(|| *pubkey)
+                    .then(|| pubkey)
             })
-            .collect())
     }
 
     /// Gets all validators doppelganger detection epoch of all initialized validators based on the current
     /// epoch.
     pub fn get_doppelganger_detecting_validators_by_epoch(
-        &self,
-    ) -> Result<HashMap<Epoch, Vec<PublicKeyBytes>>, Error> {
-        let current_epoch = self
-            .slot_clock
-            .now()
-            .ok_or(Error::SlotClockError)?
+        &self, slot: Slot
+    ) -> HashMap<Epoch, Vec<PublicKeyBytes>> {
+        let current_epoch = slot
             .epoch(E::slots_per_epoch());
-        let map = self
+        self
             .validators
             .iter()
             .filter(|(_, val)| {
@@ -721,7 +713,6 @@ impl<T: SlotClock, E: EthSpec> InitializedValidators<T, E> {
                     map.entry(epoch).or_insert_with(Vec::new).push(*pubkey);
                 }
                 map
-            });
-        Ok(map)
+            })
     }
 }

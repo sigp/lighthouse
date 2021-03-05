@@ -187,12 +187,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let doppelganger_detecting_validators = self
-            .validator_store
-            .initialized_validators()
-            .read()
-            .get_doppelganger_detecting_validators()
-            .map_err(|e| format!("{:?}", e))?;
+        let signing_pubkeys = self.validator_store.signing_pubkeys(slot);
 
         let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
             .duties_service
@@ -200,7 +195,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             // filter out validators that are detecting doppelgangers
             .filter(|duty_and_proof| {
-                !doppelganger_detecting_validators.contains(&duty_and_proof.duty.pubkey)
+                signing_pubkeys.contains(&duty_and_proof.duty.pubkey)
             })
             .fold(HashMap::new(), |mut map, duty_and_proof| {
                 map.entry(duty_and_proof.duty.committee_index)

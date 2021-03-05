@@ -57,9 +57,6 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
-/// The time between polls when waiting for beacon node to sync.
-const WAITING_FOR_SYNC_POLL_TIME: Duration = Duration::from_secs(12);
-
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -197,7 +194,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
-        let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
+        let voting_pubkeys: Vec<_> = validators.iter_duties_collection_pubkeys().collect();
 
         info!(
             log,
@@ -340,33 +337,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
-        // Block until node is synced.
-        poll_whilst_waiting_for_sync(&beacon_nodes, context.log()).await?;
-
-        // Update all doppelganger detection epochs after genesis and/or sync.
-        if !config.disable_doppelganger_detection {
-            validator_store
-                .initialized_validators()
-                .write()
-                .update_all_doppelganger_detection_epochs()
-                .map_err(|e| {
-                    format!(
-                        "Unable to update doppelganger detection epochs for validators: {:?}",
-                        e
-                    )
-                })?;
-        }
-
-        let doppelganger_service = if !config.disable_doppelganger_detection {
-            Some(DoppelgangerService {
+        let doppelganger_service = (!config.disable_doppelganger_detection).then(||
+            DoppelgangerService {
                 slot_clock: slot_clock.clone(),
                 validator_store: validator_store.clone(),
                 beacon_nodes: beacon_nodes.clone(),
                 context: context.service_context("doppelganger".into()),
-            })
-        } else {
-            None
-        };
+            });
 
         Ok(Self {
             context,
@@ -640,40 +617,3 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
     }
 }
 
-/// Request sync data from the node, looping back and trying again on failure. Exit once the node
-/// is synced.
-async fn poll_whilst_waiting_for_sync<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
-    log: &Logger,
-) -> Result<(), String> {
-    loop {
-        match beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node.get_node_syncing().await
-            })
-            .await
-        {
-            Ok(sync_data) => {
-                if sync_data.data.is_syncing {
-                    info!(
-                        log,
-                        "Waiting for beacon node to sync";
-                        "head_slot" => sync_data.data.head_slot,
-                        "sync_distance" => sync_data.data.sync_distance
-                    );
-                } else {
-                    break Ok(());
-                }
-            }
-            Err(e) => {
-                error!(
-                    log,
-                    "Error polling beacon node for sync status";
-                    "error" => %e
-                );
-            }
-        }
-
-        sleep(WAITING_FOR_SYNC_POLL_TIME).await;
-    }
-}
