@@ -1669,6 +1669,12 @@ impl ApiTester {
             }
         }
 
+        // Requests to future epochs should fail.
+        self.client
+            .get_validator_duties_proposer(current_epoch + 1)
+            .await
+            .unwrap_err();
+
         self
     }
 
