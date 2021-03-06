@@ -16,10 +16,6 @@ impl StateId {
         Self(CoreStateId::Slot(slot))
     }
 
-    pub fn from_root(root: Hash256) -> Self {
-        Self(CoreStateId::Root(root))
-    }
-
     /// Return the state root identified by `self`.
     pub fn root<T: BeaconChainTypes>(
         &self,

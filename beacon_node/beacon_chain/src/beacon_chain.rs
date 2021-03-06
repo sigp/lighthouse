@@ -863,17 +863,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_indices: &[u64],
         epoch: Epoch,
         head_block_root: Hash256,
-    ) -> Result<(Vec<AttestationDuty>, Hash256), Error> {
+    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256), Error> {
         self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
             let duties = validator_indices
                 .iter()
                 .map(|validator_index| {
                     let validator_index = *validator_index as usize;
-                    committee_cache
-                        .get_attestation_duties(validator_index)
-                        .ok_or(Error::ValidatorIndexUnknown(validator_index))
+                    committee_cache.get_attestation_duties(validator_index)
                 })
-                .collect::<Result<_, _>>()?;
+                .collect();
 
             Ok((duties, dependent_root))
         })
