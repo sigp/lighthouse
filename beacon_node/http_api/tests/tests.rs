@@ -1561,7 +1561,9 @@ impl ApiTester {
     }
 
     pub async fn test_get_validator_duties_proposer(self) -> Self {
-        for epoch in 0..self.chain.epoch().unwrap().as_u64() {
+        let current_epoch = self.chain.epoch().unwrap();
+
+        for epoch in 0..=self.chain.epoch().unwrap().as_u64() {
             let epoch = Epoch::from(epoch);
 
             let dependent_root = self
@@ -1570,11 +1572,45 @@ impl ApiTester {
                 .unwrap()
                 .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
+            // Presently, the beacon chain harness never runs the code that primes the proposer
+            // cache. If this changes in the future then we'll need some smarter logic here, but
+            // this is succinct and effective for the time being.
+            assert!(
+                self.chain
+                    .beacon_proposer_cache
+                    .lock()
+                    .get_epoch::<E>(dependent_root, epoch)
+                    .is_none(),
+                "the proposer cache should miss initially"
+            );
+
             let result = self
                 .client
                 .get_validator_duties_proposer(epoch)
                 .await
                 .unwrap();
+
+            // Check that current-epoch requests prime the proposer cache, whilst non-current
+            // requests don't.
+            if epoch == current_epoch {
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_some(),
+                    "a current-epoch request should prime the proposer cache"
+                );
+            } else {
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_none(),
+                    "a non-current-epoch request should not prime the proposer cache"
+                );
+            }
 
             let mut state = self
                 .chain
@@ -1610,6 +1646,27 @@ impl ApiTester {
             };
 
             assert_eq!(result, expected);
+
+            // If it's the current epoch, check the function with a primed proposer cache.
+            if epoch == current_epoch {
+                // This is technically a double-check, but it's defensive.
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_some(),
+                    "the request should prime the proposer cache"
+                );
+
+                let result = self
+                    .client
+                    .get_validator_duties_proposer(epoch)
+                    .await
+                    .unwrap();
+
+                assert_eq!(result, expected);
+            }
         }
 
         self
