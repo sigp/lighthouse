@@ -6,14 +6,14 @@ use eth2::types::{self as api_types};
 use slog::{debug, Logger};
 use state_processing::per_slot_processing;
 use std::cmp::Ordering;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, Slot};
 
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<api_types::ProposerData>>;
 
 /// Handles a request from the HTTP API for proposer duties.
 pub fn proposer_duties<T: BeaconChainTypes>(
-    epoch: Epoch,
+    request_epoch: Epoch,
     chain: &BeaconChain<T>,
     log: &Logger,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
@@ -21,29 +21,35 @@ pub fn proposer_duties<T: BeaconChainTypes>(
         .epoch()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    match epoch.cmp(&current_epoch) {
+    match request_epoch.cmp(&current_epoch) {
+        // request_epoch > current_epoch
+        //
         // Reject queries about the future since they're very expensive and we can only speculate
         // about the result since there's no look-ahead on proposer duties.
         Ordering::Greater => Err(warp_utils::reject::custom_bad_request(format!(
             "request epoch {} is ahead of the current epoch {}",
-            epoch, current_epoch
+            request_epoch, current_epoch
         ))),
+        // request_epoch == current_epoch
+        //
         // Queries about the current epoch should attempt to find the value in the cache. If it
         // can't be found, it should be computed and then stored in the cache for future gains.
         Ordering::Equal => {
-            if let Some(duties) = try_proposer_duties_from_cache(epoch, chain)? {
+            if let Some(duties) = try_proposer_duties_from_cache(request_epoch, chain)? {
                 Ok(duties)
             } else {
                 debug!(
                     log,
                     "Proposer cache miss";
-                    "request_epoch" =>  epoch,
+                    "request_epoch" =>  request_epoch,
                 );
-                compute_and_cache_proposer_duties(epoch, chain)
+                compute_and_cache_proposer_duties(request_epoch, chain)
             }
         }
+        // request_epoch < current_epoch
+        //
         // Queries about the past are handled with a slow path.
-        Ordering::Less => compute_historic_proposer_duties(epoch, chain),
+        Ordering::Less => compute_historic_proposer_duties(request_epoch, chain),
     }
 }
 
@@ -64,8 +70,11 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
 
     let dependent_root = match head_epoch.cmp(&current_epoch) {
+        // head_epoch == current_epoch
         Ordering::Equal => head.proposer_shuffling_decision_root,
+        // head_epoch < current_epoch
         Ordering::Less => head.block_root,
+        // head_epoch > current_epoch
         Ordering::Greater => {
             return Err(warp_utils::reject::custom_server_error(format!(
                 "head epoch {} is later than current epoch {}",
@@ -74,22 +83,13 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         }
     };
 
-    let indices_opt = chain
+    chain
         .beacon_proposer_cache
         .lock()
         .get_epoch::<T::EthSpec>(dependent_root, current_epoch)
-        .cloned();
-
-    if let Some(indices) = indices_opt {
-        Ok(Some(api_duties(
-            chain,
-            current_epoch,
-            dependent_root,
-            indices.to_vec(),
-        )?))
-    } else {
-        Ok(None)
-    }
+        .cloned()
+        .map(|indices| api_duties(chain, current_epoch, dependent_root, indices.to_vec()))
+        .transpose()
 }
 
 /// Compute the proposer duties using the head state, add the duties to the proposer cache and
@@ -115,29 +115,8 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
     let head_block_slot = head.beacon_block.slot();
     let head_state_root = head.beacon_block.state_root();
 
-    // Protect against an inconsistent slot clock.
-    if state.current_epoch() > current_epoch {
-        return Err(warp_utils::reject::custom_server_error(format!(
-            "state epoch {} is later than current epoch {}",
-            state.current_epoch(),
-            current_epoch
-        )));
-    }
-
     // Advance the state into the requested epoch.
-    while state.current_epoch() < current_epoch {
-        let state_root_opt = if state.slot == head_block_slot {
-            Some(head_state_root)
-        } else {
-            // Don't calculate state roots since they aren't required for calculating
-            // shuffling (achieved by providing Hash256::zero()).
-            Some(Hash256::zero())
-        };
-
-        per_slot_processing(&mut state, state_root_opt, &chain.spec)
-            .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::beacon_chain_error)?;
-    }
+    ensure_state_is_in_epoch(&mut state, head_state_root, current_epoch, &chain.spec)?;
 
     let indices = state
         .get_beacon_proposer_indices(&chain.spec)
@@ -178,7 +157,30 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    let state = StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?;
+    // It's possible that `epoch` is "historical" (i.e., early than the current epoch) but still
+    // later than the head.
+    let state_opt = chain
+        .with_head(|head| {
+            if head.beacon_state.current_epoch() < epoch {
+                Ok(Some((
+                    head.beacon_state_root(),
+                    head.beacon_state
+                        .clone_with(CloneConfig::committee_caches_only()),
+                )))
+            } else {
+                Ok(None)
+            }
+        })
+        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+    let state = if let Some((state_root, mut state)) = state_opt {
+        // If we've loaded the head state it might be from a previous epoch, ensure it's in a
+        // suitable epoch.
+        ensure_state_is_in_epoch(&mut state, state_root, epoch, &chain.spec)?;
+        state
+    } else {
+        StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
+    };
 
     // Ensure the state lookup was correct.
     if state.current_epoch() != epoch {
@@ -195,15 +197,56 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let dependent_slot = state.proposer_shuffling_decision_slot();
-    // Since the decision slot is one prior to the current epoch it should
-    // always be in the block roots array (making some assumptions about the
-    // spec constants).
-    let dependent_root = *state
-        .get_block_root(dependent_slot)
-        .map_err(BeaconChainError::from)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+    let dependent_root = if state.slot == dependent_slot {
+        // The only scenario where this can be true is when there is no prior epoch to the current.
+        // In that case, the genesis block decides the shuffling root.
+        chain.genesis_block_root
+    } else {
+        *state
+            .get_block_root(dependent_slot)
+            .map_err(BeaconChainError::from)
+            .map_err(warp_utils::reject::beacon_chain_error)?
+    };
 
     api_duties(chain, epoch, dependent_root, indices)
+}
+
+/// If required, advance `state` to `target_epoch`.
+///
+/// ## Details
+///
+/// - Returns an error if `state.current_epoch() > target_epoch`.
+/// - No-op if `state.current_epoch() == target_epoch`.
+/// - It must be the case that `state.canonical_root() == state_root`, but this function will not
+///     check that.
+fn ensure_state_is_in_epoch<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    state_root: Hash256,
+    target_epoch: Epoch,
+    spec: &ChainSpec,
+) -> Result<(), warp::reject::Rejection> {
+    // Protect against an inconsistent slot clock.
+    if state.current_epoch() > target_epoch {
+        return Err(warp_utils::reject::custom_server_error(format!(
+            "state epoch {} is later than target epoch {}",
+            state.current_epoch(),
+            target_epoch
+        )));
+    }
+
+    let mut state_root_opt = Some(state_root);
+
+    // Advance the state into the requested epoch.
+    while state.current_epoch() < target_epoch {
+        // Don't calculate state roots since they aren't required for calculating
+        // shuffling (achieved by using `state_root_opt.take()`).
+        per_slot_processing(state, state_root_opt.take(), spec)
+            .map_err(BeaconChainError::from)
+            .map_err(warp_utils::reject::beacon_chain_error)?;
+    }
+
+    Ok(())
 }
 
 /// Converts the internal representation of proposer duties into one that is compatible with the

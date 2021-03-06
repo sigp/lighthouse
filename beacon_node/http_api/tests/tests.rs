@@ -1561,52 +1561,56 @@ impl ApiTester {
     }
 
     pub async fn test_get_validator_duties_proposer(self) -> Self {
-        let current_epoch = self.chain.epoch().unwrap();
+        for epoch in 0..self.chain.epoch().unwrap().as_u64() {
+            let epoch = Epoch::from(epoch);
 
-        let dependent_root = self
-            .chain
-            .root_at_slot(current_epoch.start_slot(E::slots_per_epoch()) - 1)
-            .unwrap()
-            .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+            let dependent_root = self
+                .chain
+                .root_at_slot(epoch.start_slot(E::slots_per_epoch()) - 1)
+                .unwrap()
+                .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
-        let result = self
-            .client
-            .get_validator_duties_proposer(current_epoch)
-            .await
-            .unwrap();
+            let result = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap();
 
-        let mut state = self.chain.head_beacon_state().unwrap();
+            let mut state = self
+                .chain
+                .state_at_slot(
+                    epoch.start_slot(E::slots_per_epoch()),
+                    StateSkipConfig::WithStateRoots,
+                )
+                .unwrap();
 
-        while state.current_epoch() < current_epoch {
-            per_slot_processing(&mut state, None, &self.chain.spec).unwrap();
+            state
+                .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                .unwrap();
+
+            let expected_duties = epoch
+                .slot_iter(E::slots_per_epoch())
+                .map(|slot| {
+                    let index = state
+                        .get_beacon_proposer_index(slot, &self.chain.spec)
+                        .unwrap();
+                    let pubkey = state.validators[index].pubkey.clone().into();
+
+                    ProposerData {
+                        pubkey,
+                        validator_index: index as u64,
+                        slot,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let expected = DutiesResponse {
+                data: expected_duties,
+                dependent_root,
+            };
+
+            assert_eq!(result, expected);
         }
-
-        state
-            .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
-            .unwrap();
-
-        let expected_duties = current_epoch
-            .slot_iter(E::slots_per_epoch())
-            .map(|slot| {
-                let index = state
-                    .get_beacon_proposer_index(slot, &self.chain.spec)
-                    .unwrap();
-                let pubkey = state.validators[index].pubkey.clone().into();
-
-                ProposerData {
-                    pubkey,
-                    validator_index: index as u64,
-                    slot,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let expected = DutiesResponse {
-            data: expected_duties,
-            dependent_root,
-        };
-
-        assert_eq!(result, expected);
 
         self
     }
