@@ -218,37 +218,39 @@ fn api_duties<T: BeaconChainTypes>(
     dependent_root: Hash256,
     indices: Vec<usize>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
+    let index_to_pubkey_map = chain
+        .validator_pubkey_bytes_many(&indices)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
+
     // Map our internal data structure into the API structure.
     let proposer_data = indices
-        .into_iter()
+        .iter()
         .enumerate()
-        .map(|(i, validator_index)| {
-            // Use the pubkey cache on the beacon chain to resolve the validator
-            // indices to pubkeys.
-            let pubkey = chain
-                .validator_pubkey_bytes(validator_index)
-                .map_err(warp_utils::reject::beacon_chain_error)?
-                .ok_or_else(|| {
-                    warp_utils::reject::custom_server_error(format!(
-                        "unable to resolve validator index {}",
-                        i
-                    ))
-                })?;
-
+        .filter_map(|(i, &validator_index)| {
             // Offset the index in `indices` to determine the slot for which these
             // duties apply.
             let slot = epoch.start_slot(T::EthSpec::slots_per_epoch()) + Slot::from(i);
 
-            Ok(api_types::ProposerData {
-                pubkey,
+            Some(api_types::ProposerData {
+                pubkey: *index_to_pubkey_map.get(&validator_index)?,
                 validator_index: validator_index as u64,
                 slot,
             })
         })
-        .collect::<Result<Vec<_>, warp::reject::Rejection>>()?;
+        .collect::<Vec<_>>();
 
-    Ok(api_types::DutiesResponse {
-        dependent_root,
-        data: proposer_data,
-    })
+    // Consistency check.
+    let slots_per_epoch = T::EthSpec::slots_per_epoch() as usize;
+    if proposer_data.len() != slots_per_epoch {
+        Err(warp_utils::reject::custom_server_error(format!(
+            "{} proposers is not enough for {} slots",
+            slots_per_epoch,
+            proposer_data.len()
+        )))
+    } else {
+        Ok(api_types::DutiesResponse {
+            dependent_root,
+            data: proposer_data,
+        })
+    }
 }

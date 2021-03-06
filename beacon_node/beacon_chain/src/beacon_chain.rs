@@ -798,7 +798,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
 
-        Ok(pubkey_cache.get_pubkey_bytes(validator_index).cloned())
+        Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
+    }
+
+    /// As per `Self::validator_pubkey_bytes` but will resolve multiple indices at once to avoid
+    /// bouncing the read-lock on the pubkey cache.
+    ///
+    /// Returns a map that may have a length less than `validator_indices.len()` if some indices
+    /// were unable to be resolved.
+    pub fn validator_pubkey_bytes_many(
+        &self,
+        validator_indices: &[usize],
+    ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        let mut map = HashMap::with_capacity(validator_indices.len());
+        for &validator_index in validator_indices {
+            if let Some(pubkey) = pubkey_cache.get_pubkey_bytes(validator_index) {
+                map.insert(validator_index, *pubkey);
+            }
+        }
+        Ok(map)
     }
 
     /// Returns the block canonical root of the current canonical chain at a given slot.
