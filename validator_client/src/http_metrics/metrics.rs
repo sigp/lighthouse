@@ -17,6 +17,7 @@ pub const UPDATE_INDICES: &str = "update_indices";
 pub const UPDATE_ATTESTERS_CURRENT_EPOCH: &str = "update_attesters_current_epoch";
 pub const UPDATE_ATTESTERS_NEXT_EPOCH: &str = "update_attesters_next_epoch";
 pub const UPDATE_PROPOSERS: &str = "update_proposers";
+pub const SUBSCRIPTIONS: &str = "subscriptions";
 
 pub use lighthouse_metrics::*;
 
