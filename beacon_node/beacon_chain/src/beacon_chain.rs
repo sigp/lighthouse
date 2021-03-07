@@ -2492,7 +2492,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             debug!(
                 self.log,
                 "Committee cache miss";
-                "shuffling_epoch" => shuffling_epoch.as_u64(),
+                "shuffling_id" => ?shuffling_epoch,
                 "head_block_root" => head_block_root.to_string(),
             );
 

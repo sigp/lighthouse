@@ -265,15 +265,10 @@ fn advance_head<T: BeaconChainTypes>(
     // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer shuffling
     // for the state's current epoch and the committee cache for the state's next epoch.
     if initial_epoch < state.current_epoch() {
-        debug!(
-            log,
-            "Priming proposer cache";
-            "head_root" => ?head_root,
-            "state_epoch" => state.current_epoch(),
-            "current_epoch" => current_slot.epoch(T::EthSpec::slots_per_epoch()),
-        );
-
         // Update the proposer cache.
+        //
+        // We supply the `head_root` as the decision block since the prior `if` statement guarantees
+        // the head root is the latest block from the prior epoch.
         beacon_chain
             .beacon_proposer_cache
             .lock()
@@ -313,7 +308,16 @@ fn advance_head<T: BeaconChainTypes>(
             .shuffling_cache
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::AttestationCacheLockTimeout)?
-            .insert(shuffling_id, committee_cache);
+            .insert(shuffling_id.clone(), committee_cache);
+
+        debug!(
+            log,
+            "Primed proposer and attester caches";
+            "head_root" => ?head_root,
+            "next_epoch_shuffling_id" => ?shuffling_id,
+            "state_epoch" => state.current_epoch(),
+            "current_epoch" => current_slot.epoch(T::EthSpec::slots_per_epoch()),
+        );
     }
 
     let final_slot = state.slot;
