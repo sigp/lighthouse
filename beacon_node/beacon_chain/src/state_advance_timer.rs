@@ -314,7 +314,7 @@ fn advance_head<T: BeaconChainTypes>(
             log,
             "Primed proposer and attester caches";
             "head_root" => ?head_root,
-            "next_epoch_shuffling_id" => ?shuffling_id,
+            "next_epoch_shuffling_root" => ?shuffling_decision_block,
             "state_epoch" => state.current_epoch(),
             "current_epoch" => current_slot.epoch(T::EthSpec::slots_per_epoch()),
         );
