@@ -2499,25 +2499,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let state_read_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
-            let mut state = self
-                .store
-                .get_inconsistent_state_for_attestation_verification_only(
-                    &head_block.state_root,
-                    Some(head_block.slot),
-                )?
-                .ok_or(Error::MissingBeaconState(head_block.state_root))?;
+            let state_opt = self.with_head(|head| {
+                if head.beacon_block_root == head_block_root {
+                    Ok(Some((
+                        head.beacon_state
+                            .clone_with(CloneConfig::committee_caches_only()),
+                        head.beacon_state_root(),
+                    )))
+                } else {
+                    Ok::<_, Error>(None)
+                }
+            })?;
+
+            let (mut state, state_root) = if let Some((state, state_root)) = state_opt {
+                (state, state_root)
+            } else {
+                let state_root = head_block.state_root;
+                let state = self
+                    .store
+                    .get_inconsistent_state_for_attestation_verification_only(
+                        &state_root,
+                        Some(head_block.slot),
+                    )?
+                    .ok_or(Error::MissingBeaconState(head_block.state_root))?;
+                (state, state_root)
+            };
 
             metrics::stop_timer(state_read_timer);
             let state_skip_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
+            let mut state_root_opt = Some(state_root);
             while state.current_epoch() + 1 < shuffling_epoch {
-                // Here we tell `per_slot_processing` to skip hashing the state and just
+                // With `state_root_opt.take()` we choose to skip hashing future states and just
                 // use the zero hash instead.
                 //
                 // The state roots are not useful for the shuffling, so there's no need to
                 // compute them.
-                per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)
+                per_slot_processing(&mut state, state_root_opt.take(), &self.spec)
                     .map_err(Error::from)?;
             }
 
