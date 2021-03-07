@@ -83,7 +83,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
     };
 
     // Ensure the state lookup was correct.
-    if state.current_epoch() == epoch || state.current_epoch() + 1 == epoch {
+    if state.current_epoch() != epoch && state.current_epoch() + 1 != epoch {
         return Err(warp_utils::reject::custom_server_error(format!(
             "state epoch {} not suitable for request epoch {}",
             state.current_epoch(),
