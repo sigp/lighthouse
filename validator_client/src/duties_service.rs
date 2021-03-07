@@ -496,6 +496,11 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         return Ok(());
     }
 
+    let fetch_timer = metrics::start_timer_vec(
+        &metrics::DUTIES_SERVICE_TIMES,
+        &[metrics::UPDATE_ATTESTERS_FETCH],
+    );
+
     let response = duties_service
         .beacon_nodes
         .first_success(duties_service.require_synced, |beacon_node| async move {
@@ -505,6 +510,12 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         })
         .await
         .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))?;
+
+    drop(fetch_timer);
+    let _store_timer = metrics::start_timer_vec(
+        &metrics::DUTIES_SERVICE_TIMES,
+        &[metrics::UPDATE_ATTESTERS_STORE],
+    );
 
     let dependent_root = response.dependent_root;
 
