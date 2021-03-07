@@ -292,6 +292,10 @@ fn advance_head<T: BeaconChainTypes>(
         let shuffling_decision_block = if state.slot == shuffling_decision_slot {
             // The only scenario where this can be true is when there is no prior epoch to the current.
             // In that case, the genesis block decides the shuffling root.
+            //
+            // It *should* be impossible to trigger this path since this code is gated by an `if`
+            // statement which implicitly ensures that the state is later than genesis, but this
+            // check is left for defensive purposes.
             beacon_chain.genesis_block_root
         } else {
             *state
