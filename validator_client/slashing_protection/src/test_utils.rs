@@ -10,7 +10,7 @@ pub const DEFAULT_DOMAIN: Hash256 = Hash256::zero();
 pub const DEFAULT_GENESIS_VALIDATORS_ROOT: Hash256 = Hash256::zero();
 
 pub fn pubkey(index: usize) -> PublicKeyBytes {
-    generate_deterministic_keypair(index).pk.into()
+    generate_deterministic_keypair(index).pk.compress()
 }
 
 pub struct Test<T> {

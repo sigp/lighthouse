@@ -398,7 +398,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     }
 
     drop(current_epoch_timer);
-    let _next_epoch_timer = metrics::start_timer_vec(
+    let next_epoch_timer = metrics::start_timer_vec(
         &metrics::DUTIES_SERVICE_TIMES,
         &[metrics::UPDATE_ATTESTERS_NEXT_EPOCH],
     );
@@ -416,6 +416,10 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             "err" => ?e,
         )
     }
+
+    drop(next_epoch_timer);
+    let subscriptions_timer =
+        metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::SUBSCRIPTIONS]);
 
     // This vector is likely to be a little oversized, but it won't reallocate.
     let mut subscriptions = Vec::with_capacity(local_pubkeys.len() * 2);
@@ -470,6 +474,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         }
     }
 
+    drop(subscriptions_timer);
+
     // Prune old duties.
     duties_service
         .attesters
@@ -502,6 +508,11 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         return Ok(());
     }
 
+    let fetch_timer = metrics::start_timer_vec(
+        &metrics::DUTIES_SERVICE_TIMES,
+        &[metrics::UPDATE_ATTESTERS_FETCH],
+    );
+
     let response = duties_service
         .beacon_nodes
         .first_success(duties_service.require_synced, |beacon_node| async move {
@@ -511,6 +522,12 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         })
         .await
         .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))?;
+
+    drop(fetch_timer);
+    let _store_timer = metrics::start_timer_vec(
+        &metrics::DUTIES_SERVICE_TIMES,
+        &[metrics::UPDATE_ATTESTERS_STORE],
+    );
 
     let dependent_root = response.dependent_root;
 
