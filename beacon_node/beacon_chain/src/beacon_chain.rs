@@ -404,7 +404,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         start_slot: Slot,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        let oldest_block_slot = self.get_oldest_block_slot();
+        let oldest_block_slot = self.store.get_oldest_block_slot();
         if start_slot < oldest_block_slot {
             return Err(Error::HistoricalBlockError(
                 HistoricalBlockError::BlockOutOfRange {
@@ -425,15 +425,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         Ok(iter.map(|result| result.map_err(Into::into)))
-    }
-
-    /// Return the lowest slot `s` such that the database contains all blocks with `b.slot >= s`.
-    pub fn get_oldest_block_slot(&self) -> Slot {
-        self.store
-            .anchor_info
-            .read()
-            .as_ref()
-            .map_or(Slot::new(0), |anchor| anchor.oldest_block_slot)
     }
 
     /// Traverse backwards from `block_root` to find the block roots of its ancestors.

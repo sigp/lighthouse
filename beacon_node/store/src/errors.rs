@@ -22,6 +22,8 @@ pub enum Error {
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
     SchemaMigrationError(String),
+    /// The store's `anchor_info` was mutated concurrently, the latest modification wasn't applied.
+    AnchorInfoConcurrentMutation,
     /// The block or state is unavailable due to weak subjectivity sync.
     HistoryUnavailable,
 }

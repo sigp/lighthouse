@@ -1,4 +1,4 @@
-use crate::chunked_vector::{chunk_key, Chunk, Field};
+use crate::chunked_vector::{chunk_key, Chunk, ChunkError, Field};
 use crate::{Error, KeyValueStore, KeyValueStoreOp};
 use types::EthSpec;
 
@@ -35,7 +35,6 @@ where
     }
 
     /// Set the value at a given vector index, writing the current chunk and moving on if necessary.
-    // TODO(sproul): inconsistency checks
     pub fn set(
         &mut self,
         vindex: usize,
@@ -50,8 +49,21 @@ where
             *self = Self::new(self.store, vindex)?;
         }
 
-        self.chunk.values[vindex % F::chunk_size()] = value;
-        Ok(())
+        let i = vindex % F::chunk_size();
+        let existing_value = &self.chunk.values[i];
+
+        if existing_value == &value || existing_value == &F::Value::default() {
+            self.chunk.values[i] = value;
+            Ok(())
+        } else {
+            Err(ChunkError::Inconsistent {
+                field: F::column(),
+                chunk_index,
+                existing_value: format!("{:?}", existing_value),
+                new_value: format!("{:?}", value),
+            }
+            .into())
+        }
     }
 
     /// Write the current chunk to disk.

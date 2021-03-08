@@ -80,7 +80,7 @@ impl StoreItem for CompactionTimestamp {
 }
 
 /// Database parameters relevant to weak subjectivity sync.
-#[derive(Debug, Encode, Decode, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 pub struct AnchorInfo {
     /// The slot at which the anchor state is present and which we cannot revert.
     pub anchor_slot: Slot,

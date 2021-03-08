@@ -1691,14 +1691,13 @@ fn weak_subjectivity_sync() {
         AttestationStrategy::AllValidators,
     );
 
-    let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
+    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
     let log = test_logger();
     let temp2 = tempdir().unwrap();
     let data_dir = tempdir().unwrap();
     let store = get_store(&temp2);
 
     // Initialise a new beacon chain from the finalized checkpoint
-    // FIXME(sproul): abstract over this junk and put it in the test harness
     let beacon_chain = BeaconChainBuilder::new(MinimalEthSpec)
         .store(store.clone())
         .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
@@ -1757,7 +1756,7 @@ fn weak_subjectivity_sync() {
     beacon_chain
         .import_historical_block_batch(historical_blocks.clone())
         .unwrap();
-    assert_eq!(beacon_chain.get_oldest_block_slot(), 0);
+    assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
     // Resupplying the blocks should fail
     beacon_chain

@@ -57,7 +57,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// greater than or equal are in the hot DB.
     split: RwLock<Split>,
     /// The starting slots for the range of blocks & states stored in the database.
-    pub anchor_info: RwLock<Option<AnchorInfo>>,
+    anchor_info: RwLock<Option<AnchorInfo>>,
     config: StoreConfig,
     /// Cold database containing compact historical data.
     pub cold_db: Cold,
@@ -860,35 +860,67 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
     }
 
-    pub fn load_anchor_info(&self) -> Result<Option<AnchorInfo>, Error> {
-        Ok(self.hot_db.get(&ANCHOR_INFO_KEY)?)
+    /// Get a clone of the store's anchor info.
+    ///
+    /// To do mutations, use `compare_and_set_anchor_info`.
+    pub fn get_anchor_info(&self) -> Option<AnchorInfo> {
+        self.anchor_info.read().clone()
     }
 
-    pub fn store_anchor_info(&self) -> Result<(), Error> {
-        if let Some(ref anchor_info) = *self.anchor_info.read() {
-            Ok(self.hot_db.put(&ANCHOR_INFO_KEY, anchor_info)?)
-        } else {
-            // TODO(sproul): consider deleting here
+    /// Atomically update the anchor info from `prev_value` to `new_value`.
+    ///
+    /// Return an `AnchorInfoConcurrentMutation` error if the `prev_value` provided
+    /// is not correct.
+    pub fn compare_and_set_anchor_info(
+        &self,
+        prev_value: Option<AnchorInfo>,
+        new_value: Option<AnchorInfo>,
+    ) -> Result<(), Error> {
+        let mut anchor_info = self.anchor_info.write();
+        if *anchor_info == prev_value {
+            self.store_anchor_info(&new_value)?;
+            *anchor_info = new_value;
             Ok(())
+        } else {
+            Err(Error::AnchorInfoConcurrentMutation)
         }
     }
 
+    /// Load the anchor info from disk, but do not set `self.anchor_info`.
+    fn load_anchor_info(&self) -> Result<Option<AnchorInfo>, Error> {
+        Ok(self.hot_db.get(&ANCHOR_INFO_KEY)?)
+    }
+
+    /// Store the given `anchor_info` to disk.
+    ///
+    /// The argument is intended to be `self.anchor_info`, but is passed manually to avoid issues
+    /// with recursive locking.
+    fn store_anchor_info(&self, anchor_info: &Option<AnchorInfo>) -> Result<(), Error> {
+        if let Some(ref anchor_info) = anchor_info {
+            self.hot_db.put(&ANCHOR_INFO_KEY, anchor_info)?;
+        }
+        Ok(())
+    }
+
+    /// If an anchor exists, return its `anchor_slot` field.
     pub fn get_anchor_slot(&self) -> Option<Slot> {
         self.anchor_info.read().as_ref().map(|a| a.anchor_slot)
     }
 
-    pub fn get_oldest_block_parent_root(&self) -> Option<Hash256> {
-        self.anchor_info
-            .read()
-            .as_ref()
-            .map(|a| a.oldest_block_parent)
-    }
-
+    /// Return the minimum slot such that states are available for all subsequent slots.
     pub fn get_oldest_state_slot(&self) -> Slot {
         self.anchor_info
             .read()
             .as_ref()
             .map_or(self.spec.genesis_slot, |a| a.oldest_state_slot)
+    }
+
+    /// Return the minimum slot such that blocks are available for all subsequent slots.
+    pub fn get_oldest_block_slot(&self) -> Slot {
+        self.anchor_info
+            .read()
+            .as_ref()
+            .map_or(self.spec.genesis_slot, |anchor| anchor.oldest_block_slot)
     }
 
     /// Load previously-stored config from disk.

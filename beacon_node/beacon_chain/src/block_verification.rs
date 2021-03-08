@@ -1083,8 +1083,8 @@ fn check_block_against_anchor_slot<T: BeaconChainTypes>(
     block: &BeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    if let Some(ref anchor) = *chain.store.anchor_info.read() {
-        if block.slot <= anchor.anchor_slot {
+    if let Some(anchor_slot) = chain.store.get_anchor_slot() {
+        if block.slot <= anchor_slot {
             return Err(BlockError::WeakSubjectivityConflict);
         }
     }

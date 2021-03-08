@@ -386,13 +386,11 @@ where
             .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
 
         // Store anchor info (context for weak subj sync).
-        *store.anchor_info.write() = Some(AnchorInfo::new(
-            weak_subj_state.slot,
-            weak_subj_block.message.parent_root,
-        ));
+        let anchor_info =
+            AnchorInfo::new(weak_subj_state.slot, weak_subj_block.message.parent_root);
         store
-            .store_anchor_info()
-            .map_err(|e| format!("Failed to write anchor info to disk: {:?}", e))?;
+            .compare_and_set_anchor_info(None, Some(anchor_info))
+            .map_err(|e| format!("Error setting anchor: {:?}", e))?;
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
         store
