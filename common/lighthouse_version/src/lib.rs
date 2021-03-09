@@ -1,6 +1,8 @@
 use git_version::git_version;
 use target_info::Target;
 
+pub const VERSION_NUMBER: &str = "1.1.3";
+
 /// Returns the current version of this build of Lighthouse.
 ///
 /// A plus-sign (`+`) is appended to the git commit if the tree is dirty.

@@ -2192,9 +2192,13 @@ dependencies = [
 name = "explorer_api"
 version = "0.1.0"
 dependencies = [
+ "eth2",
  "futures 0.3.13",
- "prometheus",
+ "lighthouse_version",
  "reqwest 0.10.10",
+ "serde",
+ "serde_derive",
+ "serde_json",
  "task_executor",
  "tokio 0.3.7",
 ]

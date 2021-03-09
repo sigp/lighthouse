@@ -41,7 +41,7 @@ impl Default for Config {
 pub struct ExplorerHttpClient {
     client: reqwest::Client,
     config: Config,
-    metrics: ExplorerMetrics,
+    // metrics: ExplorerMetrics,
 }
 
 impl ExplorerHttpClient {
@@ -49,7 +49,7 @@ impl ExplorerHttpClient {
         Self {
             client: reqwest::Client::new(),
             config,
-            metrics: Default::default(),
+            // metrics: Default::default(),
         }
     }
 
