@@ -18,6 +18,7 @@ pub mod http_api;
 
 pub use cli::cli_app;
 pub use config::Config;
+use lighthouse_metrics::set_gauge;
 
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
@@ -228,10 +229,17 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             })
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
 
+        let num_nodes = beacon_nodes.len();
         let candidates = beacon_nodes
             .into_iter()
             .map(CandidateBeaconNode::new)
             .collect();
+
+        // Excluding the primary beacon node
+        set_gauge(
+            &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
+            num_nodes.saturating_sub(1) as i64,
+        );
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 

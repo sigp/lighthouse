@@ -33,7 +33,8 @@ pub enum Process {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessMetrics {
     cpu_process_seconds_total: u64,
-    // alias doesn't work with flattened structs (https://github.com/serde-rs/serde/issues/1504)
+    // alias doesn't work with flattened structs
+    // https://github.com/serde-rs/serde/issues/1504
     // TODO: use some alternative
     #[serde(rename = "process_virtual_memory_bytes")]
     memory_process_bytes: u64,
@@ -136,12 +137,18 @@ pub struct BeaconMetrics {
 }
 
 /// Metrics specific to validator client.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorMetrics {
+    #[serde(rename = "vc_validators_total_count")]
     validator_total: u64,
+    #[serde(rename = "vc_validators_enabled_count")]
     validator_active: u64,
+
+    #[serde(deserialize_with = "int_to_bool")]
     sync_eth2_fallback_configured: bool,
+    /*
     sync_eth2_fallback_connected: bool,
+    */
 }
 
 /// All beacon process metrics.
@@ -154,9 +161,11 @@ pub struct BeaconProcessMetrics {
 }
 
 /// All validator process metrics
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorProcessMetrics {
+    #[serde(flatten)]
     pub common: ProcessMetrics,
+    #[serde(flatten)]
     pub validator: ValidatorMetrics,
 }
 
@@ -206,6 +215,20 @@ mod tests {
         "#;
 
         let decoded: Result<BeaconProcessMetrics, _> = serde_json::from_str(beacon_process);
+        assert!(decoded.is_ok());
+
+        let validator_process = r#"
+        {
+            "cpu_process_seconds_total": 29,
+            "process_virtual_memory_bytes": 1080483840,
+            "sync_eth2_fallback_configured": 0,
+            "vc_validators_enabled_count": 5,
+            "vc_validators_total_count": 5
+          }
+        "#;
+
+        let decoded: Result<ValidatorProcessMetrics, _> = serde_json::from_str(validator_process);
+        dbg!(&decoded);
         assert!(decoded.is_ok());
     }
 }

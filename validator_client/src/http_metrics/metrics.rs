@@ -97,6 +97,11 @@ lazy_static::lazy_static! {
         "The number of beacon node requests for each endpoint",
         &["endpoint"]
     );
+
+    pub static ref ETH2_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth2_fallback_configured",
+        "The number of configured eth2 fallbacks",
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(

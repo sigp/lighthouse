@@ -63,6 +63,8 @@ pub use prometheus::{
     IntGaugeVec, Result, TextEncoder,
 };
 
+pub mod json_encoder;
+
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
     prometheus::gather()
