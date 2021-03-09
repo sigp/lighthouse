@@ -1,32 +1,62 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use eth2::lighthouse::SystemHealth;
 use lighthouse_version::VERSION_NUMBER;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExplorerMetrics {
-    metadata: Metadata,
-    process_metrics: Process,
+pub const VERSION: u64 = 1;
+
+/// An API error serializable to JSON.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ErrorMessage {
+    pub code: u16,
+    pub message: String,
+    #[serde(default)]
+    pub stacktraces: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExplorerMetrics {
+    #[serde(flatten)]
+    pub metadata: Metadata,
+    #[serde(flatten)]
+    pub process_metrics: Process,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ProcessType {
     Beacon,
     Validator,
     System,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Metadata {
     version: u64,
     timestamp: u64,
     process: ProcessType,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Metadata {
+    pub fn new(process: ProcessType) -> Self {
+        Self {
+            version: VERSION,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time should be greater than unix epoch")
+                .as_secs(),
+            process,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Process {
-    BeaconProcessMetrics,
-    SystemMetrics,
-    ValidatorProcessMetrics,
+    Beacon(BeaconProcessMetrics),
+    System(SystemMetrics),
+    Validator(ValidatorProcessMetrics),
 }
 
 /// Common metrics for all processes.
@@ -228,7 +258,6 @@ mod tests {
         "#;
 
         let decoded: Result<ValidatorProcessMetrics, _> = serde_json::from_str(validator_process);
-        dbg!(&decoded);
         assert!(decoded.is_ok());
     }
 }

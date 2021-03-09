@@ -7,10 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.10.8", features = ["json","stream"] }
+reqwest = { version = "0.11.0", features = ["json","stream"] }
 futures = "0.3.7"
 task_executor = { path = "../task_executor" }
-tokio = { version = "0.3.6", features = ["full"] }
+tokio = { version = "1.1.0", features = ["full"] }
 eth2 = {path = "../eth2"}
 serde_json = "1.0.58"
 serde = "1.0.116"

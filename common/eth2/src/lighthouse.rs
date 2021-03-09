@@ -142,9 +142,9 @@ pub struct SystemHealth {
     pub network_node_bytes_total_transmit: u64,
 
     /// Boot time
-    misc_node_boot_ts_seconds: u64,
+    pub misc_node_boot_ts_seconds: u64,
     /// OS (would be linux as psutil is not supported in other operating systems).
-    misc_os: String,
+    pub misc_os: String,
 }
 
 impl SystemHealth {

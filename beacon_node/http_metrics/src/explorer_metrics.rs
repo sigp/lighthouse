@@ -63,7 +63,5 @@ pub fn gather_required_metrics<T: BeaconChainTypes>(
 
     encoder.encode(&metrics, &mut buffer).unwrap();
 
-    encoder.encode(&metrics, &mut buffer).unwrap();
-
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }
