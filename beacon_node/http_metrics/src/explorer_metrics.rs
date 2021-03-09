@@ -1,12 +1,12 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
-use lighthouse_metrics::Encoder;
+use lighthouse_metrics::{json_encoder::JsonEncoder, Encoder};
 
 pub use lighthouse_metrics::*;
-use prometheus::proto::{MetricFamily, MetricType};
-use std::io::Write;
 
-pub const REQUIRED_METRICS: &'static [&str] = &[
+/// Process names which need to be encoded
+/// Note: Only Gauge and Counter metrics can be encoded.
+pub const BEACON_PROCESS_METRICS: &'static [&str] = &[
     "cpu_process_seconds_total",
     "process_virtual_memory_bytes",
     "sync_eth1_fallback_configured",
@@ -17,60 +17,16 @@ pub const REQUIRED_METRICS: &'static [&str] = &[
     "sync_eth2_synced",
 ];
 
-/// An encoder that encodes all `Count` and `Gauge` metrics to a flat json
-/// without any labels.
-pub struct JsonEncoder;
-
-impl JsonEncoder {
-    pub fn new() -> Self {
-        JsonEncoder
-    }
-}
-
-impl Encoder for JsonEncoder {
-    fn encode<W: Write>(&self, metric_families: &[MetricFamily], writer: &mut W) -> Result<()> {
-        writer.write_all(b"{\n")?;
-        for (i, mf) in metric_families
-            .iter()
-            .filter(|mf| REQUIRED_METRICS.iter().any(|name| mf.get_name() == *name))
-            .enumerate()
-        {
-            let name = mf.get_name();
-            if i != 0 {
-                writer.write_all(b",")?;
-            }
-
-            for metric in mf.get_metric() {
-                let value = match mf.get_field_type() {
-                    MetricType::COUNTER => metric.get_counter().get_value().to_string(),
-                    MetricType::GAUGE => metric.get_gauge().get_value().to_string(),
-                    _ => {
-                        return Err(prometheus::Error::Msg(
-                            "Cannot encode this metric".to_string(),
-                        ))
-                    }
-                };
-                writer.write_all(b"\"")?;
-                writer.write_all(name.as_bytes())?;
-                writer.write_all(b"\":")?;
-                writer.write_all(value.as_bytes())?;
-            }
-        }
-        writer.write_all(b"}")?;
-
-        Ok(())
-    }
-
-    fn format_type(&self) -> &str {
-        "json"
-    }
-}
-
 pub fn gather_required_metrics<T: BeaconChainTypes>(
     ctx: &Context<T>,
 ) -> std::result::Result<String, String> {
     let mut buffer = vec![];
-    let encoder = JsonEncoder::new();
+    let encoder = JsonEncoder::new(
+        BEACON_PROCESS_METRICS
+            .into_iter()
+            .map(|m| m.to_string())
+            .collect(),
+    );
 
     // There are two categories of metrics:
     //
@@ -105,15 +61,7 @@ pub fn gather_required_metrics<T: BeaconChainTypes>(
 
     let metrics = lighthouse_metrics::gather();
 
-    let json_encoder = JsonEncoder::new();
-    let mut json_buffer = vec![];
-    json_encoder.encode(&metrics, &mut json_buffer).unwrap();
-
-    // println!(
-    //     "{}",
-    //     String::from_utf8(json_buffer)
-    //         .map_err(|e| format!("Failed to encode prometheus info: {:?}", e))?
-    // );
+    encoder.encode(&metrics, &mut buffer).unwrap();
 
     encoder.encode(&metrics, &mut buffer).unwrap();
 
