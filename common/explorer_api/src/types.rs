@@ -1,29 +1,53 @@
-use prometheus::proto::MetricFamily;
+use eth2::lighthouse::SystemHealth;
+use lighthouse_version::VERSION_NUMBER;
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExplorerMetrics {
-    process_metrics: ProcessMetrics,
-    system_metrics: SystemMetrics,
-    beacon_metrics: BeaconMetrics,
-    validator_metrics: ValidatorMetrics,
+    metadata: Metadata,
+    process_metrics: Process,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProcessType {
+    Beacon,
+    Validator,
+    System,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Metadata {
+    version: u64,
+    timestamp: u64,
+    process: ProcessType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Process {
+    BeaconProcessMetrics,
+    SystemMetrics,
+    ValidatorProcessMetrics,
+}
+
+/// Common metrics for all processes.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessMetrics {
     cpu_process_seconds_total: u64,
-
+    // alias doesn't work with flattened structs (https://github.com/serde-rs/serde/issues/1504)
+    // TODO: use some alternative
+    #[serde(rename = "process_virtual_memory_bytes")]
     memory_process_bytes: u64,
 
+    #[serde(default = "client_name")]
     client_name: String,
+    #[serde(default = "client_version")]
     client_version: String,
+    #[serde(default = "client_build")]
     client_build: u64,
-
-    sync_eth1_fallback_configured: bool,
-    sync_eth1_fallback_connected: bool,
-    sync_eth2_fallback_configured: bool,
-    sync_eth2_fallback_connected: bool,
 }
-#[derive(Debug, Default, Clone, PartialEq)]
+
+/// Metrics related to the system.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SystemMetrics {
     cpu_cores: u64,
     cpu_threads: u64,
@@ -51,41 +75,137 @@ pub struct SystemMetrics {
     misc_os: String,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct BeaconMetrics {
-    disk_beaconchain_bytes_total: u64,
+impl From<SystemHealth> for SystemMetrics {
+    fn from(health: SystemHealth) -> Self {
+        Self {
+            cpu_cores: health.cpu_cores,
+            cpu_threads: health.cpu_threads,
+            cpu_node_system_seconds_total: health.system_seconds_total,
+            cpu_node_user_seconds_total: health.user_seconds_total,
+            cpu_node_iowait_seconds_total: health.iowait_seconds_total,
+            cpu_node_idle_seconds_total: health.idle_seconds_total,
 
-    network_libp2p_bytes_total_receive: u64,
-    network_libp2p_bytes_total_transmit: u64,
-    network_peers_connected: u64,
+            memory_node_bytes_total: health.sys_virt_mem_total,
+            memory_node_bytes_free: health.sys_virt_mem_free,
+            memory_node_bytes_cached: health.sys_virt_mem_cached,
+            memory_node_bytes_buffers: health.sys_virt_mem_buffers,
 
-    sync_eth1_connected: bool,
-    sync_eth2_synced: bool,
-    sync_beacon_head_slot: u64,
+            disk_node_bytes_total: health.disk_node_bytes_total,
+            disk_node_bytes_free: health.disk_node_bytes_free,
+
+            // Unavaliable for now
+            disk_node_io_seconds: 0,
+            disk_node_reads_total: health.disk_node_reads_total,
+            disk_node_writes_total: health.disk_node_writes_total,
+
+            network_node_bytes_total_receive: health.network_node_bytes_total_received,
+            network_node_bytes_total_transmit: health.network_node_bytes_total_transmit,
+
+            misc_node_boot_ts_seconds: health.misc_node_boot_ts_seconds,
+            misc_os: health.misc_os,
+        }
+    }
 }
 
+/// Metrics specific to the beacon node.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BeaconMetrics {
+    #[serde(rename = "store_disk_db_size")]
+    disk_beaconchain_bytes_total: u64,
+    /*
+    network_libp2p_bytes_total_receive: u64,
+    network_libp2p_bytes_total_transmit: u64,
+    */
+    #[serde(rename = "libp2p_peer_connected_peers_total")]
+    network_peers_connected: u64,
+
+    #[serde(deserialize_with = "int_to_bool")]
+    #[serde(default)]
+    sync_eth1_connected: bool,
+    #[serde(deserialize_with = "int_to_bool")]
+    #[serde(default)]
+    sync_eth2_synced: bool,
+    #[serde(rename = "beacon_head_state_slot")]
+    sync_beacon_head_slot: u64,
+    #[serde(default)]
+    #[serde(deserialize_with = "int_to_bool")]
+    sync_eth1_fallback_configured: bool,
+    /*
+    sync_eth1_fallback_connected: bool,
+    */
+}
+
+/// Metrics specific to validator client.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ValidatorMetrics {
     validator_total: u64,
     validator_active: u64,
+    sync_eth2_fallback_configured: bool,
+    sync_eth2_fallback_connected: bool,
 }
 
-impl ValidatorMetrics {
-    pub fn metric_names() -> &'static [&'static str] {
-        &["vc_validators_enabled_count", "vc_validators_total_count"]
-    }
+/// All beacon process metrics.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BeaconProcessMetrics {
+    #[serde(flatten)]
+    pub common: ProcessMetrics,
+    #[serde(flatten)]
+    pub beacon: BeaconMetrics,
+}
 
-    pub fn from_metrics(metrics: &[MetricFamily]) -> Self {
-        let mut validator_metrics = ValidatorMetrics::default();
-        for metric in metrics {
-            if metric.get_name() == "vc_validators_enabled_count" {
-                validator_metrics.validator_total =
-                    metric.get_metric()[0].get_gauge().get_value() as u64;
-            } else if metric.get_name() == "vc_validators_total_count" {
-                validator_metrics.validator_total =
-                    metric.get_metric()[0].get_gauge().get_value() as u64;
-            }
-        }
-        validator_metrics
+/// All validator process metrics
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ValidatorProcessMetrics {
+    pub common: ProcessMetrics,
+    pub validator: ValidatorMetrics,
+}
+
+/// Returns the client name string
+fn client_name() -> String {
+    "Lighthouse".to_string()
+}
+
+/// Returns the client version
+fn client_version() -> String {
+    VERSION_NUMBER.to_string()
+}
+
+/// Returns the client build
+/// TODO: placeholder
+fn client_build() -> u64 {
+    42
+}
+
+fn int_to_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+    match u8::deserialize(deserializer)? {
+        0 => Ok(false),
+        _ => Ok(true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize() {
+        let beacon_process = r#"
+        {
+            "beacon_head_state_slot": 615072,
+            "cpu_process_seconds_total": 12,
+            "libp2p_peer_connected_peers_total": 0,
+            "process_virtual_memory_bytes": 2647228416,
+            "store_disk_db_size": 5443346289,
+            "sync_eth1_connected": 0,
+            "sync_eth1_fallback_configured": 1
+          }
+        "#;
+
+        let decoded: Result<BeaconProcessMetrics, _> = serde_json::from_str(beacon_process);
+        assert!(decoded.is_ok());
     }
 }

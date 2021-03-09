@@ -10,7 +10,6 @@ pub const REQUIRED_METRICS: &'static [&str] = &[
     "cpu_process_seconds_total",
     "process_virtual_memory_bytes",
     "sync_eth1_fallback_configured",
-    "eth1_sync_fallback_configured",
     "sync_eth1_connected",
     "store_disk_db_size",
     "libp2p_peer_connected_peers_total",
