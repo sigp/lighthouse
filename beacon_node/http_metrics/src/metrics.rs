@@ -3,65 +3,6 @@ use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
 
 pub use lighthouse_metrics::*;
-use prometheus::proto::{MetricFamily, MetricType};
-use std::io::Write;
-
-/// An encoder that encodes all `Count` and `Gauge` metrics to a flat json
-/// without any labels.
-pub struct JsonEncoder;
-
-impl JsonEncoder {
-    pub fn new() -> Self {
-        JsonEncoder
-    }
-}
-
-impl Encoder for JsonEncoder {
-    fn encode<W: Write>(&self, metric_families: &[MetricFamily], writer: &mut W) -> Result<()> {
-        writer.write_all(b"{\n")?;
-        // TODO: don't write metrics with labels
-        for mf in metric_families
-            .iter()
-            .filter(|mf| mf.get_field_type() == MetricType::COUNTER)
-        {
-            let name = mf.get_name();
-            for metric in mf.get_metric() {
-                writer.write_all(b"\"")?;
-                writer.write_all(name.as_bytes())?;
-                writer.write_all(b"\":")?;
-                writer.write_all(metric.get_counter().get_value().to_string().as_bytes())?;
-                writer.write_all(b",")?;
-                writer.write_all(b"\n")?;
-            }
-        }
-
-        let gauges: Vec<&MetricFamily> = metric_families
-            .iter()
-            .filter(|mf| mf.get_field_type() == MetricType::GAUGE)
-            .collect();
-
-        for (i, mf) in gauges.iter().enumerate() {
-            let name = mf.get_name();
-            for metric in mf.get_metric() {
-                writer.write_all(b"\"")?;
-                writer.write_all(name.as_bytes())?;
-                writer.write_all(b"\":")?;
-                writer.write_all(metric.get_gauge().get_value().to_string().as_bytes())?;
-                if i != gauges.len() - 1 {
-                    writer.write_all(b",")?;
-                }
-                writer.write_all(b"\n")?;
-            }
-        }
-        writer.write_all(b"}")?;
-
-        Ok(())
-    }
-
-    fn format_type(&self) -> &str {
-        "json"
-    }
-}
 
 pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     ctx: &Context<T>,
@@ -100,19 +41,9 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
 
     warp_utils::metrics::scrape_health_metrics();
 
-    let metrics = lighthouse_metrics::gather();
-
-    let json_encoder = JsonEncoder::new();
-    let mut json_buffer = vec![];
-    json_encoder.encode(&metrics, &mut json_buffer).unwrap();
-
-    println!(
-        "{}",
-        String::from_utf8(json_buffer)
-            .map_err(|e| format!("Failed to encode prometheus info: {:?}", e))?
-    );
-
-    encoder.encode(&metrics, &mut buffer).unwrap();
+    encoder
+        .encode(&lighthouse_metrics::gather(), &mut buffer)
+        .unwrap();
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }
