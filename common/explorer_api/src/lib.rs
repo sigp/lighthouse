@@ -5,6 +5,7 @@ use eth2::lighthouse::SystemHealth;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
+use slog::{debug, error, info};
 use task_executor::TaskExecutor;
 use tokio::time::{interval_at, Instant};
 use types::*;
@@ -53,13 +54,15 @@ pub struct Config {
 pub struct ExplorerHttpClient {
     client: reqwest::Client,
     config: Config,
+    log: slog::Logger,
 }
 
 impl ExplorerHttpClient {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, log: slog::Logger) -> Self {
         Self {
             client: reqwest::Client::new(),
             config,
+            log,
         }
     }
 
@@ -74,7 +77,7 @@ impl ExplorerHttpClient {
     }
 
     /// Perform a HTTP POST request.
-    async fn _post<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
+    async fn post<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
         let response = self
             .client
             .post(url)
@@ -87,12 +90,24 @@ impl ExplorerHttpClient {
     }
 
     pub fn auto_update(self, executor: TaskExecutor) {
-        let mut interval = interval_at(Instant::now(), self.config.update_interval_seconds);
+        let mut interval = interval_at(
+            Instant::now() + Duration::from_secs(10),
+            self.config.update_interval_seconds,
+        );
+
+        info!(self.log, "Starting explorer api");
 
         let update_future = async move {
             loop {
                 interval.tick().await;
-                // self.do_update().await;
+                match self.send_metrics().await {
+                    Ok(()) => {
+                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => ?self.config.explorer_endpoint);
+                    }
+                    Err(e) => {
+                        error!(self.log, "Failed to send metrics to remote endpoint"; "error" => ?e)
+                    }
+                }
             }
         };
 
@@ -129,8 +144,15 @@ impl ExplorerHttpClient {
     }
 
     /// Send metrics to the remote endpoint
-    pub fn send_metrics(&self) {
-        unimplemented!()
+    pub async fn send_metrics(&self) -> Result<(), Error> {
+        let beacon = self.get_beacon_metrics().await?;
+        let validator = self.get_validator_metrics().await?;
+        let system = self.get_system_metrics().await?;
+        self.post(
+            self.config.explorer_endpoint.clone(),
+            &vec![beacon, validator, system],
+        )
+        .await
     }
 }
 
@@ -148,27 +170,26 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[tokio::test]
-    async fn test_api() {
-        let config = Config {
-            beacon_endpoint: Url::parse(DEFAULT_BEACON_ENDPOINT).unwrap(),
-            validator_endpoint: Url::parse(DEFAULT_VALIDATOR_ENDPOINT).unwrap(),
-            explorer_endpoint: Url::parse(DEFAULT_BEACON_ENDPOINT).unwrap(),
-            update_interval_seconds: Duration::from_secs(DEFAULT_UPDATE_DURATION),
-        };
+//     #[tokio::test]
+//     async fn test_api() {
+//         // let config = Config {
+//         //     beacon_endpoint: Url::parse(DEFAULT_BEACON_ENDPOINT).unwrap(),
+//         //     validator_endpoint: Url::parse(DEFAULT_VALIDATOR_ENDPOINT).unwrap(),
+//         //     explorer_endpoint: Url::parse(DEFAULT_BEACON_ENDPOINT).unwrap(),
+//         //     update_interval_seconds: Duration::from_secs(DEFAULT_UPDATE_DURATION),
+//         // };
 
-        let client = ExplorerHttpClient::new(config);
-        let beacon_metrics = client.get_beacon_metrics().await;
-        let validator_metrics =
-            client.get_validator_metrics().await;
-        let system_metrics = client.get_system_metrics().await;
+//         // let client = ExplorerHttpClient::new(config);
+//         // let beacon_metrics = client.get_beacon_metrics().await;
+//         // let validator_metrics = client.get_validator_metrics().await;
+//         // let system_metrics = client.get_system_metrics().await;
 
-        assert!(beacon_metrics.is_ok());
-        assert!(validator_metrics.is_ok());
-        assert!(system_metrics.is_ok());
-    }
-}
+//         // assert!(beacon_metrics.is_ok());
+//         // assert!(validator_metrics.is_ok());
+//         // assert!(system_metrics.is_ok());
+//     }
+// }

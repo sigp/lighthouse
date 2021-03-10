@@ -2199,6 +2199,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "slog",
  "task_executor",
  "tokio 1.2.0",
 ]
