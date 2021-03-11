@@ -2035,7 +2035,7 @@ impl ApiTester {
                     .iter()
                     .cloned()
                     .map(|keypair| keypair.pk)
-                    .collect::<Vec<PublicKey>>()
+                    .collect::<Vec<PublicKeyBytes>>()
                     .as_slice(),
                 &[self.chain.epoch().unwrap()],
             )
@@ -2043,7 +2043,7 @@ impl ApiTester {
             .unwrap()
             .data;
 
-        assert!(!result);
+        assert!(result.is_empty());
 
         self.client
             .post_beacon_pool_attestations(self.attestations.as_slice())
@@ -2057,13 +2057,17 @@ impl ApiTester {
                     .iter()
                     .cloned()
                     .map(|keypair| keypair.pk)
-                    .collect::<Vec<PublicKey>>()
+                    .collect::<Vec<PublicKeyBytes>>()
                     .as_slice(),
                 &[self.chain.epoch().unwrap()],
             )
             .await
             .unwrap()
             .data;
+
+        for att in self.attestations {
+            att.data.index
+        }
 
         assert!(result);
 
