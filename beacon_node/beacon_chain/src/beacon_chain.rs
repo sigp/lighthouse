@@ -156,7 +156,6 @@ pub struct HeadInfo {
     pub fork: Fork,
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
-    pub validator_count: usize,
     pub proposer_shuffling_decision_root: Hash256,
 }
 
@@ -628,7 +627,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 fork: head.beacon_state.fork,
                 genesis_time: head.beacon_state.genesis_time,
                 genesis_validators_root: head.beacon_state.genesis_validators_root,
-                validator_count: head.beacon_state.validators.len(),
                 proposer_shuffling_decision_root,
             })
         })
@@ -854,10 +852,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Returns the attestation duties for a given validator index.
+    /// Returns the attestation duties for the given validator indices using the shuffling cache.
     ///
-    /// Information is read from the current state, so only information from the present and prior
-    /// epoch is available.
+    /// An error may be returned if `head_block_root` is a finalized block, this function is only
+    /// designed for operations at the head of the chain.
+    ///
+    /// The returned `Vec` will have the same length as `validator_indices`, any
+    /// non-existing/inactive validators will have `None` values.
+    ///
+    /// ## Notes
+    ///
+    /// This function will try to use the shuffling cache to return the value. If the value is not
+    /// in the shuffling cache, it will be added. Care should be taken not to wash out the
+    /// shuffling cache with historical/useless values.
     pub fn validator_attestation_duties(
         &self,
         validator_indices: &[u64],
@@ -2421,7 +2428,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
-    /// `head_block_root`.
+    /// `head_block_root`. The `map_fn` will be supplied two values:
+    ///
+    /// - `&CommitteeCache`: the committee cache that serves the given parameters.
+    /// - `Hash256`: the "shuffling decision root" which uniquely identifies the `CommitteeCache`.
     ///
     /// It's not necessary that `head_block_root` matches our current view of the chain, it can be
     /// any block that is:
@@ -2434,7 +2444,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Important
     ///
-    /// This function is **not** suitable for determining proposer duties.
+    /// This function is **not** suitable for determining proposer duties (only attester duties).
     ///
     /// ## Notes
     ///
@@ -2499,7 +2509,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let state_read_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
-            let state_opt = self.with_head(|head| {
+            // If the head of the chain can serve this request, use it.
+            //
+            // This code is a little awkward because we need to ensure that the head we read and
+            // the head we copy is identical. Taking one lock to read the head values and another
+            // to copy the head is liable to race-conditions.
+            let head_state_opt = self.with_head(|head| {
                 if head.beacon_block_root == head_block_root {
                     Ok(Some((
                         head.beacon_state
@@ -2511,7 +2526,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             })?;
 
-            let (mut state, state_root) = if let Some((state, state_root)) = state_opt {
+            // If the head state is useful for this request, use it. Otherwise, read a state from
+            // disk.
+            let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
+                metrics::stop_timer(state_read_timer);
                 (state, state_root)
             } else {
                 let state_root = head_block.state_root;

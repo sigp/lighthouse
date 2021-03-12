@@ -564,7 +564,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let proposer_opt = chain
             .beacon_proposer_cache
             .lock()
-            .get::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
+            .get_slot::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
         let (expected_proposer, fork, parent, block) = if let Some(proposer) = proposer_opt {
             // The proposer index was cached and we can return it without needing to load the
             // parent.
