@@ -2529,7 +2529,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // If the head state is useful for this request, use it. Otherwise, read a state from
             // disk.
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
-                metrics::stop_timer(state_read_timer);
                 (state, state_root)
             } else {
                 let state_root = head_block.state_root;
