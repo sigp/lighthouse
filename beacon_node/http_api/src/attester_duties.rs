@@ -3,7 +3,7 @@
 use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types};
-use state_processing::per_slot_processing;
+use state_processing::state_advance::partial_state_advance;
 use types::{
     AttestationDuty, BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, RelativeEpoch,
 };
@@ -76,7 +76,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
     let mut state = if let Some((state_root, mut state)) = state_opt {
         // If we've loaded the head state it might be from a previous epoch, ensure it's in a
         // suitable epoch.
-        ensure_state_knows_duties_for_epoch(&mut state, state_root, epoch, &chain.spec)?;
+        ensure_state_knows_attester_duties_for_epoch(&mut state, state_root, epoch, &chain.spec)?;
         state
     } else {
         StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
@@ -125,7 +125,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
     api_duties(duties, request_indices, dependent_root, chain)
 }
 
-fn ensure_state_knows_duties_for_epoch<E: EthSpec>(
+fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
     target_epoch: Epoch,
@@ -138,15 +138,15 @@ fn ensure_state_knows_duties_for_epoch<E: EthSpec>(
             state.current_epoch(),
             target_epoch
         )));
-    }
+    } else if state.current_epoch() + 1 < target_epoch {
+        // Since there's a one-epoch look-head on attester duties, it suffices to only advance to
+        // the prior epoch.
+        let target_slot = target_epoch
+            .saturating_sub(1_u64)
+            .start_slot(E::slots_per_epoch());
 
-    let mut state_root_opt = Some(state_root);
-
-    // Advance the state into the requested epoch.
-    while state.current_epoch() < target_epoch - 1 {
-        // Don't calculate state roots since they aren't required for calculating
-        // shuffling (achieved by using `state_root_opt.take()`).
-        per_slot_processing(state, state_root_opt.take(), spec)
+        // A "partial" state advance is adequate since attester duties don't rely on state roots.
+        partial_state_advance(state, Some(state_root), target_slot, spec)
             .map_err(BeaconChainError::from)
             .map_err(warp_utils::reject::beacon_chain_error)?;
     }

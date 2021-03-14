@@ -4,7 +4,7 @@ use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types};
 use slog::{debug, Logger};
-use state_processing::per_slot_processing;
+use state_processing::state_advance::partial_state_advance;
 use std::cmp::Ordering;
 use types::{BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, Slot};
 
@@ -233,15 +233,9 @@ fn ensure_state_is_in_epoch<E: EthSpec>(
             state.current_epoch(),
             target_epoch
         )));
-    }
-
-    let mut state_root_opt = Some(state_root);
-
-    // Advance the state into the requested epoch.
-    while state.current_epoch() < target_epoch {
-        // Don't calculate state roots since they aren't required for calculating
-        // shuffling (achieved by using `state_root_opt.take()`).
-        per_slot_processing(state, state_root_opt.take(), spec)
+    } else if state.current_epoch() < target_epoch {
+        let target_slot = target_epoch.start_slot(E::slots_per_epoch());
+        partial_state_advance(state, Some(state_root), target_slot, spec)
             .map_err(BeaconChainError::from)
             .map_err(warp_utils::reject::beacon_chain_error)?;
     }
