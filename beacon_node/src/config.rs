@@ -259,8 +259,11 @@ pub fn get_config<E: EthSpec>(
         "address" => &client_config.eth1.deposit_contract_address
     );
 
-    if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
-        client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+    // Only append network config bootnodes if discovery is not disabled
+    if !client_config.network.disable_discovery {
+        if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
+            client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+        }
     }
 
     if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
