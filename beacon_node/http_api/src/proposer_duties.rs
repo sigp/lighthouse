@@ -226,21 +226,23 @@ fn ensure_state_is_in_epoch<E: EthSpec>(
     target_epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<(), warp::reject::Rejection> {
-    // Protect against an inconsistent slot clock.
-    if state.current_epoch() > target_epoch {
-        return Err(warp_utils::reject::custom_server_error(format!(
+    match state.current_epoch().cmp(&target_epoch) {
+        // Protects against an inconsistent slot clock.
+        Ordering::Greater => Err(warp_utils::reject::custom_server_error(format!(
             "state epoch {} is later than target epoch {}",
             state.current_epoch(),
             target_epoch
-        )));
-    } else if state.current_epoch() < target_epoch {
-        let target_slot = target_epoch.start_slot(E::slots_per_epoch());
-        partial_state_advance(state, Some(state_root), target_slot, spec)
-            .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::beacon_chain_error)?;
+        ))),
+        // The state needs to be advanced.
+        Ordering::Less => {
+            let target_slot = target_epoch.start_slot(E::slots_per_epoch());
+            partial_state_advance(state, Some(state_root), target_slot, spec)
+                .map_err(BeaconChainError::from)
+                .map_err(warp_utils::reject::beacon_chain_error)
+        }
+        // The state is suitable, nothing to do.
+        Ordering::Equal => Ok(()),
     }
-
-    Ok(())
 }
 
 /// Converts the internal representation of proposer duties into one that is compatible with the
