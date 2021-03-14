@@ -19,7 +19,7 @@ use rand::SeedableRng;
 use rayon::prelude::*;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
-use state_processing::per_slot_processing;
+use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -377,10 +377,8 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot);
 
-        while state.slot < slot {
-            per_slot_processing(&mut state, None, &self.spec)
-                .expect("should be able to advance state to slot");
-        }
+        complete_state_advance(&mut state, None, slot, &self.spec)
+            .expect("should be able to advance state to slot");
 
         state
             .build_all_caches(&self.spec)
