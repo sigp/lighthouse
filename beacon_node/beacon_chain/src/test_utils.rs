@@ -430,6 +430,7 @@ where
         &self,
         attesting_validators: &[usize],
         state: &BeaconState<E>,
+        state_root: Hash256,
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
     ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
@@ -454,6 +455,7 @@ where
                                 bc.index,
                                 head_block_root.into(),
                                 Cow::Borrowed(state),
+                                state_root,
                             )
                             .unwrap();
 
@@ -503,6 +505,7 @@ where
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
+        state_root: Hash256,
         head_block_root: Hash256,
         attestation_slot: Slot,
     ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
@@ -513,6 +516,7 @@ where
         self.make_unaggregated_attestations(
             &validators,
             state,
+            state_root,
             head_block_root.into(),
             attestation_slot,
         )
@@ -522,11 +526,17 @@ where
         &self,
         attesting_validators: &[usize],
         state: &BeaconState<E>,
+        state_root: Hash256,
         block_hash: SignedBeaconBlockHash,
         slot: Slot,
     ) -> HarnessAttestations<E> {
-        let unaggregated_attestations =
-            self.make_unaggregated_attestations(&attesting_validators, &state, block_hash, slot);
+        let unaggregated_attestations = self.make_unaggregated_attestations(
+            &attesting_validators,
+            &state,
+            state_root,
+            block_hash,
+            slot,
+        );
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> = unaggregated_attestations
             .iter()
@@ -754,12 +764,18 @@ where
     pub fn attest_block(
         &self,
         state: &BeaconState<E>,
+        state_root: Hash256,
         block_hash: SignedBeaconBlockHash,
         block: &SignedBeaconBlock<E>,
         validators: &[usize],
     ) {
-        let attestations =
-            self.make_attestations(validators, &state, block_hash, block.message.slot);
+        let attestations = self.make_attestations(
+            validators,
+            &state,
+            state_root,
+            block_hash,
+            block.message.slot,
+        );
         self.process_attestations(attestations);
     }
 
@@ -767,26 +783,29 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
+        state_root: Hash256,
         validators: &[usize],
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state)?;
-        self.attest_block(&state, block_hash, &block, validators);
+        self.attest_block(&state, state_root, block_hash, &block, validators);
         Ok((block_hash, state))
     }
 
     pub fn add_attested_blocks_at_slots(
         &self,
         state: BeaconState<E>,
+        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
     ) -> AddBlocksResult<E> {
         assert!(!slots.is_empty());
-        self.add_attested_blocks_at_slots_given_lbh(state, slots, validators, None)
+        self.add_attested_blocks_at_slots_given_lbh(state, state_root, slots, validators, None)
     }
 
     fn add_attested_blocks_at_slots_given_lbh(
         &self,
         mut state: BeaconState<E>,
+        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
@@ -799,7 +818,7 @@ where
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
             let (block_hash, new_state) = self
-                .add_attested_block_at_slot(*slot, state, validators)
+                .add_attested_block_at_slot(*slot, state, state_root, validators)
                 .unwrap();
             state = new_state;
             block_hash_from_slot.insert(*slot, block_hash);
@@ -857,8 +876,14 @@ where
         for epoch in min_epoch.as_u64()..=max_epoch.as_u64() {
             let mut new_chains = vec![];
 
-            for (head_state, slots, validators, mut block_hashes, mut state_hashes, head_block) in
-                chains
+            for (
+                mut head_state,
+                slots,
+                validators,
+                mut block_hashes,
+                mut state_hashes,
+                head_block,
+            ) in chains
             {
                 let epoch_slots = slots
                     .iter()
@@ -866,9 +891,11 @@ where
                     .copied()
                     .collect::<Vec<_>>();
 
+                let head_state_root = head_state.update_tree_hash_cache().unwrap();
                 let (new_block_hashes, new_state_hashes, new_head_block, new_head_state) = self
                     .add_attested_blocks_at_slots_given_lbh(
                         head_state,
+                        head_state_root,
                         &epoch_slots,
                         &validators,
                         Some(head_block),
@@ -947,7 +974,7 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) -> Hash256 {
-        let (state, slots) = match block_strategy {
+        let (mut state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
                 let current_slot: u64 = self.get_current_slot().into();
                 let slots: Vec<Slot> = (current_slot..(current_slot + (num_blocks as u64)))
@@ -975,8 +1002,9 @@ where
             AttestationStrategy::AllValidators => self.get_all_validators(),
             AttestationStrategy::SomeValidators(vals) => vals,
         };
+        let state_root = state.update_tree_hash_cache().unwrap();
         let (_, _, last_produced_block_hash, _) =
-            self.add_attested_blocks_at_slots(state, &slots, &validators);
+            self.add_attested_blocks_at_slots(state, state_root, &slots, &validators);
         last_produced_block_hash.into()
     }
 

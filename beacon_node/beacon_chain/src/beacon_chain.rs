@@ -42,8 +42,11 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
-    common::get_indexed_attestation, per_block_processing,
-    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+    common::get_indexed_attestation,
+    per_block_processing,
+    per_block_processing::errors::AttestationValidationError,
+    per_slot_processing,
+    state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
 };
 use std::borrow::Cow;
@@ -932,6 +935,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 index,
                 head.beacon_block_root,
                 Cow::Borrowed(&head.beacon_state),
+                head.beacon_state_root(),
             )
         } else {
             // We disallow producing attestations *prior* to the current head since such an
@@ -967,6 +971,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         index: CommitteeIndex,
         beacon_block_root: Hash256,
         mut state: Cow<BeaconState<T::EthSpec>>,
+        state_root: Hash256,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -974,13 +979,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Error::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            while mut_state.current_epoch() < epoch {
-                // Note: here we provide `Hash256::zero()` as the root of the current state. This
-                // has the effect of setting the values of all historic state roots to the zero
-                // hash. This is an optimization, we don't need the state roots so why calculate
-                // them?
-                per_slot_processing(mut_state, Some(Hash256::zero()), &self.spec)?;
-            }
+            // Only perform a "partial" state advance since we do not require the state roots to be
+            // accurate.
+            partial_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                &self.spec,
+            )?;
             mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         }
 
@@ -1926,7 +1932,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn produce_block_on_state(
         &self,
         mut state: BeaconState<T::EthSpec>,
-        mut state_root_opt: Option<Hash256>,
+        state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
@@ -1945,15 +1951,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
-        // If required, transition the new state to the present slot.
-        //
-        // Note: supplying some `state_root` when it it is known would be a cheap and easy
-        // optimization.
-        while state.slot < produce_at_slot {
-            // Using `state_root.take()` here ensures that we consume the `state_root` on the first
-            // iteration and never use it again.
-            per_slot_processing(&mut state, state_root_opt.take(), &self.spec)?;
-        }
+
+        // Ensure the state has performed a complete transition into the required slot.
+        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+
         drop(slot_timer);
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -2546,15 +2547,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let state_skip_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
-            let mut state_root_opt = Some(state_root);
-            while state.current_epoch() + 1 < shuffling_epoch {
-                // With `state_root_opt.take()` we choose to skip hashing future states and just
-                // use the zero hash instead.
-                //
-                // The state roots are not useful for the shuffling, so there's no need to
-                // compute them.
-                per_slot_processing(&mut state, state_root_opt.take(), &self.spec)
-                    .map_err(Error::from)?;
+            // If the state is in an earlier epoch, advance it. If it's from a later epoch, reject
+            // it.
+            if state.current_epoch() + 1 < shuffling_epoch {
+                // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to
+                // only advance into the slot prior to the `shuffling_epoch`.
+                let target_slot = shuffling_epoch
+                    .saturating_sub(1_u64)
+                    .start_slot(T::EthSpec::slots_per_epoch());
+
+                // Advance the state into the required slot, using the "partial" method since the state
+                // roots are not relevant for the shuffling.
+                partial_state_advance(&mut state, Some(state_root), target_slot, &self.spec)?;
+            } else if state.current_epoch() > shuffling_epoch {
+                return Err(Error::InvalidStateForShuffling {
+                    state_epoch: state.current_epoch(),
+                    shuffling_epoch,
+                });
             }
 
             metrics::stop_timer(state_skip_timer);
