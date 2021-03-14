@@ -909,10 +909,13 @@ fn attestation_that_skips_epochs() {
         per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
     }
 
+    let state_root = state.update_tree_hash_cache().unwrap();
+
     let (attestation, subnet_id) = harness
         .get_unaggregated_attestations(
             &AttestationStrategy::AllValidators,
             &state,
+            state_root,
             earlier_block.canonical_root(),
             current_slot,
         )

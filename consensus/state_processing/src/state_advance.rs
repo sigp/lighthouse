@@ -46,8 +46,8 @@ pub fn partial_state_advance<T: EthSpec>(
         // later iterations.
         //
         // Failing to provide the correct state root on the initial iteration may result in
-        // corrupting the `state.block_roots` array, since the latest block header may not be
-        // updated with the correct state root.
+        // corrupting the `state.block_roots` array since the latest block header may not be updated
+        // with the correct state root.
         let state_root = initial_state_root.take().unwrap_or(Hash256::zero());
 
         per_slot_processing(state, Some(state_root), spec).map_err(Error::PerSlotProcessing)?;

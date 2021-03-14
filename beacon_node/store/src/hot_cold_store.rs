@@ -34,6 +34,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::*;
 
+struct RestorePoint<T: EthSpec> {
+    state: BeaconState<T>,
+    state_root: Hash256,
+}
+
 /// Defines how blocks should be replayed on states.
 #[derive(PartialEq)]
 pub enum BlockReplay {
@@ -42,6 +47,15 @@ pub enum BlockReplay {
     /// Don't compute state roots, eventually computing an invalid beacon state that can only be
     /// used for obtaining shuffling.
     InconsistentStateRoots,
+}
+
+impl BlockReplay {
+    fn skip_slot_root(&self) -> Option<Hash256> {
+        match self {
+            BlockReplay::Accurate => None,
+            BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
+        }
+    }
 }
 
 /// On-disk database that stores finalized states efficiently.
@@ -566,7 +580,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             } else {
                 let blocks =
                     self.load_blocks_to_replay(boundary_state.slot, slot, latest_block_root)?;
-                self.replay_blocks(boundary_state, blocks, slot, block_replay)?
+                self.replay_blocks(
+                    boundary_state,
+                    epoch_boundary_state_root,
+                    blocks,
+                    slot,
+                    block_replay,
+                )?
             };
 
             Ok(Some(state))
@@ -638,13 +658,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if slot % self.config.slots_per_restore_point == 0 {
             let restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
             self.load_restore_point_by_index(restore_point_idx)
+                .map(|rp| rp.state)
         } else {
             self.load_cold_intermediate_state(slot)
         }
     }
 
     /// Load a restore point state by its `state_root`.
-    fn load_restore_point(&self, state_root: &Hash256) -> Result<BeaconState<E>, Error> {
+    fn load_restore_point(&self, state_root: &Hash256) -> Result<RestorePoint<E>, Error> {
         let mut partial_state: PartialBeaconState<E> = self
             .cold_db
             .get(state_root)?
@@ -656,14 +677,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
-        Ok(partial_state.try_into()?)
+        Ok(RestorePoint {
+            state: partial_state.try_into()?,
+            state_root: *state_root,
+        })
     }
 
     /// Load a restore point state by its `restore_point_index`.
     fn load_restore_point_by_index(
         &self,
         restore_point_index: u64,
-    ) -> Result<BeaconState<E>, Error> {
+    ) -> Result<RestorePoint<E>, Error> {
         let state_root = self.load_restore_point_hash(restore_point_index)?;
         self.load_restore_point(&state_root)
     }
@@ -683,22 +707,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let high_restore_point = if high_restore_point_idx * self.config.slots_per_restore_point
             >= split.slot.as_u64()
         {
-            self.get_state(&split.state_root, Some(split.slot))?.ok_or(
+            let state = self.get_state(&split.state_root, Some(split.slot))?.ok_or(
                 HotColdDBError::MissingSplitState(split.state_root, split.slot),
-            )?
+            )?;
+
+            RestorePoint {
+                state,
+                state_root: split.state_root,
+            }
         } else {
             self.load_restore_point_by_index(high_restore_point_idx)?
         };
 
         // 2. Load the blocks from the high restore point back to the low restore point.
         let blocks = self.load_blocks_to_replay(
-            low_restore_point.slot,
+            low_restore_point.state.slot,
             slot,
-            self.get_high_restore_point_block_root(&high_restore_point, slot)?,
+            self.get_high_restore_point_block_root(&high_restore_point.state, slot)?,
         )?;
 
         // 3. Replay the blocks on top of the low restore point.
-        self.replay_blocks(low_restore_point, blocks, slot, BlockReplay::Accurate)
+        self.replay_blocks(
+            low_restore_point.state,
+            low_restore_point.state_root,
+            blocks,
+            slot,
+            BlockReplay::Accurate,
+        )
     }
 
     /// Get a suitable block root for backtracking from `high_restore_point` to the state at `slot`.
@@ -755,29 +790,40 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
+        initial_state_root: Hash256,
         mut blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
         block_replay: BlockReplay,
     ) -> Result<BeaconState<E>, Error> {
-        if block_replay == BlockReplay::InconsistentStateRoots {
+        let initial_state_slot = state.slot;
+
+        if let Some(junk_root) = block_replay.skip_slot_root() {
             for i in 0..blocks.len() {
-                blocks[i].message.state_root = Hash256::zero();
+                blocks[i].message.state_root = junk_root;
                 if i > 0 {
                     blocks[i].message.parent_root = blocks[i - 1].canonical_root()
                 }
             }
         }
 
-        let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
-            if i > 0 {
+        let get_state_root = |i: usize, state: &BeaconState<E>| {
+            if state.slot == initial_state_slot {
+                // If the state slot has not changed then we can simply use the provided state root.
+                Some(initial_state_root)
+            } else if i == 0 {
+                // The block at the prior state is not known and therefore the state is a skip
+                // state.
+                block_replay.skip_slot_root()
+            } else {
+                // If there are prior blocks then we can attempt to lookup the state root.
                 let prev_block = &blocks[i - 1].message;
                 if prev_block.slot == state.slot {
+                    // A prior block knows the state root for this state.
                     Some(prev_block.state_root)
                 } else {
-                    None
+                    // This is a skip state without a block.
+                    block_replay.skip_slot_root()
                 }
-            } else {
-                None
             }
         };
 
@@ -787,11 +833,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             while state.slot < block.message.slot {
-                let state_root = match block_replay {
-                    BlockReplay::Accurate => state_root_from_prev_block(i, &state),
-                    BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
-                };
-                per_slot_processing(&mut state, state_root, &self.spec)
+                let state_root_opt = get_state_root(i, &state);
+
+                per_slot_processing(&mut state, state_root_opt, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
             }
 
@@ -806,11 +850,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         while state.slot < target_slot {
-            let state_root = match block_replay {
-                BlockReplay::Accurate => state_root_from_prev_block(blocks.len(), &state),
-                BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
-            };
-            per_slot_processing(&mut state, state_root, &self.spec)
+            let state_root_opt = get_state_root(blocks.len(), &state);
+
+            per_slot_processing(&mut state, state_root_opt, &self.spec)
                 .map_err(HotColdDBError::BlockReplaySlotError)?;
         }
 

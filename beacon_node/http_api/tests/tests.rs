@@ -103,10 +103,12 @@ impl ApiTester {
         let (next_block, _next_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
+        let head_state_root = head.beacon_state_root();
         let attestations = harness
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
+                head_state_root,
                 head.beacon_block_root,
                 harness.chain.slot().unwrap(),
             )
@@ -234,10 +236,12 @@ impl ApiTester {
         let (next_block, _next_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
+        let head_state_root = head.beacon_state_root();
         let attestations = harness
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
+                head_state_root,
                 head.beacon_block_root,
                 harness.chain.slot().unwrap(),
             )

@@ -331,6 +331,12 @@ where
         self.chain.head().unwrap().beacon_state
     }
 
+    pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {
+        let head = self.chain.head().unwrap();
+        let state_root = head.beacon_state_root();
+        (head.beacon_state, state_root)
+    }
+
     pub fn get_current_slot(&self) -> Slot {
         self.chain.slot().unwrap()
     }
