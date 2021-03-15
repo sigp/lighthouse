@@ -1,6 +1,6 @@
 use super::*;
 use core::num::NonZeroUsize;
-use ethereum_types::{H256, U128, U256};
+use ethereum_types::{H160, H256, U128, U256};
 use smallvec::SmallVec;
 
 macro_rules! impl_decodable_for_uint {
@@ -288,6 +288,27 @@ impl Decode for H256 {
             Err(DecodeError::InvalidByteLength { len, expected })
         } else {
             Ok(H256::from_slice(bytes))
+        }
+    }
+}
+
+impl Decode for H160 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        20
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let len = bytes.len();
+        let expected = <Self as Decode>::ssz_fixed_len();
+
+        if len != expected {
+            Err(DecodeError::InvalidByteLength { len, expected })
+        } else {
+            Ok(Self::from_slice(bytes))
         }
     }
 }

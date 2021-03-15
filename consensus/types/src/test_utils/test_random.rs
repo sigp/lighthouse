@@ -13,6 +13,7 @@ mod public_key_bytes;
 mod secret_key;
 mod signature;
 mod signature_bytes;
+mod uint256;
 
 pub fn test_random_instance<T: TestRandom>() -> T {
     let mut rng = XorShiftRng::from_seed([0x42; 16]);
@@ -26,6 +27,12 @@ pub trait TestRandom {
 impl TestRandom for bool {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         (rng.next_u32() % 2) == 1
+    }
+}
+
+impl TestRandom for u8 {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        rng.next_u32().to_be_bytes()[0]
     }
 }
 

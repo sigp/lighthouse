@@ -12,6 +12,7 @@ extern crate lazy_static;
 pub mod test_utils;
 
 pub mod aggregate_and_proof;
+pub mod application_payload;
 pub mod attestation;
 pub mod attestation_data;
 pub mod attestation_duty;
@@ -45,6 +46,7 @@ pub mod signed_beacon_block;
 pub mod signed_beacon_block_header;
 pub mod signed_voluntary_exit;
 pub mod signing_data;
+pub mod transaction;
 pub mod validator;
 pub mod validator_subscription;
 pub mod voluntary_exit;
@@ -95,12 +97,14 @@ pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::subnet_id::SubnetId;
+pub use crate::transaction::Transaction;
 pub use crate::validator::Validator;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
+pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 

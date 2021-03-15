@@ -1,5 +1,5 @@
 use super::*;
-use ethereum_types::{H256, U128, U256};
+use ethereum_types::{H160, H256, U128, U256};
 
 fn int_to_hash256(int: u64) -> Hash256 {
     let mut bytes = [0; HASHSIZE];
@@ -141,6 +141,28 @@ impl TreeHash for H256 {
 
     fn tree_hash_root(&self) -> Hash256 {
         *self
+    }
+}
+
+impl TreeHash for H160 {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Vector
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        let mut result = vec![0; 32];
+        result[0..20].copy_from_slice(self.as_bytes());
+        result
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        1
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let mut result = [0; 32];
+        result[0..20].copy_from_slice(self.as_bytes());
+        Hash256::from_slice(&result)
     }
 }
 
