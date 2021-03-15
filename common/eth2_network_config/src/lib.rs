@@ -44,8 +44,10 @@ const SPADINA: HardcodedNet = define_net!(spadina, include_spadina_file);
 const PYRMONT: HardcodedNet = define_net!(pyrmont, include_pyrmont_file);
 const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
 const TOLEDO: HardcodedNet = define_net!(toledo, include_toledo_file);
+const PRATER: HardcodedNet = define_net!(prater, include_prater_file);
 
-const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO];
+const HARDCODED_NETS: &[HardcodedNet] =
+    &[ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO, PRATER];
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
 /// Specifies an Eth2 network.
