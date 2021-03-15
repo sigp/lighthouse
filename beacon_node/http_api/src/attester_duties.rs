@@ -35,7 +35,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
 }
 
 fn cached_attestation_duties<T: BeaconChainTypes>(
-    epoch: Epoch,
+    request_epoch: Epoch,
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
@@ -44,24 +44,25 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let (duties, dependent_root) = chain
-        .validator_attestation_duties(&request_indices, epoch, head.block_root)
+        .validator_attestation_duties(&request_indices, request_epoch, head.block_root)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    api_duties(duties, request_indices, dependent_root, chain)
+    convert_to_api_response(duties, request_indices, dependent_root, chain)
 }
 
 /// Compute some attester duties by reading a `BeaconState` from disk, completely ignoring the
 /// shuffling cache.
 fn compute_historic_attester_duties<T: BeaconChainTypes>(
-    epoch: Epoch,
+    request_epoch: Epoch,
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    // It's possible that `epoch` is "historical" (i.e., early than the current epoch) but still
-    // later than the head.
+    // If the head is quite old then it might still be relevant for a historical request.
+    //
+    // Use the `with_head` function to read & clone in a single call to avoid race conditions.
     let state_opt = chain
         .with_head(|head| {
-            if head.beacon_state.current_epoch() < epoch {
+            if head.beacon_state.current_epoch() <= request_epoch {
                 Ok(Some((
                     head.beacon_state_root(),
                     head.beacon_state
@@ -76,24 +77,30 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
     let mut state = if let Some((state_root, mut state)) = state_opt {
         // If we've loaded the head state it might be from a previous epoch, ensure it's in a
         // suitable epoch.
-        ensure_state_knows_attester_duties_for_epoch(&mut state, state_root, epoch, &chain.spec)?;
+        ensure_state_knows_attester_duties_for_epoch(
+            &mut state,
+            state_root,
+            request_epoch,
+            &chain.spec,
+        )?;
         state
     } else {
-        StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
+        StateId::slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
     };
 
-    // Ensure the state lookup was correct.
-    if state.current_epoch() != epoch && state.current_epoch() + 1 != epoch {
+    // Sanity-check the state lookup.
+    if !(state.current_epoch() == request_epoch || state.current_epoch() + 1 == request_epoch) {
         return Err(warp_utils::reject::custom_server_error(format!(
             "state epoch {} not suitable for request epoch {}",
             state.current_epoch(),
-            epoch
+            request_epoch
         )));
     }
 
-    let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|e| {
-        warp_utils::reject::custom_server_error(format!("invalid epoch for state: {:?}", e))
-    })?;
+    let relative_epoch =
+        RelativeEpoch::from_epoch(state.current_epoch(), request_epoch).map_err(|e| {
+            warp_utils::reject::custom_server_error(format!("invalid epoch for state: {:?}", e))
+        })?;
 
     state
         .build_committee_cache(relative_epoch, &chain.spec)
@@ -122,7 +129,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .collect::<Result<_, _>>()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    api_duties(duties, request_indices, dependent_root, chain)
+    convert_to_api_response(duties, request_indices, dependent_root, chain)
 }
 
 fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
@@ -154,7 +161,9 @@ fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
     Ok(())
 }
 
-fn api_duties<T: BeaconChainTypes>(
+/// Convert the internal representation of attester duties into the format returned to the HTTP
+/// client.
+fn convert_to_api_response<T: BeaconChainTypes>(
     duties: Vec<Option<AttestationDuty>>,
     indices: &[u64],
     dependent_root: Hash256,

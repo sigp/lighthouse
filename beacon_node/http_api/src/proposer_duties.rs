@@ -24,8 +24,8 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     match request_epoch.cmp(&current_epoch) {
         // request_epoch > current_epoch
         //
-        // Reject queries about the future since they're very expensive and we can only speculate
-        // about the result since there's no look-ahead on proposer duties.
+        // Reject queries about the future as they're very expensive there's no look-ahead for
+        // proposer duties.
         Ordering::Greater => Err(warp_utils::reject::custom_bad_request(format!(
             "request epoch {} is ahead of the current epoch {}",
             request_epoch, current_epoch
@@ -88,7 +88,9 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         .lock()
         .get_epoch::<T::EthSpec>(dependent_root, current_epoch)
         .cloned()
-        .map(|indices| api_duties(chain, current_epoch, dependent_root, indices.to_vec()))
+        .map(|indices| {
+            convert_to_api_response(chain, current_epoch, dependent_root, indices.to_vec())
+        })
         .transpose()
 }
 
@@ -111,8 +113,6 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         .head()
         .map_err(warp_utils::reject::beacon_chain_error)?;
     let mut state = head.beacon_state;
-    let head_block_root = head.beacon_block_root;
-    let head_block_slot = head.beacon_block.slot();
     let head_state_root = head.beacon_block.state_root();
 
     // Advance the state into the requested epoch.
@@ -126,8 +126,9 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
     // The dependent root along with the current epoch can be used to uniquely
     // identify this proposer shuffling.
     let dependent_slot = state.proposer_shuffling_decision_slot();
-    let dependent_root = if dependent_slot == head_block_slot {
-        head_block_root
+    let dependent_root = if dependent_slot == state.slot {
+        // The genesis block is the only block where its shuffling depends upon itself.
+        chain.genesis_block_root
     } else {
         *state
             .get_block_root(dependent_slot)
@@ -148,7 +149,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    api_duties(chain, current_epoch, dependent_root, indices)
+    convert_to_api_response(chain, current_epoch, dependent_root, indices)
 }
 
 /// Compute some proposer duties by reading a `BeaconState` from disk, completely ignoring the
@@ -157,11 +158,12 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    // It's possible that `epoch` is "historical" (i.e., early than the current epoch) but still
-    // later than the head.
+    // If the head is quite old then it might still be relevant for a historical request.
+    //
+    // Use the `with_head` function to read & clone in a single call to avoid race conditions.
     let state_opt = chain
         .with_head(|head| {
-            if head.beacon_state.current_epoch() < epoch {
+            if head.beacon_state.current_epoch() <= epoch {
                 Ok(Some((
                     head.beacon_state_root(),
                     head.beacon_state
@@ -209,7 +211,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
             .map_err(warp_utils::reject::beacon_chain_error)?
     };
 
-    api_duties(chain, epoch, dependent_root, indices)
+    convert_to_api_response(chain, epoch, dependent_root, indices)
 }
 
 /// If required, advance `state` to `target_epoch`.
@@ -247,11 +249,7 @@ fn ensure_state_is_in_epoch<E: EthSpec>(
 
 /// Converts the internal representation of proposer duties into one that is compatible with the
 /// standard API.
-///
-/// ## Notes
-///
-/// The `chain.validator_pubkey_cache` is used to convert validator indices into pubkeys.
-fn api_duties<T: BeaconChainTypes>(
+fn convert_to_api_response<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     epoch: Epoch,
     dependent_root: Hash256,

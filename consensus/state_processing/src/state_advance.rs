@@ -1,5 +1,5 @@
-//! This module contains function for advancing a `BeaconState` forward some number of slots,
-//! without blocks.
+//! This module contains functions for advancing a `BeaconState` forward some number of slots
+//! without blocks (i.e., skip slots).
 //!
 //! These functions are not in the specification, however they're defined here to reduce code
 //! duplication and protect against some easy-to-make mistakes when performing state advances.
