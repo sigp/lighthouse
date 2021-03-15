@@ -333,7 +333,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// ## Warning
     ///
     /// The returned state **is not a valid beacon state**, it can only be used for obtaining
-    /// shuffling to process attestations.
+    /// shuffling to process attestations. At least the following components of the state will be
+    /// broken/invalid:
+    ///
+    /// - `state.state_roots`
+    /// - `state.block_roots`
     pub fn get_inconsistent_state_for_attestation_verification_only(
         &self,
         state_root: &Hash256,

@@ -2543,6 +2543,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 (state, state_root)
             };
 
+            /*
+             * IMPORTANT
+             *
+             * Since it's possible that
+             * `Store::get_inconsistent_state_for_attestation_verification_only` was used to obtain
+             * the state, we cannot rely upon the following fields:
+             *
+             * - `state.state_roots`
+             * - `state.block_roots`
+             *
+             * These fields should not be used for the rest of this function.
+             */
+
             metrics::stop_timer(state_read_timer);
             let state_skip_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
