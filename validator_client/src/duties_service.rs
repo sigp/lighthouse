@@ -14,7 +14,7 @@ use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
 use parking_lot::RwLock;
 use safe_arith::ArithError;
-use slog::{debug, error, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -299,8 +299,16 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 
             match download_result {
                 Ok(Some(response)) => {
-                    let i = response.data.index;
-                    duties_service.indices.write().insert(pubkey, i);
+                    info!(
+                        log,
+                        "Validator exists in beacon chain";
+                        "pubkey" => ?pubkey,
+                        "validator_index" => response.data.index
+                    );
+                    duties_service
+                        .indices
+                        .write()
+                        .insert(pubkey, response.data.index);
                 }
                 // This is not necessarily an error, it just means the validator is not yet known to
                 // the beacon chain.
@@ -423,7 +431,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             .read()
             .iter()
             .filter_map(|(_, map)| map.get(&epoch))
-            // The BN doesn't like it if we try and subscribe to current or near-by slots. Give it a
+            // The BN logs a warning if we try and subscribe to current or near-by slots. Give it a
             // buffer.
             .filter(|(_, duty_and_proof)| {
                 current_slot + SUBSCRIPTION_BUFFER_SLOTS < duty_and_proof.duty.slot
