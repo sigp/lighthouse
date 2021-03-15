@@ -170,9 +170,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
     }
 
     loop {
-        // Sleep for 1 slot duration and then check if voluntary exit was processed
+        // Sleep for a slot duration and then check if voluntary exit was processed
         // by checking the validator status.
-        // TODO: should we wait for longer to account for forks?
         sleep(Duration::from_secs(spec.seconds_per_slot)).await;
 
         let validator_data = get_validator_data(client, &keypair.pk).await?;
@@ -182,7 +181,9 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
                 let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
                     .ok_or("Failed to get current epoch. Please check your system time")?;
-                eprintln!("Voluntary exit has been accepted into the beacon chain");
+                eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
+                        Finalization may take several minutes or longer. Before finalization there is a low \
+                        probability that the exit may be reverted.");
                 eprintln!(
                     "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
                     current_epoch, exit_epoch, withdrawal_epoch
@@ -201,7 +202,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 );
                 break;
             }
-            _ => {}
+            _ => eprintln!("Waiting for voluntary exit to be accepted into the beacon chain..."),
         }
     }
 
