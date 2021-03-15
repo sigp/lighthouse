@@ -107,17 +107,12 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    let dependent_slot = state.attester_shuffling_decision_slot(relative_epoch);
-    let dependent_root = if state.slot == dependent_slot {
-        // The only scenario where this can be true is when there is no prior epoch to the current.
-        // In that case, the genesis block decides the shuffling root.
-        chain.genesis_block_root
-    } else {
-        *state
-            .get_block_root(dependent_slot)
-            .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::beacon_chain_error)?
-    };
+    // We can supply the genesis block root as the block root since we know that the only block that
+    // decides its own root is the genesis block.
+    let dependent_root = state
+        .attester_shuffling_decision_root(chain.genesis_block_root, relative_epoch)
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let duties = request_indices
         .iter()

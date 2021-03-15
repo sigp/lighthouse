@@ -123,18 +123,12 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    // The dependent root along with the current epoch can be used to uniquely
-    // identify this proposer shuffling.
-    let dependent_slot = state.proposer_shuffling_decision_slot();
-    let dependent_root = if dependent_slot == state.slot {
-        // The genesis block is the only block where its shuffling depends upon itself.
-        chain.genesis_block_root
-    } else {
-        *state
-            .get_block_root(dependent_slot)
-            .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::beacon_chain_error)?
-    };
+    // We can supply the genesis block root as the block root since we know that the only block that
+    // decides its own root is the genesis block.
+    let dependent_root = state
+        .proposer_shuffling_decision_root(chain.genesis_block_root)
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     // Prime the proposer shuffling cache with the newly-learned value.
     chain
@@ -198,18 +192,12 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    let dependent_slot = state.proposer_shuffling_decision_slot();
-
-    let dependent_root = if state.slot == dependent_slot {
-        // The only scenario where this can be true is when there is no prior epoch to the current.
-        // In that case, the genesis block decides the shuffling root.
-        chain.genesis_block_root
-    } else {
-        *state
-            .get_block_root(dependent_slot)
-            .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::beacon_chain_error)?
-    };
+    // We can supply the genesis block root as the block root since we know that the only block that
+    // decides its own root is the genesis block.
+    let dependent_root = state
+        .proposer_shuffling_decision_root(chain.genesis_block_root)
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     convert_to_api_response(chain, epoch, dependent_root, indices)
 }

@@ -610,16 +610,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// A summarized version of `Self::head` that involves less cloning.
     pub fn head_info(&self) -> Result<HeadInfo, Error> {
         self.with_head(|head| {
-            let proposer_shuffling_decision_slot =
-                head.beacon_state.proposer_shuffling_decision_slot();
-            let proposer_shuffling_decision_root =
-                if proposer_shuffling_decision_slot == head.beacon_block.slot() {
-                    head.beacon_block_root
-                } else {
-                    *head
-                        .beacon_state
-                        .get_block_root(proposer_shuffling_decision_slot)?
-                };
+            let proposer_shuffling_decision_root = head
+                .beacon_state
+                .proposer_shuffling_decision_root(head.beacon_block_root)?;
 
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
