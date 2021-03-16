@@ -252,7 +252,11 @@ mod tests {
             let config = Eth2NetworkConfig::from_hardcoded_net(net)
                 .unwrap_or_else(|_| panic!("{:?}", net.name));
 
-            if net.name == "mainnet" || net.name == "toledo" || net.name == "pyrmont" {
+            if net.name == "mainnet"
+                || net.name == "toledo"
+                || net.name == "pyrmont"
+                || net.name == "prater"
+            {
                 // Ensure we can parse the YAML config to a chain spec.
                 config
                     .yaml_config
