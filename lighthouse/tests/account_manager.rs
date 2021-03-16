@@ -580,6 +580,7 @@ fn validator_import_launchpad_password_file() {
         enabled: true,
         description: "".into(),
         voting_public_key: keystore.public_key().unwrap(),
+        graffiti: None,
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
             voting_keystore_password_path: None,
