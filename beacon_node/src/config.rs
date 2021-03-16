@@ -1,4 +1,3 @@
-use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{ClientConfig, ClientGenesis};
@@ -45,13 +44,6 @@ pub fn get_config<E: EthSpec>(
                 .ok_or("Failed to get freezer db path")?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
-
-        // Remove the pubkey cache file if it exists
-        let pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
-        if pubkey_cache_file.exists() {
-            fs::remove_file(&pubkey_cache_file)
-                .map_err(|e| format!("Failed to remove {:?}: {:?}", pubkey_cache_file, e))?;
-        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -267,8 +259,11 @@ pub fn get_config<E: EthSpec>(
         "address" => &client_config.eth1.deposit_contract_address
     );
 
-    if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
-        client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+    // Only append network config bootnodes if discovery is not disabled
+    if !client_config.network.disable_discovery {
+        if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
+            client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+        }
     }
 
     if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {

@@ -58,10 +58,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         mut client_config: ClientConfig,
     ) -> Result<Self, String> {
         let spec = context.eth2_config().spec.clone();
-        let client_config_1 = client_config.clone();
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
         let log = context.log().clone();
+        let datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
         let freezer_db_path_res = client_config.create_freezer_db_path();
         let executor = context.executor.clone();
@@ -70,7 +70,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .runtime_context(context)
             .chain_spec(spec)
             .http_api_config(client_config.http_api.clone())
-            .disk_store(&db_path, &freezer_db_path_res?, store_config)?;
+            .disk_store(&datadir, &db_path, &freezer_db_path_res?, store_config)?;
 
         let builder = if let Some(slasher_config) = client_config.slasher.clone() {
             let slasher = Arc::new(
@@ -83,7 +83,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         };
 
         let builder = builder
-            .beacon_chain_builder(client_genesis, client_config_1)
+            .beacon_chain_builder(client_genesis, client_config.clone())
             .await?;
         let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
             info!(

@@ -252,9 +252,9 @@ fn advance_head<T: BeaconChainTypes>(
         "current_slot" => current_slot,
     );
 
-    // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer
-    // shuffling for the next epoch into the cache.
-    if initial_epoch > state.current_epoch() {
+    // If the advanced state is in a later epoch than where it started, pre-emptively add the
+    // proposer shuffling for the new epoch into the cache.
+    if state.current_epoch() > initial_epoch {
         debug!(
             log,
             "Priming proposer cache";

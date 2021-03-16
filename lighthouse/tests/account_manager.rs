@@ -482,6 +482,7 @@ fn validator_import_launchpad() {
     let expected_def = ValidatorDefinition {
         enabled: true,
         description: "".into(),
+        graffiti: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,

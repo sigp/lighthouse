@@ -6,6 +6,7 @@ use regex::bytes::Regex;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
+use std::str::FromStr;
 use tree_hash::TreeHash;
 
 pub const GRAFFITI_BYTES_LEN: usize = 32;
@@ -39,6 +40,49 @@ impl From<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
 impl Into<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
     fn into(self) -> [u8; GRAFFITI_BYTES_LEN] {
         self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+#[serde(transparent)]
+pub struct GraffitiString(String);
+
+impl FromStr for GraffitiString {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.as_bytes().len() > GRAFFITI_BYTES_LEN {
+            return Err(format!(
+                "Graffiti exceeds max length {}",
+                GRAFFITI_BYTES_LEN
+            ));
+        }
+        Ok(Self(s.to_string()))
+    }
+}
+
+impl<'de> Deserialize<'de> for GraffitiString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: String = serde::Deserialize::deserialize(deserializer)?;
+        GraffitiString::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Into<Graffiti> for GraffitiString {
+    fn into(self) -> Graffiti {
+        let graffiti_bytes = self.0.as_bytes();
+        let mut graffiti = [0; 32];
+
+        let graffiti_len = std::cmp::min(graffiti_bytes.len(), 32);
+
+        // Copy the provided bytes over.
+        //
+        // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
+        graffiti[..graffiti_len].copy_from_slice(&graffiti_bytes);
+        graffiti.into()
     }
 }
 

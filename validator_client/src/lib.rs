@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod graffiti_file;
 mod http_metrics;
 mod initialized_validators;
 mod key_cache;
@@ -304,6 +305,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
+            .graffiti_file(config.graffiti_file.clone())
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()

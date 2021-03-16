@@ -11,6 +11,8 @@ on:
 env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
+  # The Nightly version used for cargo-udeps, might need updating from time to time.
+  PINNED_NIGHTLY: nightly-2021-03-01
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -178,8 +180,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
-    - name: Install a nightly compiler with rustfmt, as a kind of quality control
-      run: rustup toolchain install --component=rustfmt nightly
+    - name: Install Rust (${{ env.PINNED_NIGHTLY }})
+      run: rustup toolchain install $PINNED_NIGHTLY
     - name: Install cargo-udeps
       run: cargo install cargo-udeps --locked
     - name: Run cargo udeps to identify unused crates in the dependency graph

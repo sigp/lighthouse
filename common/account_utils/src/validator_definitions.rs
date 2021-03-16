@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use types::PublicKey;
+use types::{graffiti::GraffitiString, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -66,6 +66,9 @@ pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
+    #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
@@ -81,6 +84,7 @@ impl ValidatorDefinition {
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
         voting_keystore_password: Option<ZeroizeString>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -91,6 +95,7 @@ impl ValidatorDefinition {
             enabled: true,
             voting_public_key,
             description: keystore.description().unwrap_or("").to_string(),
+            graffiti,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path: None,
@@ -227,6 +232,7 @@ impl ValidatorDefinitions {
                     enabled: true,
                     voting_public_key,
                     description: keystore.description().unwrap_or("").to_string(),
+                    graffiti: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
@@ -347,6 +353,7 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn voting_keystore_filename_lighthouse() {
@@ -381,5 +388,45 @@ mod tests {
         assert!(!is_voting_keystore("keystore-.json"));
         assert!(!is_voting_keystore("keystore-0a.json"));
         assert!(!is_voting_keystore("keystore-cats.json"));
+    }
+
+    #[test]
+    fn graffiti_checks() {
+        let no_graffiti = r#"--- 
+        description: ""
+        enabled: true
+        type: local_keystore
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+        let def: ValidatorDefinition = serde_yaml::from_str(&no_graffiti).unwrap();
+        assert!(def.graffiti.is_none());
+
+        let invalid_graffiti = r#"--- 
+        description: ""
+        enabled: true
+        type: local_keystore
+        graffiti: "mrfwasheremrfwasheremrfwasheremrf"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(&invalid_graffiti);
+        assert!(def.is_err());
+
+        let valid_graffiti = r#"--- 
+        description: ""
+        enabled: true
+        type: local_keystore
+        graffiti: "mrfwashere"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: ValidatorDefinition = serde_yaml::from_str(&valid_graffiti).unwrap();
+        assert_eq!(
+            def.graffiti,
+            Some(GraffitiString::from_str("mrfwashere").unwrap())
+        );
     }
 }

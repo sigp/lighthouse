@@ -10,6 +10,8 @@ BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
 AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
+PINNED_NIGHTLY ?= nightly
+
 # Builds the Lighthouse binary in release (optimized).
 #
 # Binaries will most likely be found in `./target/release`
@@ -136,11 +138,11 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0146
+	cargo audit
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
-	cargo +nightly udeps --tests --all-targets --release
+	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
