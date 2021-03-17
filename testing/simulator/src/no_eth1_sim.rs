@@ -107,7 +107,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             }
 
             /*
-             * Add an additional validator with doppelganger detection enabled.
+             * Add an additional validator with doppelganger detection disabled.
              */
             network
                 .add_validator_client(
