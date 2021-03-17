@@ -195,11 +195,12 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
                 // before the block/attestation tasks need them.
                 poll_validator_indices(&duties_service).await;
 
-                match duties_service.slot_clock.duration_to_next_slot() {
-                    Some(duration) => sleep(duration).await,
+                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                    sleep(duration).await;
+                } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    None => sleep(duties_service.slot_clock.slot_duration()).await,
+                    sleep(duties_service.slot_clock.slot_duration()).await;
                 }
             }
         },
@@ -214,14 +215,13 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
     core_duties_service.context.executor.spawn(
         async move {
             loop {
-                match duties_service.slot_clock.duration_to_next_slot() {
-                    Some(duration) => sleep(duration).await,
+                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                    sleep(duration).await;
+                } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    None => {
-                        sleep(duties_service.slot_clock.slot_duration()).await;
-                        continue;
-                    }
+                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    continue;
                 }
 
                 if let Err(e) = poll_beacon_proposers(&duties_service, &mut block_service_tx).await
@@ -245,14 +245,13 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
     core_duties_service.context.executor.spawn(
         async move {
             loop {
-                match duties_service.slot_clock.duration_to_next_slot() {
-                    Some(duration) => sleep(duration).await,
+                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                    sleep(duration).await;
+                } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    None => {
-                        sleep(duties_service.slot_clock.slot_duration()).await;
-                        continue;
-                    }
+                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    continue;
                 }
 
                 if let Err(e) = poll_beacon_attesters(&duties_service).await {

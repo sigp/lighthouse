@@ -154,16 +154,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
                 // other services need them.
                 self.clone().do_update().await.ok();
 
-                match self.slot_clock.duration_to_next_epoch(E::slots_per_epoch()) {
-                    Some(duration_to_next_epoch) => {
-                        sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
-                    }
-                    None => {
-                        error!(log, "Failed to read slot clock");
-                        // If we can't read the slot clock, just wait another slot.
-                        sleep(Duration::from_secs(spec.seconds_per_slot)).await;
-                        continue;
-                    }
+                if let Some(duration_to_next_epoch) =
+                    self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
+                {
+                    sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
+                } else {
+                    error!(log, "Failed to read slot clock");
+                    // If we can't read the slot clock, just wait another slot.
+                    sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+                    continue;
                 }
             }
         };
