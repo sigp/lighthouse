@@ -2,18 +2,19 @@ use crate::*;
 use tempfile::{tempdir, TempDir};
 use types::{
     test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader, Hash256,
+    PublicKeyBytes,
 };
 
 pub const DEFAULT_VALIDATOR_INDEX: usize = 0;
 pub const DEFAULT_DOMAIN: Hash256 = Hash256::zero();
 pub const DEFAULT_GENESIS_VALIDATORS_ROOT: Hash256 = Hash256::zero();
 
-pub fn pubkey(index: usize) -> PublicKey {
-    generate_deterministic_keypair(index).pk
+pub fn pubkey(index: usize) -> PublicKeyBytes {
+    generate_deterministic_keypair(index).pk.compress()
 }
 
 pub struct Test<T> {
-    pubkey: PublicKey,
+    pubkey: PublicKeyBytes,
     data: T,
     domain: Hash256,
     expected: Result<Safe, NotSafe>,
@@ -24,7 +25,7 @@ impl<T> Test<T> {
         Self::with_pubkey(pubkey(DEFAULT_VALIDATOR_INDEX), data)
     }
 
-    pub fn with_pubkey(pubkey: PublicKey, data: T) -> Self {
+    pub fn with_pubkey(pubkey: PublicKeyBytes, data: T) -> Self {
         Self {
             pubkey,
             data,
@@ -58,7 +59,7 @@ impl<T> Test<T> {
 
 pub struct StreamTest<T> {
     /// Validators to register.
-    pub registered_validators: Vec<PublicKey>,
+    pub registered_validators: Vec<PublicKeyBytes>,
     /// Vector of cases and the value expected when calling `check_and_insert_X`.
     pub cases: Vec<Test<T>>,
 }
@@ -89,7 +90,7 @@ impl StreamTest<AttestationData> {
         let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
         for pubkey in &self.registered_validators {
-            slashing_db.register_validator(pubkey).unwrap();
+            slashing_db.register_validator(*pubkey).unwrap();
         }
 
         for (i, test) in self.cases.iter().enumerate() {
@@ -112,7 +113,7 @@ impl StreamTest<BeaconBlockHeader> {
         let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
         for pubkey in &self.registered_validators {
-            slashing_db.register_validator(pubkey).unwrap();
+            slashing_db.register_validator(*pubkey).unwrap();
         }
 
         for (i, test) in self.cases.iter().enumerate() {

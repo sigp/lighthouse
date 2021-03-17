@@ -15,8 +15,9 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    beacon_chain::BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, snapshot_cache::StateAdvance, BeaconChain,
-    BeaconChainError, BeaconChainTypes,
+    beacon_chain::{ATTESTATION_CACHE_LOCK_TIMEOUT, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT},
+    snapshot_cache::StateAdvance,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -27,7 +28,7 @@ use std::sync::{
 };
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use types::{EthSpec, Hash256, Slot};
+use types::{AttestationShufflingId, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
 /// the state advancement.
@@ -252,16 +253,22 @@ fn advance_head<T: BeaconChainTypes>(
         "current_slot" => current_slot,
     );
 
-    // If the advanced state is in a later epoch than where it started, pre-emptively add the
-    // proposer shuffling for the new epoch into the cache.
-    if state.current_epoch() > initial_epoch {
-        debug!(
-            log,
-            "Priming proposer cache";
-            "head_root" => ?head_root,
-            "state_epoch" => state.current_epoch(),
-            "current_epoch" => current_slot.epoch(T::EthSpec::slots_per_epoch()),
-        );
+    // Build the current epoch cache, to prepare to compute proposer duties.
+    state
+        .build_committee_cache(RelativeEpoch::Current, &beacon_chain.spec)
+        .map_err(BeaconChainError::from)?;
+    // Build the next epoch cache, to prepare to compute attester duties.
+    state
+        .build_committee_cache(RelativeEpoch::Next, &beacon_chain.spec)
+        .map_err(BeaconChainError::from)?;
+
+    // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer shuffling
+    // for the state's current epoch and the committee cache for the state's next epoch.
+    if initial_epoch < state.current_epoch() {
+        // Update the proposer cache.
+        //
+        // We supply the `head_root` as the decision block since the prior `if` statement guarantees
+        // the head root is the latest block from the prior epoch.
         beacon_chain
             .beacon_proposer_cache
             .lock()
@@ -274,6 +281,27 @@ fn advance_head<T: BeaconChainTypes>(
                 state.fork,
             )
             .map_err(BeaconChainError::from)?;
+
+        // Update the attester cache.
+        let shuffling_id = AttestationShufflingId::new(head_root, &state, RelativeEpoch::Next)
+            .map_err(BeaconChainError::from)?;
+        let committee_cache = state
+            .committee_cache(RelativeEpoch::Next)
+            .map_err(BeaconChainError::from)?;
+        beacon_chain
+            .shuffling_cache
+            .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+            .ok_or(BeaconChainError::AttestationCacheLockTimeout)?
+            .insert(shuffling_id.clone(), committee_cache);
+
+        debug!(
+            log,
+            "Primed proposer and attester caches";
+            "head_root" => ?head_root,
+            "next_epoch_shuffling_root" => ?shuffling_id.shuffling_decision_block,
+            "state_epoch" => state.current_epoch(),
+            "current_epoch" => current_slot.epoch(T::EthSpec::slots_per_epoch()),
+        );
     }
 
     let final_slot = state.slot;

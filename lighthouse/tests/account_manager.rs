@@ -599,6 +599,8 @@ fn check_slashing_protection(validator_dir: &TempDir, pubkeys: impl Iterator<Ite
     let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
     let slashing_db = SlashingDatabase::open(&slashing_db_path).unwrap();
     for validator_pk in pubkeys {
-        slashing_db.get_validator_id(&validator_pk).unwrap();
+        slashing_db
+            .get_validator_id(&validator_pk.compress())
+            .unwrap();
     }
 }

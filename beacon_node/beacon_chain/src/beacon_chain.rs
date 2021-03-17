@@ -42,8 +42,11 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
-    common::get_indexed_attestation, per_block_processing,
-    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+    common::get_indexed_attestation,
+    per_block_processing,
+    per_block_processing::errors::AttestationValidationError,
+    per_slot_processing,
+    state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
 };
 use std::borrow::Cow;
@@ -156,6 +159,7 @@ pub struct HeadInfo {
     pub fork: Fork,
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
+    pub proposer_shuffling_decision_root: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -243,7 +247,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
-    pub(crate) beacon_proposer_cache: Mutex<BeaconProposerCache>,
+    pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A list of any hard-coded forks that have been disabled.
@@ -606,6 +610,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// A summarized version of `Self::head` that involves less cloning.
     pub fn head_info(&self) -> Result<HeadInfo, Error> {
         self.with_head(|head| {
+            let proposer_shuffling_decision_root = head
+                .beacon_state
+                .proposer_shuffling_decision_root(head.beacon_block_root)?;
+
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
@@ -615,6 +623,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 fork: head.beacon_state.fork,
                 genesis_time: head.beacon_state.genesis_time,
                 genesis_validators_root: head.beacon_state.genesis_validators_root,
+                proposer_shuffling_decision_root,
             })
         })
     }
@@ -773,6 +782,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(pubkey_cache.get(validator_index).cloned())
     }
 
+    /// As per `Self::validator_pubkey`, but returns `PublicKeyBytes`.
+    pub fn validator_pubkey_bytes(
+        &self,
+        validator_index: usize,
+    ) -> Result<Option<PublicKeyBytes>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
+    }
+
+    /// As per `Self::validator_pubkey_bytes` but will resolve multiple indices at once to avoid
+    /// bouncing the read-lock on the pubkey cache.
+    ///
+    /// Returns a map that may have a length less than `validator_indices.len()` if some indices
+    /// were unable to be resolved.
+    pub fn validator_pubkey_bytes_many(
+        &self,
+        validator_indices: &[usize],
+    ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        let mut map = HashMap::with_capacity(validator_indices.len());
+        for &validator_index in validator_indices {
+            if let Some(pubkey) = pubkey_cache.get_pubkey_bytes(validator_index) {
+                map.insert(validator_index, *pubkey);
+            }
+        }
+        Ok(map)
+    }
+
     /// Returns the block canonical root of the current canonical chain at a given slot.
     ///
     /// Returns `None` if the given slot doesn't exist in the chain.
@@ -803,19 +848,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Returns the attestation duties for a given validator index.
+    /// Returns the attestation duties for the given validator indices using the shuffling cache.
     ///
-    /// Information is read from the current state, so only information from the present and prior
-    /// epoch is available.
-    pub fn validator_attestation_duty(
+    /// An error may be returned if `head_block_root` is a finalized block, this function is only
+    /// designed for operations at the head of the chain.
+    ///
+    /// The returned `Vec` will have the same length as `validator_indices`, any
+    /// non-existing/inactive validators will have `None` values.
+    ///
+    /// ## Notes
+    ///
+    /// This function will try to use the shuffling cache to return the value. If the value is not
+    /// in the shuffling cache, it will be added. Care should be taken not to wash out the
+    /// shuffling cache with historical/useless values.
+    pub fn validator_attestation_duties(
         &self,
-        validator_index: usize,
+        validator_indices: &[u64],
         epoch: Epoch,
-    ) -> Result<Option<AttestationDuty>, Error> {
-        let head_block_root = self.head_beacon_block_root()?;
+        head_block_root: Hash256,
+    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256), Error> {
+        self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
+            let duties = validator_indices
+                .iter()
+                .map(|validator_index| {
+                    let validator_index = *validator_index as usize;
+                    committee_cache.get_attestation_duties(validator_index)
+                })
+                .collect();
 
-        self.with_committee_cache(head_block_root, epoch, |committee_cache| {
-            Ok(committee_cache.get_attestation_duties(validator_index))
+            Ok((duties, dependent_root))
         })
     }
 
@@ -867,6 +928,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 index,
                 head.beacon_block_root,
                 Cow::Borrowed(&head.beacon_state),
+                head.beacon_state_root(),
             )
         } else {
             // We disallow producing attestations *prior* to the current head since such an
@@ -902,6 +964,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         index: CommitteeIndex,
         beacon_block_root: Hash256,
         mut state: Cow<BeaconState<T::EthSpec>>,
+        state_root: Hash256,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -909,13 +972,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Error::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            while mut_state.current_epoch() < epoch {
-                // Note: here we provide `Hash256::zero()` as the root of the current state. This
-                // has the effect of setting the values of all historic state roots to the zero
-                // hash. This is an optimization, we don't need the state roots so why calculate
-                // them?
-                per_slot_processing(mut_state, Some(Hash256::zero()), &self.spec)?;
-            }
+            // Only perform a "partial" state advance since we do not require the state roots to be
+            // accurate.
+            partial_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                &self.spec,
+            )?;
             mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         }
 
@@ -1861,7 +1925,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn produce_block_on_state(
         &self,
         mut state: BeaconState<T::EthSpec>,
-        mut state_root_opt: Option<Hash256>,
+        state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
@@ -1880,15 +1944,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
-        // If required, transition the new state to the present slot.
-        //
-        // Note: supplying some `state_root` when it it is known would be a cheap and easy
-        // optimization.
-        while state.slot < produce_at_slot {
-            // Using `state_root.take()` here ensures that we consume the `state_root` on the first
-            // iteration and never use it again.
-            per_slot_processing(&mut state, state_root_opt.take(), &self.spec)?;
-        }
+
+        // Ensure the state has performed a complete transition into the required slot.
+        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+
         drop(slot_timer);
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -2363,7 +2422,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
-    /// `head_block_root`.
+    /// `head_block_root`. The `map_fn` will be supplied two values:
+    ///
+    /// - `&CommitteeCache`: the committee cache that serves the given parameters.
+    /// - `Hash256`: the "shuffling decision root" which uniquely identifies the `CommitteeCache`.
     ///
     /// It's not necessary that `head_block_root` matches our current view of the chain, it can be
     /// any block that is:
@@ -2376,7 +2438,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Important
     ///
-    /// This function is **not** suitable for determining proposer duties.
+    /// This function is **not** suitable for determining proposer duties (only attester duties).
     ///
     /// ## Notes
     ///
@@ -2394,7 +2456,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         map_fn: F,
     ) -> Result<R, Error>
     where
-        F: Fn(&CommitteeCache) -> Result<R, Error>,
+        F: Fn(&CommitteeCache, Hash256) -> Result<R, Error>,
     {
         let head_block = self
             .fork_choice
@@ -2425,7 +2487,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(cache_wait_timer);
 
         if let Some(committee_cache) = shuffling_cache.get(&shuffling_id) {
-            map_fn(committee_cache)
+            map_fn(committee_cache, shuffling_id.shuffling_decision_block)
         } else {
             // Drop the shuffling cache to avoid holding the lock for any longer than
             // required.
@@ -2434,33 +2496,80 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             debug!(
                 self.log,
                 "Committee cache miss";
-                "shuffling_epoch" => shuffling_epoch.as_u64(),
+                "shuffling_id" => ?shuffling_epoch,
                 "head_block_root" => head_block_root.to_string(),
             );
 
             let state_read_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
-            let mut state = self
-                .store
-                .get_inconsistent_state_for_attestation_verification_only(
-                    &head_block.state_root,
-                    Some(head_block.slot),
-                )?
-                .ok_or(Error::MissingBeaconState(head_block.state_root))?;
+            // If the head of the chain can serve this request, use it.
+            //
+            // This code is a little awkward because we need to ensure that the head we read and
+            // the head we copy is identical. Taking one lock to read the head values and another
+            // to copy the head is liable to race-conditions.
+            let head_state_opt = self.with_head(|head| {
+                if head.beacon_block_root == head_block_root {
+                    Ok(Some((
+                        head.beacon_state
+                            .clone_with(CloneConfig::committee_caches_only()),
+                        head.beacon_state_root(),
+                    )))
+                } else {
+                    Ok::<_, Error>(None)
+                }
+            })?;
+
+            // If the head state is useful for this request, use it. Otherwise, read a state from
+            // disk.
+            let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
+                (state, state_root)
+            } else {
+                let state_root = head_block.state_root;
+                let state = self
+                    .store
+                    .get_inconsistent_state_for_attestation_verification_only(
+                        &state_root,
+                        Some(head_block.slot),
+                    )?
+                    .ok_or(Error::MissingBeaconState(head_block.state_root))?;
+                (state, state_root)
+            };
+
+            /*
+             * IMPORTANT
+             *
+             * Since it's possible that
+             * `Store::get_inconsistent_state_for_attestation_verification_only` was used to obtain
+             * the state, we cannot rely upon the following fields:
+             *
+             * - `state.state_roots`
+             * - `state.block_roots`
+             *
+             * These fields should not be used for the rest of this function.
+             */
 
             metrics::stop_timer(state_read_timer);
             let state_skip_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
-            while state.current_epoch() + 1 < shuffling_epoch {
-                // Here we tell `per_slot_processing` to skip hashing the state and just
-                // use the zero hash instead.
-                //
-                // The state roots are not useful for the shuffling, so there's no need to
-                // compute them.
-                per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)
-                    .map_err(Error::from)?;
+            // If the state is in an earlier epoch, advance it. If it's from a later epoch, reject
+            // it.
+            if state.current_epoch() + 1 < shuffling_epoch {
+                // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to
+                // only advance into the slot prior to the `shuffling_epoch`.
+                let target_slot = shuffling_epoch
+                    .saturating_sub(1_u64)
+                    .start_slot(T::EthSpec::slots_per_epoch());
+
+                // Advance the state into the required slot, using the "partial" method since the state
+                // roots are not relevant for the shuffling.
+                partial_state_advance(&mut state, Some(state_root), target_slot, &self.spec)?;
+            } else if state.current_epoch() > shuffling_epoch {
+                return Err(Error::InvalidStateForShuffling {
+                    state_epoch: state.current_epoch(),
+                    shuffling_epoch,
+                });
             }
 
             metrics::stop_timer(state_skip_timer);
@@ -2473,6 +2582,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
             let committee_cache = state.committee_cache(relative_epoch)?;
+            let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
@@ -2481,7 +2591,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             metrics::stop_timer(committee_building_timer);
 
-            map_fn(&committee_cache)
+            map_fn(&committee_cache, shuffling_decision_block)
         }
     }
 

@@ -60,7 +60,9 @@ use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing,
     per_epoch_processing::EpochProcessingSummary,
-    per_slot_processing, BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
+    per_slot_processing,
+    state_advance::partial_state_advance,
+    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
 };
 use std::borrow::Cow;
 use std::convert::TryFrom;
@@ -351,8 +353,12 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         .map(|(_, block)| block.slot())
         .unwrap_or_else(|| slot);
 
-    let state =
-        cheap_state_advance_to_obtain_committees(&mut parent.pre_state, highest_slot, &chain.spec)?;
+    let state = cheap_state_advance_to_obtain_committees(
+        &mut parent.pre_state,
+        parent.beacon_state_root,
+        highest_slot,
+        &chain.spec,
+    )?;
 
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
@@ -564,7 +570,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let proposer_opt = chain
             .beacon_proposer_cache
             .lock()
-            .get::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
+            .get_slot::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
         let (expected_proposer, fork, parent, block) = if let Some(proposer) = proposer_opt {
             // The proposer index was cached and we can return it without needing to load the
             // parent.
@@ -586,6 +592,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             // The state produced is only valid for determining proposer/attester shuffling indices.
             let state = cheap_state_advance_to_obtain_committees(
                 &mut parent.pre_state,
+                parent.beacon_state_root,
                 block.slot(),
                 &chain.spec,
             )?;
@@ -694,6 +701,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let state = cheap_state_advance_to_obtain_committees(
             &mut parent.pre_state,
+            parent.beacon_state_root,
             block.slot(),
             &chain.spec,
         )?;
@@ -738,6 +746,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let state = cheap_state_advance_to_obtain_committees(
             &mut parent.pre_state,
+            parent.beacon_state_root,
             block.slot(),
             &chain.spec,
         )?;
@@ -1280,6 +1289,7 @@ fn load_parent<T: BeaconChainTypes>(
                 beacon_block: parent_block,
                 beacon_block_root: root,
                 pre_state: parent_state,
+                beacon_state_root: Some(parent_state_root),
             },
             block,
         ))
@@ -1303,6 +1313,7 @@ fn load_parent<T: BeaconChainTypes>(
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
 fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state: &'a mut BeaconState<E>,
+    state_root_opt: Option<Hash256>,
     block_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<Cow<'a, BeaconState<E>>, BlockError<E>> {
@@ -1319,14 +1330,12 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         })
     } else {
         let mut state = state.clone_with(CloneConfig::committee_caches_only());
+        let target_slot = block_epoch.start_slot(E::slots_per_epoch());
 
-        while state.current_epoch() < block_epoch {
-            // Don't calculate state roots since they aren't required for calculating
-            // shuffling (achieved by providing Hash256::zero()).
-            per_slot_processing(&mut state, Some(Hash256::zero()), spec).map_err(|e| {
-                BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e))
-            })?;
-        }
+        // Advance the state into the same epoch as the block. Use the "partial" method since state
+        // roots are not important for proposer/attester shuffling.
+        partial_state_advance(&mut state, state_root_opt, target_slot, spec)
+            .map_err(|e| BlockError::BeaconChainError(BeaconChainError::from(e)))?;
 
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 

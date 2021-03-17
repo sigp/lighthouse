@@ -1,3 +1,4 @@
+use crate::generic_public_key_bytes::GenericPublicKeyBytes;
 use crate::Error;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -52,6 +53,11 @@ where
     /// Returns `self.serialize()` as a `0x`-prefixed hex string.
     pub fn to_hex_string(&self) -> String {
         format!("{:?}", self)
+    }
+
+    /// Returns `self` in the compressed `PublicKeyBytes` representation.
+    pub fn compress(&self) -> GenericPublicKeyBytes<Pub> {
+        GenericPublicKeyBytes::from(self)
     }
 
     /// Serialize `self` as compressed bytes.

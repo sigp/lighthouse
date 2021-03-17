@@ -7073,6 +7073,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "ring",
+ "safe_arith",
  "scrypt",
  "serde",
  "serde_derive",

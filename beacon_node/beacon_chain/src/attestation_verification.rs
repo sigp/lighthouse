@@ -1073,7 +1073,7 @@ where
     }
 
     chain
-        .with_committee_cache(target.root, attestation_epoch, |committee_cache| {
+        .with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
             let committees_per_slot = committee_cache.committees_per_slot();
 
             Ok(committee_cache

@@ -236,7 +236,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .public_key()
             .ok_or_else(|| format!("Keystore public key is invalid: {}", keystore.pubkey()))?;
         slashing_protection
-            .register_validator(&voting_pubkey)
+            .register_validator(voting_pubkey.compress())
             .map_err(|e| {
                 format!(
                     "Error registering validator {}: {:?}",

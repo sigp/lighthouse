@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
-use types::{Graffiti, Keypair, PublicKey};
+use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
@@ -284,7 +284,7 @@ pub struct InitializedValidators {
     /// The directory that the `self.definitions` will be saved into.
     validators_dir: PathBuf,
     /// The canonical set of validators.
-    validators: HashMap<PublicKey, InitializedValidator>,
+    validators: HashMap<PublicKeyBytes, InitializedValidator>,
     /// For logging via `slog`.
     log: Logger,
 }
@@ -317,13 +317,13 @@ impl InitializedValidators {
     }
 
     /// Iterate through all **enabled** voting public keys in `self`.
-    pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKey> {
+    pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
         self.validators.iter().map(|(pubkey, _)| pubkey)
     }
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if that validator is known to
     /// `self` **and** the validator is enabled.
-    pub fn voting_keypair(&self, voting_public_key: &PublicKey) -> Option<&Keypair> {
+    pub fn voting_keypair(&self, voting_public_key: &PublicKeyBytes) -> Option<&Keypair> {
         self.validators
             .get(voting_public_key)
             .map(|v| v.voting_keypair())
@@ -366,7 +366,7 @@ impl InitializedValidators {
     }
 
     /// Returns the `graffiti` for a given public key specified in the `ValidatorDefinitions`.
-    pub fn graffiti(&self, public_key: &PublicKey) -> Option<Graffiti> {
+    pub fn graffiti(&self, public_key: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.get(public_key).and_then(|v| v.graffiti)
     }
 
@@ -513,7 +513,9 @@ impl InitializedValidators {
                         voting_keystore_path,
                         ..
                     } => {
-                        if self.validators.contains_key(&def.voting_public_key) {
+                        let pubkey_bytes = def.voting_public_key.compress();
+
+                        if self.validators.contains_key(&pubkey_bytes) {
                             continue;
                         }
 
@@ -536,7 +538,7 @@ impl InitializedValidators {
                                     .map(|l| l.path().to_owned());
 
                                 self.validators
-                                    .insert(init.voting_public_key().clone(), init);
+                                    .insert(init.voting_public_key().compress(), init);
                                 info!(
                                     self.log,
                                     "Enabled validator";
@@ -569,7 +571,7 @@ impl InitializedValidators {
                     }
                 }
             } else {
-                self.validators.remove(&def.voting_public_key);
+                self.validators.remove(&def.voting_public_key.compress());
                 match &def.signing_definition {
                     SigningDefinition::LocalKeystore {
                         voting_keystore_path,
