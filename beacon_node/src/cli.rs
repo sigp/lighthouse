@@ -242,7 +242,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("explorer-metrics")
                 .help("Enable the monitoring service for sending system metrics to a remote endpoint. \
                         This can be used to monitor your setup on services like the beaconcha.in api \
-                        Should enable the beacon and validator metrics to get all process data")
+                        Should enable metrics to get all process data")
                 .takes_value(false)
                 .requires_all(&["metrics", "explorer-address"]),
         )

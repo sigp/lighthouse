@@ -378,7 +378,7 @@ where
 
     /// Start the explorer client which periodically sends beacon
     /// and system metrics to the configured endpoint.
-    pub fn explorer_client(self, config: explorer_api::Config) -> Result<Self, String> {
+    pub fn explorer_client(self, config: &explorer_api::Config) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()

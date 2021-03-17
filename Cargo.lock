@@ -7094,6 +7094,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "exit-future",
+ "explorer_api",
  "fallback",
  "futures 0.3.13",
  "hex",

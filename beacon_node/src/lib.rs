@@ -82,7 +82,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
         };
 
-        let builder = if let Some(explorer_config) = client_config.explorer_metrics {
+        let builder = if let Some(explorer_config) = &client_config.explorer_metrics {
             builder.explorer_client(explorer_config)?
         } else {
             builder

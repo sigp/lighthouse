@@ -64,16 +64,18 @@ pub struct ExplorerHttpClient {
 }
 
 impl ExplorerHttpClient {
-    pub fn new(config: Config, log: slog::Logger) -> Result<Self, String> {
+    pub fn new(config: &Config, log: slog::Logger) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
             beacon_endpoint: config
                 .beacon_endpoint
+                .as_ref()
                 .map(|u| Url::parse(&format!("{}/{}", u, BEACON_ENDPOINT)))
                 .transpose()
                 .map_err(|e| format!("Invalid beacon endpoint: {}", e))?,
             validator_endpoint: config
                 .validator_endpoint
+                .as_ref()
                 .map(|u| Url::parse(&format!("{}/{}", u, VALIDATOR_ENDPOINT)))
                 .transpose()
                 .map_err(|e| format!("Invalid validator endpoint: {}", e))?,
