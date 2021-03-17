@@ -11,7 +11,7 @@ use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::time::{interval_at, sleep_until, Duration, Instant};
+use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
@@ -137,32 +137,31 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             "next_update_millis" => duration_to_next_slot.as_millis()
         );
 
-        let mut interval = {
-            // Note: `interval_at` panics if `slot_duration` is 0
-            interval_at(
-                Instant::now() + duration_to_next_slot + slot_duration / 3,
-                slot_duration,
-            )
-        };
-
         let executor = self.context.executor.clone();
 
         let interval_fut = async move {
             loop {
-                interval.tick().await;
-                let log = self.context.log();
+                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
+                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    let log = self.context.log();
 
-                if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
-                    crit!(
-                        log,
-                        "Failed to spawn attestation tasks";
-                        "error" => e
-                    )
+                    if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                        crit!(
+                            log,
+                            "Failed to spawn attestation tasks";
+                            "error" => e
+                        )
+                    } else {
+                        trace!(
+                            log,
+                            "Spawned attestation tasks";
+                        )
+                    }
                 } else {
-                    trace!(
-                        log,
-                        "Spawned attestation tasks";
-                    )
+                    error!(log, "Failed to read slot clock");
+                    // If we can't read the slot clock, just wait another slot.
+                    sleep(slot_duration).await;
+                    continue;
                 }
             }
         };

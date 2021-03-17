@@ -3,7 +3,7 @@
 use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types};
-use state_processing::per_slot_processing;
+use state_processing::state_advance::partial_state_advance;
 use types::{
     AttestationDuty, BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, RelativeEpoch,
 };
@@ -35,7 +35,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
 }
 
 fn cached_attestation_duties<T: BeaconChainTypes>(
-    epoch: Epoch,
+    request_epoch: Epoch,
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
@@ -44,24 +44,25 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let (duties, dependent_root) = chain
-        .validator_attestation_duties(&request_indices, epoch, head.block_root)
+        .validator_attestation_duties(&request_indices, request_epoch, head.block_root)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    api_duties(duties, request_indices, dependent_root, chain)
+    convert_to_api_response(duties, request_indices, dependent_root, chain)
 }
 
 /// Compute some attester duties by reading a `BeaconState` from disk, completely ignoring the
 /// shuffling cache.
 fn compute_historic_attester_duties<T: BeaconChainTypes>(
-    epoch: Epoch,
+    request_epoch: Epoch,
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    // It's possible that `epoch` is "historical" (i.e., early than the current epoch) but still
-    // later than the head.
+    // If the head is quite old then it might still be relevant for a historical request.
+    //
+    // Use the `with_head` function to read & clone in a single call to avoid race conditions.
     let state_opt = chain
         .with_head(|head| {
-            if head.beacon_state.current_epoch() < epoch {
+            if head.beacon_state.current_epoch() <= request_epoch {
                 Ok(Some((
                     head.beacon_state_root(),
                     head.beacon_state
@@ -76,41 +77,41 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
     let mut state = if let Some((state_root, mut state)) = state_opt {
         // If we've loaded the head state it might be from a previous epoch, ensure it's in a
         // suitable epoch.
-        ensure_state_knows_duties_for_epoch(&mut state, state_root, epoch, &chain.spec)?;
+        ensure_state_knows_attester_duties_for_epoch(
+            &mut state,
+            state_root,
+            request_epoch,
+            &chain.spec,
+        )?;
         state
     } else {
-        StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
+        StateId::slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
     };
 
-    // Ensure the state lookup was correct.
-    if state.current_epoch() != epoch && state.current_epoch() + 1 != epoch {
+    // Sanity-check the state lookup.
+    if !(state.current_epoch() == request_epoch || state.current_epoch() + 1 == request_epoch) {
         return Err(warp_utils::reject::custom_server_error(format!(
             "state epoch {} not suitable for request epoch {}",
             state.current_epoch(),
-            epoch
+            request_epoch
         )));
     }
 
-    let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|e| {
-        warp_utils::reject::custom_server_error(format!("invalid epoch for state: {:?}", e))
-    })?;
+    let relative_epoch =
+        RelativeEpoch::from_epoch(state.current_epoch(), request_epoch).map_err(|e| {
+            warp_utils::reject::custom_server_error(format!("invalid epoch for state: {:?}", e))
+        })?;
 
     state
         .build_committee_cache(relative_epoch, &chain.spec)
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    let dependent_slot = state.attester_shuffling_decision_slot(relative_epoch);
-    let dependent_root = if state.slot == dependent_slot {
-        // The only scenario where this can be true is when there is no prior epoch to the current.
-        // In that case, the genesis block decides the shuffling root.
-        chain.genesis_block_root
-    } else {
-        *state
-            .get_block_root(dependent_slot)
-            .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::beacon_chain_error)?
-    };
+    let dependent_root = state
+        // The only block which decides its own shuffling is the genesis block.
+        .attester_shuffling_decision_root(chain.genesis_block_root, relative_epoch)
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let duties = request_indices
         .iter()
@@ -122,10 +123,10 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .collect::<Result<_, _>>()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    api_duties(duties, request_indices, dependent_root, chain)
+    convert_to_api_response(duties, request_indices, dependent_root, chain)
 }
 
-fn ensure_state_knows_duties_for_epoch<E: EthSpec>(
+fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
     target_epoch: Epoch,
@@ -138,15 +139,15 @@ fn ensure_state_knows_duties_for_epoch<E: EthSpec>(
             state.current_epoch(),
             target_epoch
         )));
-    }
+    } else if state.current_epoch() + 1 < target_epoch {
+        // Since there's a one-epoch look-head on attester duties, it suffices to only advance to
+        // the prior epoch.
+        let target_slot = target_epoch
+            .saturating_sub(1_u64)
+            .start_slot(E::slots_per_epoch());
 
-    let mut state_root_opt = Some(state_root);
-
-    // Advance the state into the requested epoch.
-    while state.current_epoch() < target_epoch - 1 {
-        // Don't calculate state roots since they aren't required for calculating
-        // shuffling (achieved by using `state_root_opt.take()`).
-        per_slot_processing(state, state_root_opt.take(), spec)
+        // A "partial" state advance is adequate since attester duties don't rely on state roots.
+        partial_state_advance(state, Some(state_root), target_slot, spec)
             .map_err(BeaconChainError::from)
             .map_err(warp_utils::reject::beacon_chain_error)?;
     }
@@ -154,7 +155,9 @@ fn ensure_state_knows_duties_for_epoch<E: EthSpec>(
     Ok(())
 }
 
-fn api_duties<T: BeaconChainTypes>(
+/// Convert the internal representation of attester duties into the format returned to the HTTP
+/// client.
+fn convert_to_api_response<T: BeaconChainTypes>(
     duties: Vec<Option<AttestationDuty>>,
     indices: &[u64],
     dependent_root: Hash256,

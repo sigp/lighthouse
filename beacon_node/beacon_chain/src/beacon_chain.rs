@@ -42,8 +42,11 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
-    common::get_indexed_attestation, per_block_processing,
-    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+    common::get_indexed_attestation,
+    per_block_processing,
+    per_block_processing::errors::AttestationValidationError,
+    per_slot_processing,
+    state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
 };
 use std::borrow::Cow;
@@ -156,7 +159,6 @@ pub struct HeadInfo {
     pub fork: Fork,
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
-    pub validator_count: usize,
     pub proposer_shuffling_decision_root: Hash256,
 }
 
@@ -608,16 +610,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// A summarized version of `Self::head` that involves less cloning.
     pub fn head_info(&self) -> Result<HeadInfo, Error> {
         self.with_head(|head| {
-            let proposer_shuffling_decision_slot =
-                head.beacon_state.proposer_shuffling_decision_slot();
-            let proposer_shuffling_decision_root =
-                if proposer_shuffling_decision_slot == head.beacon_block.slot() {
-                    head.beacon_block_root
-                } else {
-                    *head
-                        .beacon_state
-                        .get_block_root(proposer_shuffling_decision_slot)?
-                };
+            let proposer_shuffling_decision_root = head
+                .beacon_state
+                .proposer_shuffling_decision_root(head.beacon_block_root)?;
 
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
@@ -628,7 +623,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 fork: head.beacon_state.fork,
                 genesis_time: head.beacon_state.genesis_time,
                 genesis_validators_root: head.beacon_state.genesis_validators_root,
-                validator_count: head.beacon_state.validators.len(),
                 proposer_shuffling_decision_root,
             })
         })
@@ -854,10 +848,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Returns the attestation duties for a given validator index.
+    /// Returns the attestation duties for the given validator indices using the shuffling cache.
     ///
-    /// Information is read from the current state, so only information from the present and prior
-    /// epoch is available.
+    /// An error may be returned if `head_block_root` is a finalized block, this function is only
+    /// designed for operations at the head of the chain.
+    ///
+    /// The returned `Vec` will have the same length as `validator_indices`, any
+    /// non-existing/inactive validators will have `None` values.
+    ///
+    /// ## Notes
+    ///
+    /// This function will try to use the shuffling cache to return the value. If the value is not
+    /// in the shuffling cache, it will be added. Care should be taken not to wash out the
+    /// shuffling cache with historical/useless values.
     pub fn validator_attestation_duties(
         &self,
         validator_indices: &[u64],
@@ -925,6 +928,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 index,
                 head.beacon_block_root,
                 Cow::Borrowed(&head.beacon_state),
+                head.beacon_state_root(),
             )
         } else {
             // We disallow producing attestations *prior* to the current head since such an
@@ -960,6 +964,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         index: CommitteeIndex,
         beacon_block_root: Hash256,
         mut state: Cow<BeaconState<T::EthSpec>>,
+        state_root: Hash256,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -967,13 +972,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Error::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            while mut_state.current_epoch() < epoch {
-                // Note: here we provide `Hash256::zero()` as the root of the current state. This
-                // has the effect of setting the values of all historic state roots to the zero
-                // hash. This is an optimization, we don't need the state roots so why calculate
-                // them?
-                per_slot_processing(mut_state, Some(Hash256::zero()), &self.spec)?;
-            }
+            // Only perform a "partial" state advance since we do not require the state roots to be
+            // accurate.
+            partial_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                &self.spec,
+            )?;
             mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         }
 
@@ -1919,7 +1925,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn produce_block_on_state(
         &self,
         mut state: BeaconState<T::EthSpec>,
-        mut state_root_opt: Option<Hash256>,
+        state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
@@ -1938,15 +1944,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
-        // If required, transition the new state to the present slot.
-        //
-        // Note: supplying some `state_root` when it it is known would be a cheap and easy
-        // optimization.
-        while state.slot < produce_at_slot {
-            // Using `state_root.take()` here ensures that we consume the `state_root` on the first
-            // iteration and never use it again.
-            per_slot_processing(&mut state, state_root_opt.take(), &self.spec)?;
-        }
+
+        // Ensure the state has performed a complete transition into the required slot.
+        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+
         drop(slot_timer);
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -2421,7 +2422,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
-    /// `head_block_root`.
+    /// `head_block_root`. The `map_fn` will be supplied two values:
+    ///
+    /// - `&CommitteeCache`: the committee cache that serves the given parameters.
+    /// - `Hash256`: the "shuffling decision root" which uniquely identifies the `CommitteeCache`.
     ///
     /// It's not necessary that `head_block_root` matches our current view of the chain, it can be
     /// any block that is:
@@ -2434,7 +2438,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Important
     ///
-    /// This function is **not** suitable for determining proposer duties.
+    /// This function is **not** suitable for determining proposer duties (only attester duties).
     ///
     /// ## Notes
     ///
@@ -2499,7 +2503,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let state_read_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
-            let state_opt = self.with_head(|head| {
+            // If the head of the chain can serve this request, use it.
+            //
+            // This code is a little awkward because we need to ensure that the head we read and
+            // the head we copy is identical. Taking one lock to read the head values and another
+            // to copy the head is liable to race-conditions.
+            let head_state_opt = self.with_head(|head| {
                 if head.beacon_block_root == head_block_root {
                     Ok(Some((
                         head.beacon_state
@@ -2511,7 +2520,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             })?;
 
-            let (mut state, state_root) = if let Some((state, state_root)) = state_opt {
+            // If the head state is useful for this request, use it. Otherwise, read a state from
+            // disk.
+            let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
                 let state_root = head_block.state_root;
@@ -2525,19 +2536,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 (state, state_root)
             };
 
+            /*
+             * IMPORTANT
+             *
+             * Since it's possible that
+             * `Store::get_inconsistent_state_for_attestation_verification_only` was used to obtain
+             * the state, we cannot rely upon the following fields:
+             *
+             * - `state.state_roots`
+             * - `state.block_roots`
+             *
+             * These fields should not be used for the rest of this function.
+             */
+
             metrics::stop_timer(state_read_timer);
             let state_skip_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
-            let mut state_root_opt = Some(state_root);
-            while state.current_epoch() + 1 < shuffling_epoch {
-                // With `state_root_opt.take()` we choose to skip hashing future states and just
-                // use the zero hash instead.
-                //
-                // The state roots are not useful for the shuffling, so there's no need to
-                // compute them.
-                per_slot_processing(&mut state, state_root_opt.take(), &self.spec)
-                    .map_err(Error::from)?;
+            // If the state is in an earlier epoch, advance it. If it's from a later epoch, reject
+            // it.
+            if state.current_epoch() + 1 < shuffling_epoch {
+                // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to
+                // only advance into the slot prior to the `shuffling_epoch`.
+                let target_slot = shuffling_epoch
+                    .saturating_sub(1_u64)
+                    .start_slot(T::EthSpec::slots_per_epoch());
+
+                // Advance the state into the required slot, using the "partial" method since the state
+                // roots are not relevant for the shuffling.
+                partial_state_advance(&mut state, Some(state_root), target_slot, &self.spec)?;
+            } else if state.current_epoch() > shuffling_epoch {
+                return Err(Error::InvalidStateForShuffling {
+                    state_epoch: state.current_epoch(),
+                    shuffling_epoch,
+                });
             }
 
             metrics::stop_timer(state_skip_timer);

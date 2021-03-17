@@ -14,14 +14,18 @@ pub struct PreProcessingSnapshot<T: EthSpec> {
     /// advanced forward one slot using `per_slot_processing`. This state is "primed and ready" for
     /// the application of another block.
     pub pre_state: BeaconState<T>,
+    /// This value is only set to `Some` if the `pre_state` was *not* advanced forward.
+    pub beacon_state_root: Option<Hash256>,
     pub beacon_block: SignedBeaconBlock<T>,
     pub beacon_block_root: Hash256,
 }
 
 impl<T: EthSpec> From<BeaconSnapshot<T>> for PreProcessingSnapshot<T> {
     fn from(snapshot: BeaconSnapshot<T>) -> Self {
+        let beacon_state_root = Some(snapshot.beacon_state_root());
         Self {
             pre_state: snapshot.beacon_state,
+            beacon_state_root,
             beacon_block: snapshot.beacon_block,
             beacon_block_root: snapshot.beacon_block_root,
         }
@@ -47,10 +51,15 @@ impl<T: EthSpec> CacheItem<T> {
     }
 
     pub fn into_pre_state(self) -> PreProcessingSnapshot<T> {
+        // Do not include the beacon state root if the state has been advanced.
+        let beacon_state_root =
+            Some(self.beacon_block.state_root()).filter(|_| self.pre_state.is_none());
+
         PreProcessingSnapshot {
             beacon_block: self.beacon_block,
             beacon_block_root: self.beacon_block_root,
             pre_state: self.pre_state.unwrap_or(self.beacon_state),
+            beacon_state_root,
         }
     }
 }

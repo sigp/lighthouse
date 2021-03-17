@@ -497,6 +497,103 @@ fn validator_import_launchpad() {
     );
 }
 
+#[test]
+fn validator_import_launchpad_password_file() {
+    const PASSWORD: &str = "cats";
+    const PASSWORD_FILE_NAME: &str = "pw_is_cats.txt";
+    const KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0_0-1595406747.json";
+    const NOT_KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0-1595406747.json";
+
+    let src_dir = tempdir().unwrap();
+    let dst_dir = tempdir().unwrap();
+
+    let keypair = Keypair::random();
+    let keystore = KeystoreBuilder::new(&keypair, PASSWORD.as_bytes(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let dst_keystore_dir = dst_dir.path().join(format!("0x{}", keystore.pubkey()));
+
+    // Create a keystore in the src dir.
+    File::create(src_dir.path().join(KEYSTORE_NAME))
+        .map(|mut file| keystore.to_json_writer(&mut file).unwrap())
+        .unwrap();
+
+    // Create a not-keystore file in the src dir.
+    File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
+
+    // Create a password file in the src dir.
+    File::create(src_dir.path().join(PASSWORD_FILE_NAME))
+        .map(|mut file| file.write(PASSWORD.as_ref()))
+        .unwrap()
+        .unwrap();
+
+    let mut child = validator_cmd()
+        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        .arg(dst_dir.path().as_os_str())
+        .arg(IMPORT_CMD)
+        .arg(format!("--{}", import::DIR_FLAG))
+        .arg(src_dir.path().as_os_str())
+        .arg(format!("--{}", import::REUSE_PASSWORD_FLAG))
+        .arg(format!("--{}", PASSWORD_FLAG))
+        .arg(src_dir.path().join(PASSWORD_FILE_NAME).as_os_str())
+        .spawn()
+        .unwrap();
+
+    child.wait().unwrap();
+
+    assert!(
+        src_dir.path().join(KEYSTORE_NAME).exists(),
+        "keystore should not be removed from src dir"
+    );
+    assert!(
+        src_dir.path().join(NOT_KEYSTORE_NAME).exists(),
+        "not-keystore should not be removed from src dir."
+    );
+    assert!(
+        src_dir.path().join(PASSWORD_FILE_NAME).exists(),
+        "password file should not be removed from src dir."
+    );
+
+    let voting_keystore_path = dst_keystore_dir.join(KEYSTORE_NAME);
+
+    assert!(
+        voting_keystore_path.exists(),
+        "keystore should be present in dst dir"
+    );
+    assert!(
+        !dst_dir.path().join(NOT_KEYSTORE_NAME).exists(),
+        "not-keystore should not be present in dst dir"
+    );
+    assert!(
+        !dst_dir.path().join(PASSWORD_FILE_NAME).exists(),
+        "password file should not be present in dst dir"
+    );
+
+    // Validator should be registered with slashing protection.
+    check_slashing_protection(&dst_dir, std::iter::once(keystore.public_key().unwrap()));
+
+    let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
+
+    let expected_def = ValidatorDefinition {
+        enabled: true,
+        description: "".into(),
+        voting_public_key: keystore.public_key().unwrap(),
+        graffiti: None,
+        signing_definition: SigningDefinition::LocalKeystore {
+            voting_keystore_path,
+            voting_keystore_password_path: None,
+            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+        },
+    };
+
+    assert!(
+        defs.as_slice() == &[expected_def],
+        "validator defs file should be accurate"
+    );
+}
+
 /// Check that all of the given pubkeys have been registered with slashing protection.
 fn check_slashing_protection(validator_dir: &TempDir, pubkeys: impl Iterator<Item = PublicKey>) {
     let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);

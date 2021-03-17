@@ -283,24 +283,8 @@ fn advance_head<T: BeaconChainTypes>(
             .map_err(BeaconChainError::from)?;
 
         // Update the attester cache.
-        let shuffling_decision_slot = state.attester_shuffling_decision_slot(RelativeEpoch::Next);
-        let shuffling_decision_block = if state.slot == shuffling_decision_slot {
-            // The only scenario where this can be true is when there is no prior epoch to the current.
-            // In that case, the genesis block decides the shuffling root.
-            //
-            // It *should* be impossible to trigger this path since this code is gated by an `if`
-            // statement which implicitly ensures that the state is later than genesis, but this
-            // check is left for defensive purposes.
-            beacon_chain.genesis_block_root
-        } else {
-            *state
-                .get_block_root(shuffling_decision_slot)
-                .map_err(BeaconChainError::from)?
-        };
-        let shuffling_id = AttestationShufflingId {
-            shuffling_epoch: state.next_epoch().map_err(BeaconChainError::from)?,
-            shuffling_decision_block,
-        };
+        let shuffling_id = AttestationShufflingId::new(head_root, &state, RelativeEpoch::Next)
+            .map_err(BeaconChainError::from)?;
         let committee_cache = state
             .committee_cache(RelativeEpoch::Next)
             .map_err(BeaconChainError::from)?;
@@ -308,13 +292,13 @@ fn advance_head<T: BeaconChainTypes>(
             .shuffling_cache
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::AttestationCacheLockTimeout)?
-            .insert(shuffling_id, committee_cache);
+            .insert(shuffling_id.clone(), committee_cache);
 
         debug!(
             log,
             "Primed proposer and attester caches";
             "head_root" => ?head_root,
-            "next_epoch_shuffling_root" => ?shuffling_decision_block,
+            "next_epoch_shuffling_root" => ?shuffling_id.shuffling_decision_block,
             "state_epoch" => state.current_epoch(),
             "current_epoch" => current_slot.epoch(T::EthSpec::slots_per_epoch()),
         );

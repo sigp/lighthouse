@@ -3,7 +3,7 @@ use bls::{Keypair, PublicKey};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2::{
-    types::{GenesisData, StateId, ValidatorId, ValidatorStatus},
+    types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
     BeaconNodeHttpClient, Url,
 };
 use eth2_keystore::Keystore;
@@ -12,6 +12,7 @@ use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::time::sleep;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
 
 pub const CMD: &str = "exit";
@@ -165,6 +166,44 @@ async fn publish_voluntary_exit<E: EthSpec>(
             "Did not publish voluntary exit for validator {}. Please check that you entered the correct exit phrase.",
             keypair.pk
         );
+        return Ok(());
+    }
+
+    loop {
+        // Sleep for a slot duration and then check if voluntary exit was processed
+        // by checking the validator status.
+        sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+
+        let validator_data = get_validator_data(client, &keypair.pk).await?;
+        match validator_data.status {
+            ValidatorStatus::ActiveExiting => {
+                let exit_epoch = validator_data.validator.exit_epoch;
+                let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
+                let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
+                    .ok_or("Failed to get current epoch. Please check your system time")?;
+                eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
+                        Finalization may take several minutes or longer. Before finalization there is a low \
+                        probability that the exit may be reverted.");
+                eprintln!(
+                    "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
+                    current_epoch, exit_epoch, withdrawal_epoch
+                );
+                eprintln!("Please keep your validator running till exit epoch");
+                eprintln!(
+                    "Exit epoch in approximately {} secs",
+                    (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
+                );
+                break;
+            }
+            ValidatorStatus::ExitedSlashed | ValidatorStatus::ExitedUnslashed => {
+                eprintln!(
+                    "Validator has exited on epoch: {}",
+                    validator_data.validator.exit_epoch
+                );
+                break;
+            }
+            _ => eprintln!("Waiting for voluntary exit to be accepted into the beacon chain..."),
+        }
     }
 
     Ok(())
@@ -179,24 +218,10 @@ async fn get_validator_index_for_exit(
     epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<u64, String> {
-    let validator_data = client
-        .get_beacon_states_validator_id(
-            StateId::Head,
-            &ValidatorId::PublicKey(validator_pubkey.into()),
-        )
-        .await
-        .map_err(|e| format!("Failed to get validator details: {:?}", e))?
-        .ok_or_else(|| {
-            format!(
-                "Validator {} is not present in the beacon state. \
-                Please ensure that your beacon node is synced and the validator has been deposited.",
-                validator_pubkey
-            )
-        })?
-        .data;
+    let validator_data = get_validator_data(client, validator_pubkey).await?;
 
     match validator_data.status {
-        ValidatorStatus::Active => {
+        ValidatorStatus::ActiveOngoing => {
             let eligible_epoch = validator_data
                 .validator
                 .activation_epoch
@@ -217,6 +242,28 @@ async fn get_validator_index_for_exit(
             validator_pubkey, status
         )),
     }
+}
+
+/// Returns the validator data by querying the beacon node client.
+async fn get_validator_data(
+    client: &BeaconNodeHttpClient,
+    validator_pubkey: &PublicKey,
+) -> Result<ValidatorData, String> {
+    Ok(client
+        .get_beacon_states_validator_id(
+            StateId::Head,
+            &ValidatorId::PublicKey(validator_pubkey.into()),
+        )
+        .await
+        .map_err(|e| format!("Failed to get validator details: {:?}", e))?
+        .ok_or_else(|| {
+            format!(
+                "Validator {} is not present in the beacon state. \
+                Please ensure that your beacon node is synced and the validator has been deposited.",
+                validator_pubkey
+            )
+        })?
+        .data)
 }
 
 /// Get genesis data by querying the beacon node client.
