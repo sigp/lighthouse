@@ -595,6 +595,7 @@ impl YamlConfig {
             "mainnet" => EthSpecId::Mainnet,
             "minimal" => EthSpecId::Minimal,
             "toledo" => EthSpecId::Mainnet,
+            "prater" => EthSpecId::Mainnet,
             "pyrmont" => EthSpecId::Mainnet,
             "spadina" => EthSpecId::V012Legacy,
             "medalla" => EthSpecId::V012Legacy,
