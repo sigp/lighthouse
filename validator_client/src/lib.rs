@@ -186,7 +186,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let current_epoch = slot_clock
             .now()
-            .ok_or("Unable to read slot clock")?
+            .ok_or("Unable to read slot clock 3")?
             .epoch(T::slots_per_epoch());
         let genesis_epoch = slot_clock.genesis_slot().epoch(T::slots_per_epoch());
 
