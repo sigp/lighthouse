@@ -207,7 +207,7 @@ impl ExplorerHttpClient {
         info!(
             self.log,
             "Sending metrics to remote endpoint";
-            "endpoint" => ?self.explorer_endpoint
+            "endpoint" => %self.explorer_endpoint
         );
         self.post(self.explorer_endpoint.clone(), &metrics).await
     }

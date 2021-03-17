@@ -235,11 +235,11 @@ impl Config {
                 .expect("guaranteed by clap")
                 .to_string();
             config.explorer_metrics = Some(explorer_api::Config {
-                beacon_endpoint: Some(format!(
+                validator_endpoint: Some(format!(
                     "http://{}:{}",
                     config.http_metrics.listen_addr, config.http_metrics.listen_port
                 )),
-                validator_endpoint: None,
+                beacon_endpoint: None,
                 explorer_endpoint,
             });
         }
