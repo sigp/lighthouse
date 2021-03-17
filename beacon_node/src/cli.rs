@@ -234,6 +234,27 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
+         * Explorer metrics
+         */
+
+         .arg(
+            Arg::with_name("explorer-metrics")
+                .long("explorer-metrics")
+                .help("Enable the monitoring service for sending system metrics to a remote endpoint. \
+                        This can be used to monitor your setup on services like the beaconcha.in api \
+                        Should enable the beacon and validator metrics to get all process data")
+                .takes_value(false)
+                .requires_all(&["metrics", "explorer-address"]),
+        )
+        .arg(
+            Arg::with_name("explorer-address")
+                .long("explorer-address")
+                .value_name("ADDRESS")
+                .help("Set the address where the beacon node metrics would be sent")
+                .takes_value(true),
+        )
+
+        /*
          * Standard staking flags
          */
 

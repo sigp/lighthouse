@@ -143,6 +143,24 @@ pub fn get_config<E: EthSpec>(
         client_config.http_metrics.allow_origin = Some(allow_origin.to_string());
     }
 
+    /*
+     * Explorer metrics
+     */
+    if cli_args.is_present("explorer-metrics") {
+        let explorer_endpoint = cli_args
+            .value_of("explorer-address")
+            .expect("guaranteed by clap")
+            .to_string();
+        client_config.explorer_metrics = Some(explorer_api::Config {
+            beacon_endpoint: Some(format!(
+                "{}:{}",
+                client_config.http_metrics.listen_addr, client_config.http_metrics.listen_port
+            )),
+            validator_endpoint: None,
+            explorer_endpoint,
+        });
+    }
+
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
     // (e.g. using the --staking flag).
     if cli_args.is_present("staking") {
