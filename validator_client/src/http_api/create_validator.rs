@@ -135,9 +135,9 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
         let current_epoch = validator_store
             .slot_clock()
             .now()
-            .ok_or_else(|| warp_utils::reject::custom_server_error(
-                "failed to read slot clock".to_string(),
-            ))?
+            .ok_or_else(|| {
+                warp_utils::reject::custom_server_error("failed to read slot clock".to_string())
+            })?
             .epoch(E::slots_per_epoch());
         let genesis_epoch = validator_store
             .slot_clock()

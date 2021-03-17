@@ -276,7 +276,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_INDICES]);
 
     let log = duties_service.context.log();
-    for pubkey in duties_service.validator_store.voting_pubkeys() {
+    for pubkey in duties_service.validator_store.duties_collection_pubkeys() {
         // This is on its own line to avoid some weirdness with locks and if statements.
         let is_known = duties_service.indices.read().contains_key(&pubkey);
 
@@ -357,7 +357,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
 
     let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
         .validator_store
-        .voting_pubkeys()
+        .duties_collection_pubkeys()
         .into_iter()
         .collect();
 

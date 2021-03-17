@@ -57,15 +57,6 @@ impl Default for BeaconProposerCache {
 }
 
 impl BeaconProposerCache {
-    pub fn get_epoch<T: EthSpec>(
-        &mut self,
-        shuffling_decision_block: Hash256,
-        epoch: Epoch,
-    ) -> Option<&SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> {
-        let key = (epoch, shuffling_decision_block);
-        self.cache.get(&key).map(|cache| &cache.proposers)
-    }
-
     /// If it is cached, returns the proposer for the block at `slot` where the block has the
     /// ancestor block root of `shuffling_decision_block` at `end_slot(slot.epoch() - 1)`.
     pub fn get_slot<T: EthSpec>(
