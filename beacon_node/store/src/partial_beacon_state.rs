@@ -41,6 +41,10 @@ where
     pub eth1_data: Eth1Data,
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     pub eth1_deposit_index: u64,
+    // Merge only.
+    pub application_state_root: Hash256,
+    // Merge only.
+    pub application_block_hash: Hash256,
 
     // Registry
     pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
@@ -87,6 +91,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
             eth1_data: s.eth1_data.clone(),
             eth1_data_votes: s.eth1_data_votes.clone(),
             eth1_deposit_index: s.eth1_deposit_index,
+            application_state_root: s.application_state_root,
+            application_block_hash: s.application_block_hash,
 
             // Validator registry
             validators: s.validators.clone(),
@@ -197,6 +203,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             eth1_data: self.eth1_data,
             eth1_data_votes: self.eth1_data_votes,
             eth1_deposit_index: self.eth1_deposit_index,
+            application_state_root: self.application_state_root,
+            application_block_hash: self.application_block_hash,
 
             // Validator registry
             validators: self.validators,

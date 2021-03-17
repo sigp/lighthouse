@@ -9,7 +9,9 @@ pub type BytesPerLogsBloom = ssz_types::typenum::U256;
 pub type MaxApplicationTransactions = ssz_types::typenum::U16384;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 pub struct ApplicationPayload {
     pub block_hash: u64,
     pub coinbase: Address,

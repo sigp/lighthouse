@@ -15,10 +15,11 @@ use reqwest::{header::CONTENT_TYPE, ClientBuilder, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use ssz::Decode;
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::Hash256;
+use types::{ApplicationPayload, Hash256, Slot};
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
@@ -183,6 +184,46 @@ pub async fn get_block(
         Err(format!("Block number {} is larger than a usize", number))
     }
     .map_err(|e| format!("Failed to get block number: {}", e))
+}
+
+#[derive(Serialize)]
+struct ProduceBlockRequest<'a> {
+    parent_hash: Hash256,
+    randao_mix: Hash256,
+    slot: Slot,
+    timestamp: u64,
+    recent_block_roots: &'a [Hash256],
+}
+
+pub async fn eth2_produceBlock(
+    endpoint: &str,
+    parent_hash: Hash256,
+    randao_mix: Hash256,
+    slot: Slot,
+    timestamp: u64,
+    recent_block_roots: &[Hash256],
+    timeout: Duration,
+) -> Result<ApplicationPayload, String> {
+    let params = json!([ProduceBlockRequest {
+        parent_hash,
+        randao_mix,
+        slot,
+        timestamp,
+        recent_block_roots
+    }]);
+
+    let response_body = send_rpc_request(endpoint, "eth2_produceBlock", params, timeout).await?;
+    let executable_data_bytes = hex_to_bytes(
+        response_result(&response_body)?
+            .ok_or("No result field was returned for eth2_produceBlock")?
+            .get("executable_data")
+            .ok_or("No executable data")?
+            .as_str()
+            .ok_or("Executable data was not string")?,
+    )?;
+
+    ApplicationPayload::from_ssz_bytes(&executable_data_bytes)
+        .map_err(|e| format!("Unable to parse executable_data as SSZ: {:?}", e))
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given

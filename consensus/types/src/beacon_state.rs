@@ -173,9 +173,14 @@ where
 
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
+    // TODO: remove this for merge.
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
+    // Merge only.
+    pub application_state_root: Hash256,
+    // Merge only.
+    pub application_block_hash: Hash256,
 
     // Registry
     #[compare_fields(as_slice)]
@@ -257,6 +262,8 @@ impl<T: EthSpec> BeaconState<T> {
             eth1_data,
             eth1_data_votes: VariableList::empty(),
             eth1_deposit_index: 0,
+            application_state_root: Hash256::zero(),
+            application_block_hash: Hash256::zero(),
 
             // Validator registry
             validators: VariableList::empty(), // Set later.
@@ -1165,6 +1172,8 @@ impl<T: EthSpec> BeaconState<T> {
             eth1_data: self.eth1_data.clone(),
             eth1_data_votes: self.eth1_data_votes.clone(),
             eth1_deposit_index: self.eth1_deposit_index,
+            application_state_root: self.application_state_root,
+            application_block_hash: self.application_block_hash,
             validators: self.validators.clone(),
             balances: self.balances.clone(),
             randao_mixes: self.randao_mixes.clone(),
