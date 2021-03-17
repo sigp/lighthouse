@@ -1,14 +1,16 @@
-pub mod types;
+mod types;
 use std::time::Duration;
 
 use eth2::lighthouse::SystemHealth;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use slog::{debug, error, info};
 use task_executor::TaskExecutor;
 use tokio::time::{interval_at, Instant};
 use types::*;
+
+pub use types::ProcessType;
 
 /// Placeholder
 pub const DEFAULT_EXPLORER_ENDPOINT: &str = "https://beaconcha.in/tbd/metrics";
@@ -22,8 +24,9 @@ pub enum Error {
     Reqwest(reqwest::Error),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
     InvalidUrl(Url),
-    /// Failed to observe system metrics
     SystemMetricsFailed(String),
+    BeaconMetricsFailed(String),
+    ValidatorMetricsFailed(String),
     /// The server returned an invalid JSON response.
     InvalidJson(serde_json::Error),
     /// The server returned an error message where the body was able to be parsed.
@@ -38,32 +41,43 @@ impl std::fmt::Display for Error {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Beacon metrics endpoint.
-    beacon_endpoint: Url,
+    pub beacon_endpoint: Option<String>,
     /// Validator metrics endpoint.
-    validator_endpoint: Url,
+    pub validator_endpoint: Option<String>,
     /// Explorer endpoint where we post the data to
-    explorer_endpoint: Url,
-    /// Duration sending metrics to explorer endpoint
-    update_interval_seconds: Duration,
+    pub explorer_endpoint: String,
 }
 
 #[derive(Clone)]
 pub struct ExplorerHttpClient {
     client: reqwest::Client,
-    config: Config,
+    beacon_endpoint: Option<Url>,
+    validator_endpoint: Option<Url>,
+    explorer_endpoint: Url,
     log: slog::Logger,
 }
 
 impl ExplorerHttpClient {
-    pub fn new(config: Config, log: slog::Logger) -> Self {
-        Self {
+    pub fn new(config: Config, log: slog::Logger) -> Result<Self, String> {
+        Ok(Self {
             client: reqwest::Client::new(),
-            config,
+            beacon_endpoint: config
+                .beacon_endpoint
+                .map(|u| Url::parse(&u))
+                .transpose()
+                .map_err(|e| format!("Invalid beacon endpoint: {}", e))?,
+            validator_endpoint: config
+                .validator_endpoint
+                .map(|u| Url::parse(&u))
+                .transpose()
+                .map_err(|e| format!("Invalid validator endpoint: {}", e))?,
+            explorer_endpoint: Url::parse(&config.explorer_endpoint)
+                .map_err(|e| format!("Invalid explorer endpoint: {}", e))?,
             log,
-        }
+        })
     }
 
     /// Perform a HTTP GET request.
@@ -89,10 +103,12 @@ impl ExplorerHttpClient {
         Ok(())
     }
 
-    pub fn auto_update(self, executor: TaskExecutor) {
+    /// Creates a task which periodically sends the provided process metrics
+    /// to the configured remote endpoint.
+    pub fn auto_update(self, executor: TaskExecutor, processes: Vec<ProcessType>) {
         let mut interval = interval_at(
             Instant::now() + Duration::from_secs(10),
-            self.config.update_interval_seconds,
+            Duration::from_secs(DEFAULT_UPDATE_DURATION),
         );
 
         info!(self.log, "Starting explorer api");
@@ -100,9 +116,9 @@ impl ExplorerHttpClient {
         let update_future = async move {
             loop {
                 interval.tick().await;
-                match self.send_metrics().await {
+                match self.send_metrics(&processes).await {
                     Ok(()) => {
-                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => ?self.config.explorer_endpoint);
+                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => ?self.explorer_endpoint);
                     }
                     Err(e) => {
                         error!(self.log, "Failed to send metrics to remote endpoint"; "error" => ?e)
@@ -116,7 +132,12 @@ impl ExplorerHttpClient {
 
     /// Gets beacon metrics and updates the metrics struct
     pub async fn get_beacon_metrics(&self) -> Result<ExplorerMetrics, Error> {
-        let path = self.config.beacon_endpoint.clone();
+        let path = self
+            .beacon_endpoint
+            .clone()
+            .ok_or(Error::BeaconMetricsFailed(
+                "Beacon metrics endpoint not provided".to_string(),
+            ))?;
         let resp: BeaconProcessMetrics = self.get(path).await?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),
@@ -126,7 +147,12 @@ impl ExplorerHttpClient {
 
     /// Gets validator process metrics by querying the validator metrics endpoint
     pub async fn get_validator_metrics(&self) -> Result<ExplorerMetrics, Error> {
-        let path = self.config.validator_endpoint.clone();
+        let path = self
+            .validator_endpoint
+            .clone()
+            .ok_or(Error::ValidatorMetricsFailed(
+                "Validator metrics endpoint not provided".to_string(),
+            ))?;
         let resp: ValidatorProcessMetrics = self.get(path).await?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),
@@ -143,16 +169,22 @@ impl ExplorerHttpClient {
         })
     }
 
+    /// Return explorer metric based on process type.
+    pub async fn get_metrics(&self, process_type: &ProcessType) -> Result<ExplorerMetrics, Error> {
+        match process_type {
+            ProcessType::Beacon => self.get_beacon_metrics().await,
+            ProcessType::System => self.get_system_metrics().await,
+            ProcessType::Validator => self.get_validator_metrics().await,
+        }
+    }
+
     /// Send metrics to the remote endpoint
-    pub async fn send_metrics(&self) -> Result<(), Error> {
-        let beacon = self.get_beacon_metrics().await?;
-        let validator = self.get_validator_metrics().await?;
-        let system = self.get_system_metrics().await?;
-        self.post(
-            self.config.explorer_endpoint.clone(),
-            &vec![beacon, validator, system],
-        )
-        .await
+    pub async fn send_metrics(&self, processes: &[ProcessType]) -> Result<(), Error> {
+        let mut metrics = Vec::new();
+        for process in processes {
+            metrics.push(self.get_metrics(process).await?);
+        }
+        self.post(self.explorer_endpoint.clone(), &metrics).await
     }
 }
 
