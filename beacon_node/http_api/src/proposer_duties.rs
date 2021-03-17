@@ -123,9 +123,8 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    // We can supply the genesis block root as the block root since we know that the only block that
-    // decides its own root is the genesis block.
     let dependent_root = state
+        // The only block which decides its own shuffling is the genesis block.
         .proposer_shuffling_decision_root(chain.genesis_block_root)
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -269,8 +268,8 @@ fn convert_to_api_response<T: BeaconChainTypes>(
     if proposer_data.len() != slots_per_epoch {
         Err(warp_utils::reject::custom_server_error(format!(
             "{} proposers is not enough for {} slots",
+            proposer_data.len(),
             slots_per_epoch,
-            proposer_data.len()
         )))
     } else {
         Ok(api_types::DutiesResponse {

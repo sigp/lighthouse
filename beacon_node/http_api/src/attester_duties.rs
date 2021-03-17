@@ -107,9 +107,8 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    // We can supply the genesis block root as the block root since we know that the only block that
-    // decides its own root is the genesis block.
     let dependent_root = state
+        // The only block which decides its own shuffling is the genesis block.
         .attester_shuffling_decision_root(chain.genesis_block_root, relative_epoch)
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;

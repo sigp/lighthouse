@@ -191,14 +191,12 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
     core_duties_service.context.executor.spawn(
         async move {
             loop {
-                match duties_service.slot_clock.duration_to_next_slot() {
-                    Some(duration) => {
-                        // Run this poll before the wait, this should hopefully download all the indices
-                        // before the block/attestation tasks need them.
-                        poll_validator_indices(&duties_service).await;
+                // Run this poll before the wait, this should hopefully download all the indices
+                // before the block/attestation tasks need them.
+                poll_validator_indices(&duties_service).await;
 
-                        sleep(duration).await
-                    }
+                match duties_service.slot_clock.duration_to_next_slot() {
+                    Some(duration) => sleep(duration).await,
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
                     None => sleep(duties_service.slot_clock.slot_duration()).await,
@@ -543,13 +541,13 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     let mut already_warned = Some(());
     let mut attesters_map = duties_service.attesters.write();
     for duty in relevant_duties {
-        let proposer_map = attesters_map.entry(duty.pubkey).or_default();
+        let attesters_map = attesters_map.entry(duty.pubkey).or_default();
 
         // Only update the duties if either is true:
         //
         // - There were no known duties for this epoch.
         // - The dependent root has changed, signalling a re-org.
-        if proposer_map
+        if attesters_map
             .get(&epoch)
             .map_or(true, |(prior, _)| *prior != dependent_root)
         {
@@ -557,7 +555,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                 DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)?;
 
             if let Some((prior_dependent_root, _)) =
-                proposer_map.insert(epoch, (dependent_root, duty_and_proof))
+                attesters_map.insert(epoch, (dependent_root, duty_and_proof))
             {
                 // Using `already_warned` avoids excessive logs.
                 if dependent_root != prior_dependent_root && already_warned.take().is_some() {
