@@ -114,10 +114,10 @@ impl<T, N: Unsigned> Into<Vec<T>> for FixedVector<T, N> {
     }
 }
 
-impl<T, N: Unsigned> Default for FixedVector<T, N> {
+impl<T: Default, N: Unsigned> Default for FixedVector<T, N> {
     fn default() -> Self {
         Self {
-            vec: Vec::default(),
+            vec: (0..N::to_usize()).map(|_| T::default()).collect(),
             _phantom: PhantomData,
         }
     }
