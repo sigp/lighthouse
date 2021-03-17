@@ -150,10 +150,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
         let interval_fut = async move {
             loop {
+                // Run this poll before the wait, this should hopefully download the fork before the
+                // other services need them.
+                self.clone().do_update().await.ok();
+
                 match self.slot_clock.duration_to_next_epoch(E::slots_per_epoch()) {
                     Some(duration_to_next_epoch) => {
                         sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
-                        self.clone().do_update().await.ok();
                     }
                     None => {
                         error!(log, "Failed to read slot clock");
