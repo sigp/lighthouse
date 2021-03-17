@@ -153,7 +153,7 @@ pub fn get_config<E: EthSpec>(
             .to_string();
         client_config.explorer_metrics = Some(explorer_api::Config {
             beacon_endpoint: Some(format!(
-                "{}:{}",
+                "http://{}:{}",
                 client_config.http_metrics.listen_addr, client_config.http_metrics.listen_port
             )),
             validator_endpoint: None,

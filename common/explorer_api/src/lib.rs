@@ -12,11 +12,14 @@ use types::*;
 
 pub use types::ProcessType;
 
-/// Placeholder
-pub const DEFAULT_EXPLORER_ENDPOINT: &str = "https://beaconcha.in/tbd/metrics";
-pub const DEFAULT_BEACON_ENDPOINT: &str = "http://localhost:5054/beacon_process";
-pub const DEFAULT_VALIDATOR_ENDPOINT: &str = "http://localhost:5064/validator_process";
-pub const DEFAULT_UPDATE_DURATION: u64 = 60;
+/// Endpoint for metrics server to get beacon process metrics.
+pub const BEACON_ENDPOINT: &str = "beacon_process";
+/// Endpoint for metrics server to get validator process metrics.
+pub const VALIDATOR_ENDPOINT: &str = "validator_process";
+/// Duration after which we collect and send metrics to remote endpoint.
+pub const UPDATE_DURATION: u64 = 60;
+/// Timeout for HTTP requests.
+pub const TIMEOUT_DURATION: u64 = 5;
 
 #[derive(Debug)]
 pub enum Error {
@@ -66,12 +69,12 @@ impl ExplorerHttpClient {
             client: reqwest::Client::new(),
             beacon_endpoint: config
                 .beacon_endpoint
-                .map(|u| Url::parse(&u))
+                .map(|u| Url::parse(&format!("{}/{}", u, BEACON_ENDPOINT)))
                 .transpose()
                 .map_err(|e| format!("Invalid beacon endpoint: {}", e))?,
             validator_endpoint: config
                 .validator_endpoint
-                .map(|u| Url::parse(&u))
+                .map(|u| Url::parse(&format!("{}/{}", u, VALIDATOR_ENDPOINT)))
                 .transpose()
                 .map_err(|e| format!("Invalid validator endpoint: {}", e))?,
             explorer_endpoint: Url::parse(&config.explorer_endpoint)
@@ -82,7 +85,13 @@ impl ExplorerHttpClient {
 
     /// Perform a HTTP GET request.
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self
+            .client
+            .get(url)
+            .timeout(Duration::from_secs(TIMEOUT_DURATION))
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
         ok_or_error(response)
             .await?
             .json()
@@ -96,6 +105,7 @@ impl ExplorerHttpClient {
             .client
             .post(url)
             .json(body)
+            .timeout(Duration::from_secs(TIMEOUT_DURATION))
             .send()
             .await
             .map_err(Error::Reqwest)?;
@@ -108,7 +118,7 @@ impl ExplorerHttpClient {
     pub fn auto_update(self, executor: TaskExecutor, processes: Vec<ProcessType>) {
         let mut interval = interval_at(
             Instant::now() + Duration::from_secs(10),
-            Duration::from_secs(DEFAULT_UPDATE_DURATION),
+            Duration::from_secs(UPDATE_DURATION),
         );
 
         info!(self.log, "Starting explorer api");
@@ -182,8 +192,21 @@ impl ExplorerHttpClient {
     pub async fn send_metrics(&self, processes: &[ProcessType]) -> Result<(), Error> {
         let mut metrics = Vec::new();
         for process in processes {
-            metrics.push(self.get_metrics(process).await?);
+            match self.get_metrics(process).await {
+                Err(e) => error!(
+                    self.log,
+                    "Failed to get metrics";
+                    "process_type" => ?process,
+                    "error" => ?e
+                ),
+                Ok(metric) => metrics.push(metric),
+            }
         }
+        info!(
+            self.log,
+            "Sending metrics to remote endpoint";
+            "endpoint" => ?self.explorer_endpoint
+        );
         self.post(self.explorer_endpoint.clone(), &metrics).await
     }
 }
