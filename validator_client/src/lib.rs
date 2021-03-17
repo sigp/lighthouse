@@ -18,6 +18,7 @@ pub mod http_api;
 
 pub use cli::cli_app;
 pub use config::Config;
+use explorer_api::{ExplorerHttpClient, ProcessType};
 use lighthouse_metrics::set_gauge;
 
 use crate::beacon_node_fallback::{
@@ -123,6 +124,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         } else {
             info!(log, "HTTP metrics server is disabled");
             None
+        };
+
+        // Start the explorer client which periodically sends beacon
+        // and system metrics to the configured endpoint.
+        if let Some(explorer_config) = &config.explorer_metrics {
+            let explorer_client = ExplorerHttpClient::new(explorer_config, context.log().clone())?;
+            explorer_client.auto_update(
+                context.executor.clone(),
+                vec![ProcessType::Validator, ProcessType::System],
+            );
         };
 
         let mut validator_defs = ValidatorDefinitions::open_or_create(&config.validator_dir)

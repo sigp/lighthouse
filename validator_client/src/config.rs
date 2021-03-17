@@ -42,6 +42,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for sending metrics to a remote explorer endpoint.
+    pub explorer_metrics: Option<explorer_api::Config>,
 }
 
 impl Default for Config {
@@ -66,6 +68,7 @@ impl Default for Config {
             graffiti_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            explorer_metrics: None,
         }
     }
 }
@@ -222,6 +225,23 @@ impl Config {
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
+        }
+        /*
+         * Explorer metrics
+         */
+        if cli_args.is_present("explorer-metrics") {
+            let explorer_endpoint = cli_args
+                .value_of("explorer-address")
+                .expect("guaranteed by clap")
+                .to_string();
+            config.explorer_metrics = Some(explorer_api::Config {
+                beacon_endpoint: Some(format!(
+                    "http://{}:{}",
+                    config.http_metrics.listen_addr, config.http_metrics.listen_port
+                )),
+                validator_endpoint: None,
+                explorer_endpoint,
+            });
         }
 
         Ok(config)
