@@ -78,7 +78,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
     async fn detect_doppelgangers(&self) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        let slot = self.slot_clock.now().ok_or("Unable to read slot clock 4")?;
+        let slot = self.slot_clock.now().ok_or("Unable to read slot clock")?;
         let epoch = slot.epoch(E::slots_per_epoch());
         info!(log, "Monitoring for doppelgangers"; "epoch" => epoch, "slot" => slot);
 

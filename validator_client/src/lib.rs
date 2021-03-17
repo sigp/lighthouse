@@ -184,11 +184,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
         );
 
-        let current_epoch = slot_clock
-            .now()
-            .ok_or("Unable to read slot clock 3")?
-            .epoch(T::slots_per_epoch());
         let genesis_epoch = slot_clock.genesis_slot().epoch(T::slots_per_epoch());
+        let current_epoch = slot_clock
+            .now_or_genesis()
+            .map(|slot| slot.epoch(T::slots_per_epoch()))
+            .ok_or("Unable to read slot clock.")?;
 
         let validators = InitializedValidators::from_definitions(
             validator_defs,

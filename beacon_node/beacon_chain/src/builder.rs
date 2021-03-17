@@ -433,7 +433,7 @@ where
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
-            .ok_or("Unable to read slot clock 2")?
+            .ok_or("Unable to read slot clock")?
         {
             self.spec.genesis_slot
         } else {

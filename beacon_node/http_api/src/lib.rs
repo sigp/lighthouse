@@ -305,7 +305,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .now_or_genesis()
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_server_error(
-                                    "unable to read slot clock 1".to_string(),
+                                    "unable to read slot clock".to_string(),
                                 )
                             })?;
 
