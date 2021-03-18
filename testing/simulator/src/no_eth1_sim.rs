@@ -97,7 +97,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
         /*
          * Create a future that will add validator clients to the network. Each validator client is
-         * attached to a single corresponding beacon node.
+         * attached to a single corresponding beacon node. Spawn each validator in a new task.
          */
         let add_validators_fut = async {
             for (i, files) in validator_files.into_iter().enumerate() {
