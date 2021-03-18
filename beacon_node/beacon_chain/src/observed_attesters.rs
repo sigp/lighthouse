@@ -252,7 +252,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
 
     /// The maximum number of epochs stored in `self`.
     fn max_capacity(&self) -> u64 {
-        // The next, current and previous epoch. We require the next epoch due to the
+        // The next, current and previous epochs. We require the next epoch due to the
         // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the
         // specification delcares:
         //
