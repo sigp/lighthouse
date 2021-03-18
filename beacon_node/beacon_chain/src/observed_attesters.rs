@@ -257,7 +257,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         // specification delcares:
         //
         // ```
-        // aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE 
+        // aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
         //      >= current_slot >= aggregate.data.slot
         // ```
         //
