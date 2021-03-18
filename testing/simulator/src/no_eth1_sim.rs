@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::time::sleep;
 use tokio::time::{sleep_until, Instant};
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
@@ -108,6 +109,10 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
             Ok::<(), String>(())
         };
+
+        let duration_to_genesis = network.duration_to_genesis().await;
+        println!("Duration to genesis: {}", duration_to_genesis.as_secs());
+        sleep(duration_to_genesis).await;
 
         /*
          * The processes that will run checks on the network as it runs.
