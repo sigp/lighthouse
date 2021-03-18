@@ -60,6 +60,26 @@ impl BlockId {
             CoreBlockId::Head => chain
                 .head_beacon_block()
                 .map_err(warp_utils::reject::beacon_chain_error),
+            CoreBlockId::Slot(slot) => {
+                let root = self.root(chain)?;
+                chain
+                    .get_block(&root)
+                    .map_err(warp_utils::reject::beacon_chain_error)
+                    .and_then(|root_opt| match root_opt {
+                        Some(block) => {
+                            if block.slot() != *slot {
+                                return Err(warp_utils::reject::custom_not_found(
+                                    "skip slot.".to_string(),
+                                ));
+                            }
+                            Ok(block)
+                        }
+                        None => Err(warp_utils::reject::custom_not_found(format!(
+                            "beacon block with root {}",
+                            root
+                        ))),
+                    })
+            }
             _ => {
                 let root = self.root(chain)?;
                 chain

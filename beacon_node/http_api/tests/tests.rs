@@ -795,6 +795,14 @@ impl ApiTester {
     }
 
     fn get_block(&self, block_id: BlockId) -> Option<SignedBeaconBlock<E>> {
+        match block_id {
+            BlockId::Slot(slot) => {
+                if SKIPPED_SLOTS.contains(&slot.as_u64()) {
+                    return None;
+                }
+            }
+            _ => {}
+        }
         let root = self.get_block_root(block_id);
         root.and_then(|root| self.chain.get_block(&root).unwrap())
     }
