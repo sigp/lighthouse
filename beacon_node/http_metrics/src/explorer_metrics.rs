@@ -6,7 +6,7 @@ pub use lighthouse_metrics::*;
 
 /// Process names which need to be encoded
 /// Note: Only Gauge and Counter metrics can be encoded.
-pub const BEACON_PROCESS_METRICS: &'static [&str] = &[
+pub const BEACON_PROCESS_METRICS: &[&str] = &[
     "cpu_process_seconds_total",
     "process_virtual_memory_bytes",
     "sync_eth1_fallback_configured",
@@ -23,7 +23,7 @@ pub fn gather_required_metrics<T: BeaconChainTypes>(
     let mut buffer = vec![];
     let encoder = JsonEncoder::new(
         BEACON_PROCESS_METRICS
-            .into_iter()
+            .iter()
             .map(|m| m.to_string())
             .collect(),
     );

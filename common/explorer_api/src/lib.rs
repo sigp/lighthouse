@@ -144,12 +144,9 @@ impl ExplorerHttpClient {
 
     /// Gets beacon metrics and updates the metrics struct
     pub async fn get_beacon_metrics(&self) -> Result<ExplorerMetrics, Error> {
-        let path = self
-            .beacon_endpoint
-            .clone()
-            .ok_or(Error::BeaconMetricsFailed(
-                "Beacon metrics endpoint not provided".to_string(),
-            ))?;
+        let path = self.beacon_endpoint.clone().ok_or_else(|| {
+            Error::BeaconMetricsFailed("Beacon metrics endpoint not provided".to_string())
+        })?;
         let resp: BeaconProcessMetrics = self.get(path).await?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),
@@ -159,12 +156,9 @@ impl ExplorerHttpClient {
 
     /// Gets validator process metrics by querying the validator metrics endpoint
     pub async fn get_validator_metrics(&self) -> Result<ExplorerMetrics, Error> {
-        let path = self
-            .validator_endpoint
-            .clone()
-            .ok_or(Error::ValidatorMetricsFailed(
-                "Validator metrics endpoint not provided".to_string(),
-            ))?;
+        let path = self.validator_endpoint.clone().ok_or_else(|| {
+            Error::ValidatorMetricsFailed("Validator metrics endpoint not provided".to_string())
+        })?;
         let resp: ValidatorProcessMetrics = self.get(path).await?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),

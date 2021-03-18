@@ -7,7 +7,7 @@ pub use lighthouse_metrics::*;
 
 /// Process names which need to be encoded
 /// Note: Only Gauge and Counter metric types can be encoded.
-pub const VALIDATOR_PROCESS_METRICS: &'static [&str] = &[
+pub const VALIDATOR_PROCESS_METRICS: &[&str] = &[
     "cpu_process_seconds_total",
     "process_virtual_memory_bytes",
     "vc_validators_enabled_count",
@@ -22,7 +22,7 @@ pub fn gather_required_metrics<T: EthSpec>(
     let mut buffer = vec![];
     let encoder = JsonEncoder::new(
         VALIDATOR_PROCESS_METRICS
-            .into_iter()
+            .iter()
             .map(|m| m.to_string())
             .collect(),
     );
