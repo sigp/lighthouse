@@ -120,14 +120,16 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         executor.spawn(
             async move {
                 println!("Adding doppelganger detecting validator client");
-                network_1.clone()
+                network_1
+                    .clone()
                     .add_validator_client(
                         testing_validator_doppelganger_config(),
                         0,
                         ValidatorFiles::with_keystores(&[node_count]).unwrap(),
                         false,
                     )
-                    .await.expect("should add validator");
+                    .await
+                    .expect("should add validator");
             },
             "doppelganger-vc",
         );
