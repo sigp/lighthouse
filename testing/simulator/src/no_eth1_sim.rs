@@ -116,18 +116,21 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * Add an additional validator with doppelganger detection disabled.
          */
+        let network_1 = network.clone();
         executor.spawn(
             async move {
-                println!("Adding validator client {}", i);
-            }, "doppelganger-vc");
-        network
-            .add_validator_client(
-                testing_validator_doppelganger_config(),
-                0,
-                ValidatorFiles::with_keystores(&[node_count]).unwrap(),
-                false,
-            )
-            .await?;
+                println!("Adding doppelganger detecting validator client");
+                network_1.clone()
+                    .add_validator_client(
+                        testing_validator_doppelganger_config(),
+                        0,
+                        ValidatorFiles::with_keystores(&[node_count]).unwrap(),
+                        false,
+                    )
+                    .await.expect("should add validator");
+            },
+            "doppelganger-vc",
+        );
 
         let duration_to_genesis = network.duration_to_genesis().await;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
