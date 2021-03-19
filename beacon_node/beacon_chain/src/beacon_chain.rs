@@ -520,14 +520,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
+    /// Returns `Ok(None)` if the given `Slot` was skipped.
     ///
     /// ## Errors
     ///
     /// May return a database error.
     pub fn block_root_at_slot(&self, slot: Slot) -> Result<Option<Hash256>, Error> {
         process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root)
+            let root_opt = iter
+                .find(|(_, this_slot)| *this_slot == slot)
+                .map(|(root, _)| root);
+            if let (Some(root), Some((prev_root, _))) = (root_opt, iter.next()) {
+                return (prev_root != root).then(|| root);
+            }
+            root_opt
         })
     }
 

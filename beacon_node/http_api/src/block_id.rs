@@ -65,12 +65,13 @@ impl BlockId {
                 chain
                     .get_block(&root)
                     .map_err(warp_utils::reject::beacon_chain_error)
-                    .and_then(|root_opt| match root_opt {
+                    .and_then(|block_opt| match block_opt {
                         Some(block) => {
                             if block.slot() != *slot {
-                                return Err(warp_utils::reject::custom_not_found(
-                                    "skip slot.".to_string(),
-                                ));
+                                return Err(warp_utils::reject::custom_not_found(format!(
+                                    "slot {} was skipped",
+                                    slot
+                                )));
                             }
                             Ok(block)
                         }
