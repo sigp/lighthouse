@@ -60,8 +60,6 @@ pub enum DiscoveryEvent {
     QueryResult(HashMap<PeerId, Option<Instant>>),
     /// This indicates that our local UDP socketaddr has been updated and we should inform libp2p.
     SocketUpdated(SocketAddr),
-    /// A new node has been inserted into the discovery DHT
-    PeerInserted(PeerId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -932,14 +930,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
                             return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
-                        }
-                        Discv5Event::NodeInserted {
-                            node_id,
-                            replaced: _,
-                        } => {
-                            if let Some(enr) = self.discv5.find_enr(&node_id) {
-                                return Poll::Ready(DiscoveryEvent::PeerInserted(enr.peer_id()));
-                            }
                         }
                         _ => {} // Ignore all other discv5 server events
                     }
