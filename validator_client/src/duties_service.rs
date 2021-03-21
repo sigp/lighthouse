@@ -114,7 +114,7 @@ pub struct DutiesService<T, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// Returns the total number of validators known to the duties service.
     pub fn total_validator_count(&self) -> usize {
-        self.validator_store.num_voting_validators()
+        self.validator_store.num_enabled_validators()
     }
 
     /// Returns the total number of validators that should propose in the given epoch.

@@ -34,7 +34,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
         let current_epoch = self
             .slot_clock
-            .now()
+            .now_or_genesis()
             .ok_or("Unable to read slot")?
             .epoch(E::slots_per_epoch());
         let genesis_epoch = self.slot_clock.genesis_slot().epoch(E::slots_per_epoch());
@@ -80,7 +80,6 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
         let slot = self.slot_clock.now().ok_or("Unable to read slot clock")?;
         let epoch = slot.epoch(E::slots_per_epoch());
-        info!(log, "Monitoring for doppelgangers"; "epoch" => epoch, "slot" => slot);
 
         // get all validators in the doppelganger detection epoch
         let validator_map = self
@@ -90,6 +89,8 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .get_doppelganger_detecting_validators_by_epoch(epoch);
 
         for (epoch, validators) in validator_map {
+            info!(log, "Checking for doppelgangers attesting in epoch"; "epoch" => epoch, "validators" => validators);
+
             let mut epochs = Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
             for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
                 epochs.push(epoch - Epoch::new(i));
@@ -132,7 +133,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
                     let current_epoch = self
                         .slot_clock
-                        .now()
+                        .now_or_genesis()
                         .ok_or("Unable to read slot")?
                         .epoch(E::slots_per_epoch());
                     let genesis_epoch = self.slot_clock.genesis_slot().epoch(E::slots_per_epoch());
