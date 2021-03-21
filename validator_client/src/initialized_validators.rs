@@ -95,6 +95,8 @@ pub struct InitializedValidator {
     signing_method: SigningMethod,
     graffiti: Option<Graffiti>,
     doppelganger_detection_epoch: Option<Epoch>,
+    /// There is a task which ensures this value is kept up-to-date.
+    index: Option<u64>,
 }
 
 impl InitializedValidator {
@@ -225,6 +227,7 @@ impl InitializedValidator {
                     },
                     graffiti: def.graffiti.map(Into::into),
                     doppelganger_detection_epoch,
+                    index: None,
                 })
             }
         }
@@ -700,10 +703,13 @@ impl InitializedValidators {
         self.validators
             .iter()
             .filter(|(_, val)| {
-                val.doppelganger_detection_epoch
-                    .map_or(false, |doppelganger_epoch| {
-                        doppelganger_epoch >= current_epoch
-                    })
+                // make sure we've determined this validator exists in the beacon chain
+                val.index.is_some()
+                    && val
+                        .doppelganger_detection_epoch
+                        .map_or(false, |doppelganger_epoch| {
+                            doppelganger_epoch >= current_epoch
+                        })
             })
             .fold(HashMap::new(), |mut map, (pubkey, val)| {
                 if let Some(epoch) = val.doppelganger_detection_epoch {
@@ -711,5 +717,15 @@ impl InitializedValidators {
                 }
                 map
             })
+    }
+
+    pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators.get(pubkey).and_then(|val| val.index)
+    }
+
+    pub fn set_index(&mut self, pubkey: &PublicKeyBytes, index: u64) {
+        self.validators
+            .get_mut(pubkey)
+            .map(|val| val.index = Some(index));
     }
 }
