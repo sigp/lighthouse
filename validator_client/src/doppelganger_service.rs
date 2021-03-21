@@ -89,7 +89,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .get_doppelganger_detecting_validators_by_epoch(epoch);
 
         for (epoch, validators) in validator_map {
-            info!(log, "Checking for doppelgangers attesting in epoch"; "epoch" => epoch, "validators" => validators);
+            info!(log, "Checking for doppelgangers attesting in epoch"; "epoch" => epoch, "validators" => ?validators);
 
             let mut epochs = Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
             for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
@@ -129,7 +129,11 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                     }
                 }
                 Err(e) => {
-                    warn!(log, "Failed complete query for doppelganger detection... Restarting doppelganger detection process."; "error" => format!("{:?}", e));
+                    warn!(
+                        log,
+                        "Failed complete query for doppelganger detection... Restarting doppelganger detection process.";
+                        "error" => format!("{:?}", e)
+                    );
 
                     let current_epoch = self
                         .slot_clock
