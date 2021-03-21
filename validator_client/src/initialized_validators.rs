@@ -702,7 +702,7 @@ impl InitializedValidators {
             .filter(|(_, val)| {
                 val.doppelganger_detection_epoch
                     .map_or(false, |doppelganger_epoch| {
-                        doppelganger_epoch <= current_epoch
+                        doppelganger_epoch >= current_epoch
                     })
             })
             .fold(HashMap::new(), |mut map, (pubkey, val)| {
