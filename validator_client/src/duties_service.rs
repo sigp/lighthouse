@@ -141,13 +141,19 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn block_proposers(&self, slot: Slot) -> HashSet<PublicKeyBytes> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
+        // this is the set of local pubkeys that are not currently in a doppelganger detection period
+        let signing_pubkeys = self.validator_store.signing_pubkeys(epoch);
+
         self.proposers
             .read()
             .get(&epoch)
             .map(|(_, proposers)| {
                 proposers
                     .iter()
-                    .filter(|proposer_data| proposer_data.slot == slot)
+                    .filter(|proposer_data| {
+                        proposer_data.slot == slot
+                            && signing_pubkeys.contains(&proposer_data.pubkey)
+                    })
                     .map(|proposer_data| proposer_data.pubkey)
                     .collect()
             })
@@ -158,12 +164,18 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn attesters(&self, slot: Slot) -> Vec<DutyAndProof> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
+        // this is the set of local pubkeys that are not currently in a doppelganger detection period
+        let signing_pubkeys = self.validator_store.signing_pubkeys(epoch);
+
         self.attesters
             .read()
             .iter()
             .filter_map(|(_, map)| map.get(&epoch))
             .map(|(_, duty_and_proof)| duty_and_proof)
-            .filter(|duty_and_proof| duty_and_proof.duty.slot == slot)
+            .filter(|duty_and_proof| {
+                duty_and_proof.duty.slot == slot
+                    && signing_pubkeys.contains(&duty_and_proof.duty.pubkey)
+            })
             .cloned()
             .collect()
     }

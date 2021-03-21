@@ -114,7 +114,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         }
 
         /*
-         * Add an additional validator with doppelganger detection disabled.
+         * Add an additional validator with doppelganger detection enabled.
          */
         let network_1 = network.clone();
         executor.spawn(

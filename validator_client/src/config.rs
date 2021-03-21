@@ -42,8 +42,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
-    /// If true, monitor the network for attestations or proposals from any of the validators managed
-    /// by this client before starting up.
+    /// If true, disable functionality that monitors the network for attestations or proposals from
+    /// any of the validators managed by this client before starting up.
     pub disable_doppelganger_detection: bool,
 }
 

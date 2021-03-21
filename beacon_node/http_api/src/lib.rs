@@ -2157,7 +2157,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .epochs
                         .0
                         .iter()
-                        .map(|epoch| chain.doppelgangers_seen_at_epoch(indices.as_slice(), epoch))
+                        .map(|epoch| chain.validators_seen_at_epoch(indices.as_slice(), epoch))
                         .flatten()
                         .collect();
                     Ok(api_types::GenericResponse::from(seen_validators))

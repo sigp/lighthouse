@@ -2777,8 +2777,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Checks if attestations have been seen from any of the given `validator_indices` at the
-    /// given `epoch`. Retruns an iterator over indices we have seen.
-    pub fn doppelgangers_seen_at_epoch(
+    /// given `epoch`. Returns an iterator over indices we have seen.
+    pub fn validators_seen_at_epoch(
         &self,
         validator_indices: &[usize],
         epoch: &Epoch,
