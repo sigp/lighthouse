@@ -15,11 +15,10 @@ use reqwest::{header::CONTENT_TYPE, ClientBuilder, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use ssz::Decode;
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{ApplicationPayload, Hash256, Slot};
+use types::{Address, ApplicationPayload, FixedVector, Hash256, Slot, Transaction, VariableList};
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
@@ -195,6 +194,21 @@ struct ProduceBlockRequest<'a> {
     recent_block_roots: &'a [Hash256],
 }
 
+#[derive(Deserialize)]
+struct ProduceBlockResponse {
+    coinbase: Address,
+    state_root: Hash256,
+    gas_limit: u64,
+    gas_used: u64,
+    transactions: Option<Vec<Transaction>>,
+    receipt_root: Hash256,
+    logs_bloom: Vec<u8>,
+    block_hash: Hash256,
+    #[allow(unused)]
+    parent_hash: Hash256,
+    difficulty: u64,
+}
+
 pub async fn eth2_produce_block(
     endpoint: &str,
     parent_hash: Hash256,
@@ -213,17 +227,30 @@ pub async fn eth2_produce_block(
     }]);
 
     let response_body = send_rpc_request(endpoint, "eth2_produceBlock", params, timeout).await?;
-    let executable_data_bytes = hex_to_bytes(
-        response_result(&response_body)?
-            .ok_or("No result field was returned for eth2_produceBlock")?
-            .get("executable_data")
-            .ok_or("No executable data")?
-            .as_str()
-            .ok_or("Executable data was not string")?,
-    )?;
+    let result = response_result(&response_body)?
+        .ok_or("No result field was returned for eth2_produceBlock")?;
 
-    ApplicationPayload::from_ssz_bytes(&executable_data_bytes)
-        .map_err(|e| format!("Unable to parse executable_data as SSZ: {:?}", e))
+    let response: ProduceBlockResponse = serde_json::from_value(result)
+        .map_err(|e| format!("Unable to parse eth2_produceBlock JSON: {:?}", e))?;
+
+    Ok(ApplicationPayload {
+        block_hash: response.block_hash,
+        coinbase: response.coinbase,
+        state_root: response.state_root,
+        gas_limit: response.gas_limit,
+        gas_used: response.gas_used,
+        receipt_root: response.receipt_root,
+        logs_bloom: FixedVector::new(response.logs_bloom)
+            .map_err(|e| format!("Invalid logs_bloom in eth2_produceBlock: {:?}", e))?,
+        difficulty: response.difficulty,
+        transactions: response
+            .transactions
+            .map(|transactions| {
+                VariableList::new(transactions)
+                    .map_err(|e| format!("Invalid transactions in eth2_produceBlock: {:?}", e))
+            })
+            .unwrap_or_else(|| Ok(VariableList::default()))?,
+    })
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given

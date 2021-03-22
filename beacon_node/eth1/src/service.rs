@@ -3,8 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
     http::{
-        get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
-        BlockQuery, Eth1Id,
+        eth2_produce_block, get_block, get_block_number, get_chain_id, get_deposit_logs_in_range,
+        get_network_id, BlockQuery, Eth1Id,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
-use types::{ChainSpec, EthSpec, Unsigned};
+use types::{ApplicationPayload, BeaconChainData, ChainSpec, EthSpec, Hash256, Unsigned};
 
 /// Indicates the default eth1 network id we use for the deposit contract.
 pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
@@ -38,6 +38,8 @@ const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
 const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 60_000;
+/// Timeout when doing an eth2_produceBlock to produce and application payload.
+const GET_APPLICATION_PAYLOAD_TIMEOUT_MILLIS: u64 = 3_000;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 CONNECTION";
 
@@ -293,6 +295,8 @@ pub enum SingleEndpointError {
     GetDepositCountFailed(String),
     /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
+    /// Failed to get an application payload for a new block.
+    GetApplicationPayloadFailed(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -301,6 +305,8 @@ pub enum Error {
     FailedToInsertEth1Block(BlockCacheError),
     /// There was an inconsistency when adding a deposit to the cache.
     FailedToInsertDeposit(DepositCacheError),
+    /// There was an inconsistency when adding a deposit to the cache.
+    FailedToGetApplicationPayload(String),
     /// A log downloaded from the eth1 contract was not well formed.
     FailedToParseDepositLog {
         block_range: Range<u64>,
@@ -617,6 +623,31 @@ impl Service {
             config_chain_id,
             log: self.log.clone(),
         }
+    }
+
+    pub async fn produce_application_payload(
+        &self,
+        application_parent_hash: Hash256,
+        beacon_chain_data: &BeaconChainData,
+    ) -> Result<ApplicationPayload, Error> {
+        let endpoints = self.init_endpoints();
+
+        endpoints
+            .first_success(|e| async move {
+                eth2_produce_block(
+                    e,
+                    application_parent_hash,
+                    beacon_chain_data.randao_mix,
+                    beacon_chain_data.slot,
+                    beacon_chain_data.timestamp,
+                    &beacon_chain_data.recent_block_roots,
+                    Duration::from_millis(GET_APPLICATION_PAYLOAD_TIMEOUT_MILLIS),
+                )
+                .await
+                .map_err(SingleEndpointError::GetApplicationPayloadFailed)
+            })
+            .await
+            .map_err(Error::FallbackError)
     }
 
     /// Update the deposit and block cache, returning an error if either fail.
