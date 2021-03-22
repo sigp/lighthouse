@@ -189,7 +189,7 @@ pub async fn get_block(
 struct ProduceBlockRequest<'a> {
     parent_hash: Hash256,
     randao_mix: Hash256,
-    slot: Slot,
+    slot: u64,
     timestamp: u64,
     recent_block_roots: &'a [Hash256],
 }
@@ -221,7 +221,7 @@ pub async fn eth2_produce_block(
     let params = json!([ProduceBlockRequest {
         parent_hash,
         randao_mix,
-        slot,
+        slot: slot.into(),
         timestamp,
         recent_block_roots
     }]);

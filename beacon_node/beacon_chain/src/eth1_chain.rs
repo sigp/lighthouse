@@ -52,6 +52,8 @@ pub enum Error {
     UnknownPreviousEth1BlockHash,
     /// An arithmetic error occurred.
     ArithError(safe_arith::ArithError),
+    ShuttingDown,
+    UnableToGetApplicationPayload(String),
 }
 
 impl From<safe_arith::ArithError> for Error {
@@ -282,7 +284,8 @@ where
             let dummy_backend: DummyEth1ChainBackend<E> = DummyEth1ChainBackend::default();
             dummy_backend.get_application_payload(application_parent_hash, beacon_chain_data)
         } else {
-            self.get_application_payload(application_parent_hash, beacon_chain_data)
+            self.backend
+                .get_application_payload(application_parent_hash, beacon_chain_data)
         }
     }
 
@@ -627,7 +630,16 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
         application_parent_hash: Hash256,
         beacon_chain_data: &BeaconChainData,
     ) -> Result<ApplicationPayload, Error> {
-        todo!("application payload")
+        self.executor
+            .runtime()
+            .upgrade()
+            .ok_or(Error::ShuttingDown)?
+            .block_on(async {
+                self.core
+                    .produce_application_payload(application_parent_hash, beacon_chain_data)
+                    .await
+                    .map_err(|e| Error::UnableToGetApplicationPayload(format!("{:?}", e)))
+            })
     }
 
     /// Return encoded byte representation of the block and deposit caches.
@@ -817,7 +829,7 @@ mod test {
             EthSpec, MainnetEthSpec,
         };
 
-        fn get_eth1_chain(env: &Environment<E>) -> Eth1Chain<CachingEth1Backend<E>, E> {
+        fn get_eth1_chain(env: &mut Environment<E>) -> Eth1Chain<CachingEth1Backend<E>, E> {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };
@@ -851,8 +863,8 @@ mod test {
         fn deposits_empty_cache() {
             let spec = &E::default_spec();
 
-            let env = get_env();
-            let eth1_chain = get_eth1_chain(&env);
+            let mut env = get_env();
+            let eth1_chain = get_eth1_chain(&mut env);
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
@@ -884,8 +896,8 @@ mod test {
         fn deposits_with_cache() {
             let spec = &E::default_spec();
 
-            let env = get_env();
-            let eth1_chain = get_eth1_chain(&env);
+            let mut env = get_env();
+            let eth1_chain = get_eth1_chain(&mut env);
             let max_deposits = <E as EthSpec>::MaxDeposits::to_u64();
 
             assert_eq!(
@@ -968,8 +980,8 @@ mod test {
         fn eth1_data_empty_cache() {
             let spec = &E::default_spec();
 
-            let env = get_env();
-            let eth1_chain = get_eth1_chain(&env);
+            let mut env = get_env();
+            let eth1_chain = get_eth1_chain(&mut env);
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
@@ -993,8 +1005,8 @@ mod test {
             let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
             let eth1_follow_distance = spec.eth1_follow_distance;
 
-            let env = get_env();
-            let eth1_chain = get_eth1_chain(&env);
+            let mut env = get_env();
+            let eth1_chain = get_eth1_chain(&mut env);
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
