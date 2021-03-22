@@ -322,9 +322,13 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                     SyncState::SyncingHead { .. } | SyncState::SyncTransition => Ok(()),
                     SyncState::Synced => Ok(()),
+                    SyncState::Stalled => Ok(()),
+                    /*
+                     * TODO: fix this!
                     SyncState::Stalled => Err(warp_utils::reject::not_synced(
                         "sync is stalled".to_string(),
                     )),
+                    */
                 }
             },
         )
