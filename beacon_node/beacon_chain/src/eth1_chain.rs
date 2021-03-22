@@ -14,8 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
 use types::{
-    ApplicationPayload, BeaconChainData, BeaconState, BeaconStateError, ChainSpec, Deposit,
-    Eth1Data, EthSpec, Hash256, Slot, Unsigned, DEPOSIT_TREE_DEPTH,
+    Address, ApplicationPayload, BeaconChainData, BeaconState, BeaconStateError, ChainSpec,
+    Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned, DEPOSIT_TREE_DEPTH,
 };
 
 type BlockNumber = u64;
@@ -288,8 +288,8 @@ where
 
     pub fn process_application_payload(
         &self,
-        beacon_chain_data: &BeaconChainData,
-        application_payload: &ApplicationPayload,
+        _beacon_chain_data: &BeaconChainData,
+        _application_payload: &ApplicationPayload,
     ) -> Result<(), Error> {
         if self.use_dummy_backend {
             Ok(())
@@ -421,9 +421,26 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     fn get_application_payload(
         &self,
         application_parent_hash: Hash256,
-        beacon_chain_data: &BeaconChainData,
+        _beacon_chain_data: &BeaconChainData,
     ) -> Result<ApplicationPayload, Error> {
-        todo!("application payload")
+        let rehash =
+            |original: Hash256| -> Hash256 { Hash256::from_slice(&hash(original.as_bytes())) };
+
+        let state_root = rehash(application_parent_hash);
+        let receipt_root = rehash(state_root);
+        let block_hash = rehash(receipt_root);
+
+        Ok(ApplicationPayload {
+            block_hash,
+            coinbase: Address::from_low_u64_le(1),
+            state_root,
+            gas_limit: 1,
+            gas_used: 0,
+            receipt_root,
+            logs_bloom: <_>::default(),
+            difficulty: 1,
+            transactions: <_>::default(),
+        })
     }
 
     /// Return empty Vec<u8> for dummy backend.
