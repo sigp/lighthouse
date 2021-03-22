@@ -682,7 +682,7 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<FixedVector<Hash256, EvmBlockRootsSize>, BeaconStateError> {
         let mut recent_block_roots = Vec::with_capacity(EvmBlockRootsSize::to_usize());
 
-        for i in 0..EvmBlockRootsSize::to_u64() {
+        for i in 1..=EvmBlockRootsSize::to_u64() {
             let root = if i < spec.genesis_slot.as_u64() {
                 Hash256::zero()
             } else {
