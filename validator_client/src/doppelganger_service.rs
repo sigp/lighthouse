@@ -95,7 +95,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             }
             let epochs_slice = epochs.as_slice();
             let validators_slice = validators.as_slice();
-            info!(log, "Monitoring for doppelgangers"; "epochs" => epochs_slice, "validators" => validators_slice);
+            info!(log, "Monitoring for doppelgangers"; "epochs" => ?epochs, "validators" => ?validators);
 
             let doppelganger_detected = self
                 .beacon_nodes
