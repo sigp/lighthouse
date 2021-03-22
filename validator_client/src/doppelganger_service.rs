@@ -89,14 +89,13 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .get_doppelganger_detecting_validators_by_epoch(epoch);
 
         for (epoch, validators) in validator_map {
-            info!(log, "Checking for doppelgangers attesting in epoch"; "epoch" => epoch, "validators" => ?validators);
-
             let mut epochs = Vec::with_capacity(DOPPELGANGER_DETECTION_EPOCHS as usize);
             for i in 0..DOPPELGANGER_DETECTION_EPOCHS - 1 {
                 epochs.push(epoch - Epoch::new(i));
             }
             let epochs_slice = epochs.as_slice();
             let validators_slice = validators.as_slice();
+            info!(log, "Monitoring for doppelgangers"; "epochs" => epochs_slice, "validators" => ?validators_slice);
 
             let doppelganger_detected = self
                 .beacon_nodes
