@@ -147,6 +147,7 @@ async fn endpoint_state(
     config_chain_id: &Eth1Id,
     log: &Logger,
 ) -> EndpointState {
+    /*
     let error_connecting = |_| {
         warn!(
             log,
@@ -170,6 +171,7 @@ async fn endpoint_state(
         );
         return Err(EndpointError::WrongNetworkId);
     }
+
     let chain_id = get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
         .map_err(error_connecting)?;
@@ -197,6 +199,8 @@ async fn endpoint_state(
     } else {
         Ok(())
     }
+    */
+    Ok(())
 }
 
 /// Enum for the two internal (maybe different) cached heads for cached deposits and for the block
