@@ -286,6 +286,18 @@ where
         }
     }
 
+    pub fn process_application_payload(
+        &self,
+        beacon_chain_data: &BeaconChainData,
+        application_payload: &ApplicationPayload,
+    ) -> Result<(), Error> {
+        if self.use_dummy_backend {
+            Ok(())
+        } else {
+            todo!("caching: process_application_payload")
+        }
+    }
+
     /// Instantiate `Eth1Chain` from a persisted `SszEth1`.
     ///
     /// The `Eth1Chain` will have the same caches as the persisted `SszEth1`.

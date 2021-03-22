@@ -13,7 +13,7 @@ pub type MaxApplicationTransactions = ssz_types::typenum::U16384;
     Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct ApplicationPayload {
-    pub block_hash: u64,
+    pub block_hash: Hash256,
     pub coinbase: Address,
     pub state_root: Hash256,
     pub gas_limit: u64,

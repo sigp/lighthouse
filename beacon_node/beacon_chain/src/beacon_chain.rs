@@ -1603,6 +1603,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_slot = self.slot()?;
         let mut ops = fully_verified_block.confirmation_db_batch;
 
+        let eth1_chain = self
+            .eth1_chain
+            .as_ref()
+            .ok_or(BlockError::NoEth1Connection)?;
+
+        // Verify the Eth1 components of the block.
+        let beacon_chain_data =
+            self.beacon_chain_data(&state, &signed_block.message.body.randao_reveal)?;
+        eth1_chain
+            .process_application_payload(
+                &beacon_chain_data,
+                &signed_block.message.body.application_payload,
+            )
+            .map_err(BlockError::FailedEth1Verfication)?;
+
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
 
@@ -1982,16 +1997,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
-        let beacon_chain_data = BeaconChainData {
-            slot: state.slot,
-            randao_mix: state.compute_randao_mix(&randao_reveal)?,
-            timestamp: self
-                .slot_clock
-                .start_of(state.slot)
-                .ok_or(BlockProductionError::PriorToGenesis)?
-                .as_secs(),
-            recent_block_roots: state.get_recent_block_roots(&self.spec)?,
-        };
+        let beacon_chain_data = self
+            .beacon_chain_data(&state, &randao_reveal)
+            .map_err(BlockProductionError::UnableToGetBeaconChainData)?;
         let application_payload =
             eth1_chain.get_application_payload(state.application_block_hash, &beacon_chain_data)?;
 
@@ -2367,6 +2375,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(())
+    }
+
+    fn beacon_chain_data(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        randao_reveal: &Signature,
+    ) -> Result<BeaconChainData, Error> {
+        Ok(BeaconChainData {
+            slot: state.slot,
+            randao_mix: state.compute_randao_mix(&randao_reveal)?,
+            timestamp: self
+                .slot_clock
+                .start_of(state.slot)
+                .ok_or(Error::PriorToGenesis)?
+                .as_secs(),
+            recent_block_roots: state.get_recent_block_roots(&self.spec)?,
+        })
     }
 
     /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.

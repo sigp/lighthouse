@@ -40,6 +40,7 @@
 //!            END
 //!
 //! ```
+use crate::eth1_chain::Error as Eth1ChainError;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -219,6 +220,10 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is invalid and the peer is faulty.
     WeakSubjectivityConflict,
+    /// A connection to Eth1 is required for block processing.
+    NoEth1Connection,
+    /// The block failed processing by the Eth1 node.
+    FailedEth1Verfication(Eth1ChainError),
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
