@@ -115,7 +115,7 @@ pub fn per_block_processing<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     process_randao(&mut state, &block, verify_signatures, &spec)?;
-    process_eth1_data(&mut state, &block.body.eth1_data)?;
+    process_eth1_data(&mut state, &block.body);
     process_proposer_slashings(
         &mut state,
         &block.body.proposer_slashings,
@@ -141,7 +141,7 @@ pub fn per_block_processing<T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    process_application_payload(&mut state, &signed_block.message.body);
+    process_application_payload(&mut state, &block.body);
 
     Ok(())
 }
@@ -247,19 +247,8 @@ pub fn process_randao<T: EthSpec>(
 }
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
-///
-/// Spec v0.12.1
-pub fn process_eth1_data<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    eth1_data: &Eth1Data,
-) -> Result<(), Error> {
-    if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data)? {
-        state.eth1_data = new_eth1_data;
-    }
-
-    state.eth1_data_votes.push(eth1_data.clone())?;
-
-    Ok(())
+pub fn process_eth1_data<T: EthSpec>(state: &mut BeaconState<T>, body: &BeaconBlockBody<T>) {
+    state.eth1_data = body.eth1_data.clone();
 }
 
 /// Returns `Ok(Some(eth1_data))` if adding the given `eth1_data` to `state.eth1_data_votes` would
