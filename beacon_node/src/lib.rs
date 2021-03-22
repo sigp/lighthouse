@@ -93,7 +93,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 "method" => "json rpc via http"
             );
             builder
-                .caching_eth1_backend(client_config.eth1.clone())
+                .caching_eth1_backend(client_config.eth1.clone(), executor.clone())
                 .await?
         } else if client_config.dummy_eth1_backend {
             warn!(
@@ -101,7 +101,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 "Block production impaired";
                 "reason" => "dummy eth1 backend is enabled"
             );
-            builder.dummy_eth1_backend()?
+            builder.dummy_eth1_backend(executor.clone())?
         } else {
             info!(
                 log,

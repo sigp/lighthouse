@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
+use types::{ChainSpec, EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -81,6 +81,20 @@ impl EnvironmentBuilder<V012LegacyEthSpec> {
 }
 
 impl<E: EthSpec> EnvironmentBuilder<E> {
+    /// Creates a new builder.
+    pub fn new(eth_spec_instance: E, spec: ChainSpec) -> Self {
+        Self {
+            runtime: None,
+            log: None,
+            eth_spec_instance,
+            eth2_config: Eth2Config {
+                eth_spec_id: E::spec_name(),
+                spec,
+            },
+            testnet: None,
+        }
+    }
+
     /// Specifies that a multi-threaded tokio runtime should be used. Ideal for production uses.
     ///
     /// The `Runtime` used is just the standard tokio runtime.

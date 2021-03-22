@@ -23,6 +23,7 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use task_executor::TaskExecutor;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
@@ -592,7 +593,11 @@ where
     /// Specifies that the `BeaconChain` should cache eth1 blocks/logs from a remote eth1 node
     /// (e.g., Parity/Geth) and refer to that cache when collecting deposits or eth1 votes during
     /// block production.
-    pub async fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
+    pub async fn caching_eth1_backend(
+        mut self,
+        config: Eth1Config,
+        executor: TaskExecutor,
+    ) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -619,9 +624,9 @@ where
             // adding earlier blocks too.
             eth1_service_from_genesis.drop_block_cache();
 
-            CachingEth1Backend::from_service(eth1_service_from_genesis)
+            CachingEth1Backend::from_service(eth1_service_from_genesis, executor)
         } else if config.purge_cache {
-            CachingEth1Backend::new(config, context.log().clone(), spec)
+            CachingEth1Backend::new(config, executor, context.log().clone(), spec)
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
@@ -629,6 +634,7 @@ where
                     Eth1Chain::from_ssz_container(
                         &persisted,
                         config.clone(),
+                        executor.clone(),
                         &context.log().clone(),
                         spec.clone(),
                     )
@@ -637,6 +643,7 @@ where
                 .unwrap_or_else(|| {
                     Ok(CachingEth1Backend::new(
                         config,
+                        executor,
                         context.log().clone(),
                         spec.clone(),
                     ))
@@ -673,12 +680,12 @@ where
     ///
     /// The client is given the `CachingEth1Backend` type, but the http backend is never started and the
     /// caches are never used.
-    pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
+    pub fn dummy_eth1_backend(mut self, executor: TaskExecutor) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
 
-        self.beacon_chain_builder = Some(beacon_chain_builder.dummy_eth1_backend()?);
+        self.beacon_chain_builder = Some(beacon_chain_builder.dummy_eth1_backend(executor)?);
 
         Ok(self)
     }

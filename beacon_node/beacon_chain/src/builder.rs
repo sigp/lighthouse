@@ -25,7 +25,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
-use task_executor::ShutdownReason;
+use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
     SignedBeaconBlock, Slot,
@@ -595,14 +595,18 @@ where
     }
 
     /// Sets the `BeaconChain` eth1 back-end to produce predictably junk data when producing blocks.
-    pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
+    pub fn dummy_eth1_backend(mut self, executor: TaskExecutor) -> Result<Self, String> {
         let log = self
             .log
             .as_ref()
             .ok_or("dummy_eth1_backend requires a log")?;
 
-        let backend =
-            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
+        let backend = CachingEth1Backend::new(
+            Eth1Config::default(),
+            executor,
+            log.clone(),
+            self.spec.clone(),
+        );
 
         self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
 

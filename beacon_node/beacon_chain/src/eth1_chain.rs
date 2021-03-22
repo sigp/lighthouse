@@ -304,11 +304,17 @@ where
     pub fn from_ssz_container(
         ssz_container: &SszEth1,
         config: Eth1Config,
+        executor: TaskExecutor,
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, String> {
-        let backend =
-            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone(), spec)?;
+        let backend = Eth1ChainBackend::from_bytes(
+            &ssz_container.backend_bytes,
+            config,
+            executor,
+            log.clone(),
+            spec,
+        )?;
         Ok(Self {
             use_dummy_backend: ssz_container.use_dummy_backend,
             backend,
@@ -371,6 +377,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     fn from_bytes(
         bytes: &[u8],
         config: Eth1Config,
+        executor: TaskExecutor,
         log: Logger,
         spec: ChainSpec,
     ) -> Result<Self, String>;
@@ -452,6 +459,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     fn from_bytes(
         _bytes: &[u8],
         _config: Eth1Config,
+        _executor: TaskExecutor,
         _log: Logger,
         _spec: ChainSpec,
     ) -> Result<Self, String> {
@@ -473,6 +481,7 @@ impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
 #[derive(Clone)]
 pub struct CachingEth1Backend<T: EthSpec> {
     pub core: HttpService,
+    executor: TaskExecutor,
     log: Logger,
     _phantom: PhantomData<T>,
 }
@@ -481,9 +490,10 @@ impl<T: EthSpec> CachingEth1Backend<T> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
+    pub fn new(config: Eth1Config, executor: TaskExecutor, log: Logger, spec: ChainSpec) -> Self {
         Self {
             core: HttpService::new(config, log.clone(), spec),
+            executor,
             log,
             _phantom: PhantomData,
         }
@@ -495,9 +505,10 @@ impl<T: EthSpec> CachingEth1Backend<T> {
     }
 
     /// Instantiates `self` from an existing service.
-    pub fn from_service(service: HttpService) -> Self {
+    pub fn from_service(service: HttpService, executor: TaskExecutor) -> Self {
         Self {
             log: service.log.clone(),
+            executor,
             core: service,
             _phantom: PhantomData,
         }
@@ -628,12 +639,14 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
     fn from_bytes(
         bytes: &[u8],
         config: Eth1Config,
+        executor: TaskExecutor,
         log: Logger,
         spec: ChainSpec,
     ) -> Result<Self, String> {
         let inner = HttpService::from_bytes(bytes, config, log.clone(), spec)?;
         Ok(Self {
             core: inner,
+            executor,
             log,
             _phantom: PhantomData,
         })
@@ -731,7 +744,7 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 #[cfg(test)]
 mod test {
     use super::*;
-    use environment::null_logger;
+    use environment::{Environment, EnvironmentBuilder};
     use types::{test_utils::DepositTestTask, MinimalEthSpec};
 
     type E = MinimalEthSpec;
@@ -786,6 +799,16 @@ mod test {
         }
     }
 
+    fn get_env() -> Environment<E> {
+        EnvironmentBuilder::minimal()
+            .null_logger()
+            .expect("should build env logger")
+            .multi_threaded_tokio_runtime()
+            .expect("should start tokio runtime")
+            .build()
+            .expect("environment should build")
+    }
+
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
@@ -794,14 +817,16 @@ mod test {
             EthSpec, MainnetEthSpec,
         };
 
-        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
+        fn get_eth1_chain(env: &Environment<E>) -> Eth1Chain<CachingEth1Backend<E>, E> {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };
 
-            let log = null_logger().unwrap();
+            let log = env.core_context().log().clone();
+            let executor = env.core_context().executor;
             Eth1Chain::new(CachingEth1Backend::new(
                 eth1_config,
+                executor,
                 log,
                 MainnetEthSpec::default_spec(),
             ))
@@ -826,7 +851,8 @@ mod test {
         fn deposits_empty_cache() {
             let spec = &E::default_spec();
 
-            let eth1_chain = get_eth1_chain();
+            let env = get_env();
+            let eth1_chain = get_eth1_chain(&env);
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
@@ -858,7 +884,8 @@ mod test {
         fn deposits_with_cache() {
             let spec = &E::default_spec();
 
-            let eth1_chain = get_eth1_chain();
+            let env = get_env();
+            let eth1_chain = get_eth1_chain(&env);
             let max_deposits = <E as EthSpec>::MaxDeposits::to_u64();
 
             assert_eq!(
@@ -941,7 +968,8 @@ mod test {
         fn eth1_data_empty_cache() {
             let spec = &E::default_spec();
 
-            let eth1_chain = get_eth1_chain();
+            let env = get_env();
+            let eth1_chain = get_eth1_chain(&env);
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
@@ -965,7 +993,8 @@ mod test {
             let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
             let eth1_follow_distance = spec.eth1_follow_distance;
 
-            let eth1_chain = get_eth1_chain();
+            let env = get_env();
+            let eth1_chain = get_eth1_chain(&env);
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
