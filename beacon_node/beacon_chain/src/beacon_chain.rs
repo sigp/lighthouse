@@ -1982,6 +1982,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
+        let beacon_chain_data = BeaconChainData {
+            slot: state.slot,
+            randao_mix: state.compute_randao_mix(&randao_reveal)?,
+            timestamp: self
+                .slot_clock
+                .start_of(state.slot)
+                .ok_or(BlockProductionError::PriorToGenesis)?
+                .as_secs(),
+            recent_block_roots: state.get_recent_block_roots(&self.spec)?,
+        };
+        let application_payload =
+            eth1_chain.get_application_payload(state.application_block_hash, &beacon_chain_data)?;
+
         let parent_root = if state.slot > 0 {
             *state
                 .get_block_root(state.slot - 1)
@@ -2064,6 +2077,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attestations,
                     deposits,
                     voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
+                    application_payload,
                 },
             },
             // The block is not signed here, that is the task of a validator client.

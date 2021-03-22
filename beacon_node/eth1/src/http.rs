@@ -195,7 +195,7 @@ struct ProduceBlockRequest<'a> {
     recent_block_roots: &'a [Hash256],
 }
 
-pub async fn eth2_produceBlock(
+pub async fn eth2_produce_block(
     endpoint: &str,
     parent_hash: Hash256,
     randao_mix: Hash256,

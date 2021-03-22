@@ -676,6 +676,31 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
+    pub fn get_recent_block_roots(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<FixedVector<Hash256, EvmBlockRootsSize>, BeaconStateError> {
+        let mut recent_block_roots = Vec::with_capacity(EvmBlockRootsSize::to_usize());
+
+        for i in 0..EvmBlockRootsSize::to_u64() {
+            let root = if i < spec.genesis_slot.as_u64() {
+                Hash256::zero()
+            } else {
+                *self.get_block_root(self.slot - i)?
+            };
+            recent_block_roots.push(root);
+        }
+
+        FixedVector::new(recent_block_roots).map_err(BeaconStateError::SszTypesError)
+    }
+
+    pub fn compute_randao_mix(&self, randao_reveal: &Signature) -> Result<Hash256, Error> {
+        let randao_mix = *self.get_randao_mix(self.current_epoch())?;
+        let reveal_hash = Hash256::from_slice(&hash(&ssz_encode(randao_reveal)));
+
+        Ok(randao_mix ^ reveal_hash)
+    }
+
     /// Fill `randao_mixes` with
     pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) {
         self.randao_mixes = FixedVector::from_elem(index_root);

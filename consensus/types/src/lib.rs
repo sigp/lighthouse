@@ -52,6 +52,7 @@ pub mod validator_subscription;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
+pub mod beacon_chain_data;
 pub mod slot_epoch;
 pub mod subnet_id;
 mod tree_hash_impls;
@@ -70,6 +71,7 @@ pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::BeaconBlock;
 pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_block_header::BeaconBlockHeader;
+pub use crate::beacon_chain_data::{BeaconChainData, EvmBlockRootsSize};
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Domain, YamlConfig};

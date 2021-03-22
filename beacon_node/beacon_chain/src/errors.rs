@@ -151,6 +151,7 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
+    PriorToGenesis,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
