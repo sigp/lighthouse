@@ -161,7 +161,7 @@ impl<T: EthSpec> SnapshotCache<T> {
                 .enumerate()
                 .filter_map(|(i, snapshot)| {
                     if snapshot.beacon_block_root != self.head_block_root {
-                        Some((i, snapshot.beacon_state.slot))
+                        Some((i, snapshot.beacon_state.slot()))
                     } else {
                         None
                     }
@@ -263,7 +263,7 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// Removes all snapshots from the queue that are less than or equal to the finalized epoch.
     pub fn prune(&mut self, finalized_epoch: Epoch) {
         self.snapshots.retain(|snapshot| {
-            snapshot.beacon_state.slot > finalized_epoch.start_slot(T::slots_per_epoch())
+            snapshot.beacon_state.slot() > finalized_epoch.start_slot(T::slots_per_epoch())
         })
     }
 

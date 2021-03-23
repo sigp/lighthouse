@@ -27,7 +27,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         store: Arc<HotColdDB<E, Hot, Cold>>,
     ) -> Option<BlockRootsIterator<'a, E, Hot, Cold>> {
         let state = store
-            .get_state(&self.message.state_root, Some(self.message.slot))
+            .get_state(&self.message.state_root(), Some(self.message.slot()))
             .ok()??;
 
         Some(BlockRootsIterator::owned(store, state))
@@ -161,7 +161,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
     pub fn new(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             store,
-            slot: beacon_state.slot,
+            slot: beacon_state.slot(),
             beacon_state: Cow::Borrowed(beacon_state),
         }
     }
@@ -169,7 +169,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
     pub fn owned(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: BeaconState<T>) -> Self {
         Self {
             store,
-            slot: beacon_state.slot,
+            slot: beacon_state.slot(),
             beacon_state: Cow::Owned(beacon_state),
         }
     }
@@ -188,7 +188,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
     }
 
     fn do_next(&mut self) -> Result<Option<(Hash256, Hash256, Slot)>, Error> {
-        if self.slot == 0 || self.slot > self.beacon_state.slot {
+        if self.slot == 0 || self.slot > self.beacon_state.slot() {
             return Ok(None);
         }
 
@@ -257,7 +257,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 .store
                 .get_block(&block_root)?
                 .ok_or(Error::BlockNotFound(block_root))?;
-            self.next_block_root = block.message.parent_root;
+            self.next_block_root = block.message.parent_root();
             Ok(Some((block_root, block)))
         }
     }
@@ -323,7 +323,7 @@ fn next_historical_root_backtrack_state<E: EthSpec, Hot: ItemStore<E>, Cold: Ite
     // a restore point slot (thus avoiding replaying blocks). In the case where we're
     // not frozen, this just means we might not jump back by the maximum amount on
     // our first jump (i.e. at most 1 extra state load).
-    let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
+    let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot());
     let new_state_root = current_state.get_state_root(new_state_slot)?;
     Ok(store
         .get_state(new_state_root, Some(new_state_slot))?

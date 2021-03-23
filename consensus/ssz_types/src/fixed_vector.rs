@@ -210,7 +210,7 @@ where
 
 impl<T, N: Unsigned> ssz::Decode for FixedVector<T, N>
 where
-    T: ssz::Decode + Default,
+    T: ssz::Decode,
 {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
@@ -250,18 +250,21 @@ where
                 .map(|chunk| T::from_ssz_bytes(chunk))
                 .collect::<Result<Vec<T>, _>>()
                 .and_then(|vec| {
-                    if vec.len() == fixed_len {
-                        Ok(vec.into())
-                    } else {
-                        Err(ssz::DecodeError::BytesInvalid(format!(
-                            "Wrong number of FixedVector elements, got: {}, expected: {}",
-                            vec.len(),
-                            N::to_usize()
-                        )))
-                    }
+                    Self::new(vec).map_err(|e| {
+                        ssz::DecodeError::BytesInvalid(format!(
+                            "Wrong number of FixedVector elements: {:?}",
+                            e
+                        ))
+                    })
                 })
         } else {
-            ssz::decode_list_of_variable_length_items(bytes, Some(fixed_len)).map(|vec| vec.into())
+            let vec = ssz::decode_list_of_variable_length_items(bytes, Some(fixed_len))?;
+            Self::new(vec).map_err(|e| {
+                ssz::DecodeError::BytesInvalid(format!(
+                    "Wrong number of FixedVector elements: {:?}",
+                    e
+                ))
+            })
         }
     }
 }

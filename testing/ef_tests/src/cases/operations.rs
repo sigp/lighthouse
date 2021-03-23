@@ -6,8 +6,12 @@ use crate::type_name::TypeName;
 use serde_derive::Deserialize;
 use ssz::Decode;
 use state_processing::per_block_processing::{
-    errors::BlockProcessingError, process_attestations, process_attester_slashings,
-    process_block_header, process_deposits, process_exits, process_proposer_slashings,
+    errors::BlockProcessingError,
+    process_block_header,
+    process_operations::{
+        base::{process_attestations, process_deposits},
+        process_attester_slashings, process_exits, process_proposer_slashings,
+    },
     VerifySignatures,
 };
 use std::fmt::Debug;

@@ -6,9 +6,9 @@ use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
 use state_processing::per_epoch_processing::{
-    errors::EpochProcessingError, process_final_updates, process_justification_and_finalization,
-    process_registry_updates, process_rewards_and_penalties, process_slashings,
-    validator_statuses::ValidatorStatuses,
+    base::process_final_updates, base::process_rewards_and_penalties,
+    base::validator_statuses::ValidatorStatuses, errors::EpochProcessingError,
+    process_justification_and_finalization, process_registry_updates, process_slashings,
 };
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};

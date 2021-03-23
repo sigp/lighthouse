@@ -110,9 +110,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         &mut self,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
-        if state.validators.len() > self.pubkeys.len() {
+        if state.validators().len() > self.pubkeys.len() {
             self.import(
-                state.validators[self.pubkeys.len()..]
+                state.validators()[self.pubkeys.len()..]
                     .iter()
                     .map(|v| v.pubkey),
             )

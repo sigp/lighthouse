@@ -113,14 +113,14 @@ impl<T: EthSpec> OperationPool<T> {
         let current_epoch = state.current_epoch();
         let prev_domain_bytes = AttestationId::compute_domain_bytes(
             prev_epoch,
-            &state.fork,
-            state.genesis_validators_root,
+            &state.fork(),
+            state.genesis_validators_root(),
             spec,
         );
         let curr_domain_bytes = AttestationId::compute_domain_bytes(
             current_epoch,
-            &state.fork,
-            state.genesis_validators_root,
+            &state.fork(),
+            state.genesis_validators_root(),
             spec,
         );
         let reader = self.attestations.read();
@@ -204,7 +204,7 @@ impl<T: EthSpec> OperationPool<T> {
             self.proposer_slashings.read().values(),
             |slashing| {
                 state
-                    .validators
+                    .validators()
                     .get(slashing.signed_header_1.message.proposer_index as usize)
                     .map_or(false, |validator| !validator.slashed)
             },
@@ -221,7 +221,7 @@ impl<T: EthSpec> OperationPool<T> {
         let reader = self.attester_slashings.read();
 
         let relevant_attester_slashings = reader.iter().flat_map(|(slashing, fork)| {
-            if *fork == state.fork.previous_version || *fork == state.fork.current_version {
+            if *fork == state.fork().previous_version || *fork == state.fork().current_version {
                 AttesterSlashingMaxCover::new(&slashing, &to_be_slashed, state, spec)
             } else {
                 None
@@ -240,7 +240,7 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn prune_proposer_slashings(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
+            |validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }
@@ -252,11 +252,11 @@ impl<T: EthSpec> OperationPool<T> {
             .write()
             .retain(|(slashing, fork_version)| {
                 let previous_fork_is_finalized =
-                    head_state.finalized_checkpoint.epoch >= head_state.fork.epoch;
+                    head_state.finalized_checkpoint().epoch >= head_state.fork().epoch;
                 // Prune any slashings which don't match the current fork version, or the previous
                 // fork version if it is not finalized yet.
-                let fork_ok = (fork_version == &head_state.fork.current_version)
-                    || (fork_version == &head_state.fork.previous_version
+                let fork_ok = (*fork_version == head_state.fork().current_version)
+                    || (*fork_version == head_state.fork().previous_version
                         && !previous_fork_is_finalized);
                 // Slashings that don't slash any validators can also be dropped.
                 let slashing_ok =
@@ -266,7 +266,7 @@ impl<T: EthSpec> OperationPool<T> {
                         //
                         // We cannot check the `slashed` field since the `head` is not finalized and
                         // a fork could un-slash someone.
-                        validator.exit_epoch > head_state.finalized_checkpoint.epoch
+                        validator.exit_epoch > head_state.finalized_checkpoint().epoch
                     })
                     .map_or(false, |indices| !indices.is_empty());
 
@@ -314,7 +314,7 @@ impl<T: EthSpec> OperationPool<T> {
             //
             // We choose simplicity over the gain of pruning more exits since they are small and
             // should not be seen frequently.
-            |validator| validator.exit_epoch <= head_state.finalized_checkpoint.epoch,
+            |validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }
@@ -423,7 +423,7 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
 {
     map.retain(|&validator_index, _| {
         head_state
-            .validators
+            .validators()
             .get(validator_index as usize)
             .map_or(true, |validator| !prune_if(validator))
     });

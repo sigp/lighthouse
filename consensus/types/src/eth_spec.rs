@@ -11,7 +11,6 @@ use std::str::FromStr;
 
 const MAINNET: &str = "mainnet";
 const MINIMAL: &str = "minimal";
-const LEGACY: &str = "v0.12-legacy";
 
 /// Used to identify one of the `EthSpec` instances defined here.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -19,7 +18,6 @@ const LEGACY: &str = "v0.12-legacy";
 pub enum EthSpecId {
     Mainnet,
     Minimal,
-    V012Legacy,
 }
 
 impl FromStr for EthSpecId {
@@ -29,7 +27,6 @@ impl FromStr for EthSpecId {
         match s {
             MAINNET => Ok(EthSpecId::Mainnet),
             MINIMAL => Ok(EthSpecId::Minimal),
-            LEGACY => Ok(EthSpecId::V012Legacy),
             _ => Err(format!("Unknown eth spec: {}", s)),
         }
     }
@@ -40,7 +37,6 @@ impl fmt::Display for EthSpecId {
         let s = match self {
             EthSpecId::Mainnet => MAINNET,
             EthSpecId::Minimal => MINIMAL,
-            EthSpecId::V012Legacy => LEGACY,
         };
         write!(f, "{}", s)
     }
@@ -79,6 +75,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxDeposits: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxVoluntaryExits: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
+     * New in Altair
+     */
+    type SyncCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type SyncSubcommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
      * Derived values (set these CAREFULLY)
      */
     /// The length of the `{previous,current}_epoch_attestations` lists.
@@ -91,6 +92,10 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     ///
     /// Must be set to `EpochsPerEth1VotingPeriod * SlotsPerEpoch`
     type SlotsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// The length of `pubkey_aggregates`.
+    ///
+    /// Must be set to `SyncCommitteeSize / SyncSubcommitteeSize`.
+    type SyncAggregateSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -182,8 +187,6 @@ macro_rules! params_from_eth_spec {
 }
 
 /// Ethereum Foundation specifications.
-///
-/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
@@ -205,6 +208,9 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttestations = U128;
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
+    type SyncCommitteeSize = U1024;
+    type SyncSubcommitteeSize = U64;
+    type SyncAggregateSize = U16; // 1024 committee size / 64 subcommittee size
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
 
@@ -220,8 +226,6 @@ impl EthSpec for MainnetEthSpec {
 pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
-///
-/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
@@ -232,6 +236,9 @@ impl EthSpec for MinimalEthSpec {
     type SlotsPerHistoricalRoot = U64;
     type EpochsPerHistoricalVector = U64;
     type EpochsPerSlashingsVector = U64;
+    type SyncCommitteeSize = U32;
+    type SyncSubcommitteeSize = U16;
+    type SyncAggregateSize = U2; // 32 committee size / 16 subcommittee size
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
 
@@ -259,44 +266,3 @@ impl EthSpec for MinimalEthSpec {
 }
 
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
-
-/// Suits the `v0.12.3` version of the eth2 spec:
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
-///
-/// This struct only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
-/// (e.g., Medalla, Pyrmont, Spadina, Altona, etc.).
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub struct V012LegacyEthSpec;
-
-impl EthSpec for V012LegacyEthSpec {
-    type EpochsPerEth1VotingPeriod = U32;
-    type SlotsPerEth1VotingPeriod = U1024; // 32 epochs * 32 slots per epoch
-
-    params_from_eth_spec!(MainnetEthSpec {
-        SlotsPerEpoch,
-        SlotsPerHistoricalRoot,
-        EpochsPerHistoricalVector,
-        EpochsPerSlashingsVector,
-        MaxPendingAttestations,
-        JustificationBitsLength,
-        SubnetBitfieldLength,
-        MaxValidatorsPerCommittee,
-        GenesisEpoch,
-        HistoricalRootsLimit,
-        ValidatorRegistryLimit,
-        MaxProposerSlashings,
-        MaxAttesterSlashings,
-        MaxAttestations,
-        MaxDeposits,
-        MaxVoluntaryExits
-    });
-
-    fn default_spec() -> ChainSpec {
-        ChainSpec::v012_legacy()
-    }
-
-    fn spec_name() -> EthSpecId {
-        EthSpecId::V012Legacy
-    }
-}

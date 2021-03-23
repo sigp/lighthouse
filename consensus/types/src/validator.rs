@@ -61,7 +61,7 @@ impl Validator {
         spec: &ChainSpec,
     ) -> bool {
         // Placement in queue is finalized
-        self.activation_eligibility_epoch <= state.finalized_checkpoint.epoch
+        self.activation_eligibility_epoch <= state.finalized_checkpoint().epoch
         // Has not yet been activated
         && self.activation_epoch == spec.far_future_epoch
     }

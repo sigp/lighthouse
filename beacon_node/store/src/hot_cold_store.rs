@@ -280,7 +280,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
-        if state.slot < self.get_split_slot() {
+        if state.slot() < self.get_split_slot() {
             let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             self.store_cold_state(state_root, &state, &mut ops)?;
             self.cold_db.do_atomically(ops)
@@ -517,11 +517,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
-        if state.slot % E::slots_per_epoch() == 0 {
+        if state.slot() % E::slots_per_epoch() == 0 {
             trace!(
                 self.log,
                 "Storing full state on epoch boundary";
-                "slot" => state.slot.as_u64(),
+                "slot" => state.slot().as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
             store_full_state(state_root, &state, ops)?;
@@ -569,7 +569,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 boundary_state
             } else {
                 let blocks =
-                    self.load_blocks_to_replay(boundary_state.slot, slot, latest_block_root)?;
+                    self.load_blocks_to_replay(boundary_state.slot(), slot, latest_block_root)?;
                 self.replay_blocks(boundary_state, blocks, slot, block_replay)?
             };
 
@@ -589,11 +589,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        if state.slot % self.config.slots_per_restore_point != 0 {
+        if state.slot() % self.config.slots_per_restore_point != 0 {
             warn!(
                 self.log,
                 "Not storing non-restore point state in freezer";
-                "slot" => state.slot.as_u64(),
+                "slot" => state.slot().as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
             return Ok(());
@@ -602,7 +602,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         trace!(
             self.log,
             "Creating restore point";
-            "slot" => state.slot,
+            "slot" => state.slot(),
             "state_root" => format!("{:?}", state_root)
         );
 
@@ -619,7 +619,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
 
         // 3. Store restore point.
-        let restore_point_index = state.slot.as_u64() / self.config.slots_per_restore_point;
+        let restore_point_index = state.slot().as_u64() / self.config.slots_per_restore_point;
         self.store_restore_point_hash(restore_point_index, *state_root, ops);
 
         Ok(())
@@ -696,7 +696,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // 2. Load the blocks from the high restore point back to the low restore point.
         let blocks = self.load_blocks_to_replay(
-            low_restore_point.slot,
+            low_restore_point.slot(),
             slot,
             self.get_high_restore_point_block_root(&high_restore_point, slot)?,
         )?;
@@ -738,14 +738,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .filter(|result| {
                     result
                         .as_ref()
-                        .map_or(true, |block| block.message.slot <= end_slot)
+                        .map_or(true, |block| block.message.slot() <= end_slot)
                 })
                 // Include the block at the start slot (if any). Whilst it doesn't need to be applied
                 // to the state, it contains a potentially useful state root.
                 .take_while(|result| {
                     result
                         .as_ref()
-                        .map_or(true, |block| block.message.slot >= start_slot)
+                        .map_or(true, |block| block.message.slot() >= start_slot)
                 })
                 .collect::<Result<_, _>>()?;
         blocks.reverse();
@@ -765,9 +765,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<BeaconState<E>, Error> {
         if block_replay == BlockReplay::InconsistentStateRoots {
             for i in 0..blocks.len() {
-                blocks[i].message.state_root = Hash256::zero();
+                *blocks[i].message.state_root_mut() = Hash256::zero();
                 if i > 0 {
-                    blocks[i].message.parent_root = blocks[i - 1].canonical_root()
+                    *blocks[i].message.parent_root_mut() = blocks[i - 1].canonical_root()
                 }
             }
         }
@@ -775,8 +775,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
                 let prev_block = &blocks[i - 1].message;
-                if prev_block.slot == state.slot {
-                    Some(prev_block.state_root)
+                if prev_block.slot() == state.slot() {
+                    Some(prev_block.state_root())
                 } else {
                     None
                 }
@@ -786,11 +786,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         for (i, block) in blocks.iter().enumerate() {
-            if block.message.slot <= state.slot {
+            if block.message.slot() <= state.slot() {
                 continue;
             }
 
-            while state.slot < block.message.slot {
+            while state.slot() < block.message.slot() {
                 let state_root = match block_replay {
                     BlockReplay::Accurate => state_root_from_prev_block(i, &state),
                     BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
@@ -809,7 +809,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map_err(HotColdDBError::BlockReplayBlockError)?;
         }
 
-        while state.slot < target_slot {
+        while state.slot() < target_slot {
             let state_root = match block_replay {
                 BlockReplay::Accurate => state_root_from_prev_block(blocks.len(), &state),
                 BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
@@ -990,7 +990,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     debug!(
         store.log,
         "Freezer migration started";
-        "slot" => frozen_head.slot
+        "slot" => frozen_head.slot()
     );
 
     // 0. Check that the migration is sensible.
@@ -998,16 +998,16 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // boundary (in order for the hot state summary scheme to work).
     let current_split_slot = store.split.read().slot;
 
-    if frozen_head.slot < current_split_slot {
+    if frozen_head.slot() < current_split_slot {
         return Err(HotColdDBError::FreezeSlotError {
             current_split_slot,
-            proposed_split_slot: frozen_head.slot,
+            proposed_split_slot: frozen_head.slot(),
         }
         .into());
     }
 
-    if frozen_head.slot % E::slots_per_epoch() != 0 {
-        return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot).into());
+    if frozen_head.slot() % E::slots_per_epoch() != 0 {
+        return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot()).into());
     }
 
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
@@ -1081,7 +1081,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         // Before updating the in-memory split value, we flush it to disk first, so that should the
         // OS process die at this point, we pick up from the right place after a restart.
         let split = Split {
-            slot: frozen_head.slot,
+            slot: frozen_head.slot(),
             state_root: frozen_head_root,
         };
         store.hot_db.put_sync(&SPLIT_KEY, &split)?;
@@ -1098,7 +1098,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     debug!(
         store.log,
         "Freezer migration complete";
-        "slot" => frozen_head.slot
+        "slot" => frozen_head.slot()
     );
 
     Ok(())
@@ -1155,8 +1155,8 @@ impl HotStateSummary {
         // Fill in the state root on the latest block header if necessary (this happens on all
         // slots where there isn't a skip).
         let latest_block_root = state.get_latest_block_root(*state_root);
-        let epoch_boundary_slot = state.slot / E::slots_per_epoch() * E::slots_per_epoch();
-        let epoch_boundary_state_root = if epoch_boundary_slot == state.slot {
+        let epoch_boundary_slot = state.slot() / E::slots_per_epoch() * E::slots_per_epoch();
+        let epoch_boundary_state_root = if epoch_boundary_slot == state.slot() {
             *state_root
         } else {
             *state
@@ -1165,7 +1165,7 @@ impl HotStateSummary {
         };
 
         Ok(HotStateSummary {
-            slot: state.slot,
+            slot: state.slot(),
             latest_block_root,
             epoch_boundary_state_root,
         })

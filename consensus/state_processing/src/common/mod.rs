@@ -16,19 +16,15 @@ use safe_arith::{ArithError, SafeArith};
 use types::{BeaconState, EthSpec};
 
 /// Increase the balance of a validator, erroring upon overflow, as per the spec.
-///
-/// Spec v0.12.1
 pub fn increase_balance<E: EthSpec>(
     state: &mut BeaconState<E>,
     index: usize,
     delta: u64,
 ) -> Result<(), ArithError> {
-    state.balances[index].safe_add_assign(delta)
+    state.balances_mut()[index].safe_add_assign(delta)
 }
 
 /// Decrease the balance of a validator, saturating upon overflow, as per the spec.
-///
-/// Spec v0.12.1
 pub fn decrease_balance<E: EthSpec>(state: &mut BeaconState<E>, index: usize, delta: u64) {
-    state.balances[index] = state.balances[index].saturating_sub(delta);
+    state.balances_mut()[index] = state.balances()[index].saturating_sub(delta);
 }

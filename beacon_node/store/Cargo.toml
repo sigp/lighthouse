@@ -31,3 +31,5 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lru = "0.6.0"
 sloggers = "1.0.1"
 directory = { path = "../../common/directory" }
+# FIXME(altair): publish
+superstruct = { git = "https://github.com/sigp/superstruct", rev = "883c103281c0fd0569fd697a6738b30e1232ba98" }

@@ -1,58 +1,108 @@
+use crate::beacon_block_body::{BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyRef};
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
-
 use serde_derive::{Deserialize, Serialize};
+use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
-///
-/// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[superstruct(
+    variants(Base, Altair),
+    variant_attributes(
+        derive(
+            Debug,
+            PartialEq,
+            Clone,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            TreeHash,
+            TestRandom
+        ),
+        serde(bound = "T: EthSpec"),
+        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
+    )
+)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct BeaconBlock<T: EthSpec> {
+    #[superstruct(getter(copy))]
     pub slot: Slot,
+    #[superstruct(getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
+    #[superstruct(getter(copy))]
     pub parent_root: Hash256,
+    #[superstruct(getter(copy))]
     pub state_root: Hash256,
-    pub body: BeaconBlockBody<T>,
+    #[superstruct(only(Base))]
+    pub body: BeaconBlockBodyBase<T>,
+    #[superstruct(only(Altair))]
+    pub body: BeaconBlockBodyAltair<T>,
+}
+
+impl<T: EthSpec> BeaconBlock<T> {
+    /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
+    pub fn body_ref(&self) -> BeaconBlockBodyRef<'_, T> {
+        match self {
+            BeaconBlock::Base(ref block) => BeaconBlockBodyRef::Base(&block.body),
+            BeaconBlock::Altair(ref block) => BeaconBlockBodyRef::Altair(&block.body),
+        }
+    }
+}
+
+/// Custom `Decode` implementation for blocks that differentiates between hard fork blocks by slot.
+impl<T: EthSpec> Decode for BeaconBlock<T> {
+    fn is_ssz_fixed_len() -> bool {
+        assert!(
+            !<BeaconBlockBase<T> as Decode>::is_ssz_fixed_len()
+                && !<BeaconBlockAltair<T> as Decode>::is_ssz_fixed_len()
+        );
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        if bytes.len() < slot_len {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_len,
+            });
+        }
+
+        let slot = Slot::from_ssz_bytes(&bytes[0..slot_len])?;
+
+        let altair_fork_slot = FORK_SCHEDULE
+            .read()
+            .as_ref()
+            .ok_or_else(|| DecodeError::BytesInvalid("fork schedule not initialised".into()))?
+            .altair_fork_slot;
+
+        if slot < altair_fork_slot {
+            BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
+        } else {
+            BeaconBlockAltair::from_ssz_bytes(bytes).map(Self::Altair)
+        }
+    }
 }
 
 impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
 
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
-    ///
-    /// Spec v0.12.1
     pub fn empty(spec: &ChainSpec) -> Self {
-        BeaconBlock {
-            slot: spec.genesis_slot,
-            proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
-            body: BeaconBlockBody {
-                randao_reveal: Signature::empty(),
-                eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
-                    deposit_count: 0,
-                },
-                graffiti: Graffiti::default(),
-                proposer_slashings: VariableList::empty(),
-                attester_slashings: VariableList::empty(),
-                attestations: VariableList::empty(),
-                deposits: VariableList::empty(),
-                voluntary_exits: VariableList::empty(),
-            },
-        }
+        Self::Base(BeaconBlockBase::empty(spec))
     }
 
-    /// Return a block where the block has the max possible operations.
+    /// Return a block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> BeaconBlock<T> {
         let header = BeaconBlockHeader {
             slot: Slot::new(1),
@@ -114,7 +164,8 @@ impl<T: EthSpec> BeaconBlock<T> {
             signature: Signature::empty(),
         };
 
-        let mut block: BeaconBlock<T> = BeaconBlock::empty(spec);
+        // FIXME(altair): use an Altair block (they're bigger)
+        let mut block = BeaconBlockBase::<T>::empty(spec);
         for _ in 0..T::MaxProposerSlashings::to_usize() {
             block
                 .body
@@ -143,19 +194,17 @@ impl<T: EthSpec> BeaconBlock<T> {
         for _ in 0..T::MaxAttestations::to_usize() {
             block.body.attestations.push(attestation.clone()).unwrap();
         }
-        block
+        BeaconBlock::Base(block)
     }
 
-    /// Returns the epoch corresponding to `self.slot`.
+    /// Returns the epoch corresponding to `self.slot()`.
     pub fn epoch(&self) -> Epoch {
-        self.slot.epoch(T::slots_per_epoch())
+        self.slot().epoch(T::slots_per_epoch())
     }
 
     /// Returns the `tree_hash_root` of the block.
-    ///
-    /// Spec v0.12.1
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.tree_hash_root()[..])
+        self.tree_hash_root()
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.
@@ -164,21 +213,25 @@ impl<T: EthSpec> BeaconBlock<T> {
     /// when you want to have the block _and_ the header.
     ///
     /// Note: performs a full tree-hash of `self.body`.
-    ///
-    /// Spec v0.12.1
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
-            slot: self.slot,
-            proposer_index: self.proposer_index,
-            parent_root: self.parent_root,
-            state_root: self.state_root,
-            body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
+            slot: self.slot(),
+            proposer_index: self.proposer_index(),
+            parent_root: self.parent_root(),
+            state_root: self.state_root(),
+            body_root: self.body_root(),
+        }
+    }
+
+    /// Return the tree hash root of the block's body.
+    pub fn body_root(&self) -> Hash256 {
+        match self {
+            BeaconBlock::Base(block) => block.body.tree_hash_root(),
+            BeaconBlock::Altair(block) => block.body.tree_hash_root(),
         }
     }
 
     /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
-    ///
-    /// Spec v0.12.1
     pub fn temporary_block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: Hash256::zero(),
@@ -209,9 +262,84 @@ impl<T: EthSpec> BeaconBlock<T> {
     }
 }
 
+impl<T: EthSpec> BeaconBlockBase<T> {
+    /// Returns an empty block to be used during genesis.
+    pub fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockBase {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyBase {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::{test_ssz_tree_hash_pair, SeedableRng, TestRandom, XorShiftRng};
+    use crate::MainnetEthSpec;
 
-    ssz_and_tree_hash_tests!(BeaconBlock<MainnetEthSpec>);
+    type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
+    type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
+    type BeaconBlockAltair = super::BeaconBlockAltair<MainnetEthSpec>;
+
+    fn set_fork_schedule(altair_fork_slot: u64) {
+        *FORK_SCHEDULE.write() = Some(ForkSchedule {
+            altair_fork_slot: Slot::new(altair_fork_slot),
+            altair_fork_version: [0xff; 4],
+        });
+    }
+
+    #[test]
+    fn roundtrip_base_block() {
+        let fork_slot = 100_000;
+        set_fork_schedule(fork_slot);
+
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+        let inner_block = BeaconBlockBase {
+            slot: Slot::random_for_test(rng) % fork_slot,
+            proposer_index: u64::random_for_test(rng),
+            parent_root: Hash256::random_for_test(rng),
+            state_root: Hash256::random_for_test(rng),
+            body: BeaconBlockBodyBase::random_for_test(rng),
+        };
+        let block = BeaconBlock::Base(inner_block.clone());
+
+        test_ssz_tree_hash_pair(&block, &inner_block);
+    }
+
+    #[test]
+    fn roundtrip_altair_block() {
+        let fork_slot = 100_000;
+        set_fork_schedule(fork_slot);
+
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+        let inner_block = BeaconBlockAltair {
+            slot: Slot::from(fork_slot),
+            proposer_index: u64::random_for_test(rng),
+            parent_root: Hash256::random_for_test(rng),
+            state_root: Hash256::random_for_test(rng),
+            body: BeaconBlockBodyAltair::random_for_test(rng),
+        };
+        let block = BeaconBlock::Altair(inner_block.clone());
+
+        test_ssz_tree_hash_pair(&block, &inner_block);
+    }
 }

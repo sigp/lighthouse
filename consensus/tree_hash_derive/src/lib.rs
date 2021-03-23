@@ -1,9 +1,7 @@
 #![recursion_limit = "256"]
-extern crate proc_macro;
-
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Attribute, DeriveInput, Meta};
+use syn::{parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Meta};
 
 /// Return a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
 /// that should not be hashed.
@@ -85,13 +83,16 @@ fn should_skip_hashing(field: &syn::Field) -> bool {
 pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
+    match &item.data {
+        syn::Data::Struct(s) => tree_hash_derive_struct(&item, s),
+        syn::Data::Enum(e) => tree_hash_derive_enum(&item, e),
+        _ => panic!("tree_hash_derive only supports structs."),
+    }
+}
+
+fn tree_hash_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> TokenStream {
     let name = &item.ident;
     let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
-
-    let struct_data = match &item.data {
-        syn::Data::Struct(s) => s,
-        _ => panic!("tree_hash_derive only supports structs."),
-    };
 
     let idents = get_hashable_fields(&struct_data);
     let num_leaves = idents.len();
@@ -119,6 +120,73 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
                 )*
 
                 hasher.finish().expect("tree hash derive should not have a remaining buffer")
+            }
+        }
+    };
+    output.into()
+}
+
+/// Derive `TreeHash` for a restricted subset of all possible enum types.
+///
+/// Only supports:
+/// - Enums with a single field per variant, where
+///     - All fields are "container" types.
+///
+/// Will panic at compile-time if the single field requirement isn't met, but will panic *at run
+/// time* if the container type requirement isn't met.
+fn tree_hash_derive_enum(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
+
+    let (patterns, type_exprs): (Vec<_>, Vec<_>) = enum_data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_name = &variant.ident;
+
+            if variant.fields.len() != 1 {
+                panic!("TreeHash can only be derived for enums with 1 field per variant");
+            }
+
+            let pattern = quote! {
+                #name::#variant_name(ref inner)
+            };
+
+            let ty = &(&variant.fields).into_iter().next().unwrap().ty;
+            let type_expr = quote! {
+                <#ty as tree_hash::TreeHash>::tree_hash_type()
+            };
+            (pattern, type_expr)
+        })
+        .unzip();
+
+    let output = quote! {
+        impl #impl_generics tree_hash::TreeHash for #name #ty_generics #where_clause {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                #(
+                    assert_eq!(
+                        #type_exprs,
+                        tree_hash::TreeHashType::Container,
+                        "all variants must be of container type"
+                    );
+                )*
+                tree_hash::TreeHashType::Container
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("Enum should never be packed")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("Enum should never be packed")
+            }
+
+            fn tree_hash_root(&self) -> Hash256 {
+                match self {
+                    #(
+                        #patterns => inner.tree_hash_root(),
+                    )*
+                }
             }
         }
     };

@@ -1,6 +1,6 @@
 use crate::common::get_attesting_indices;
 use safe_arith::SafeArith;
-use types::*;
+use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, PendingAttestation};
 
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
@@ -192,10 +192,10 @@ impl ValidatorStatuses {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
-        let mut statuses = Vec::with_capacity(state.validators.len());
+        let mut statuses = Vec::with_capacity(state.validators().len());
         let mut total_balances = TotalBalances::new(spec);
 
-        for (i, validator) in state.validators.iter().enumerate() {
+        for (i, validator) in state.validators().iter().enumerate() {
             let effective_balance = state.get_effective_balance(i, spec)?;
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed,
@@ -237,10 +237,11 @@ impl ValidatorStatuses {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
-        for a in state
+        let base_state = state.as_base()?;
+        for a in base_state
             .previous_epoch_attestations
             .iter()
-            .chain(state.current_epoch_attestations.iter())
+            .chain(base_state.current_epoch_attestations.iter())
         {
             let committee = state.get_beacon_committee(a.data.slot, a.data.index)?;
             let attesting_indices =

@@ -381,7 +381,7 @@ where
         slot: Slot,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
-        assert!(slot >= state.slot);
+        assert!(slot >= state.slot());
 
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
@@ -402,8 +402,8 @@ where
             let domain = self.spec.get_domain(
                 epoch,
                 Domain::Randao,
-                &state.fork,
-                state.genesis_validators_root,
+                &state.fork(),
+                state.genesis_validators_root(),
             );
             let message = epoch.signing_root(domain);
             let sk = &self.validator_keypairs[proposer_index].sk;
@@ -417,8 +417,8 @@ where
 
         let signed_block = block.sign(
             &self.validator_keypairs[proposer_index].sk,
-            &state.fork,
-            state.genesis_validators_root,
+            &state.fork(),
+            state.genesis_validators_root(),
             &self.spec,
         );
 
@@ -438,7 +438,7 @@ where
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
     ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
-        let committee_count = state.get_committee_count_at_slot(state.slot).unwrap();
+        let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
 
         state
             .get_beacon_committees_at_slot(attestation_slot)
@@ -469,8 +469,8 @@ where
                             let domain = self.spec.get_domain(
                                 attestation.data.target.epoch,
                                 Domain::BeaconAttester,
-                                &state.fork,
-                                state.genesis_validators_root,
+                                &state.fork(),
+                                state.genesis_validators_root(),
                             );
 
                             let message = attestation.data.signing_root(domain);
@@ -558,10 +558,10 @@ where
                             }
 
                             let selection_proof = SelectionProof::new::<E>(
-                                state.slot,
+                                state.slot(),
                                 &self.validator_keypairs[*validator_index].sk,
-                                &state.fork,
-                                state.genesis_validators_root,
+                                &state.fork(),
+                                state.genesis_validators_root(),
                                 &self.spec,
                             );
 
@@ -570,7 +570,7 @@ where
                         .copied()
                         .unwrap_or_else(|| panic!(
                             "Committee {} at slot {} with {} attesting validators does not have any aggregators",
-                            bc.index, state.slot, bc.committee.len()
+                            bc.index, state.slot(), bc.committee.len()
                         ));
 
                     // If the chain is able to produce an aggregate, use that. Otherwise, build an
@@ -590,8 +590,8 @@ where
                         aggregate,
                         None,
                         &self.validator_keypairs[aggregator_index].sk,
-                        &state.fork,
-                        state.genesis_validators_root,
+                        &state.fork(),
+                        state.genesis_validators_root(),
                         &self.spec,
                     );
 
@@ -773,13 +773,8 @@ where
         block: &SignedBeaconBlock<E>,
         validators: &[usize],
     ) {
-        let attestations = self.make_attestations(
-            validators,
-            &state,
-            state_root,
-            block_hash,
-            block.message.slot,
-        );
+        let attestations =
+            self.make_attestations(validators, &state, state_root, block_hash, block.slot());
         self.process_attestations(attestations);
     }
 
@@ -934,7 +929,7 @@ where
         chain_dump
             .iter()
             .cloned()
-            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint.root.into())
+            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
             .filter(|block_hash| *block_hash != Hash256::zero().into())
             .collect()
     }

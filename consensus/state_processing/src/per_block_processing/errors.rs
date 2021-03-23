@@ -11,6 +11,8 @@ use types::*;
 /// (e.g., when processing attestations instead of when processing deposits).
 #[derive(Debug, PartialEq, Clone)]
 pub enum BlockProcessingError {
+    /// Logic error indicating that the wrong state type was provided.
+    IncorrectStateType,
     RandaoSignatureInvalid,
     BulkSignatureVerificationFailed,
     StateRootMismatch,

@@ -1,4 +1,5 @@
-#![cfg(test)]
+// FIXME(altair): re-enable
+#![cfg(all(not(test), test))]
 use super::*;
 use crate::test_utils::*;
 use std::ops::Mul;

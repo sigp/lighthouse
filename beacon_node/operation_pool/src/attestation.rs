@@ -89,10 +89,13 @@ pub fn earliest_attestation_validators<T: EthSpec>(
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = attestation.aggregation_bits.clone();
 
+    // FIXME(altair): update this
+    let base_state = state.as_base().unwrap();
+
     let state_attestations = if attestation.data.target.epoch == state.current_epoch() {
-        &state.current_epoch_attestations
+        &base_state.current_epoch_attestations
     } else if attestation.data.target.epoch == state.previous_epoch() {
-        &state.previous_epoch_attestations
+        &base_state.previous_epoch_attestations
     } else {
         return BitList::with_capacity(0).unwrap();
     };

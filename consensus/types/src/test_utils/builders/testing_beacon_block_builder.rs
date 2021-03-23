@@ -1,3 +1,4 @@
+use crate::altair::BeaconBlock;
 use crate::{
     test_utils::{
         TestingAttestationBuilder, TestingAttesterSlashingBuilder, TestingDepositBuilder,

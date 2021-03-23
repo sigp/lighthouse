@@ -513,8 +513,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
             return Err(BlockError::RepeatProposal {
-                proposer: block.message.proposer_index,
-                slot: block.message.slot,
+                proposer: block.message.proposer_index(),
+                slot: block.message.slot(),
             });
         }
 
@@ -607,17 +607,17 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 block_epoch,
                 proposer_shuffling_decision_block,
                 proposers,
-                state.fork,
+                state.fork(),
             )?;
 
-            (proposer_index, state.fork, Some(parent), block)
+            (proposer_index, state.fork(), Some(parent), block)
         };
 
         let signature_is_valid = {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
-                .get(block.message.proposer_index as usize)
-                .ok_or(BlockError::UnknownValidator(block.message.proposer_index))?;
+                .get(block.message.proposer_index() as usize)
+                .ok_or(BlockError::UnknownValidator(block.message.proposer_index()))?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,
@@ -643,14 +643,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
             return Err(BlockError::RepeatProposal {
-                proposer: block.message.proposer_index,
-                slot: block.message.slot,
+                proposer: block.message.proposer_index(),
+                slot: block.message.slot(),
             });
         }
 
-        if block.message.proposer_index != expected_proposer as u64 {
+        if block.message.proposer_index() != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {
-                block: block.message.proposer_index,
+                block: block.message.proposer_index(),
                 local_shuffling: expected_proposer as u64,
             });
         }
@@ -892,20 +892,20 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         // Perform a sanity check on the pre-state.
         let parent_slot = parent.beacon_block.slot();
-        if state.slot < parent_slot || state.slot > parent_slot + 1 {
+        if state.slot() < parent_slot || state.slot() > parent_slot + 1 {
             return Err(BeaconChainError::BadPreState {
                 parent_root: parent.beacon_block_root,
                 parent_slot,
                 block_root,
                 block_slot: block.slot(),
-                state_slot: state.slot,
+                state_slot: state.slot(),
             }
             .into());
         }
 
-        let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
+        let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {
-            let state_root = if parent.beacon_block.slot() == state.slot {
+            let state_root = if parent.beacon_block.slot() == state.slot() {
                 // If it happens that `pre_state` has *not* already been advanced forward a single
                 // slot, then there is no need to compute the state root for this
                 // `per_slot_processing` call since that state root is already stored in the parent
@@ -931,7 +931,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                     vec![]
                 } else {
                     vec![
-                        if state.slot % T::EthSpec::slots_per_epoch() == 0 {
+                        if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
                             StoreOp::PutState(state_root, &state)
                         } else {
                             StoreOp::PutStateSummary(
@@ -1070,10 +1070,10 @@ fn check_block_skip_slots<T: BeaconChainTypes>(
 ) -> Result<(), BlockError<T::EthSpec>> {
     // Reject any block that exceeds our limit on skipped slots.
     if let Some(max_skip_slots) = chain.config.import_max_skip_slots {
-        if block.slot > parent_slot + max_skip_slots {
+        if block.slot() > parent_slot + max_skip_slots {
             return Err(BlockError::TooManySkippedSlots {
                 parent_slot,
-                block_slot: block.slot,
+                block_slot: block.slot(),
             });
         }
     }
@@ -1095,9 +1095,9 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
 
-    if block.slot <= finalized_slot {
+    if block.slot() <= finalized_slot {
         Err(BlockError::WouldRevertFinalizedSlot {
-            block_slot: block.slot,
+            block_slot: block.slot(),
             finalized_slot,
         })
     } else {
@@ -1150,21 +1150,21 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     let block = &signed_block.message;
 
     // Do not process blocks from the future.
-    if block.slot > chain.slot()? {
+    if block.slot() > chain.slot()? {
         return Err(BlockError::FutureSlot {
             present_slot: chain.slot()?,
-            block_slot: block.slot,
+            block_slot: block.slot(),
         });
     }
 
     // Do not re-process the genesis block.
-    if block.slot == 0 {
+    if block.slot() == 0 {
         return Err(BlockError::GenesisBlock);
     }
 
     // This is an artificial (non-spec) restriction that provides some protection from overflow
     // abuses.
-    if block.slot >= MAXIMUM_BLOCK_SLOT_NUMBER {
+    if block.slot() >= MAXIMUM_BLOCK_SLOT_NUMBER {
         return Err(BlockError::BlockSlotLimitReached);
     }
 
@@ -1205,7 +1205,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     if let Some(proto_block) = chain
         .fork_choice
         .read()
-        .get_block(&block.message.parent_root)
+        .get_block(&block.message.parent_root())
     {
         Ok((proto_block, block))
     } else {
@@ -1323,10 +1323,10 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Borrowed(state))
-    } else if state.slot > block_slot {
+    } else if state.slot() > block_slot {
         Err(BlockError::BlockIsNotLaterThanParent {
             block_slot,
-            parent_slot: state.slot,
+            parent_slot: state.slot(),
         })
     } else {
         let mut state = state.clone_with(CloneConfig::committee_caches_only());
@@ -1368,7 +1368,7 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
         move |validator_index| {
             // Disallow access to any validator pubkeys that are not in the current beacon
             // state.
-            if validator_index < state.validators.len() {
+            if validator_index < state.validators().len() {
                 validator_pubkey_cache
                     .get(validator_index)
                     .map(|pk| Cow::Borrowed(pk))
@@ -1394,8 +1394,8 @@ fn verify_header_signature<T: BeaconChainTypes>(
     let (fork, genesis_validators_root) = chain
         .with_head(|head| {
             Ok((
-                head.beacon_state.fork,
-                head.beacon_state.genesis_validators_root,
+                head.beacon_state.fork(),
+                head.beacon_state.genesis_validators_root(),
             ))
         })
         .map_err(|e: BlockError<T::EthSpec>| e)?;
@@ -1454,7 +1454,7 @@ fn participation_ratio(section: u64, total: u64) -> Option<f64> {
 fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let root = state.tree_hash_root();
-        let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
+        let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");
         let _ = fs::create_dir_all(path.clone());
         path = path.join(filename);
@@ -1475,7 +1475,7 @@ fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
 
 fn write_block<T: EthSpec>(block: &SignedBeaconBlock<T>, root: Hash256, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
-        let filename = format!("block_slot_{}_root{}.ssz", block.message.slot, root);
+        let filename = format!("block_slot_{}_root{}.ssz", block.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");
         let _ = fs::create_dir_all(path.clone());
         path = path.join(filename);

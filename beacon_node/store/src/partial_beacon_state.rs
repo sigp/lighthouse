@@ -3,16 +3,20 @@ use crate::chunked_vector::{
     StateRoots,
 };
 use crate::{Error, KeyValueStore};
+use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
+use superstruct::superstruct;
 use types::*;
 
 /// Lightweight variant of the `BeaconState` that is stored in the database.
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
-///
-/// Spec v0.12.1
-#[derive(Debug, PartialEq, Clone, Encode, Decode)]
+#[superstruct(
+    variants(Base, Altair),
+    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
+)]
+#[derive(Debug, PartialEq, Clone, Encode)]
 pub struct PartialBeaconState<T>
 where
     T: EthSpec,
@@ -20,6 +24,7 @@ where
     // Versioning
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
+    #[superstruct(getter(copy))]
     pub slot: Slot,
     pub fork: Fork,
 
@@ -56,60 +61,143 @@ where
     // Slashings
     slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
-    // Attestations
+    // Attestations (genesis fork only)
+    #[superstruct(only(Base))]
     pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    #[superstruct(only(Base))]
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+
+    // Participation (Altair and later)
+    #[superstruct(only(Altair))]
+    pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    #[superstruct(only(Altair))]
+    pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
     pub justification_bits: BitVector<T::JustificationBitsLength>,
     pub previous_justified_checkpoint: Checkpoint,
     pub current_justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
+
+    // Light-client sync committees
+    #[superstruct(only(Altair))]
+    pub current_sync_committee: SyncCommittee<T>,
+    #[superstruct(only(Altair))]
+    pub next_sync_committee: SyncCommittee<T>,
+
+    // Leak
+    #[superstruct(only(Altair))]
+    pub leak_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 }
 
-impl<T: EthSpec> PartialBeaconState<T> {
-    /// Convert a `BeaconState` to a `PartialBeaconState`, while dropping the optional fields.
-    pub fn from_state_forgetful(s: &BeaconState<T>) -> Self {
-        // TODO: could use references/Cow for fields to avoid cloning
-        PartialBeaconState {
-            genesis_time: s.genesis_time,
-            genesis_validators_root: s.genesis_validators_root,
-            slot: s.slot,
-            fork: s.fork,
+impl<T: EthSpec> Decode for PartialBeaconState<T> {
+    fn is_ssz_fixed_len() -> bool {
+        assert!(
+            !<PartialBeaconStateBase<T> as Decode>::is_ssz_fixed_len()
+                && !<PartialBeaconStateAltair<T> as Decode>::is_ssz_fixed_len()
+        );
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
+        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        if bytes.len() < slot_offset + slot_len {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_offset + slot_len,
+            });
+        }
+
+        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
+
+        let altair_fork_slot = FORK_SCHEDULE
+            .read()
+            .as_ref()
+            .ok_or_else(|| DecodeError::BytesInvalid("fork schedule not initialised".into()))?
+            .altair_fork_slot;
+
+        if slot < altair_fork_slot {
+            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
+        } else {
+            PartialBeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
+        }
+    }
+}
+
+/// Implement the conversion function from BeaconState -> PartialBeaconState.
+macro_rules! impl_from_state_forgetful {
+    ($s:ident, $outer:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*]) => {
+        PartialBeaconState::$variant_name($struct_name {
+            // Versioning
+            genesis_time: $s.genesis_time,
+            genesis_validators_root: $s.genesis_validators_root,
+            slot: $s.slot,
+            fork: $s.fork,
 
             // History
-            latest_block_header: s.latest_block_header.clone(),
+            latest_block_header: $s.latest_block_header.clone(),
             block_roots: None,
             state_roots: None,
             historical_roots: None,
 
             // Eth1
-            eth1_data: s.eth1_data.clone(),
-            eth1_data_votes: s.eth1_data_votes.clone(),
-            eth1_deposit_index: s.eth1_deposit_index,
+            eth1_data: $s.eth1_data.clone(),
+            eth1_data_votes: $s.eth1_data_votes.clone(),
+            eth1_deposit_index: $s.eth1_deposit_index,
 
             // Validator registry
-            validators: s.validators.clone(),
-            balances: s.balances.clone(),
+            validators: $s.validators.clone(),
+            balances: $s.balances.clone(),
 
             // Shuffling
-            latest_randao_value: *s
-                .get_randao_mix(s.current_epoch())
+            latest_randao_value: *$outer
+                .get_randao_mix($outer.current_epoch())
                 .expect("randao at current epoch is OK"),
             randao_mixes: None,
 
             // Slashings
-            slashings: s.get_all_slashings().to_vec().into(),
-
-            // Attestations
-            previous_epoch_attestations: s.previous_epoch_attestations.clone(),
-            current_epoch_attestations: s.current_epoch_attestations.clone(),
+            slashings: $s.slashings.clone(),
 
             // Finality
-            justification_bits: s.justification_bits.clone(),
-            previous_justified_checkpoint: s.previous_justified_checkpoint,
-            current_justified_checkpoint: s.current_justified_checkpoint,
-            finalized_checkpoint: s.finalized_checkpoint,
+            justification_bits: $s.justification_bits.clone(),
+            previous_justified_checkpoint: $s.previous_justified_checkpoint,
+            current_justified_checkpoint: $s.current_justified_checkpoint,
+            finalized_checkpoint: $s.finalized_checkpoint,
+
+            // Variant-specific fields
+            $(
+                $extra_fields: $s.$extra_fields.clone()
+            ),*
+        })
+    }
+}
+
+impl<T: EthSpec> PartialBeaconState<T> {
+    /// Convert a `BeaconState` to a `PartialBeaconState`, while dropping the optional fields.
+    pub fn from_state_forgetful(outer: &BeaconState<T>) -> Self {
+        match outer {
+            BeaconState::Base(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Base,
+                PartialBeaconStateBase,
+                [previous_epoch_attestations, current_epoch_attestations]
+            ),
+            BeaconState::Altair(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Altair,
+                PartialBeaconStateAltair,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    leak_scores
+                ]
+            ),
         }
     }
 
@@ -118,9 +206,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        if self.block_roots.is_none() {
-            self.block_roots = Some(load_vector_from_db::<BlockRoots, T, _>(
-                store, self.slot, spec,
+        if self.block_roots().is_none() {
+            *self.block_roots_mut() = Some(load_vector_from_db::<BlockRoots, T, _>(
+                store,
+                self.slot(),
+                spec,
             )?);
         }
         Ok(())
@@ -131,9 +221,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        if self.state_roots.is_none() {
-            self.state_roots = Some(load_vector_from_db::<StateRoots, T, _>(
-                store, self.slot, spec,
+        if self.state_roots().is_none() {
+            *self.state_roots_mut() = Some(load_vector_from_db::<StateRoots, T, _>(
+                store,
+                self.slot(),
+                spec,
             )?);
         }
         Ok(())
@@ -144,10 +236,10 @@ impl<T: EthSpec> PartialBeaconState<T> {
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        if self.historical_roots.is_none() {
-            self.historical_roots = Some(load_variable_list_from_db::<HistoricalRoots, T, _>(
-                store, self.slot, spec,
-            )?);
+        if self.historical_roots().is_none() {
+            *self.historical_roots_mut() = Some(
+                load_variable_list_from_db::<HistoricalRoots, T, _>(store, self.slot(), spec)?,
+            );
         }
         Ok(())
     }
@@ -157,72 +249,101 @@ impl<T: EthSpec> PartialBeaconState<T> {
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        if self.randao_mixes.is_none() {
+        if self.randao_mixes().is_none() {
             // Load the per-epoch values from the database
             let mut randao_mixes =
-                load_vector_from_db::<RandaoMixes, T, _>(store, self.slot, spec)?;
+                load_vector_from_db::<RandaoMixes, T, _>(store, self.slot(), spec)?;
 
             // Patch the value for the current slot into the index for the current epoch
-            let current_epoch = self.slot.epoch(T::slots_per_epoch());
+            let current_epoch = self.slot().epoch(T::slots_per_epoch());
             let len = randao_mixes.len();
-            randao_mixes[current_epoch.as_usize() % len] = self.latest_randao_value;
+            randao_mixes[current_epoch.as_usize() % len] = *self.latest_randao_value();
 
-            self.randao_mixes = Some(randao_mixes)
+            *self.randao_mixes_mut() = Some(randao_mixes)
         }
         Ok(())
     }
 }
 
-impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
-    type Error = Error;
-
-    fn try_into(self) -> Result<BeaconState<E>, Error> {
-        fn unpack<T>(x: Option<T>) -> Result<T, Error> {
-            x.ok_or(Error::PartialBeaconStateError)
-        }
-
-        Ok(BeaconState {
-            genesis_time: self.genesis_time,
-            genesis_validators_root: self.genesis_validators_root,
-            slot: self.slot,
-            fork: self.fork,
+/// Implement the conversion from PartialBeaconState -> BeaconState.
+macro_rules! impl_try_into_beacon_state {
+    ($inner:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*]) => {
+        BeaconState::$variant_name($struct_name {
+            // Versioning
+            genesis_time: $inner.genesis_time,
+            genesis_validators_root: $inner.genesis_validators_root,
+            slot: $inner.slot,
+            fork: $inner.fork,
 
             // History
-            latest_block_header: self.latest_block_header,
-            block_roots: unpack(self.block_roots)?,
-            state_roots: unpack(self.state_roots)?,
-            historical_roots: unpack(self.historical_roots)?,
+            latest_block_header: $inner.latest_block_header,
+            block_roots: unpack_field($inner.block_roots)?,
+            state_roots: unpack_field($inner.state_roots)?,
+            historical_roots: unpack_field($inner.historical_roots)?,
 
             // Eth1
-            eth1_data: self.eth1_data,
-            eth1_data_votes: self.eth1_data_votes,
-            eth1_deposit_index: self.eth1_deposit_index,
+            eth1_data: $inner.eth1_data,
+            eth1_data_votes: $inner.eth1_data_votes,
+            eth1_deposit_index: $inner.eth1_deposit_index,
 
             // Validator registry
-            validators: self.validators,
-            balances: self.balances,
+            validators: $inner.validators,
+            balances: $inner.balances,
 
             // Shuffling
-            randao_mixes: unpack(self.randao_mixes)?,
+            randao_mixes: unpack_field($inner.randao_mixes)?,
 
             // Slashings
-            slashings: self.slashings,
-
-            // Attestations
-            previous_epoch_attestations: self.previous_epoch_attestations,
-            current_epoch_attestations: self.current_epoch_attestations,
+            slashings: $inner.slashings,
 
             // Finality
-            justification_bits: self.justification_bits,
-            previous_justified_checkpoint: self.previous_justified_checkpoint,
-            current_justified_checkpoint: self.current_justified_checkpoint,
-            finalized_checkpoint: self.finalized_checkpoint,
+            justification_bits: $inner.justification_bits,
+            previous_justified_checkpoint: $inner.previous_justified_checkpoint,
+            current_justified_checkpoint: $inner.current_justified_checkpoint,
+            finalized_checkpoint: $inner.finalized_checkpoint,
 
             // Caching
             committee_caches: <_>::default(),
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),
             tree_hash_cache: <_>::default(),
+
+            // Variant-specific fields
+            $(
+                $extra_fields: $inner.$extra_fields
+            ),*
         })
+    }
+}
+
+fn unpack_field<T>(x: Option<T>) -> Result<T, Error> {
+    x.ok_or(Error::PartialBeaconStateError)
+}
+
+impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
+    type Error = Error;
+
+    fn try_into(self) -> Result<BeaconState<E>, Error> {
+        let state = match self {
+            PartialBeaconState::Base(inner) => impl_try_into_beacon_state!(
+                inner,
+                Base,
+                BeaconStateBase,
+                [previous_epoch_attestations, current_epoch_attestations]
+            ),
+            PartialBeaconState::Altair(inner) => impl_try_into_beacon_state!(
+                inner,
+                Altair,
+                BeaconStateAltair,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    leak_scores
+                ]
+            ),
+        };
+        Ok(state)
     }
 }

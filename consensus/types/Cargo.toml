@@ -42,6 +42,9 @@ arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
 serde_utils = { path = "../serde_utils" }
 regex = "1.3.9"
 lazy_static = "1.4.0"
+parking_lot = "0.11.1"
+# FIXME(altair): publish to crates.io
+superstruct = { git = "https://github.com/sigp/superstruct", rev = "883c103281c0fd0569fd697a6738b30e1232ba98" }
 
 [dev-dependencies]
 serde_json = "1.0.58"

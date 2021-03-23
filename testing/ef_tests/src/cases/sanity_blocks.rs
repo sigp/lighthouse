@@ -77,7 +77,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
             .iter()
             .try_for_each(|signed_block| {
                 let block = &signed_block.message;
-                while bulk_state.slot < block.slot {
+                while bulk_state.slot() < block.slot() {
                     per_slot_processing(&mut bulk_state, None, spec).unwrap();
                     per_slot_processing(&mut indiv_state, None, spec).unwrap();
                 }
@@ -106,8 +106,8 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     spec,
                 )?;
 
-                if block.state_root == bulk_state.canonical_root()
-                    && block.state_root == indiv_state.canonical_root()
+                if block.state_root() == bulk_state.canonical_root()
+                    && block.state_root() == indiv_state.canonical_root()
                 {
                     Ok(())
                 } else {

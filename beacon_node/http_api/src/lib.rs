@@ -406,9 +406,9 @@ pub fn serve<T: BeaconChainTypes>(
                 state_id
                     .map_state(&chain, |state| {
                         Ok(api_types::FinalityCheckpointsData {
-                            previous_justified: state.previous_justified_checkpoint,
-                            current_justified: state.current_justified_checkpoint,
-                            finalized: state.finalized_checkpoint,
+                            previous_justified: state.previous_justified_checkpoint(),
+                            current_justified: state.current_justified_checkpoint(),
+                            finalized: state.finalized_checkpoint(),
                         })
                     })
                     .map(api_types::GenericResponse::from)
@@ -429,9 +429,9 @@ pub fn serve<T: BeaconChainTypes>(
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
-                                .validators
+                                .validators()
                                 .iter()
-                                .zip(state.balances.iter())
+                                .zip(state.balances().iter())
                                 .enumerate()
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
@@ -474,9 +474,9 @@ pub fn serve<T: BeaconChainTypes>(
                             let far_future_epoch = chain.spec.far_future_epoch;
 
                             Ok(state
-                                .validators
+                                .validators()
                                 .iter()
-                                .zip(state.balances.iter())
+                                .zip(state.balances().iter())
                                 .enumerate()
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
@@ -540,15 +540,15 @@ pub fn serve<T: BeaconChainTypes>(
                         .map_state(&chain, |state| {
                             let index_opt = match &validator_id {
                                 ValidatorId::PublicKey(pubkey) => {
-                                    state.validators.iter().position(|v| v.pubkey == *pubkey)
+                                    state.validators().iter().position(|v| v.pubkey == *pubkey)
                                 }
                                 ValidatorId::Index(index) => Some(*index as usize),
                             };
 
                             index_opt
                                 .and_then(|index| {
-                                    let validator = state.validators.get(index)?;
-                                    let balance = *state.balances.get(index)?;
+                                    let validator = state.validators().get(index)?;
+                                    let balance = *state.balances().get(index)?;
                                     let epoch = state.current_epoch();
                                     let far_future_epoch = chain.spec.far_future_epoch;
 
@@ -590,7 +590,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 blocking_json_task(move || {
                     query_state_id.map_state(&chain, |state| {
-                        let epoch = state.slot.epoch(T::EthSpec::slots_per_epoch());
+                        let epoch = state.slot().epoch(T::EthSpec::slots_per_epoch());
 
                         let committee_cache = if state
                             .committee_cache_is_initialized(RelativeEpoch::Current)
@@ -934,7 +934,8 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 block_id
                     .block(&chain)
-                    .map(|block| block.message.body.attestations)
+                    // FIXME(altair): could avoid clone with by-value accessor
+                    .map(|block| block.message.body_ref().attestations().clone())
                     .map(api_types::GenericResponse::from)
             })
         });

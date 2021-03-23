@@ -364,7 +364,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
 
         Ok(Eth1Data {
             deposit_root: Hash256::from_slice(&deposit_root),
-            deposit_count: state.eth1_deposit_index,
+            deposit_count: state.eth1_deposit_index(),
             block_hash: Hash256::from_slice(&block_hash),
         })
     }
@@ -451,9 +451,9 @@ impl<T: EthSpec> CachingEth1Backend<T> {
 impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let period = T::SlotsPerEth1VotingPeriod::to_u64();
-        let voting_period_start_slot = (state.slot / period) * period;
+        let voting_period_start_slot = (state.slot() / period) * period;
         let voting_period_start_seconds = slot_start_seconds::<T>(
-            state.genesis_time,
+            state.genesis_time(),
             spec.seconds_per_slot,
             voting_period_start_slot,
         );
@@ -491,13 +491,13 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
                     vote
                 })
                 .unwrap_or_else(|| {
-                    let vote = state.eth1_data.clone();
+                    let vote = state.eth1_data().clone();
                     error!(
                         self.log,
                         "No valid eth1_data votes, `votes_to_consider` empty";
                         "lowest_block_number" => self.core.lowest_block_number(),
                         "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
-                        "genesis_time" => state.genesis_time,
+                        "genesis_time" => state.genesis_time(),
                         "outcome" => "casting `state.eth1_data` as eth1 vote"
                     );
                     metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
@@ -522,11 +522,11 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
         eth1_data_vote: &Eth1Data,
         _spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
-        let deposit_index = state.eth1_deposit_index;
+        let deposit_index = state.eth1_deposit_index();
         let deposit_count = if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data_vote)? {
             new_eth1_data.deposit_count
         } else {
-            state.eth1_data.deposit_count
+            state.eth1_data().deposit_count
         };
 
         match deposit_index.cmp(&deposit_count) {
@@ -609,7 +609,7 @@ fn collect_valid_votes<T: EthSpec>(
 ) -> Eth1DataVoteCount {
     let mut valid_votes = HashMap::new();
     state
-        .eth1_data_votes
+        .eth1_data_votes()
         .iter()
         .filter_map(|vote| {
             if let Some(block_num) = votes_to_consider.get(vote) {

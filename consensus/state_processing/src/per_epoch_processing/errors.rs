@@ -1,4 +1,4 @@
-use types::*;
+use types::BeaconStateError;
 
 #[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {

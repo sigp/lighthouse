@@ -48,7 +48,7 @@ pub fn interop_genesis_state<T: EthSpec>(
     )
     .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
 
-    state.genesis_time = genesis_time;
+    *state.genesis_time_mut() = genesis_time;
 
     // Invalid all the caches after all the manual state surgery.
     state.drop_all_caches();

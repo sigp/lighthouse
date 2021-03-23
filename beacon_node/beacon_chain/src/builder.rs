@@ -254,7 +254,7 @@ where
             .map_err(|e| format!("DB error when reading genesis state: {:?}", e))?
             .ok_or("Genesis block not found in store")?;
 
-        self.genesis_time = Some(genesis_state.genesis_time);
+        self.genesis_time = Some(genesis_state.genesis_time());
 
         self.op_pool = Some(
             store
@@ -292,7 +292,7 @@ where
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
 
-        let beacon_state_root = beacon_block.message.state_root;
+        let beacon_state_root = beacon_block.message.state_root();
         let beacon_block_root = beacon_block.canonical_root();
 
         self.genesis_state_root = Some(beacon_state_root);
@@ -332,7 +332,7 @@ where
         .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
-        self.genesis_time = Some(genesis.beacon_state.genesis_time);
+        self.genesis_time = Some(genesis.beacon_state.genesis_time());
 
         Ok(self.empty_op_pool())
     }
@@ -470,7 +470,7 @@ where
         //
         // This is a sanity check to detect database corruption.
         let fc_finalized = fork_choice.finalized_checkpoint();
-        let head_finalized = canonical_head.beacon_state.finalized_checkpoint;
+        let head_finalized = canonical_head.beacon_state.finalized_checkpoint();
         if fc_finalized != head_finalized {
             if head_finalized.root == Hash256::zero()
                 && head_finalized.epoch == fc_finalized.epoch
@@ -528,7 +528,7 @@ where
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
-            genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
+            genesis_validators_root: canonical_head.beacon_state.genesis_validators_root(),
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
             genesis_state_root,
@@ -568,7 +568,7 @@ where
                     "Weak subjectivity checkpoint verification failed on startup!";
                     "head_block_root" => format!("{}", head.beacon_block_root),
                     "head_slot" => format!("{}", head.beacon_block.slot()),
-                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint.epoch),
+                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint().epoch),
                     "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
                     "error" => format!("{:?}", e),
                 );
@@ -656,7 +656,7 @@ fn genesis_block<T: EthSpec>(
         // block consistent with every other block.
         signature: Signature::empty(),
     };
-    genesis_block.message.state_root = genesis_state
+    *genesis_block.message.state_root_mut() = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
     Ok(genesis_block)

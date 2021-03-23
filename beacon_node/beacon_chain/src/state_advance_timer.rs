@@ -213,10 +213,10 @@ fn advance_head<T: BeaconChainTypes>(
         } => (block_slot, state_root, *state),
     };
 
-    let initial_slot = state.slot;
+    let initial_slot = state.slot();
     let initial_epoch = state.current_epoch();
 
-    let state_root = if state.slot == head_slot {
+    let state_root = if state.slot() == head_slot {
         Some(head_state_root)
     } else {
         // Protect against advancing a state more than a single slot.
@@ -225,7 +225,7 @@ fn advance_head<T: BeaconChainTypes>(
         // database. Future works might store temporary, intermediate states inside this function.
         return Err(Error::BadStateSlot {
             block_slot: head_slot,
-            state_slot: state.slot,
+            state_slot: state.slot(),
         });
     };
 
@@ -249,7 +249,7 @@ fn advance_head<T: BeaconChainTypes>(
         log,
         "Advanced head state one slot";
         "head_root" => ?head_root,
-        "state_slot" => state.slot,
+        "state_slot" => state.slot(),
         "current_slot" => current_slot,
     );
 
@@ -278,7 +278,7 @@ fn advance_head<T: BeaconChainTypes>(
                 state
                     .get_beacon_proposer_indices(&beacon_chain.spec)
                     .map_err(BeaconChainError::from)?,
-                state.fork,
+                state.fork(),
             )
             .map_err(BeaconChainError::from)?;
 
@@ -304,7 +304,7 @@ fn advance_head<T: BeaconChainTypes>(
         );
     }
 
-    let final_slot = state.slot;
+    let final_slot = state.slot();
 
     // Insert the advanced state back into the snapshot cache.
     beacon_chain

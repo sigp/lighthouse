@@ -52,7 +52,7 @@ fn verify_exit_parametric<T: EthSpec>(
     let exit = &signed_exit.message;
 
     let validator = state
-        .validators
+        .validators()
         .get(exit.validator_index as usize)
         .ok_or_else(|| error(ExitInvalid::ValidatorUnknown(exit.validator_index)))?;
 

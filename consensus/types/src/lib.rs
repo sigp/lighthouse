@@ -50,8 +50,11 @@ pub mod validator_subscription;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
+pub mod fork_schedule;
+pub mod participation_flags;
 pub mod slot_epoch;
 pub mod subnet_id;
+pub mod sync_committee;
 mod tree_hash_impls;
 
 #[cfg(feature = "sqlite")]
@@ -64,8 +67,10 @@ pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
-pub use crate::beacon_block::BeaconBlock;
-pub use crate::beacon_block_body::BeaconBlockBody;
+pub use crate::beacon_block::{BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockRef};
+pub use crate::beacon_block_body::{
+    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyRef,
+};
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
@@ -79,10 +84,12 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::fork::Fork;
 pub use crate::fork_data::ForkData;
+pub use crate::fork_schedule::{init_fork_schedule, ForkSchedule, FORK_SCHEDULE};
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::participation_flags::ParticipationFlags;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
@@ -95,6 +102,7 @@ pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::subnet_id::SubnetId;
+pub use crate::sync_committee::SyncCommittee;
 pub use crate::validator::Validator;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;

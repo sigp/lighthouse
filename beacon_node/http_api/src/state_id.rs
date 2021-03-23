@@ -57,7 +57,7 @@ impl StateId {
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<Fork, warp::Rejection> {
-        self.map_state(chain, |state| Ok(state.fork))
+        self.map_state(chain, |state| Ok(state.fork()))
     }
 
     /// Return the `BeaconState` identified by `self`.

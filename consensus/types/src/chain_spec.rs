@@ -6,8 +6,6 @@ use std::path::Path;
 use tree_hash::TreeHash;
 
 /// Each of the BLS signature domains.
-///
-/// Spec v0.12.1
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Domain {
     BeaconProposer,
@@ -17,11 +15,10 @@ pub enum Domain {
     VoluntaryExit,
     SelectionProof,
     AggregateAndProof,
+    SyncCommittee,
 }
 
 /// Holds all the "constants" for a BeaconChain.
-///
-/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
@@ -109,6 +106,18 @@ pub struct ChainSpec {
     pub deposit_contract_address: Address,
 
     /*
+     * Altair hard fork params
+     */
+    pub inactivity_penalty_quotient_altair: u64,
+    pub min_slashing_penalty_quotient_altair: u64,
+    pub proportional_slashing_multiplier_altair: u64,
+    pub epochs_per_sync_committee_period: Epoch,
+    pub inactivity_score_bias: u64,
+    domain_sync_committee: u32,
+    domain_sync_committee_selection_proof: u32,
+    domain_contribution_and_proof: u32,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -157,6 +166,7 @@ impl ChainSpec {
             Domain::VoluntaryExit => self.domain_voluntary_exit,
             Domain::SelectionProof => self.domain_selection_proof,
             Domain::AggregateAndProof => self.domain_aggregate_and_proof,
+            Domain::SyncCommittee => self.domain_sync_committee,
         }
     }
 
@@ -323,6 +333,18 @@ impl ChainSpec {
             deposit_contract_address: "00000000219ab540356cbb839cbe05303d7705fa"
                 .parse()
                 .expect("chain spec deposit contract address"),
+
+            /*
+             * Altair hard fork params
+             */
+            inactivity_penalty_quotient_altair: 3 * u64::pow(2, 24),
+            min_slashing_penalty_quotient_altair: u64::pow(2, 6),
+            proportional_slashing_multiplier_altair: 2,
+            inactivity_score_bias: 4,
+            epochs_per_sync_committee_period: Epoch::new(256),
+            domain_sync_committee: 7,
+            domain_sync_committee_selection_proof: 8,
+            domain_contribution_and_proof: 9,
 
             /*
              * Network specific
@@ -519,6 +541,18 @@ pub struct YamlConfig {
     #[serde(with = "serde_utils::quoted_u64")]
     safe_slots_to_update_justified: u64,
 
+    // ChainSpec (Altair)
+    /* FIXME(altair): parse from separate file
+    #[serde(with = "serde_utils::quoted_u64")]
+    inactivity_penalty_quotient_altair: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_slashing_penalty_quotient_altair: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    proportional_slashing_multiplier_altair: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    epochs_per_sync_committee_period: u64,
+    domain_sync_committee: u32,
+    */
     #[serde(with = "serde_utils::u32_hex")]
     domain_beacon_proposer: u32,
     #[serde(with = "serde_utils::u32_hex")]
@@ -533,6 +567,7 @@ pub struct YamlConfig {
     domain_selection_proof: u32,
     #[serde(with = "serde_utils::u32_hex")]
     domain_aggregate_and_proof: u32,
+
     // EthSpec
     #[serde(with = "serde_utils::quoted_u32")]
     max_validators_per_committee: u32,
@@ -585,7 +620,6 @@ impl Default for YamlConfig {
     }
 }
 
-/// Spec v0.12.1
 impl YamlConfig {
     /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
     ///
@@ -597,9 +631,6 @@ impl YamlConfig {
             "toledo" => EthSpecId::Mainnet,
             "prater" => EthSpecId::Mainnet,
             "pyrmont" => EthSpecId::Mainnet,
-            "spadina" => EthSpecId::V012Legacy,
-            "medalla" => EthSpecId::V012Legacy,
-            "altona" => EthSpecId::V012Legacy,
             _ => return None,
         })
     }
@@ -774,6 +805,19 @@ impl YamlConfig {
             domain_voluntary_exit: self.domain_voluntary_exit,
             domain_selection_proof: self.domain_selection_proof,
             domain_aggregate_and_proof: self.domain_aggregate_and_proof,
+            /*
+             * Altair params
+             * FIXME(altair): hardcoded
+             */
+            inactivity_penalty_quotient_altair: chain_spec.inactivity_penalty_quotient_altair,
+            min_slashing_penalty_quotient_altair: chain_spec.min_slashing_penalty_quotient_altair,
+            proportional_slashing_multiplier_altair: chain_spec
+                .proportional_slashing_multiplier_altair,
+            inactivity_score_bias: chain_spec.inactivity_score_bias,
+            epochs_per_sync_committee_period: chain_spec.epochs_per_sync_committee_period,
+            domain_sync_committee: chain_spec.domain_sync_committee,
+            domain_sync_committee_selection_proof: chain_spec.domain_sync_committee_selection_proof,
+            domain_contribution_and_proof: chain_spec.domain_contribution_and_proof,
             /*
              * Lighthouse-specific parameters
              *

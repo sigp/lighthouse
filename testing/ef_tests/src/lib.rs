@@ -1,4 +1,4 @@
-use types::EthSpec;
+use types::{init_fork_schedule, EthSpec, ForkSchedule, Slot};
 
 pub use case_result::CaseResult;
 pub use cases::Case;
@@ -17,3 +17,10 @@ mod error;
 mod handler;
 mod results;
 mod type_name;
+
+pub fn init_testing_fork_schedule() {
+    init_fork_schedule(ForkSchedule {
+        altair_fork_slot: Slot::new(u64::MAX),
+        altair_fork_version: [1, 0, 0, 0],
+    });
+}

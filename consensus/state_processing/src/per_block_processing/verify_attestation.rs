@@ -26,17 +26,17 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     let data = &attestation.data;
 
     verify!(
-        data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot,
+        data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot(),
         Invalid::IncludedTooEarly {
-            state: state.slot,
+            state: state.slot(),
             delay: spec.min_attestation_inclusion_delay,
             attestation: data.slot,
         }
     );
     verify!(
-        state.slot <= data.slot.safe_add(T::slots_per_epoch())?,
+        state.slot() <= data.slot.safe_add(T::slots_per_epoch())?,
         Invalid::IncludedTooLate {
-            state: state.slot,
+            state: state.slot(),
             attestation: data.slot,
         }
     );
@@ -92,9 +92,9 @@ fn verify_casper_ffg_vote<T: EthSpec>(
     );
     if data.target.epoch == state.current_epoch() {
         verify!(
-            data.source == state.current_justified_checkpoint,
+            data.source == state.current_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.current_justified_checkpoint,
+                state: state.current_justified_checkpoint(),
                 attestation: data.source,
                 is_current: true,
             }
@@ -102,9 +102,9 @@ fn verify_casper_ffg_vote<T: EthSpec>(
         Ok(())
     } else if data.target.epoch == state.previous_epoch() {
         verify!(
-            data.source == state.previous_justified_checkpoint,
+            data.source == state.previous_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.previous_justified_checkpoint,
+                state: state.previous_justified_checkpoint(),
                 attestation: data.source,
                 is_current: false,
             }

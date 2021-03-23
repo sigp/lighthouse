@@ -1,6 +1,6 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
-use crate::type_name;
 use crate::type_name::TypeName;
+use crate::{init_testing_fork_schedule, type_name};
 use cached_tree_hash::CachedTreeHash;
 use std::fmt::Debug;
 use std::fs;
@@ -24,6 +24,8 @@ pub trait Handler {
     fn handler_name() -> String;
 
     fn run() {
+        init_testing_fork_schedule();
+
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("eth2.0-spec-tests")
             .join("tests")

@@ -57,9 +57,9 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
 
         let did_not_exist = self
             .items
-            .entry(block.slot)
+            .entry(block.slot())
             .or_insert_with(|| HashSet::with_capacity(E::SlotsPerEpoch::to_usize()))
-            .insert(block.proposer_index);
+            .insert(block.proposer_index());
 
         Ok(!did_not_exist)
     }
@@ -77,22 +77,22 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
 
         let exists = self
             .items
-            .get(&block.slot)
-            .map_or(false, |set| set.contains(&block.proposer_index));
+            .get(&block.slot())
+            .map_or(false, |set| set.contains(&block.proposer_index()));
 
         Ok(exists)
     }
 
     /// Returns `Ok(())` if the given `block` is sane.
     fn sanitize_block(&self, block: &BeaconBlock<E>) -> Result<(), Error> {
-        if block.proposer_index > E::ValidatorRegistryLimit::to_u64() {
-            return Err(Error::ValidatorIndexTooHigh(block.proposer_index));
+        if block.proposer_index() >= E::ValidatorRegistryLimit::to_u64() {
+            return Err(Error::ValidatorIndexTooHigh(block.proposer_index()));
         }
 
         let finalized_slot = self.finalized_slot;
-        if finalized_slot > 0 && block.slot <= finalized_slot {
+        if finalized_slot > 0 && block.slot() <= finalized_slot {
             return Err(Error::FinalizedBlock {
-                slot: block.slot,
+                slot: block.slot(),
                 finalized_slot,
             });
         }

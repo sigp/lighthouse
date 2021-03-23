@@ -1,9 +1,10 @@
-use super::super::common::get_base_reward;
-use super::validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
-use super::Error;
+use crate::common::get_base_reward;
+use crate::per_epoch_processing::base::validator_statuses::{
+    TotalBalances, ValidatorStatus, ValidatorStatuses,
+};
+use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
-
-use types::*;
+use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Use to track the changes to a validators balance.
 #[derive(Default, Clone)]
@@ -45,8 +46,8 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     }
 
     // Guard against an out-of-bounds during the validator balance update.
-    if validator_statuses.statuses.len() != state.balances.len()
-        || validator_statuses.statuses.len() != state.validators.len()
+    if validator_statuses.statuses.len() != state.balances().len()
+        || validator_statuses.statuses.len() != state.validators().len()
     {
         return Err(Error::ValidatorStatusesInconsistent);
     }
@@ -56,8 +57,8 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
     for (i, delta) in deltas.iter().enumerate() {
-        state.balances[i] = state.balances[i].safe_add(delta.rewards)?;
-        state.balances[i] = state.balances[i].saturating_sub(delta.penalties);
+        state.balances_mut()[i] = state.balances()[i].safe_add(delta.rewards)?;
+        state.balances_mut()[i] = state.balances()[i].saturating_sub(delta.penalties);
     }
 
     Ok(())
@@ -73,10 +74,10 @@ fn get_attestation_deltas<T: EthSpec>(
 ) -> Result<Vec<Delta>, Error> {
     let finality_delay = state
         .previous_epoch()
-        .safe_sub(state.finalized_checkpoint.epoch)?
+        .safe_sub(state.finalized_checkpoint().epoch)?
         .as_u64();
 
-    let mut deltas = vec![Delta::default(); state.validators.len()];
+    let mut deltas = vec![Delta::default(); state.validators().len()];
 
     let total_balances = &validator_statuses.total_balances;
 

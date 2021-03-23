@@ -55,7 +55,7 @@ impl<T: EthSpec> StorageContainer<T> {
     pub fn new(state: &BeaconState<T>) -> Self {
         Self {
             state: state.clone_with(CloneConfig::none()),
-            committee_caches: state.committee_caches.to_vec(),
+            committee_caches: state.committee_caches().to_vec(),
         }
     }
 }
@@ -73,7 +73,7 @@ impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer<T> {
                 )));
             };
 
-            state.committee_caches[i] = self.committee_caches.remove(i);
+            state.committee_caches_mut()[i] = self.committee_caches.remove(i);
         }
 
         Ok(state)
