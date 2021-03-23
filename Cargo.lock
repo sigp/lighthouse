@@ -1883,6 +1883,7 @@ dependencies = [
 name = "eth1"
 version = "0.2.0"
 dependencies = [
+ "base64 0.13.0",
  "environment",
  "eth1_test_rig",
  "eth2",

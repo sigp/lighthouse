@@ -202,7 +202,7 @@ struct ProduceBlockResponse {
     gas_used: u64,
     transactions: Option<Vec<Transaction>>,
     receipt_root: Hash256,
-    logs_bloom: Vec<u8>,
+    logs_bloom: String,
     block_hash: Hash256,
     #[allow(unused)]
     parent_hash: Hash256,
@@ -233,6 +233,9 @@ pub async fn eth2_produce_block(
     let response: ProduceBlockResponse = serde_json::from_value(result)
         .map_err(|e| format!("Unable to parse eth2_produceBlock JSON: {:?}", e))?;
 
+    let logs_bloom = base64::decode(&response.logs_bloom)
+        .map_err(|e| format!("Failed to decode logs_bloom base64: {:?}", e))?;
+
     Ok(ApplicationPayload {
         block_hash: response.block_hash,
         coinbase: response.coinbase,
@@ -240,7 +243,7 @@ pub async fn eth2_produce_block(
         gas_limit: response.gas_limit,
         gas_used: response.gas_used,
         receipt_root: response.receipt_root,
-        logs_bloom: FixedVector::new(response.logs_bloom)
+        logs_bloom: FixedVector::new(logs_bloom)
             .map_err(|e| format!("Invalid logs_bloom in eth2_produceBlock: {:?}", e))?,
         difficulty: response.difficulty,
         transactions: response

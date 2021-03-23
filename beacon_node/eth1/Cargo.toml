@@ -35,3 +35,4 @@ task_executor = { path = "../../common/task_executor" }
 eth2 = { path = "../../common/eth2" }
 fallback = { path = "../../common/fallback" }
 sensitive_url = { path = "../../common/sensitive_url" }
+base64 = "0.13.0"
