@@ -1603,25 +1603,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_slot = self.slot()?;
         let mut ops = fully_verified_block.confirmation_db_batch;
 
-        let eth1_chain = self
-            .eth1_chain
-            .as_ref()
-            .ok_or(BlockError::NoEth1Connection)?;
-
-        // Verify the Eth1 components of the block.
-        let beacon_chain_data =
-            self.beacon_chain_data(&state, &signed_block.message.body.randao_reveal)?;
-        if !eth1_chain
-            .process_application_payload(
-                state.application_block_hash,
-                &beacon_chain_data,
-                &signed_block.message.body.application_payload,
-            )
-            .map_err(BlockError::Eth1VerificationError)?
-        {
-            return Err(BlockError::FailedEth1Verfication);
-        }
-
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
 
@@ -2399,7 +2380,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    fn beacon_chain_data(
+    pub fn beacon_chain_data(
         &self,
         state: &BeaconState<T::EthSpec>,
         randao_reveal: &Signature,

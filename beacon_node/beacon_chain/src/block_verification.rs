@@ -54,7 +54,7 @@ use crate::{
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
-use slog::{debug, error, Logger};
+use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
@@ -844,6 +844,11 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         parent: PreProcessingSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        let eth1_chain = chain
+            .eth1_chain
+            .as_ref()
+            .ok_or(BlockError::NoEth1Connection)?;
+
         // Reject any block if its parent is not known to fork choice.
         //
         // A block that is not in fork choice is either:
@@ -983,6 +988,30 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         metrics::stop_timer(catchup_timer);
+
+        /*
+         * Verify the Eth1 components of the block
+         */
+        let beacon_chain_data =
+            chain.beacon_chain_data(&state, &block.message.body.randao_reveal)?;
+        if !eth1_chain
+            .process_application_payload(
+                state.application_block_hash,
+                &beacon_chain_data,
+                &block.message.body.application_payload,
+            )
+            .map_err(BlockError::Eth1VerificationError)?
+        {
+            return Err(BlockError::FailedEth1Verfication);
+        }
+
+        info!(
+            chain.log,
+            "Verified Eth1 components of block";
+            "coinbase" => ?block.message.body.application_payload.coinbase,
+            "tx_count" => block.message.body.application_payload.transactions.len(),
+            "block_hash" => ?block.message.body.application_payload.block_hash,
+        );
 
         /*
          * Build the committee caches on the state.
