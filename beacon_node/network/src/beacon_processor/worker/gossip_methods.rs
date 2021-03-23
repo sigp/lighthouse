@@ -306,7 +306,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::NoEth1Connection)
-            | Err(e @ BlockError::FailedEth1Verfication { .. })
+            // TODO: we shoudn't really penalize the peer for this.
+            | Err(e @ BlockError::Eth1VerificationError { .. })
+            | Err(e @ BlockError::FailedEth1Verfication)
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);

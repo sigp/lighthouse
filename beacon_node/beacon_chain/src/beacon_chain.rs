@@ -1611,12 +1611,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Verify the Eth1 components of the block.
         let beacon_chain_data =
             self.beacon_chain_data(&state, &signed_block.message.body.randao_reveal)?;
-        eth1_chain
+        if !eth1_chain
             .process_application_payload(
+                state.application_block_hash,
                 &beacon_chain_data,
                 &signed_block.message.body.application_payload,
             )
-            .map_err(BlockError::FailedEth1Verfication)?;
+            .map_err(BlockError::Eth1VerificationError)?
+        {
+            return Err(BlockError::FailedEth1Verfication);
+        }
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
@@ -2012,6 +2016,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let application_payload =
             eth1_chain.get_application_payload(state.application_block_hash, &beacon_chain_data)?;
+
+        info!(
+            self.log,
+            "Eth1 node provided block";
+            "coinbase" => ?application_payload.coinbase,
+            "tx_count" => application_payload.transactions.len(),
+            "block_hash" => ?application_payload.block_hash,
+        );
 
         let parent_root = if state.slot > 0 {
             *state

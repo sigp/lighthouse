@@ -194,8 +194,11 @@ struct ProduceBlockRequest<'a> {
     recent_block_roots: &'a [Hash256],
 }
 
-#[derive(Deserialize)]
-struct ProduceBlockResponse {
+/// The `ExecutableData` is a struct defined in the draft RPC spec:
+///
+/// https://hackmd.io/@n0ble/eth1-eth2-communication-protocol-draft
+#[derive(Serialize, Deserialize)]
+struct ExecutableData {
     coinbase: Address,
     state_root: Hash256,
     gas_limit: u64,
@@ -230,7 +233,7 @@ pub async fn eth2_produce_block(
     let result = response_result(&response_body)?
         .ok_or("No result field was returned for eth2_produceBlock")?;
 
-    let response: ProduceBlockResponse = serde_json::from_value(result)
+    let response: ExecutableData = serde_json::from_value(result)
         .map_err(|e| format!("Unable to parse eth2_produceBlock JSON: {:?}", e))?;
 
     let logs_bloom = base64::decode(&response.logs_bloom)
@@ -254,6 +257,56 @@ pub async fn eth2_produce_block(
             })
             .unwrap_or_else(|| Ok(VariableList::default()))?,
     })
+}
+
+#[derive(Serialize)]
+struct InsertBlockRequest<'a> {
+    randao_mix: Hash256,
+    slot: u64,
+    timestamp: u64,
+    recent_block_roots: &'a [Hash256],
+    executable_data: ExecutableData,
+}
+
+pub async fn eth2_insert_block(
+    endpoint: &str,
+    parent_hash: Hash256,
+    randao_mix: Hash256,
+    slot: Slot,
+    timestamp: u64,
+    recent_block_roots: &[Hash256],
+    application_payload: &ApplicationPayload,
+    timeout: Duration,
+) -> Result<bool, String> {
+    let logs_bloom = base64::encode(application_payload.logs_bloom.as_ref());
+    let executable_data = ExecutableData {
+        coinbase: application_payload.coinbase,
+        state_root: application_payload.state_root,
+        gas_limit: application_payload.gas_limit,
+        gas_used: application_payload.gas_used,
+        transactions: Some(application_payload.transactions.clone().to_vec()),
+        receipt_root: application_payload.receipt_root,
+        logs_bloom,
+        block_hash: application_payload.block_hash,
+        parent_hash,
+        difficulty: application_payload.difficulty,
+    };
+
+    let params = json!([InsertBlockRequest {
+        randao_mix,
+        slot: slot.into(),
+        timestamp,
+        recent_block_roots,
+        executable_data
+    }]);
+
+    let response_body = send_rpc_request(endpoint, "eth2_insertBlock", params, timeout).await?;
+    let result = response_result(&response_body)?
+        .ok_or("No result field was returned for eth2_insertBlock")?
+        .as_bool()
+        .ok_or("eth2_insertBlock result was not a bool")?;
+
+    Ok(result)
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given

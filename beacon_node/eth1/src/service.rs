@@ -3,8 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
     http::{
-        eth2_produce_block, get_block, get_block_number, get_chain_id, get_deposit_logs_in_range,
-        get_network_id, BlockQuery, Eth1Id,
+        eth2_insert_block, eth2_produce_block, get_block, get_block_number, get_chain_id,
+        get_deposit_logs_in_range, get_network_id, BlockQuery, Eth1Id,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -301,6 +301,8 @@ pub enum SingleEndpointError {
     GetDepositLogsFailed(String),
     /// Failed to get an application payload for a new block.
     GetApplicationPayloadFailed(String),
+    /// Failed to process an application payload for a new block.
+    ProcessApplicationPayloadFailed(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -649,6 +651,33 @@ impl Service {
                 )
                 .await
                 .map_err(SingleEndpointError::GetApplicationPayloadFailed)
+            })
+            .await
+            .map_err(Error::FallbackError)
+    }
+
+    pub async fn process_application_payload(
+        &self,
+        application_parent_hash: Hash256,
+        beacon_chain_data: &BeaconChainData,
+        application_payload: &ApplicationPayload,
+    ) -> Result<bool, Error> {
+        let endpoints = self.init_endpoints();
+
+        endpoints
+            .first_success(|e| async move {
+                eth2_insert_block(
+                    e,
+                    application_parent_hash,
+                    beacon_chain_data.randao_mix,
+                    beacon_chain_data.slot,
+                    beacon_chain_data.timestamp,
+                    &beacon_chain_data.recent_block_roots,
+                    application_payload,
+                    Duration::from_millis(GET_APPLICATION_PAYLOAD_TIMEOUT_MILLIS),
+                )
+                .await
+                .map_err(SingleEndpointError::ProcessApplicationPayloadFailed)
             })
             .await
             .map_err(Error::FallbackError)

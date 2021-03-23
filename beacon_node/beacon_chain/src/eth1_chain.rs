@@ -54,6 +54,7 @@ pub enum Error {
     ArithError(safe_arith::ArithError),
     ShuttingDown,
     UnableToGetApplicationPayload(String),
+    UnableToProcessApplicationPayload(String),
 }
 
 impl From<safe_arith::ArithError> for Error {
@@ -291,13 +292,23 @@ where
 
     pub fn process_application_payload(
         &self,
-        _beacon_chain_data: &BeaconChainData,
-        _application_payload: &ApplicationPayload,
-    ) -> Result<(), Error> {
+        application_parent_hash: Hash256,
+        beacon_chain_data: &BeaconChainData,
+        application_payload: &ApplicationPayload,
+    ) -> Result<bool, Error> {
         if self.use_dummy_backend {
-            Ok(())
+            let dummy_backend: DummyEth1ChainBackend<E> = DummyEth1ChainBackend::default();
+            dummy_backend.process_application_payload(
+                application_parent_hash,
+                beacon_chain_data,
+                application_payload,
+            )
         } else {
-            todo!("caching: process_application_payload")
+            self.backend.process_application_payload(
+                application_parent_hash,
+                beacon_chain_data,
+                application_payload,
+            )
         }
     }
 
@@ -372,6 +383,13 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
         application_parent_hash: Hash256,
         beacon_chain_data: &BeaconChainData,
     ) -> Result<ApplicationPayload, Error>;
+
+    fn process_application_payload(
+        &self,
+        application_parent_hash: Hash256,
+        beacon_chain_data: &BeaconChainData,
+        application_payload: &ApplicationPayload,
+    ) -> Result<bool, Error>;
 
     /// Encode the `Eth1ChainBackend` instance to bytes.
     fn as_bytes(&self) -> Vec<u8>;
@@ -451,6 +469,15 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
             difficulty: 1,
             transactions: <_>::default(),
         })
+    }
+
+    fn process_application_payload(
+        &self,
+        _application_parent_hash: Hash256,
+        _beacon_chain_data: &BeaconChainData,
+        _application_payload: &ApplicationPayload,
+    ) -> Result<bool, Error> {
+        Ok(true)
     }
 
     /// Return empty Vec<u8> for dummy backend.
@@ -637,6 +664,28 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
             .block_on(async {
                 self.core
                     .produce_application_payload(application_parent_hash, beacon_chain_data)
+                    .await
+                    .map_err(|e| Error::UnableToGetApplicationPayload(format!("{:?}", e)))
+            })
+    }
+
+    fn process_application_payload(
+        &self,
+        application_parent_hash: Hash256,
+        beacon_chain_data: &BeaconChainData,
+        application_payload: &ApplicationPayload,
+    ) -> Result<bool, Error> {
+        self.executor
+            .runtime()
+            .upgrade()
+            .ok_or(Error::ShuttingDown)?
+            .block_on(async {
+                self.core
+                    .process_application_payload(
+                        application_parent_hash,
+                        beacon_chain_data,
+                        application_payload,
+                    )
                     .await
                     .map_err(|e| Error::UnableToGetApplicationPayload(format!("{:?}", e)))
             })

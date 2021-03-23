@@ -222,8 +222,10 @@ pub enum BlockError<T: EthSpec> {
     WeakSubjectivityConflict,
     /// A connection to Eth1 is required for block processing.
     NoEth1Connection,
+    /// The Eth1 node was unable to indicate if the block was valid.
+    Eth1VerificationError(Eth1ChainError),
     /// The block failed processing by the Eth1 node.
-    FailedEth1Verfication(Eth1ChainError),
+    FailedEth1Verfication,
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
