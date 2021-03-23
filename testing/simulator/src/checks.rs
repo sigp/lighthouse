@@ -143,3 +143,15 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     }
     Ok(())
 }
+/// Verifies that there's been a block produced at every slot up to and including `slot`.
+pub async fn verify_vc_exits<E: EthSpec>(
+    network: LocalNetwork<E>,
+) -> Result<(), String> {
+    let vcs = network.validator_clients.read();
+    let index = vcs.len() -  1;
+    let vc = &vcs[index];
+    vc.exit.clone().wait();
+        dbg!("here");
+
+    Ok(())
+}

@@ -149,7 +149,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 async move {
                     println!("Adding validator client {}", i);
                     network_1
-                        .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
+                        .add_validator_client(testing_validator_config(), i, format!("validator_{}", i), files, i % 2 == 0)
                         .await
                         .expect("should add validator");
                 },

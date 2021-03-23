@@ -90,6 +90,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     /// and attestation production.
     pub async fn new(context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
         let log = context.log().clone();
+        let shutdown_sender = context.executor.shutdown_sender();
 
         info!(
             log,
@@ -349,6 +350,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 validator_store: validator_store.clone(),
                 beacon_nodes: beacon_nodes.clone(),
                 context: context.service_context("doppelganger".into()),
+                shutdown_sender,
             });
 
         Ok(Self {

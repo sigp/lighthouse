@@ -4200,6 +4200,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_config",
+ "exit-future",
  "futures 0.3.13",
  "genesis",
  "reqwest",

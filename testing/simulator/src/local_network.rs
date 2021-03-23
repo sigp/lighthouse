@@ -122,12 +122,13 @@ impl<E: EthSpec> LocalNetwork<E> {
         &self,
         mut validator_config: ValidatorConfig,
         beacon_node: usize,
+        service_name: String,
         validator_files: ValidatorFiles,
         invalid_first_beacon_node: bool, //to test beacon node fallbacks
     ) -> Result<(), String> {
         let context = self
             .context
-            .service_context(format!("validator_{}", beacon_node));
+            .service_context(service_name);
         let self_1 = self.clone();
         let socket_addr = {
             let read_lock = self.beacon_nodes.read();

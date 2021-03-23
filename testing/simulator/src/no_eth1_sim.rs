@@ -105,7 +105,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 async move {
                     println!("Adding validator client {}", i);
                     network_1
-                        .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
+                        .add_validator_client(testing_validator_config(), i, format!("validator_{}", i), files, i % 2 == 0)
                         .await
                         .expect("should add validator");
                 },
@@ -113,9 +113,20 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
+        let duration_to_genesis = network.duration_to_genesis().await;
+        println!("Duration to genesis: {}", duration_to_genesis.as_secs());
+        sleep(duration_to_genesis).await;
+
+        // Wait an additional epoch then add a duplicate validator. Doppelganger detection does not
+        // run during or before the genesis epoch
+        let epoch_duration = slot_duration * MainnetEthSpec::slots_per_epoch() as u32;
+
+        println!("Duration to end of first epoch: {}", epoch_duration.as_secs());
+        sleep(epoch_duration).await;
+
         /*
-         * Add an additional validator with doppelganger detection enabled.
-         */
+        * Add an additional validator with doppelganger detection enabled.
+        */
         let network_1 = network.clone();
         executor.spawn(
             async move {
@@ -125,6 +136,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                     .add_validator_client(
                         testing_validator_doppelganger_config(),
                         0,
+                        "validator_0_doppelganger".to_string(),
                         ValidatorFiles::with_keystores(&[node_count]).unwrap(),
                         false,
                     )
@@ -133,10 +145,6 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             },
             "doppelganger-vc",
         );
-
-        let duration_to_genesis = network.duration_to_genesis().await;
-        println!("Duration to genesis: {}", duration_to_genesis.as_secs());
-        sleep(duration_to_genesis).await;
 
         let (finalization, block_prod) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
@@ -150,6 +158,8 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         );
         finalization?;
         block_prod?;
+
+        checks::verify_vc_exits(network.clone());
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.
