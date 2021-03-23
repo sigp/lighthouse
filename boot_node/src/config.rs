@@ -73,10 +73,9 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
         // build the enr_fork_id and add it to the local_enr if it exists
         let enr_fork = {
+            // FIXME(altair): abstract `apply_to_chain_spec` pattern, use altair spec
             let spec = eth2_network_config
                 .yaml_config
-                .as_ref()
-                .ok_or("The network directory must contain a spec config")?
                 .apply_to_chain_spec::<T>(&T::default_spec())
                 .ok_or("The loaded config is not compatible with the current spec")?;
 

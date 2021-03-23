@@ -1,4 +1,4 @@
-use types::{init_fork_schedule, EthSpec, ForkSchedule, Slot};
+use types::{init_fork_schedule, ChainSpec, EthSpec, ForkSchedule};
 
 pub use case_result::CaseResult;
 pub use cases::Case;
@@ -18,9 +18,9 @@ mod handler;
 mod results;
 mod type_name;
 
-pub fn init_testing_fork_schedule() {
+pub fn init_testing_fork_schedule(spec: &ChainSpec) {
     init_fork_schedule(ForkSchedule {
-        altair_fork_slot: Slot::new(u64::MAX),
-        altair_fork_version: [1, 0, 0, 0],
+        altair_fork_slot: spec.altair_fork_slot,
+        altair_fork_version: spec.altair_fork_version,
     });
 }

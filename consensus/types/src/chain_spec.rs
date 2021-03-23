@@ -116,6 +116,8 @@ pub struct ChainSpec {
     domain_sync_committee: u32,
     domain_sync_committee_selection_proof: u32,
     domain_contribution_and_proof: u32,
+    pub altair_fork_version: [u8; 4],
+    pub altair_fork_slot: Slot,
 
     /*
      * Networking
@@ -345,6 +347,8 @@ impl ChainSpec {
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
+            altair_fork_version: [0x01, 0x00, 0x00, 0x00],
+            altair_fork_slot: Slot::new(0),
 
             /*
              * Network specific
@@ -382,6 +386,11 @@ impl ChainSpec {
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
             safe_slots_to_update_justified: 2,
+            // Altair
+            epochs_per_sync_committee_period: Epoch::new(8),
+            altair_fork_version: [0x01, 0x00, 0x00, 0x01],
+            altair_fork_slot: Slot::new(0),
+            // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
             deposit_network_id: 5,
@@ -541,18 +550,6 @@ pub struct YamlConfig {
     #[serde(with = "serde_utils::quoted_u64")]
     safe_slots_to_update_justified: u64,
 
-    // ChainSpec (Altair)
-    /* FIXME(altair): parse from separate file
-    #[serde(with = "serde_utils::quoted_u64")]
-    inactivity_penalty_quotient_altair: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    min_slashing_penalty_quotient_altair: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    proportional_slashing_multiplier_altair: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    epochs_per_sync_committee_period: u64,
-    domain_sync_committee: u32,
-    */
     #[serde(with = "serde_utils::u32_hex")]
     domain_beacon_proposer: u32,
     #[serde(with = "serde_utils::u32_hex")]
@@ -806,8 +803,7 @@ impl YamlConfig {
             domain_selection_proof: self.domain_selection_proof,
             domain_aggregate_and_proof: self.domain_aggregate_and_proof,
             /*
-             * Altair params
-             * FIXME(altair): hardcoded
+             * Altair params (passthrough: they come from the other config file)
              */
             inactivity_penalty_quotient_altair: chain_spec.inactivity_penalty_quotient_altair,
             min_slashing_penalty_quotient_altair: chain_spec.min_slashing_penalty_quotient_altair,
@@ -818,6 +814,8 @@ impl YamlConfig {
             domain_sync_committee: chain_spec.domain_sync_committee,
             domain_sync_committee_selection_proof: chain_spec.domain_sync_committee_selection_proof,
             domain_contribution_and_proof: chain_spec.domain_contribution_and_proof,
+            altair_fork_version: chain_spec.altair_fork_version,
+            altair_fork_slot: chain_spec.altair_fork_slot,
             /*
              * Lighthouse-specific parameters
              *
@@ -837,6 +835,72 @@ impl YamlConfig {
             far_future_epoch: chain_spec.far_future_epoch,
             base_rewards_per_epoch: chain_spec.base_rewards_per_epoch,
             deposit_contract_tree_depth: chain_spec.deposit_contract_tree_depth,
+        })
+    }
+}
+
+/// The Altair spec file
+// FIXME(altair): this may get rolled into the main spec file?
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct AltairConfig {
+    config_name: String,
+    #[serde(with = "serde_utils::quoted_u64")]
+    inactivity_penalty_quotient_altair: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_slashing_penalty_quotient_altair: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    proportional_slashing_multiplier_altair: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    sync_committee_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    sync_pubkeys_per_aggregate: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    inactivity_score_bias: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    epochs_per_sync_committee_period: Epoch,
+    #[serde(with = "serde_utils::u32_hex")]
+    domain_sync_committee: u32,
+    // FIXME(altair): missing from alpha.2
+    // #[serde(with = "serde_utils::u32_hex")]
+    // domain_sync_committee_selection_proof: u32,
+    // #[serde(with = "serde_utils::u32_hex")]
+    // domain_contribution_and_proof: u32,
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    altair_fork_version: [u8; 4],
+    #[serde(with = "serde_utils::quoted_u64")]
+    altair_fork_slot: Slot,
+    // FIXME(altair): sync protocol params?
+}
+
+impl AltairConfig {
+    pub fn from_file(filename: &Path) -> Result<Self, String> {
+        let f = File::open(filename)
+            .map_err(|e| format!("Error opening spec at {}: {:?}", filename.display(), e))?;
+        serde_yaml::from_reader(f)
+            .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
+    }
+
+    pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
+        if self.sync_committee_size != T::SyncCommitteeSize::to_u64()
+            || self.sync_pubkeys_per_aggregate != T::SyncPubkeysPerAggregate::to_u64()
+        {
+            return None;
+        }
+
+        Some(ChainSpec {
+            inactivity_penalty_quotient_altair: self.inactivity_penalty_quotient_altair,
+            min_slashing_penalty_quotient_altair: self.min_slashing_penalty_quotient_altair,
+            proportional_slashing_multiplier_altair: self.proportional_slashing_multiplier_altair,
+            inactivity_score_bias: self.inactivity_score_bias,
+            epochs_per_sync_committee_period: self.epochs_per_sync_committee_period,
+            domain_sync_committee: self.domain_sync_committee,
+            altair_fork_version: self.altair_fork_version,
+            altair_fork_slot: self.altair_fork_slot,
+            // FIXME(altair): missing
+            // domain_sync_committee_selection_proof: self.domain_sync_committee_selection_proof,
+            // domain_contribution_and_proof: self.domain_contribution_and_proof,
+            ..chain_spec.clone()
         })
     }
 }

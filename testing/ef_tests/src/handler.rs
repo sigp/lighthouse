@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
 pub trait Handler {
     type Case: Case + LoadCase;
@@ -24,7 +24,9 @@ pub trait Handler {
     fn handler_name() -> String;
 
     fn run() {
-        init_testing_fork_schedule();
+        // FIXME(altair): this is a hack, work out a better place to put this
+        // should probably be in the individual test cases, but not duplicated too much
+        init_testing_fork_schedule(&ChainSpec::mainnet());
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("eth2.0-spec-tests")

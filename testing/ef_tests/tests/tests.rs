@@ -6,17 +6,29 @@ use types::*;
 
 // Check that the config from the Eth2.0 spec tests matches our minimal/mainnet config.
 fn config_test<E: EthSpec + TypeName>() {
-    let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let config_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("eth2.0-spec-tests")
         .join("tests")
         .join(E::name())
-        .join("config")
-        .join("phase0.yaml");
-    let yaml_config = YamlConfig::from_file(&config_path).expect("config file loads OK");
+        .join("config");
+    let phase0_config_path = config_dir.join("phase0.yaml");
+    let altair_config_path = config_dir.join("altair.yaml");
+    let phase0_config = YamlConfig::from_file(&phase0_config_path).expect("config file loads OK");
+    let altair_config = AltairConfig::from_file(&altair_config_path).expect("altair config loads");
     let spec = E::default_spec();
-    let yaml_from_spec = YamlConfig::from_spec::<E>(&spec);
-    assert_eq!(yaml_config.apply_to_chain_spec::<E>(&spec), Some(spec));
-    assert_eq!(yaml_from_spec, yaml_config);
+
+    let unified_spec = altair_config
+        .apply_to_chain_spec::<E>(
+            &phase0_config
+                .apply_to_chain_spec::<E>(&spec)
+                .expect("phase0 config matches"),
+        )
+        .expect("altair config matches");
+
+    assert_eq!(unified_spec, spec);
+
+    let phase0_from_spec = YamlConfig::from_spec::<E>(&spec);
+    assert_eq!(phase0_from_spec, phase0_config);
 }
 
 #[test]

@@ -9,10 +9,8 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use types::{EthSpec, EthSpecId};
+use types::{init_fork_schedule, EthSpec, EthSpecId, ForkSchedule};
 use validator_client::ProductionValidatorClient;
-
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
@@ -119,7 +117,7 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo", "prater"])
+                .possible_values(&["pyrmont", "mainnet", "toledo", "prater"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -157,11 +155,7 @@ fn main() {
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
             #[cfg(feature = "spec-minimal")]
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
-            #[cfg(feature = "spec-v12")]
-            EthSpecId::V012Legacy => {
-                run(EnvironmentBuilder::v012_legacy(), &matches, testnet_config)
-            }
-            #[cfg(any(not(feature = "spec-minimal"), not(feature = "spec-v12")))]
+            #[cfg(any(not(feature = "spec-minimal")))]
             other => {
                 eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",
@@ -218,6 +212,9 @@ fn run<E: EthSpec>(
         .multi_threaded_tokio_runtime()?
         .optional_eth2_network_config(Some(testnet_config))?
         .build()?;
+
+    // Initialize fork schedule globals.
+    init_fork_schedule(ForkSchedule::from(&environment.eth2_config.spec));
 
     let log = environment.core_context().log().clone();
 

@@ -27,7 +27,6 @@ use task_executor::TaskExecutor;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
 
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
@@ -215,9 +214,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         // Create a new chain spec from the default configuration.
         self.eth2_config.spec = eth2_network_config
             .yaml_config
-            .as_ref()
-            .ok_or("The testnet directory must contain a spec config")?
             .apply_to_chain_spec::<E>(&self.eth2_config.spec)
+            .and_then(|spec| {
+                eth2_network_config
+                    .altair_config
+                    .apply_to_chain_spec::<E>(&spec)
+            })
             .ok_or_else(|| {
                 format!(
                     "The loaded config is not compatible with the {} spec",
