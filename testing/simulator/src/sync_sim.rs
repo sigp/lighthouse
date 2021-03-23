@@ -93,7 +93,13 @@ fn syncing_sim(
          * Add a validator client which handles all validators from the genesis state.
          */
         network
-            .add_validator_client(testing_validator_config(), 0, "validator_0".to_string(), validator_files, true)
+            .add_validator_client(
+                testing_validator_config(),
+                0,
+                "validator_0".to_string(),
+                validator_files,
+                true,
+            )
             .await?;
 
         // Check all syncing strategies one after other.

@@ -218,7 +218,11 @@ impl<E: EthSpec> LocalValidatorClient<E> {
                 client
                     .start_service()
                     .expect("should start validator services");
-                Self { client, files, exit}
+                Self {
+                    client,
+                    files,
+                    exit,
+                }
             })
     }
 }

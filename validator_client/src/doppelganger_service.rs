@@ -1,14 +1,12 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::initialized_validators::DOPPELGANGER_DETECTION_EPOCHS;
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
-use slog::{crit, info, trace, warn};
+use slog::{crit, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, Epoch, EthSpec};
-use crate::initialized_validators::DOPPELGANGER_DETECTION_EPOCHS;
-use futures::channel::mpsc::Sender;
-use futures::SinkExt;
 
 #[derive(Clone)]
 pub struct DoppelgangerService<T: SlotClock, E: EthSpec> {
@@ -16,7 +14,6 @@ pub struct DoppelgangerService<T: SlotClock, E: EthSpec> {
     pub validator_store: ValidatorStore<T, E>,
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     pub context: RuntimeContext<E>,
-    pub shutdown_sender: Sender<&'static str>,
 }
 
 impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
@@ -53,7 +50,6 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         };
 
         let executor = self.context.executor.clone();
-        let mut shutdown_sender = executor.shutdown_sender();
 
         let interval_fut = async move {
             loop {
@@ -61,8 +57,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 let log = self.context.log();
 
                 if let Err(e) = self.detect_doppelgangers().await {
-                    let _ = shutdown_sender
-                        .try_send("Doppelganger detected.").map_err(|e| format!("Could not send shutdown signal: {}", e)).unwrap();
+                    error!(
+                        log,
+                        "Error during doppelganger detection"; "error" => ?e
+                    );
                     break;
                 } else {
                     trace!(
@@ -91,11 +89,14 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .get_doppelganger_detecting_validators_by_epoch(epoch);
 
         for (detection_epoch, validators) in validator_map {
-
             // This is to make sure we always check for attestations at the doppelganger detection epoch
             // and all epochs after the current epoch. We want to avoid the current epoch so we don't
             // pick up attestations from our own validator on restart.
-            let epochs: Vec<Epoch> = (((detection_epoch - Epoch::new(DOPPELGANGER_DETECTION_EPOCHS)).as_u64() + 1)..=detection_epoch.as_u64()).map(Epoch::new).collect();
+            let epochs: Vec<Epoch> =
+                (((detection_epoch - Epoch::new(DOPPELGANGER_DETECTION_EPOCHS)).as_u64() + 1)
+                    ..=detection_epoch.as_u64())
+                    .map(Epoch::new)
+                    .collect();
 
             let epochs_slice = epochs.as_slice();
             let validators_slice = validators.as_slice();
@@ -125,9 +126,11 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                         );
 
                         let _ = self
-                            .shutdown_sender.clone()
-                            .try_send("Doppelganger detected.").map_err(|e| format!("Could not send shutdown signal: {}", e))?;
-                        return Err(format!("Doppelganger detected: {:?}", doppelgangers))
+                            .context
+                            .executor
+                            .shutdown_sender()
+                            .try_send("Doppelganger detected.")
+                            .map_err(|e| format!("Could not send shutdown signal: {}", e))?;
                     }
                 }
                 Err(e) => {

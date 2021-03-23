@@ -1,4 +1,6 @@
 use crate::local_network::LocalNetwork;
+use futures::channel::mpsc::Receiver;
+use futures::StreamExt;
 use node_test_rig::eth2::types::StateId;
 use std::time::Duration;
 use types::{Epoch, EthSpec, Slot, Unsigned};
@@ -143,15 +145,22 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     }
     Ok(())
 }
-/// Verifies that there's been a block produced at every slot up to and including `slot`.
-pub async fn verify_vc_exits<E: EthSpec>(
-    network: LocalNetwork<E>,
+/// Verifies that the doppelganger detecting validator exits.
+pub async fn verify_vc_exits(
+    mut shutdown_receiver: Receiver<&str>,
+    slot_duration: Duration,
+    slots_per_epoch: u64,
 ) -> Result<(), String> {
-    let vcs = network.validator_clients.read();
-    let index = vcs.len() -  1;
-    let vc = &vcs[index];
-    vc.exit.clone().wait();
-        dbg!("here");
+    epoch_delay(Epoch::new(4), slot_duration, slots_per_epoch).await;
+    let shutdown_signal = shutdown_receiver.next().await;
+
+    if let Some(signal) = shutdown_signal {
+        println!("shutdown signal received: {:?}", signal);
+    } else {
+        return Err(
+            "There wasn't shutdown signal sent from the doppelganger detection vc".to_string(),
+        );
+    }
 
     Ok(())
 }

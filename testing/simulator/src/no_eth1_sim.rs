@@ -84,6 +84,8 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
+    let shutdown_receiver = env.take_shutdown_receiver().unwrap();
+
     let main_future = async {
         let network = LocalNetwork::new(context.clone(), beacon_config.clone()).await?;
         /*
@@ -105,7 +107,13 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 async move {
                     println!("Adding validator client {}", i);
                     network_1
-                        .add_validator_client(testing_validator_config(), i, format!("validator_{}", i), files, i % 2 == 0)
+                        .add_validator_client(
+                            testing_validator_config(),
+                            i,
+                            format!("validator_{}", i),
+                            files,
+                            i % 2 == 0,
+                        )
                         .await
                         .expect("should add validator");
                 },
@@ -121,23 +129,28 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         // run during or before the genesis epoch
         let epoch_duration = slot_duration * MainnetEthSpec::slots_per_epoch() as u32;
 
-        println!("Duration to end of first epoch: {}", epoch_duration.as_secs());
+        println!(
+            "Duration to end of first epoch: {}",
+            epoch_duration.as_secs()
+        );
         sleep(epoch_duration).await;
 
         /*
-        * Add an additional validator with doppelganger detection enabled.
-        */
+         * Add an additional validator with doppelganger detection enabled.
+         * Connect to BN zero but duplicate validators from BN one
+         */
         let network_1 = network.clone();
         executor.spawn(
             async move {
                 println!("Adding doppelganger detecting validator client");
+                let indices = (validators_per_node..(2 * validators_per_node)).collect::<Vec<_>>();
                 network_1
                     .clone()
                     .add_validator_client(
                         testing_validator_doppelganger_config(),
                         0,
                         "validator_0_doppelganger".to_string(),
-                        ValidatorFiles::with_keystores(&[node_count]).unwrap(),
+                        ValidatorFiles::with_keystores(indices.as_slice()).unwrap(),
                         false,
                     )
                     .await
@@ -146,7 +159,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             "doppelganger-vc",
         );
 
-        let (finalization, block_prod) = futures::join!(
+        let (finalization, block_prod, vc_exits) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
             // Check that a block is produced at every slot.
@@ -154,12 +167,16 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 network.clone(),
                 Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
                 slot_duration,
-            )
+            ),
+            checks::verify_vc_exits(
+                shutdown_receiver,
+                slot_duration,
+                MainnetEthSpec::slots_per_epoch()
+            ),
         );
         finalization?;
         block_prod?;
-
-        checks::verify_vc_exits(network.clone());
+        vc_exits?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.

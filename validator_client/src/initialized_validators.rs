@@ -724,8 +724,8 @@ impl InitializedValidators {
     }
 
     pub fn set_index(&mut self, pubkey: &PublicKeyBytes, index: u64) {
-        self.validators
-            .get_mut(pubkey)
-            .map(|val| val.index = Some(index));
+        if let Some(val) = self.validators.get_mut(pubkey) {
+            val.index = Some(index);
+        }
     }
 }

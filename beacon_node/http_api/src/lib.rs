@@ -2153,7 +2153,7 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Result<_, _>>()?;
 
-                    let seen_validators: Vec<usize> = query
+                    let seen_validators: std::collections::HashSet<usize> = query
                         .epochs
                         .0
                         .iter()

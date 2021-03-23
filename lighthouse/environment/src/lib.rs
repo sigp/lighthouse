@@ -434,6 +434,10 @@ impl<E: EthSpec> Environment<E> {
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
     }
+
+    pub fn take_shutdown_receiver(&mut self) -> Option<Receiver<&'static str>> {
+        self.signal_rx.take()
+    }
 }
 
 pub fn null_logger() -> Result<Logger, String> {
