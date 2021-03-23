@@ -6,7 +6,7 @@ use genesis::interop_genesis_state;
 use ssz::Encode;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{test_utils::generate_deterministic_keypairs, EthSpec};
+use types::{test_utils::generate_deterministic_keypairs, EthSpec, Hash256};
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let validator_count = matches
@@ -36,6 +36,11 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .expect("should locate home directory")
         });
 
+    let application_block_hash: Option<Hash256> =
+        clap_utils::parse_optional(matches, "application-block-hash")?;
+    let application_state_root: Option<Hash256> =
+        clap_utils::parse_optional(matches, "application-state-root")?;
+
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
     let mut spec = eth2_network_config
@@ -55,7 +60,16 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     }
 
     let keypairs = generate_deterministic_keypairs(validator_count);
-    let genesis_state = interop_genesis_state::<T>(&keypairs, genesis_time, &spec)?;
+    let mut genesis_state = interop_genesis_state::<T>(&keypairs, genesis_time, &spec)?;
+
+    if let Some(v) = application_block_hash {
+        println!("state.application_block_hash = {:?}", v);
+        genesis_state.application_block_hash = v;
+    }
+
+    if let Some(v) = application_state_root {
+        genesis_state.application_state_root = v;
+    }
 
     eth2_network_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
     eth2_network_config.force_write_to_file(testnet_dir)?;

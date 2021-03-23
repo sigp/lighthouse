@@ -241,7 +241,21 @@ fn main() {
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
                         ),
-                ),
+                )
+                .arg(
+                    Arg::with_name("application-block-hash")
+                        .long("application-block-hash")
+                        .value_name("HASH256")
+                        .takes_value(true)
+                        .help("The initial value for state.application_block_hash."),
+                )
+                .arg(
+                    Arg::with_name("application-state-root")
+                        .long("application-state-root")
+                        .value_name("HASH256")
+                        .takes_value(true)
+                        .help("The initial value for state.application_state_root."),
+                )
         )
         .subcommand(
             SubCommand::with_name("change-genesis-time")
@@ -408,7 +422,7 @@ fn main() {
                             "The block the deposit contract was deployed. Setting this is a huge
                               optimization for nodes, please do it.",
                         ),
-                ),
+                )
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")

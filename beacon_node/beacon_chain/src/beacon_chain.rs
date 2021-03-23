@@ -2000,6 +2000,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_chain_data = self
             .beacon_chain_data(&state, &randao_reveal)
             .map_err(BlockProductionError::UnableToGetBeaconChainData)?;
+
+        info!(
+            self.log,
+            "Requesting block from eth1 node";
+            "randao_mix" => ?beacon_chain_data.randao_mix,
+            "timestamp" => %beacon_chain_data.timestamp,
+            "block_hash" => ?state.application_block_hash,
+            "slot" => %beacon_chain_data.slot,
+        );
+
         let application_payload =
             eth1_chain.get_application_payload(state.application_block_hash, &beacon_chain_data)?;
 
