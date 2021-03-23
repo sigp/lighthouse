@@ -170,8 +170,6 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             ),
             checks::verify_vc_exits(
                 shutdown_receiver,
-                slot_duration,
-                MainnetEthSpec::slots_per_epoch()
             ),
         );
         finalization?;

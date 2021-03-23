@@ -148,10 +148,7 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
 /// Verifies that the doppelganger detecting validator exits.
 pub async fn verify_vc_exits(
     mut shutdown_receiver: Receiver<&str>,
-    slot_duration: Duration,
-    slots_per_epoch: u64,
 ) -> Result<(), String> {
-    epoch_delay(Epoch::new(4), slot_duration, slots_per_epoch).await;
     let shutdown_signal = shutdown_receiver.next().await;
 
     if let Some(signal) = shutdown_signal {

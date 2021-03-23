@@ -174,7 +174,6 @@ impl ValidatorFiles {
 pub struct LocalValidatorClient<T: EthSpec> {
     pub client: ProductionValidatorClient<T>,
     pub files: ValidatorFiles,
-    pub exit: exit_future::Exit,
 }
 
 impl<E: EthSpec> LocalValidatorClient<E> {
@@ -211,7 +210,6 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         config.validator_dir = files.validator_dir.path().into();
         config.secrets_dir = files.secrets_dir.path().into();
 
-        let exit = context.executor.exit();
         ProductionValidatorClient::new(context, config)
             .await
             .map(move |mut client| {
@@ -221,7 +219,6 @@ impl<E: EthSpec> LocalValidatorClient<E> {
                 Self {
                     client,
                     files,
-                    exit,
                 }
             })
     }

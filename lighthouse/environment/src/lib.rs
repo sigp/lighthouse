@@ -435,6 +435,7 @@ impl<E: EthSpec> Environment<E> {
         &self.eth2_config
     }
 
+    /// Used in testing
     pub fn take_shutdown_receiver(&mut self) -> Option<Receiver<&'static str>> {
         self.signal_rx.take()
     }
