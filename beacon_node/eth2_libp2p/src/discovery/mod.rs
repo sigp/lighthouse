@@ -13,7 +13,7 @@ pub use libp2p::core::identity::{Keypair, PublicKey};
 use crate::{config, metrics};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
-use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
+use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::PeerId;
@@ -409,12 +409,16 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         Ok(())
     }
 
-    /// Adds/Removes a subnet from the ENR Bitfield
-    pub fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
+    /// Adds/Removes a subnet from the ENR attnets Bitfield
+    pub fn update_enr_attnets_bitfield(
+        &mut self,
+        subnet_id: SubnetId,
+        value: bool,
+    ) -> Result<(), String> {
         let id = *subnet_id as usize;
 
         let local_enr = self.discv5.local_enr();
-        let mut current_bitfield = local_enr.bitfield::<TSpec>()?;
+        let mut current_bitfield = local_enr.attestation_bitfield::<TSpec>()?;
 
         if id >= current_bitfield.len() {
             return Err(format!(
@@ -442,7 +446,61 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // insert the bitfield into the ENR record
         self.discv5
-            .enr_insert(BITFIELD_ENR_KEY, &current_bitfield.as_ssz_bytes())
+            .enr_insert(
+                ATTESTATION_BITFIELD_ENR_KEY,
+                &current_bitfield.as_ssz_bytes(),
+            )
+            .map_err(|e| format!("{:?}", e))?;
+
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        Ok(())
+    }
+
+    /// Adds/Removes a subnet from the ENR attnets Bitfield
+    pub fn update_enr_syncnets_bitfield(
+        &mut self,
+        subnet_id: SubnetId,
+        value: bool,
+    ) -> Result<(), String> {
+        let id = *subnet_id as usize;
+
+        let local_enr = self.discv5.local_enr();
+        let mut current_bitfield = local_enr.sync_committee_bitfield::<TSpec>()?;
+
+        if id >= current_bitfield.len() {
+            return Err(format!(
+                "Subnet id: {} is outside the ENR bitfield length: {}",
+                id,
+                current_bitfield.len()
+            ));
+        }
+
+        if current_bitfield
+            .get(id)
+            .map_err(|_| String::from("Subnet ID out of bounds"))?
+            == value
+        {
+            return Err(format!(
+                "Subnet id: {} already in the local ENR already has value: {}",
+                id, value
+            ));
+        }
+
+        // set the subnet bitfield in the ENR
+        current_bitfield
+            .set(id, value)
+            .map_err(|_| String::from("Subnet ID out of bounds, could not set subnet ID"))?;
+
+        // insert the bitfield into the ENR record
+        self.discv5
+            .enr_insert(
+                SYNC_COMMITTEE_BITFIELD_ENR_KEY,
+                &current_bitfield.as_ssz_bytes(),
+            )
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -1083,7 +1141,7 @@ mod tests {
             bitfield.set(id, true).unwrap();
         }
 
-        builder.add_value(BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+        builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
         builder.build(&enr_key).unwrap()
     }
 

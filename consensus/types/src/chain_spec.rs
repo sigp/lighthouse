@@ -140,6 +140,7 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
+    pub sync_committee_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
 }
@@ -419,6 +420,7 @@ impl ChainSpec {
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
+            sync_committee_subnet_count: 8,
             random_subnets_per_validator: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
@@ -857,6 +859,7 @@ impl BaseConfig {
             attestation_propagation_slot_range: chain_spec.attestation_propagation_slot_range,
             maximum_gossip_clock_disparity_millis: chain_spec.maximum_gossip_clock_disparity_millis,
             attestation_subnet_count: chain_spec.attestation_subnet_count,
+            sync_committee_subnet_count: chain_spec.sync_committee_subnet_count,
             /*
              * Constants, not configurable.
              */

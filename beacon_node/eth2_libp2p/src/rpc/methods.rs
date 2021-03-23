@@ -1,6 +1,6 @@
 //! Available RPC methods types and ids.
 
-use crate::types::EnrBitfield;
+use crate::types::EnrAttestationBitfield;
 use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
@@ -99,7 +99,7 @@ pub struct MetaData<T: EthSpec> {
     /// A sequential counter indicating when data gets modified.
     pub seq_number: u64,
     /// The persistent subnet bitfield.
-    pub attnets: EnrBitfield<T>,
+    pub attnets: EnrAttestationBitfield<T>,
 }
 
 /// The reason given for a `Goodbye` message.

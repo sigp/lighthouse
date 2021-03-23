@@ -14,7 +14,7 @@ where
     let log_clone = log.clone();
 
     move |enr: &Enr| {
-        if let Some(bitfield_bytes) = enr.get(BITFIELD_ENR_KEY) {
+        if let Some(bitfield_bytes) = enr.get(ATTESTATION_BITFIELD_ENR_KEY) {
             let bitfield = match BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(
                 bitfield_bytes,
             ) {

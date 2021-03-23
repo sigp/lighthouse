@@ -8,7 +8,9 @@ mod topics;
 use types::{BitVector, EthSpec};
 
 #[allow(type_alias_bounds)]
-pub type EnrBitfield<T: EthSpec> = BitVector<T::SubnetBitfieldLength>;
+pub type EnrAttestationBitfield<T: EthSpec> = BitVector<T::SubnetBitfieldLength>;
+#[allow(type_alias_bounds)]
+pub type EnrSyncCommitteeBitfield<T: EthSpec> = BitVector<T::SyncCommitteeSubnetBitfieldLength>;
 
 pub type Enr = discv5::enr::Enr<discv5::enr::CombinedKey>;
 

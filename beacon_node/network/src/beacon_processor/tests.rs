@@ -9,7 +9,9 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::{null_logger, Environment, EnvironmentBuilder};
-use eth2_libp2p::{rpc::methods::MetaData, types::EnrBitfield, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    rpc::methods::MetaData, types::EnrAttestationBitfield, MessageId, NetworkGlobals, PeerId,
+};
 use slot_clock::SlotClock;
 use std::cmp;
 use std::iter::Iterator;
@@ -133,7 +135,7 @@ impl TestRig {
         // Default metadata
         let meta_data = MetaData {
             seq_number: SEQ_NUMBER,
-            attnets: EnrBitfield::<MainnetEthSpec>::default(),
+            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
         };
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();

@@ -4,7 +4,7 @@ use crate::behaviour::{
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
 use crate::rpc::{GoodbyeReason, MetaData, RPCResponseErrorCode, RequestId};
-use crate::types::{error, EnrBitfield, GossipKind};
+use crate::types::{error, EnrAttestationBitfield, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use futures::prelude::*;
@@ -482,7 +482,7 @@ fn load_or_build_metadata<E: EthSpec>(
     // Default metadata
     let mut meta_data = MetaData {
         seq_number: 0,
-        attnets: EnrBitfield::<E>::default(),
+        attnets: EnrAttestationBitfield::<E>::default(),
     };
     // Read metadata from persisted file if available
     let metadata_path = network_dir.join(METADATA_FILENAME);

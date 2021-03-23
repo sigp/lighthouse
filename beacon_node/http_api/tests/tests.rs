@@ -22,7 +22,7 @@ use eth2::StatusCode;
 use eth2::{types::*, BeaconNodeHttpClient};
 use eth2_libp2p::{
     rpc::methods::MetaData,
-    types::{EnrBitfield, SyncState},
+    types::{EnrAttestationBitfield, SyncState},
     Enr, EnrExt, NetworkGlobals, PeerId,
 };
 use http_api::{Config, Context};
@@ -161,7 +161,7 @@ impl ApiTester {
         // Default metadata
         let meta_data = MetaData {
             seq_number: SEQ_NUMBER,
-            attnets: EnrBitfield::<MainnetEthSpec>::default(),
+            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
         };
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
@@ -269,7 +269,7 @@ impl ApiTester {
         // Default metadata
         let meta_data = MetaData {
             seq_number: SEQ_NUMBER,
-            attnets: EnrBitfield::<MainnetEthSpec>::default(),
+            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
         };
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();

@@ -79,6 +79,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      */
     type SyncCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type SyncPubkeysPerAggregate: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type SyncCommitteeSubnetBitfieldLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -210,7 +211,8 @@ impl EthSpec for MainnetEthSpec {
     type MaxVoluntaryExits = U16;
     type SyncCommitteeSize = U1024;
     type SyncPubkeysPerAggregate = U64;
-    type SyncAggregateSize = U16; // 1024 committee size / 64 subcommittee size
+    type SyncAggregateSize = U16;
+    type SyncCommitteeSubnetBitfieldLength = U8;
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
 
@@ -243,6 +245,7 @@ impl EthSpec for MinimalEthSpec {
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
         SubnetBitfieldLength,
+        SyncCommitteeSubnetBitfieldLength,
         MaxValidatorsPerCommittee,
         GenesisEpoch,
         HistoricalRootsLimit,
