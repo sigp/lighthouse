@@ -18,7 +18,9 @@ use serde_json::{json, Value};
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{Address, ApplicationPayload, FixedVector, Hash256, Slot, Transaction, VariableList};
+use types::{
+    Address, ApplicationPayload, FixedVector, Hash256, Slot, Transaction, Uint256, VariableList,
+};
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
@@ -197,13 +199,13 @@ struct ProduceBlockRequest<'a> {
 /// The `ExecutableData` is a struct defined in the draft RPC spec:
 ///
 /// https://hackmd.io/@n0ble/eth1-eth2-communication-protocol-draft
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct ExecutableData {
     coinbase: Address,
     state_root: Hash256,
     gas_limit: u64,
     gas_used: u64,
-    transactions: Option<Vec<Transaction>>,
+    transactions: Option<Vec<JsonTransaction>>,
     receipt_root: Hash256,
     logs_bloom: String,
     block_hash: Hash256,
@@ -252,8 +254,13 @@ pub async fn eth2_produce_block(
         transactions: response
             .transactions
             .map(|transactions| {
-                VariableList::new(transactions)
-                    .map_err(|e| format!("Invalid transactions in eth2_produceBlock: {:?}", e))
+                VariableList::new(
+                    transactions
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Result<Vec<Transaction>, String>>()?,
+                )
+                .map_err(|e| format!("Invalid transactions in eth2_produceBlock: {:?}", e))
             })
             .unwrap_or_else(|| Ok(VariableList::default()))?,
     })
@@ -284,7 +291,14 @@ pub async fn eth2_insert_block(
         state_root: application_payload.state_root,
         gas_limit: application_payload.gas_limit,
         gas_used: application_payload.gas_used,
-        transactions: Some(application_payload.transactions.clone().to_vec()),
+        transactions: Some(
+            application_payload
+                .transactions
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect(),
+        ),
         receipt_root: application_payload.receipt_root,
         logs_bloom,
         block_hash: application_payload.block_hash,
@@ -572,5 +586,101 @@ fn strip_prefix(hex: &str) -> Result<&str, String> {
         Ok(stripped)
     } else {
         Err("Hex string did not start with `0x`".to_string())
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct JsonTransaction {
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub nonce: u64,
+    #[serde(rename = "gasPrice")]
+    pub gas_price: Uint256,
+    #[serde(rename = "gas", with = "serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    pub recipient: Option<Address>,
+    pub value: Uint256,
+    #[serde(with = "serde_utils::hex_vec")]
+    pub input: Vec<u8>,
+    pub v: Uint256,
+    pub r: Uint256,
+    pub s: Uint256,
+}
+
+impl Into<Result<Transaction, String>> for JsonTransaction {
+    fn into(self) -> Result<Transaction, String> {
+        Ok(Transaction {
+            nonce: self.nonce,
+            gas_price: self.gas_price,
+            gas_limit: self.gas_limit,
+            recipient: self.recipient,
+            value: self.value,
+            input: VariableList::new(self.input)
+                .map_err(|e| format!("Invalid transaction input field: {:?}", e))?,
+            v: self.v,
+            r: self.r,
+            s: self.s,
+        })
+    }
+}
+
+impl From<Transaction> for JsonTransaction {
+    fn from(t: Transaction) -> JsonTransaction {
+        Self {
+            nonce: t.nonce,
+            gas_price: t.gas_price,
+            gas_limit: t.gas_limit,
+            recipient: t.recipient,
+            value: t.value,
+            input: t.input.to_vec(),
+            v: t.v,
+            r: t.r,
+            s: t.s,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_executable_data_json() {
+        let data = r#"
+		{
+          "coinbase": "0x0000000000000000000000000000000000000001",
+          "state_root": "0xc3095c9894c8f71b9f0730b3bc071c6414e7510dc14458599b49b5734345008f",
+          "gas_limit": 3141592,
+          "gas_used": 21000,
+          "transactions": [
+            {
+              "nonce": "0x0",
+              "gasPrice": "0x3b9aca00",
+              "gas": "0x5208",
+              "to": "0x25c4a76e7d118705e7ea2e9b7d8c59930d8acd3b",
+              "value": "0x0",
+              "input": "0x",
+              "v": "0x2e9356953b",
+              "r": "0x5d640e947ab33bc3d47a067765115dd31e46fb5b5dcfa68db68e5dded9bdcd05",
+              "s": "0x1922e21a732ab6bc9332105a4d758c5a35521ca0535ac6d5958120ab866c3195",
+              "hash": "0xc67add5be7392507b15eef85a9d2794ec07a38daea32a827c07e5a6c534a65aa"
+            }
+          ],
+          "receipt_root": "0x056b23fbba480696b65fe5a59b8f2148a1299103c4f57df839233af2cf4ca2d2",
+          "logs_bloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+          "block_hash": "0xbf94b00f0d9c86f02b6f66626ea284aea9ef8417a7d0c33596121db0a653c755",
+          "parent_hash": "0xddce9c6ed083fc7daf708d0c4ed4fc73320a4c0b752929d677f70461266acc4d",
+          "difficulty": 131072
+        }"#;
+
+        let data: ExecutableData = serde_json::from_str(data).expect("should parse example json");
+
+        let encoded = serde_json::to_string(&data).unwrap();
+
+        assert_eq!(
+            serde_json::from_str::<ExecutableData>(&encoded)
+                .expect("should decode encoded version"),
+            data,
+            "should perform serialization round-trip"
+        );
     }
 }

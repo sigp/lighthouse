@@ -100,7 +100,7 @@ pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::subnet_id::SubnetId;
-pub use crate::transaction::Transaction;
+pub use crate::transaction::{MaxBytesPerTransactionPayload, Transaction};
 pub use crate::validator::Validator;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;

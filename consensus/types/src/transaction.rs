@@ -13,7 +13,7 @@ pub struct Transaction {
     pub nonce: u64,
     pub gas_price: Uint256,
     pub gas_limit: u64,
-    pub recipient: Address,
+    pub recipient: Option<Address>,
     pub value: Uint256,
     pub input: VariableList<u8, MaxBytesPerTransactionPayload>,
     pub v: Uint256,
