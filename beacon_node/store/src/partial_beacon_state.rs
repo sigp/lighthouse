@@ -79,15 +79,15 @@ where
     pub current_justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
 
+    // Inactivity
+    #[superstruct(only(Altair))]
+    pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
+
     // Light-client sync committees
     #[superstruct(only(Altair))]
     pub current_sync_committee: SyncCommittee<T>,
     #[superstruct(only(Altair))]
     pub next_sync_committee: SyncCommittee<T>,
-
-    // Leak
-    #[superstruct(only(Altair))]
-    pub leak_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 }
 
 impl<T: EthSpec> Decode for PartialBeaconState<T> {
@@ -195,7 +195,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     current_epoch_participation,
                     current_sync_committee,
                     next_sync_committee,
-                    leak_scores
+                    inactivity_scores
                 ]
             ),
         }
@@ -340,7 +340,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     current_epoch_participation,
                     current_sync_committee,
                     next_sync_committee,
-                    leak_scores
+                    inactivity_scores
                 ]
             ),
         };

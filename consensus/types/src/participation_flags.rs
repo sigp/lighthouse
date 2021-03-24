@@ -8,6 +8,7 @@ use tree_hash_derive::TreeHash;
 #[derive(
     Debug, Clone, Copy, PartialEq, Deserialize, Serialize, Encode, Decode, TreeHash, TestRandom,
 )]
+#[serde(transparent)]
 pub struct ParticipationFlags {
     bits: u8,
 }

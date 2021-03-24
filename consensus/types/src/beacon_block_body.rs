@@ -24,7 +24,7 @@ use tree_hash_derive::TreeHash;
             TreeHash,
             TestRandom
         ),
-        serde(bound = "T: EthSpec")
+        serde(bound = "T: EthSpec", deny_unknown_fields)
     )
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -39,9 +39,7 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
     #[superstruct(only(Altair))]
-    pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,
-    #[superstruct(only(Altair))]
-    pub sync_committee_signature: Signature,
+    pub sync_aggregate: SyncAggregate<T>,
 }
 
 #[cfg(test)]

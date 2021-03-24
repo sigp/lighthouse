@@ -1,4 +1,5 @@
-use types::{init_fork_schedule, ChainSpec, EthSpec, ForkSchedule};
+use std::env;
+use types::{init_fork_schedule, EthSpec, ForkSchedule, Slot};
 
 pub use case_result::CaseResult;
 pub use cases::Case;
@@ -18,9 +19,21 @@ mod handler;
 mod results;
 mod type_name;
 
-pub fn init_testing_fork_schedule(spec: &ChainSpec) {
-    init_fork_schedule(ForkSchedule {
-        altair_fork_slot: spec.altair_fork_slot,
-        altair_fork_version: spec.altair_fork_version,
-    });
+pub fn init_testing_fork_schedule(fork_name: &str) {
+    let fork_schedule = if fork_name == "phase0" {
+        ForkSchedule {
+            altair_fork_slot: Slot::new(u64::MAX),
+        }
+    } else if fork_name == "altair" {
+        ForkSchedule {
+            altair_fork_slot: Slot::new(0),
+        }
+    } else {
+        panic!("unknown fork: {}", fork_name);
+    };
+    init_fork_schedule(fork_schedule);
+}
+
+pub fn get_fork_name() -> String {
+    env::var("FORK_NAME").expect("FORK_NAME must be set")
 }

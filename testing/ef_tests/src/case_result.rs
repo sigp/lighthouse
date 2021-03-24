@@ -94,7 +94,7 @@ where
         (Err(_), None) => Ok(()),
         // Fail: The test failed when it should have produced a result (fail).
         (Err(e), Some(expected)) => Err(Error::NotEqual(format!(
-            "Got {:?} | Expected {:?}",
+            "Got {:?} | Expected {}",
             e,
             fmt_val(expected)
         ))),
@@ -106,7 +106,7 @@ where
                 Ok(())
             } else {
                 Err(Error::NotEqual(format!(
-                    "Got {:?} | Expected {:?}",
+                    "Got {} | Expected {}",
                     fmt_val(result),
                     fmt_val(expected)
                 )))

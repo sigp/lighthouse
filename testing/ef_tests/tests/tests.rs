@@ -146,7 +146,7 @@ fn bls_fast_aggregate_verify() {
 
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
-    // Non-tree hash caching
+    // Top-level
     ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
         ssz_static_test!($test_name, SszStaticHandler, $typ$(<$generics>)?);
     };
@@ -179,25 +179,51 @@ macro_rules! ssz_static_test {
     };
 }
 
+// FIXME(altair): deduplicate this
+#[cfg(feature = "fake_crypto")]
+macro_rules! ssz_static_test_no_run {
+    // Top-level
+    ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
+        ssz_static_test_no_run!($test_name, SszStaticHandler, $typ$(<$generics>)?);
+    };
+    // Generic
+    ($test_name:ident, $handler:ident, $typ:ident<_>) => {
+        ssz_static_test_no_run!(
+            $test_name, $handler, {
+                ($typ<MinimalEthSpec>, MinimalEthSpec),
+                ($typ<MainnetEthSpec>, MainnetEthSpec)
+            }
+        );
+    };
+    // Non-generic
+    ($test_name:ident, $handler:ident, $typ:ident) => {
+        ssz_static_test_no_run!(
+            $test_name, $handler, {
+                ($typ, MinimalEthSpec),
+                ($typ, MainnetEthSpec)
+            }
+        );
+    };
+    // Base case
+    ($test_name:ident, $handler:ident, { $(($($typ:ty),+)),+ }) => {
+        fn $test_name() {
+            $(
+                $handler::<$($typ),+>::run();
+            )+
+        }
+    };
+}
+
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler};
+    use ef_tests::{get_fork_name, Handler, SszStaticHandler};
     use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
-    ssz_static_test!(beacon_block, BeaconBlock<_>);
-    ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
-    ssz_static_test!(
-        beacon_state,
-        SszStaticTHCHandler, {
-            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
-            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
-        }
-    );
     ssz_static_test!(checkpoint, Checkpoint);
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
@@ -221,6 +247,57 @@ mod ssz_static {
     ssz_static_test!(signing_data, SigningData);
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
+
+    // BeaconBlockBody has no internal indicator of which fork it is for.
+    ssz_static_test_no_run!(beacon_block_body_phase0, BeaconBlockBodyBase<_>);
+    ssz_static_test_no_run!(beacon_block_body_altair, BeaconBlockBodyAltair<_>);
+
+    #[test]
+    fn beacon_block_body() {
+        fork_variant_test(beacon_block_body_phase0, beacon_block_body_altair);
+    }
+
+    // FIXME(altair): due to slot=INT_MAX being used in some test cases, we also have to
+    // do a variant split for BeaconState and BeaconBlock
+    ssz_static_test_no_run!(beacon_block_phase0, BeaconBlockBase<_>);
+    ssz_static_test_no_run!(beacon_block_altair, BeaconBlockAltair<_>);
+
+    #[test]
+    fn beacon_block() {
+        fork_variant_test(beacon_block_phase0, beacon_block_altair);
+    }
+
+    /* FIXME(altair): conjure new type magic for the caches + variants :(
+    ssz_static_test_no_run!(
+        beacon_state_phase0,
+        SszStaticTHCHandler, {
+            (BeaconStateBase<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
+            (BeaconStateBase<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
+        }
+    );
+    ssz_static_test_no_run!(
+        beacon_state_altair,
+        SszStaticTHCHandler, {
+            (BeaconStateAltair<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
+            (BeaconStateAltair<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
+        }
+    );
+    */
+    ssz_static_test_no_run!(beacon_state_phase0, BeaconStateBase<_>);
+    ssz_static_test_no_run!(beacon_state_altair, BeaconStateAltair<_>);
+
+    #[test]
+    fn beacon_state() {
+        fork_variant_test(beacon_state_phase0, beacon_state_altair);
+    }
+
+    fn fork_variant_test(phase0: impl FnOnce(), altair: impl FnOnce()) {
+        match get_fork_name().as_str() {
+            "phase0" => phase0(),
+            "altair" => altair(),
+            fork_name => panic!("unknown fork: {}", fork_name),
+        }
+    }
 }
 
 #[test]

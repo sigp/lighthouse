@@ -25,7 +25,7 @@ use tree_hash_derive::TreeHash;
             TreeHash,
             TestRandom
         ),
-        serde(bound = "T: EthSpec"),
+        serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     )
 )]

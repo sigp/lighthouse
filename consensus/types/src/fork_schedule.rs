@@ -17,15 +17,12 @@ pub fn init_fork_schedule(fork_schedule: ForkSchedule) {
 #[derive(Debug)]
 pub struct ForkSchedule {
     pub altair_fork_slot: Slot,
-    // FIXME(altair): remove?
-    pub altair_fork_version: [u8; 4],
 }
 
 impl From<&ChainSpec> for ForkSchedule {
     fn from(spec: &ChainSpec) -> Self {
         ForkSchedule {
             altair_fork_slot: spec.altair_fork_slot,
-            altair_fork_version: spec.altair_fork_version,
         }
     }
 }

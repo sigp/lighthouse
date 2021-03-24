@@ -3,11 +3,10 @@
 use super::*;
 use crate::cases::common::{SszStaticType, TestU128, TestU256};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
-use crate::decode::yaml_decode_file;
+use crate::decode::{snappy_decode_file, yaml_decode_file};
 use serde::{de::Error as SerdeError, Deserializer};
 use serde_derive::Deserialize;
 use ssz_derive::{Decode, Encode};
-use std::fs;
 use std::path::{Path, PathBuf};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
@@ -203,7 +202,8 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
         None
     };
 
-    let serialized = fs::read(&path.join("serialized.ssz")).expect("serialized.ssz exists");
+    let serialized = snappy_decode_file(&path.join("serialized.ssz_snappy"))
+        .expect("serialized.ssz_snappy exists");
 
     let value_path = path.join("value.yaml");
     let value: Option<T> = if value_path.is_file() {

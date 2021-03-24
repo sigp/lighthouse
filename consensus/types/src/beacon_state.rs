@@ -2,7 +2,6 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
-use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use derivative::Derivative;
@@ -11,7 +10,7 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
-use ssz::{ssz_encode, Decode, Encode};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
@@ -156,7 +155,7 @@ impl From<BeaconStateHash> for Hash256 {
             TestRandom,
             CompareFields,
         ),
-        serde(bound = "T: EthSpec"),
+        serde(bound = "T: EthSpec", deny_unknown_fields),
         derivative(Clone),
     )
 )]
@@ -229,15 +228,15 @@ where
     #[superstruct(getter(copy))]
     pub finalized_checkpoint: Checkpoint,
 
+    // Inactivity
+    #[superstruct(only(Altair))]
+    pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
+
     // Light-client sync committees
     #[superstruct(only(Altair))]
     pub current_sync_committee: SyncCommittee<T>,
     #[superstruct(only(Altair))]
     pub next_sync_committee: SyncCommittee<T>,
-
-    // Leak
-    #[superstruct(only(Altair))]
-    pub leak_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -276,14 +275,41 @@ impl<T: EthSpec> Clone for BeaconState<T> {
     }
 }
 
-// FIXME(altair): consider a slot-switching approach
 impl<T: EthSpec> Decode for BeaconState<T> {
     fn is_ssz_fixed_len() -> bool {
-        <BeaconStateBase<T> as Decode>::is_ssz_fixed_len()
+        assert!(
+            !<BeaconStateBase<T> as Decode>::is_ssz_fixed_len()
+                && !<BeaconStateAltair<T> as Decode>::is_ssz_fixed_len()
+        );
+        false
     }
 
+    // FIXME(altair): not sure if we should abstract this pattern
+    // it's repeated on PartialBeaconState & BeaconBlock
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
+        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
+        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        if bytes.len() < slot_offset + slot_len {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_offset + slot_len,
+            });
+        }
+
+        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
+
+        let altair_fork_slot = FORK_SCHEDULE
+            .read()
+            .as_ref()
+            .ok_or_else(|| DecodeError::BytesInvalid("fork schedule not initialised".into()))?
+            .altair_fork_slot;
+
+        if slot < altair_fork_slot {
+            BeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
+        } else {
+            BeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
+        }
     }
 }
 
@@ -1250,11 +1276,13 @@ impl<T: EthSpec> BeaconState<T> {
     }
 }
 
+/* FIXME(altair): see other fixme about cached tree hash EF test
+use cached_tree_hash::{CacheArena, CachedTreeHash};
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
 /// recommended to use the methods directly on the beacon state instead.
-impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconState<T> {
+impl<'a, T> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconStateRef<'a, T> {
     fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache<T> {
-        BeaconTreeHashCache::new(self)
+        BeaconTreeHashCache::new(*self)
     }
 
     fn recalculate_tree_hash_root(
@@ -1263,10 +1291,11 @@ impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconState<T> {
         cache: &mut BeaconTreeHashCache<T>,
     ) -> Result<Hash256, cached_tree_hash::Error> {
         cache
-            .recalculate_tree_hash_root(self)
+            .recalculate_tree_hash_root(*self)
             .map_err(|_| cached_tree_hash::Error::CacheInconsistent)
     }
 }
+*/
 
 impl From<RelativeEpochError> for Error {
     fn from(e: RelativeEpochError) -> Error {

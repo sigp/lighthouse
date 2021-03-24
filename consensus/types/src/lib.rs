@@ -54,6 +54,7 @@ pub mod fork_schedule;
 pub mod participation_flags;
 pub mod slot_epoch;
 pub mod subnet_id;
+pub mod sync_aggregate;
 pub mod sync_committee;
 mod tree_hash_impls;
 
@@ -102,6 +103,7 @@ pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::subnet_id::SubnetId;
+pub use crate::sync_aggregate::SyncAggregate;
 pub use crate::sync_committee::SyncCommittee;
 pub use crate::validator::Validator;
 pub use crate::validator_subscription::ValidatorSubscription;

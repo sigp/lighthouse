@@ -1,22 +1,21 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
-use crate::{init_testing_fork_schedule, type_name};
+use crate::{get_fork_name, init_testing_fork_schedule, type_name};
 use cached_tree_hash::CachedTreeHash;
+use parking_lot::Once;
 use std::fmt::Debug;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec};
+use types::EthSpec;
+
+static INIT_FORK: Once = Once::new();
 
 pub trait Handler {
     type Case: Case + LoadCase;
 
     fn config_name() -> &'static str {
         "general"
-    }
-
-    fn fork_name() -> &'static str {
-        "phase0"
     }
 
     fn runner_name() -> &'static str;
@@ -26,13 +25,16 @@ pub trait Handler {
     fn run() {
         // FIXME(altair): this is a hack, work out a better place to put this
         // should probably be in the individual test cases, but not duplicated too much
-        init_testing_fork_schedule(&ChainSpec::mainnet());
+        let fork_name = get_fork_name();
+        INIT_FORK.call_once(|| {
+            init_testing_fork_schedule(&fork_name);
+        });
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("eth2.0-spec-tests")
             .join("tests")
             .join(Self::config_name())
-            .join(Self::fork_name())
+            .join(fork_name)
             .join(Self::runner_name())
             .join(Self::handler_name());
 

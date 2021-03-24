@@ -266,11 +266,12 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
         )?;
         hasher.write(state.finalized_checkpoint().tree_hash_root().as_bytes())?;
 
-        // Light-client sync committees & leak
+        // Inactivity & light-client sync committees
         if let BeaconState::Altair(ref state) = state {
-            hasher.write(state.current_sync_committee.tree_hash_root().as_bytes())?;
-            hasher.write(state.next_sync_committee.tree_hash_root().as_bytes())?;
             // FIXME(altair): add cache for this field
+            hasher.write(state.inactivity_scores.tree_hash_root().as_bytes())?;
+
+            hasher.write(state.current_sync_committee.tree_hash_root().as_bytes())?;
             hasher.write(state.next_sync_committee.tree_hash_root().as_bytes())?;
         }
 
