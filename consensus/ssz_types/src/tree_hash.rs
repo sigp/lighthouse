@@ -24,7 +24,10 @@ where
                 .finish()
                 .expect("ssz_types variable vec should not have a remaining buffer")
         }
-        TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
+        TreeHashType::Container
+        | TreeHashType::List
+        | TreeHashType::Vector
+        | TreeHashType::Union => {
             let mut hasher = MerkleHasher::with_leaves(N::to_usize());
 
             for item in vec {

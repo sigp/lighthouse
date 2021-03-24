@@ -1,4 +1,5 @@
 use super::*;
+use eth2_hashing::{Context, SHA256};
 use ethereum_types::{H160, H256, U128, U256};
 
 fn int_to_hash256(int: u64) -> Hash256 {
@@ -51,6 +52,38 @@ impl TreeHash for bool {
 
     fn tree_hash_root(&self) -> Hash256 {
         int_to_hash256(*self as u64)
+    }
+}
+
+impl<T> TreeHash for Option<T>
+where
+    T: TreeHash,
+{
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Union
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("Union should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Union should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let mut context = Context::new(&SHA256);
+
+        // TODO: I'm not sure if union always uses 0 for null?
+
+        if let Some(v) = self {
+            context.update(&[1, 0, 0, 0]);
+            context.update(v.tree_hash_root().as_bytes());
+        } else {
+            context.update(&[0, 0, 0, 0])
+        }
+
+        Hash256::from_slice(&context.finish().as_ref())
     }
 }
 

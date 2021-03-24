@@ -69,6 +69,19 @@ where
     }
 }
 
+impl<U> TestRandom for Option<U>
+where
+    U: TestRandom,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        if bool::random_for_test(rng) {
+            Some(<U>::random_for_test(rng))
+        } else {
+            None
+        }
+    }
+}
+
 impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
 where
     T: TestRandom + Default,

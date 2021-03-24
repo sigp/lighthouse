@@ -83,6 +83,7 @@ pub enum TreeHashType {
     Vector,
     List,
     Container,
+    Union,
 }
 
 pub trait TreeHash {
