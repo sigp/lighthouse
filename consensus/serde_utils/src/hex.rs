@@ -14,7 +14,17 @@ pub fn encode<T: AsRef<[u8]>>(data: T) -> String {
 /// Decode `data` from a 0x-prefixed hex string.
 pub fn decode(s: &str) -> Result<Vec<u8>, String> {
     if let Some(stripped) = s.strip_prefix("0x") {
-        hex::decode(stripped).map_err(|e| format!("invalid hex: {:?}", e))
+        if !stripped.is_empty() && stripped.len() % 2 == 0 {
+            hex::decode(stripped).map_err(|e| format!("invalid hex: {:?}", e))
+        } else {
+            // TODO: do we want to allow this padding for all decoding?
+            let padded = if stripped.is_empty() {
+                "00".to_string()
+            } else {
+                format!("0{}", stripped)
+            };
+            hex::decode(padded).map_err(|e| format!("invalid hex: {:?}", e))
+        }
     } else {
         Err("hex must have 0x prefix".to_string())
     }
@@ -33,12 +43,7 @@ impl<'de> Visitor<'de> for PrefixedHexVisitor {
     where
         E: de::Error,
     {
-        if let Some(stripped) = value.strip_prefix("0x") {
-            Ok(hex::decode(stripped)
-                .map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))?)
-        } else {
-            Err(de::Error::custom("missing 0x prefix"))
-        }
+        decode(value).map_err(de::Error::custom)
     }
 }
 
