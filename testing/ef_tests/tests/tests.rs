@@ -144,68 +144,50 @@ fn bls_fast_aggregate_verify() {
     BlsFastAggregateVerifyHandler::run();
 }
 
+/// As for `ssz_static_test_no_run` (below), but also executes the function as a test.
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
-    // Top-level
-    ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
-        ssz_static_test!($test_name, SszStaticHandler, $typ$(<$generics>)?);
-    };
-    // Generic
-    ($test_name:ident, $handler:ident, $typ:ident<_>) => {
-        ssz_static_test!(
-            $test_name, $handler, {
-                ($typ<MinimalEthSpec>, MinimalEthSpec),
-                ($typ<MainnetEthSpec>, MainnetEthSpec)
-            }
-        );
-    };
-    // Non-generic
-    ($test_name:ident, $handler:ident, $typ:ident) => {
-        ssz_static_test!(
-            $test_name, $handler, {
-                ($typ, MinimalEthSpec),
-                ($typ, MainnetEthSpec)
-            }
-        );
-    };
-    // Base case
-    ($test_name:ident, $handler:ident, { $(($($typ:ty),+)),+ }) => {
-        #[test]
-        fn $test_name() {
-            $(
-                $handler::<$($typ),+>::run();
-            )+
-        }
+    ($($args:tt)*) => {
+        ssz_static_test_no_run!(#[test] $($args)*);
     };
 }
 
-// FIXME(altair): deduplicate this
+/// Generate a function to run the SSZ static tests for a type.
+///
+/// Quite complex in order to support an optional #[test] attrib, generics, and the two EthSpecs.
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test_no_run {
     // Top-level
-    ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
-        ssz_static_test_no_run!($test_name, SszStaticHandler, $typ$(<$generics>)?);
+    ($(#[$test:meta])? $test_name:ident, $typ:ident$(<$generics:tt>)?) => {
+        ssz_static_test_no_run!($(#[$test])? $test_name, SszStaticHandler, $typ$(<$generics>)?);
     };
     // Generic
-    ($test_name:ident, $handler:ident, $typ:ident<_>) => {
+    ($(#[$test:meta])? $test_name:ident, $handler:ident, $typ:ident<_>) => {
         ssz_static_test_no_run!(
-            $test_name, $handler, {
+            $(#[$test])?
+            $test_name,
+            $handler,
+            {
                 ($typ<MinimalEthSpec>, MinimalEthSpec),
                 ($typ<MainnetEthSpec>, MainnetEthSpec)
             }
         );
     };
     // Non-generic
-    ($test_name:ident, $handler:ident, $typ:ident) => {
+    ($(#[$test:meta])? $test_name:ident, $handler:ident, $typ:ident) => {
         ssz_static_test_no_run!(
-            $test_name, $handler, {
+            $(#[$test])?
+            $test_name,
+            $handler,
+            {
                 ($typ, MinimalEthSpec),
                 ($typ, MainnetEthSpec)
             }
         );
     };
     // Base case
-    ($test_name:ident, $handler:ident, { $(($($typ:ty),+)),+ }) => {
+    ($(#[$test:meta])? $test_name:ident, $handler:ident, { $(($($typ:ty),+)),+ }) => {
+        $(#[$test])?
         fn $test_name() {
             $(
                 $handler::<$($typ),+>::run();
@@ -216,79 +198,65 @@ macro_rules! ssz_static_test_no_run {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{get_fork_name, Handler, SszStaticHandler};
+    use ef_tests::{get_fork_name, Handler, SszStaticHandler, SszStaticTHCHandler};
     use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
+    ssz_static_test!(beacon_block, BeaconBlock<_>);
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
+    ssz_static_test!(
+        beacon_state,
+        SszStaticTHCHandler, {
+            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
+            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
+        }
+    );
     ssz_static_test!(checkpoint, Checkpoint);
+    // FIXME(altair): add ContributionAndProof
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(deposit_message, DepositMessage);
-    // FIXME(sproul): move Eth1Block to consensus/types
-    //
-    // Tracked at: https://github.com/sigp/lighthouse/issues/1835
-    //
-    // ssz_static_test!(eth1_block, Eth1Block);
+    // NOTE: Eth1Block intentionally omitted, see: https://github.com/sigp/lighthouse/issues/1835
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);
     ssz_static_test!(fork_data, ForkData);
     ssz_static_test!(historical_batch, HistoricalBatch<_>);
     ssz_static_test!(indexed_attestation, IndexedAttestation<_>);
+    // NOTE: LightClient* intentionally omitted
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
     ssz_static_test!(signed_aggregate_and_proof, SignedAggregateAndProof<_>);
     ssz_static_test!(signed_beacon_block, SignedBeaconBlock<_>);
     ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
+    // FIXME(altair): add SignedContributionAndProof
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
+    // FIXME(altair): add SyncCommitteeContribution/Signature/SigningData
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 
-    // BeaconBlockBody has no internal indicator of which fork it is for.
+    // BeaconBlockBody has no internal indicator of which fork it is for, so we test it
+    // separately.
     ssz_static_test_no_run!(beacon_block_body_phase0, BeaconBlockBodyBase<_>);
     ssz_static_test_no_run!(beacon_block_body_altair, BeaconBlockBodyAltair<_>);
-
     #[test]
     fn beacon_block_body() {
         fork_variant_test(beacon_block_body_phase0, beacon_block_body_altair);
     }
 
-    // FIXME(altair): due to slot=INT_MAX being used in some test cases, we also have to
-    // do a variant split for BeaconState and BeaconBlock
-    ssz_static_test_no_run!(beacon_block_phase0, BeaconBlockBase<_>);
-    ssz_static_test_no_run!(beacon_block_altair, BeaconBlockAltair<_>);
-
+    ssz_static_test_no_run!(sync_aggregate_altair, SyncAggregate<_>);
     #[test]
-    fn beacon_block() {
-        fork_variant_test(beacon_block_phase0, beacon_block_altair);
+    fn sync_aggregate() {
+        fork_variant_test(|| (), sync_aggregate_altair);
     }
 
-    /* FIXME(altair): conjure new type magic for the caches + variants :(
-    ssz_static_test_no_run!(
-        beacon_state_phase0,
-        SszStaticTHCHandler, {
-            (BeaconStateBase<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
-            (BeaconStateBase<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
-        }
-    );
-    ssz_static_test_no_run!(
-        beacon_state_altair,
-        SszStaticTHCHandler, {
-            (BeaconStateAltair<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
-            (BeaconStateAltair<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
-        }
-    );
-    */
-    ssz_static_test_no_run!(beacon_state_phase0, BeaconStateBase<_>);
-    ssz_static_test_no_run!(beacon_state_altair, BeaconStateAltair<_>);
-
+    ssz_static_test_no_run!(sync_committee_altair, SyncCommittee<_>);
     #[test]
-    fn beacon_state() {
-        fork_variant_test(beacon_state_phase0, beacon_state_altair);
+    fn sync_committee() {
+        fork_variant_test(|| (), sync_committee_altair);
     }
 
     fn fork_variant_test(phase0: impl FnOnce(), altair: impl FnOnce()) {

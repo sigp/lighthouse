@@ -22,11 +22,11 @@ mod type_name;
 pub fn init_testing_fork_schedule(fork_name: &str) {
     let fork_schedule = if fork_name == "phase0" {
         ForkSchedule {
-            altair_fork_slot: Slot::new(u64::MAX),
+            altair_fork_slot: None,
         }
     } else if fork_name == "altair" {
         ForkSchedule {
-            altair_fork_slot: Slot::new(0),
+            altair_fork_slot: Some(Slot::new(0)),
         }
     } else {
         panic!("unknown fork: {}", fork_name);

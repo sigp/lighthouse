@@ -66,5 +66,7 @@ type_name_generic!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
 type_name!(SignedVoluntaryExit);
 type_name!(SigningData);
+type_name_generic!(SyncAggregate);
+type_name_generic!(SyncCommittee);
 type_name!(Validator);
 type_name!(VoluntaryExit);

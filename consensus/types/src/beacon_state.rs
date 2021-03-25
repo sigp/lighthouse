@@ -2,6 +2,7 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
+use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use derivative::Derivative;
@@ -300,13 +301,12 @@ impl<T: EthSpec> Decode for BeaconState<T> {
 
         let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
 
-        let altair_fork_slot = FORK_SCHEDULE
-            .read()
-            .as_ref()
-            .ok_or_else(|| DecodeError::BytesInvalid("fork schedule not initialised".into()))?
-            .altair_fork_slot;
+        let fork_schedule = get_fork_schedule_ssz()?;
 
-        if slot < altair_fork_slot {
+        if fork_schedule
+            .altair_fork_slot
+            .map_or(true, |altair_slot| slot < altair_slot)
+        {
             BeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
         } else {
             BeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
@@ -1261,13 +1261,11 @@ impl<T: EthSpec> BeaconState<T> {
     }
 }
 
-/* FIXME(altair): see other fixme about cached tree hash EF test
-use cached_tree_hash::{CacheArena, CachedTreeHash};
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
 /// recommended to use the methods directly on the beacon state instead.
-impl<'a, T> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconStateRef<'a, T> {
+impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconState<T> {
     fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache<T> {
-        BeaconTreeHashCache::new(*self)
+        BeaconTreeHashCache::new(self)
     }
 
     fn recalculate_tree_hash_root(
@@ -1276,11 +1274,10 @@ impl<'a, T> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconStateRef<'a, T> {
         cache: &mut BeaconTreeHashCache<T>,
     ) -> Result<Hash256, cached_tree_hash::Error> {
         cache
-            .recalculate_tree_hash_root(*self)
+            .recalculate_tree_hash_root(self)
             .map_err(|_| cached_tree_hash::Error::CacheInconsistent)
     }
 }
-*/
 
 impl From<RelativeEpochError> for Error {
     fn from(e: RelativeEpochError) -> Error {

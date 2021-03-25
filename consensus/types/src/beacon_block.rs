@@ -80,13 +80,12 @@ impl<T: EthSpec> Decode for BeaconBlock<T> {
 
         let slot = Slot::from_ssz_bytes(&bytes[0..slot_len])?;
 
-        let altair_fork_slot = FORK_SCHEDULE
-            .read()
-            .as_ref()
-            .ok_or_else(|| DecodeError::BytesInvalid("fork schedule not initialised".into()))?
-            .altair_fork_slot;
+        let fork_schedule = get_fork_schedule_ssz()?;
 
-        if slot < altair_fork_slot {
+        if fork_schedule
+            .altair_fork_slot
+            .map_or(true, |altair_slot| slot < altair_slot)
+        {
             BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
         } else {
             BeaconBlockAltair::from_ssz_bytes(bytes).map(Self::Altair)
