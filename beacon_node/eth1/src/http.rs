@@ -597,7 +597,7 @@ struct JsonTransaction {
     pub gas_price: Uint256,
     #[serde(rename = "gas", with = "serde_utils::u64_hex_be")]
     pub gas_limit: u64,
-    pub recipient: Option<Address>,
+    pub to: Option<Address>,
     pub value: Uint256,
     #[serde(with = "serde_utils::hex_vec")]
     pub input: Vec<u8>,
@@ -612,7 +612,7 @@ impl Into<Result<Transaction, String>> for JsonTransaction {
             nonce: self.nonce,
             gas_price: self.gas_price,
             gas_limit: self.gas_limit,
-            recipient: self.recipient,
+            recipient: self.to,
             value: self.value,
             input: VariableList::new(self.input)
                 .map_err(|e| format!("Invalid transaction input field: {:?}", e))?,
@@ -629,7 +629,7 @@ impl From<Transaction> for JsonTransaction {
             nonce: t.nonce,
             gas_price: t.gas_price,
             gas_limit: t.gas_limit,
-            recipient: t.recipient,
+            to: t.recipient,
             value: t.value,
             input: t.input.to_vec(),
             v: t.v,
