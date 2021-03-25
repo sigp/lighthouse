@@ -6,7 +6,7 @@ use crate::{Error, KeyValueStore};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use superstruct::superstruct;
+use types::superstruct;
 use types::*;
 
 /// Lightweight variant of the `BeaconState` that is stored in the database.

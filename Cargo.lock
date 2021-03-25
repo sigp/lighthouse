@@ -6170,7 +6170,6 @@ dependencies = [
  "slog",
  "sloggers",
  "state_processing",
- "superstruct",
  "tempfile",
  "tree_hash",
  "types",
@@ -6246,7 +6245,7 @@ checksum = "1e81da0851ada1f3e9d4312c704aa4f8806f0f9d69faaf8df2f3464b4a9437c2"
 [[package]]
 name = "superstruct"
 version = "0.1.0"
-source = "git+https://github.com/sigp/superstruct?rev=883c103281c0fd0569fd697a6738b30e1232ba98#883c103281c0fd0569fd697a6738b30e1232ba98"
+source = "git+https://github.com/sigp/superstruct?rev=4ba41e99fc168071eff3b963aa1009781b75c065#4ba41e99fc168071eff3b963aa1009781b75c065"
 dependencies = [
  "darling",
  "itertools 0.10.0",

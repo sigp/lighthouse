@@ -157,7 +157,8 @@ impl From<BeaconStateHash> for Hash256 {
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         derivative(Clone),
-    )
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
@@ -370,22 +371,6 @@ impl<T: EthSpec> BeaconState<T> {
             exit_cache: ExitCache::default(),
             tree_hash_cache: None,
         })
-    }
-
-    // FIXME(altair): auto-generate these methods in superstruct
-    /// Assert that the state is for the initial (base) hard fork.
-    pub fn as_base(&self) -> Result<&BeaconStateBase<T>, Error> {
-        match self {
-            BeaconState::Base(ref s) => Ok(s),
-            _ => return Err(Error::IncorrectStateVariant),
-        }
-    }
-
-    pub fn as_base_mut(&mut self) -> Result<&mut BeaconStateBase<T>, Error> {
-        match self {
-            BeaconState::Base(ref mut s) => Ok(s),
-            _ => return Err(Error::IncorrectStateVariant),
-        }
     }
 
     /// Returns the `tree_hash_root` of the state.
