@@ -4,7 +4,9 @@ use types::{init_fork_schedule, EthSpec, ForkSchedule, Slot};
 pub use case_result::CaseResult;
 pub use cases::Case;
 pub use cases::{
-    FinalUpdates, JustificationAndFinalization, RegistryUpdates, RewardsAndPenalties, Slashings,
+    EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, JustificationAndFinalization,
+    ParticipationRecordUpdates, RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings,
+    SlashingsReset,
 };
 pub use error::Error;
 pub use handler::*;

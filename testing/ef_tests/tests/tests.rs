@@ -303,9 +303,39 @@ fn epoch_processing_slashings() {
 }
 
 #[test]
-fn epoch_processing_final_updates() {
-    EpochProcessingHandler::<MinimalEthSpec, FinalUpdates>::run();
-    EpochProcessingHandler::<MainnetEthSpec, FinalUpdates>::run();
+fn epoch_processing_eth1_data_reset() {
+    EpochProcessingHandler::<MinimalEthSpec, Eth1DataReset>::run();
+    EpochProcessingHandler::<MainnetEthSpec, Eth1DataReset>::run();
+}
+
+#[test]
+fn epoch_processing_effective_balance_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, EffectiveBalanceUpdates>::run();
+    EpochProcessingHandler::<MainnetEthSpec, EffectiveBalanceUpdates>::run();
+}
+
+#[test]
+fn epoch_processing_slashings_reset() {
+    EpochProcessingHandler::<MinimalEthSpec, SlashingsReset>::run();
+    EpochProcessingHandler::<MainnetEthSpec, SlashingsReset>::run();
+}
+
+#[test]
+fn epoch_processing_randao_mixes_reset() {
+    EpochProcessingHandler::<MinimalEthSpec, RandaoMixesReset>::run();
+    EpochProcessingHandler::<MainnetEthSpec, RandaoMixesReset>::run();
+}
+
+#[test]
+fn epoch_processing_historical_roots_update() {
+    EpochProcessingHandler::<MinimalEthSpec, HistoricalRootsUpdate>::run();
+    EpochProcessingHandler::<MainnetEthSpec, HistoricalRootsUpdate>::run();
+}
+
+#[test]
+fn epoch_processing_participation_record_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, ParticipationRecordUpdates>::run();
+    EpochProcessingHandler::<MainnetEthSpec, ParticipationRecordUpdates>::run();
 }
 
 #[test]
