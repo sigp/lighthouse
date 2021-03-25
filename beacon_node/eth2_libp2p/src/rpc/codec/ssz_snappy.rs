@@ -4,15 +4,15 @@ use crate::rpc::{
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
-use libp2p::bytes::BytesMut;
+use libp2p::{bytes::BytesMut, core::ProtocolName};
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
 use ssz_types::VariableList;
-use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
+use std::{convert::TryInto, io::Cursor};
 use tokio_util::codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock, SignedBeaconBlockBase};
 use unsigned_varint::codec::Uvi;
@@ -131,35 +131,26 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
                 // We need not check that decoded_buffer.len() is within bounds here
                 // since we have already checked `length` above.
-                match self.protocol.message_name {
-                    Protocol::Status => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
-                            &decoded_buffer,
-                        )?))),
-                    },
-                    Protocol::Goodbye => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCRequest::Goodbye(
+                match self.protocol.version {
+                    Version::V1 => match self.protocol.message_name {
+                        Protocol::Status => Ok(Some(RPCRequest::Status(
+                            StatusMessage::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
+                        Protocol::Goodbye => Ok(Some(RPCRequest::Goodbye(
                             GoodbyeReason::from_ssz_bytes(&decoded_buffer)?,
                         ))),
-                    },
-                    Protocol::BlocksByRange => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCRequest::BlocksByRange(
+                        Protocol::BlocksByRange => Ok(Some(RPCRequest::BlocksByRange(
                             BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
                         ))),
-                    },
-                    Protocol::BlocksByRoot => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                        }))),
-                    },
-                    Protocol::Ping => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCRequest::Ping(Ping {
+                        Protocol::BlocksByRoot => {
+                            Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                                block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+                            })))
+                        }
+                        Protocol::Ping => Ok(Some(RPCRequest::Ping(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
                         }))),
-                    },
-                    // This case should be unreachable as `MetaData` requests are handled separately in the `InboundUpgrade`
-                    Protocol::MetaData => match self.protocol.version {
-                        Version::V1 => {
+                        Protocol::MetaData => {
                             if !decoded_buffer.is_empty() {
                                 Err(RPCError::InvalidData)
                             } else {
@@ -167,6 +158,25 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             }
                         }
                     },
+                    // TODO: Behaviour unclear
+                    // Receiving a Rpc request for protocol version 2 for range and root
+                    Version::V2 => {
+                        match self.protocol.message_name {
+                            // Request type doesn't change, only response type
+                            Protocol::BlocksByRange => Ok(Some(RPCRequest::BlocksByRange(
+                                BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
+                            ))),
+                            Protocol::BlocksByRoot => {
+                                Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                                    block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+                                })))
+                            }
+                            _ => Err(RPCError::ErrorResponse(
+                                RPCResponseErrorCode::InvalidRequest,
+                                "Invalid v2 request".to_string(),
+                            )),
+                        }
+                    }
                 }
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -181,6 +191,7 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     protocol: ProtocolId,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
+    context_bytes: Option<[u8; 4]>,
     phantom: PhantomData<TSpec>,
 }
 
@@ -195,6 +206,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
             protocol,
             max_packet_size,
             len: None,
+            context_bytes: None,
             phantom: PhantomData,
         }
     }
@@ -246,6 +258,18 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        // Read the context bytes if required
+        if self.protocol.version == Version::V2 && self.context_bytes.is_none() {
+            let context_bytes = src.split_to(4);
+
+            let context_bytes: [u8; 4] = context_bytes.try_into().map_err(|_| {
+                RPCError::ErrorResponse(
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Invalid v2 request".to_string(),
+                )
+            })?;
+            self.context_bytes = Some(context_bytes);
+        }
         let length = if let Some(length) = self.len {
             length
         } else {
@@ -283,39 +307,36 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
                 // We need not check that decoded_buffer.len() is within bounds here
                 // since we have already checked `length` above.
-                match self.protocol.message_name {
-                    Protocol::Status => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCResponse::Status(
+                match self.protocol.version {
+                    Version::V1 => match self.protocol.message_name {
+                        Protocol::Status => Ok(Some(RPCResponse::Status(
                             StatusMessage::from_ssz_bytes(&decoded_buffer)?,
                         ))),
-                    },
-                    // This case should be unreachable as `Goodbye` has no response.
-                    Protocol::Goodbye => Err(RPCError::InvalidData),
-                    Protocol::BlocksByRange => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                            // FIXME(altair): support Altair blocks
-                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                                &decoded_buffer,
-                            )?),
+                        // This case should be unreachable as `Goodbye` has no response.
+                        Protocol::Goodbye => Err(RPCError::InvalidData),
+                        // TODO
+                        Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                         )))),
-                    },
-                    Protocol::BlocksByRoot => match self.protocol.version {
-                        // FIXME(altair): support Altair blocks
-                        Version::V1 => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                                &decoded_buffer,
-                            )?),
+                        // TODO
+                        Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                         )))),
-                    },
-                    Protocol::Ping => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCResponse::Pong(Ping {
+                        Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
                         }))),
+                        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(
+                            MetaData::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
                     },
-                    Protocol::MetaData => match self.protocol.version {
-                        Version::V1 => Ok(Some(RPCResponse::MetaData(MetaData::from_ssz_bytes(
-                            &decoded_buffer,
-                        )?))),
+                    Version::V2 => match self.protocol.message_name {
+                        // TODO: Decode the correct fork type of SignedBeaconBlock based on `self.context_bytes`
+                        Protocol::BlocksByRange => unimplemented!(),
+                        Protocol::BlocksByRoot => unimplemented!(),
+                        _ => Err(RPCError::ErrorResponse(
+                            RPCResponseErrorCode::InvalidRequest,
+                            "Invalid v2 request".to_string(),
+                        )),
                     },
                 }
             }

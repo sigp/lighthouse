@@ -99,6 +99,8 @@ pub enum Protocol {
 pub enum Version {
     /// Version 1 of RPC
     V1,
+    /// Version 2 of RPC
+    V2,
 }
 
 /// RPC Encondings supported.
@@ -134,6 +136,7 @@ impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
             Version::V1 => "1",
+            Version::V2 => "2",
         };
         f.write_str(repr)
     }
@@ -154,7 +157,9 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
         ]
@@ -198,52 +203,62 @@ pub struct ProtocolId {
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
     pub fn rpc_request_limits(&self) -> RpcLimits {
-        match self.message_name {
-            Protocol::Status => RpcLimits::new(
-                <StatusMessage as Encode>::ssz_fixed_len(),
-                <StatusMessage as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::Goodbye => RpcLimits::new(
-                <GoodbyeReason as Encode>::ssz_fixed_len(),
-                <GoodbyeReason as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::BlocksByRange => RpcLimits::new(
-                <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
-                <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::BlocksByRoot => {
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+        match self.version {
+            Version::V1 => {
+                match self.message_name {
+                    Protocol::Status => RpcLimits::new(
+                        <StatusMessage as Encode>::ssz_fixed_len(),
+                        <StatusMessage as Encode>::ssz_fixed_len(),
+                    ),
+                    Protocol::Goodbye => RpcLimits::new(
+                        <GoodbyeReason as Encode>::ssz_fixed_len(),
+                        <GoodbyeReason as Encode>::ssz_fixed_len(),
+                    ),
+                    Protocol::BlocksByRange => RpcLimits::new(
+                        <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
+                        <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
+                    ),
+                    Protocol::BlocksByRoot => {
+                        RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+                    }
+                    Protocol::Ping => RpcLimits::new(
+                        <Ping as Encode>::ssz_fixed_len(),
+                        <Ping as Encode>::ssz_fixed_len(),
+                    ),
+                    Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
+                }
             }
-            Protocol::Ping => RpcLimits::new(
-                <Ping as Encode>::ssz_fixed_len(),
-                <Ping as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
+            // TODO
+            Version::V2 => unimplemented!(),
         }
     }
 
     /// Returns min and max size for messages of given protocol id responses.
     pub fn rpc_response_limits<T: EthSpec>(&self) -> RpcLimits {
-        match self.message_name {
-            Protocol::Status => RpcLimits::new(
-                <StatusMessage as Encode>::ssz_fixed_len(),
-                <StatusMessage as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => {
-                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
-            }
-            Protocol::BlocksByRoot => {
-                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
-            }
-            Protocol::Ping => RpcLimits::new(
-                <Ping as Encode>::ssz_fixed_len(),
-                <Ping as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::MetaData => RpcLimits::new(
-                <MetaData<T> as Encode>::ssz_fixed_len(),
-                <MetaData<T> as Encode>::ssz_fixed_len(),
-            ),
+        match self.version {
+            Version::V1 => match self.message_name {
+                Protocol::Status => RpcLimits::new(
+                    <StatusMessage as Encode>::ssz_fixed_len(),
+                    <StatusMessage as Encode>::ssz_fixed_len(),
+                ),
+                Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
+                Protocol::BlocksByRange => {
+                    RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
+                }
+                Protocol::BlocksByRoot => {
+                    RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
+                }
+                Protocol::Ping => RpcLimits::new(
+                    <Ping as Encode>::ssz_fixed_len(),
+                    <Ping as Encode>::ssz_fixed_len(),
+                ),
+                Protocol::MetaData => RpcLimits::new(
+                    <MetaData<T> as Encode>::ssz_fixed_len(),
+                    <MetaData<T> as Encode>::ssz_fixed_len(),
+                ),
+            },
+            // TODO
+            Version::V2 => unimplemented!(),
         }
     }
 }
