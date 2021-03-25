@@ -1366,3 +1366,26 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
         }
     }
 }
+
+
+impl BeaconStateAltair {
+    //TODO: altair only
+    /// Get the attestations from the current or previous epoch.
+    pub fn get_unslashed_participating_indices(
+        &self,
+        flag_index: u64,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error>{
+        let epoch_participation = if epoch == self.current_epoch() {
+            Ok(&self.current_epoch_participation)
+        } else if epoch == self.previous_epoch() {
+            Ok(&self.previous_epoch_participation)
+        } else {
+            Err(Error::EpochOutOfBounds)
+        }?;
+        let active_validator_indices = self.get_active_validator_indices(epoch, spec);
+        Ok(active_validator_indices.iter()
+            .filter(|val_index|epoch_participation[val_index].has_flag(flag_index) && !self.validators[val_index].slashed).collect())
+    }
+}
