@@ -95,6 +95,28 @@ pub trait TreeHash {
     fn tree_hash_root(&self) -> Hash256;
 }
 
+/// Punch through references.
+impl<'a, T> TreeHash for &'a T
+where
+    T: TreeHash,
+{
+    fn tree_hash_type() -> TreeHashType {
+        T::tree_hash_type()
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        T::tree_hash_packed_encoding(*self)
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        T::tree_hash_packing_factor()
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        T::tree_hash_root(*self)
+    }
+}
+
 #[macro_export]
 macro_rules! tree_hash_ssz_encoding_as_vector {
     ($type: ident) => {

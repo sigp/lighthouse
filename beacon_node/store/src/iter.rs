@@ -27,7 +27,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         store: Arc<HotColdDB<E, Hot, Cold>>,
     ) -> Option<BlockRootsIterator<'a, E, Hot, Cold>> {
         let state = store
-            .get_state(&self.message.state_root(), Some(self.message.slot()))
+            .get_state(&self.message().state_root(), Some(self.slot()))
             .ok()??;
 
         Some(BlockRootsIterator::owned(store, state))
@@ -257,7 +257,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 .store
                 .get_block(&block_root)?
                 .ok_or(Error::BlockNotFound(block_root))?;
-            self.next_block_root = block.message.parent_root();
+            self.next_block_root = block.message().parent_root();
             Ok(Some((block_root, block)))
         }
     }

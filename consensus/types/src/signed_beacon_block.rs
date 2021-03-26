@@ -1,11 +1,13 @@
 use crate::{
-    BeaconBlock, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SignedBeaconBlockHeader,
-    SignedRoot, SigningData, Slot,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockRef, ChainSpec, Domain, EthSpec,
+    Fork, Hash256, PublicKey, SignedBeaconBlockHeader, SignedRoot, SigningData, Slot,
 };
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
+use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use std::fmt;
+use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -38,17 +40,87 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 }
 
 /// A `BeaconBlock` and a signature from its proposer.
-///
-/// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[superstruct(
+    variants(Base, Altair),
+    variant_attributes(
+        derive(
+            Debug,
+            PartialEq,
+            Clone,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            TreeHash
+        ),
+        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
+        serde(bound = "E: EthSpec")
+    )
+)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct SignedBeaconBlock<E: EthSpec> {
+    #[superstruct(only(Base))]
+    pub message: BeaconBlockBase<E>,
+    #[superstruct(only(Altair))]
+    pub message: BeaconBlockAltair<E>,
+    pub signature: Signature,
+}
+
+/// Proxy the decode implementation to `BeaconBlock`'s slot-switching impl.
+#[derive(Debug, Decode)]
+struct SignedBeaconBlockForDecoding<E: EthSpec> {
     pub message: BeaconBlock<E>,
     pub signature: Signature,
 }
 
+impl<E: EthSpec> Decode for SignedBeaconBlock<E> {
+    fn is_ssz_fixed_len() -> bool {
+        <SignedBeaconBlockForDecoding<E> as Decode>::is_ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        SignedBeaconBlockForDecoding::from_ssz_bytes(bytes)
+            .map(|block| SignedBeaconBlock::from_block(block.message, block.signature))
+    }
+}
+
 impl<E: EthSpec> SignedBeaconBlock<E> {
+    /// Create a new `SignedBeaconBlock` from a `BeaconBlock` and `Signature`.
+    pub fn from_block(block: BeaconBlock<E>, signature: Signature) -> Self {
+        match block {
+            BeaconBlock::Base(message) => {
+                SignedBeaconBlock::Base(SignedBeaconBlockBase { message, signature })
+            }
+            BeaconBlock::Altair(message) => {
+                SignedBeaconBlock::Altair(SignedBeaconBlockAltair { message, signature })
+            }
+        }
+    }
+
+    /// Deconstruct the `SignedBeaconBlock` into a `BeaconBlock` and `Signature`.
+    ///
+    /// This is necessary to get a `&BeaconBlock` from a `SignedBeaconBlock` because
+    /// `SignedBeaconBlock` only contains a `BeaconBlock` _variant_.
+    pub fn deconstruct(self) -> (BeaconBlock<E>, Signature) {
+        match self {
+            SignedBeaconBlock::Base(block) => (BeaconBlock::Base(block.message), block.signature),
+            SignedBeaconBlock::Altair(block) => {
+                (BeaconBlock::Altair(block.message), block.signature)
+            }
+        }
+    }
+
+    /// Accessor for the block's `message` field as a ref.
+    pub fn message(&self) -> BeaconBlockRef<'_, E> {
+        match self {
+            SignedBeaconBlock::Base(inner) => BeaconBlockRef::Base(&inner.message),
+            SignedBeaconBlock::Altair(inner) => BeaconBlockRef::Altair(&inner.message),
+        }
+    }
+
     /// Verify `self.signature`.
     ///
     /// If the root of `block.message` is already known it can be passed in via `object_root_opt`.
@@ -62,7 +134,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         spec: &ChainSpec,
     ) -> bool {
         let domain = spec.get_domain(
-            self.message.slot().epoch(E::slots_per_epoch()),
+            self.slot().epoch(E::slots_per_epoch()),
             Domain::BeaconProposer,
             fork,
             genesis_validators_root,
@@ -75,40 +147,41 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
             }
             .tree_hash_root()
         } else {
-            self.message.signing_root(domain)
+            self.message().signing_root(domain)
         };
 
-        self.signature.verify(pubkey, message)
+        self.signature().verify(pubkey, message)
     }
 
     /// Produce a signed beacon block header corresponding to this block.
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         SignedBeaconBlockHeader {
-            message: self.message.block_header(),
-            signature: self.signature.clone(),
+            message: self.message().block_header(),
+            signature: self.signature().clone(),
         }
     }
 
     /// Convenience accessor for the block's slot.
     pub fn slot(&self) -> Slot {
-        self.message.slot()
+        self.message().slot()
     }
 
     /// Convenience accessor for the block's parent root.
     pub fn parent_root(&self) -> Hash256 {
-        self.message.parent_root()
+        self.message().parent_root()
     }
 
     /// Convenience accessor for the block's state root.
     pub fn state_root(&self) -> Hash256 {
-        self.message.state_root()
+        self.message().state_root()
     }
 
     /// Returns the `tree_hash_root` of the block.
-    ///
-    /// Spec v0.12.1
     pub fn canonical_root(&self) -> Hash256 {
-        self.message.tree_hash_root()
+        match self {
+            SignedBeaconBlock::Base(block) => block.message.tree_hash_root(),
+            SignedBeaconBlock::Altair(block) => block.message.tree_hash_root(),
+        }
     }
 }
 

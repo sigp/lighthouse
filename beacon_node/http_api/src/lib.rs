@@ -724,8 +724,8 @@ pub fn serve<T: BeaconChainTypes>(
                         root,
                         canonical: true,
                         header: api_types::BlockHeaderAndSignature {
-                            message: block.message.block_header(),
-                            signature: block.signature.into(),
+                            message: block.message().block_header(),
+                            signature: block.signature().clone().into(),
                         },
                     };
 
@@ -759,8 +759,8 @@ pub fn serve<T: BeaconChainTypes>(
                     root,
                     canonical,
                     header: api_types::BlockHeaderAndSignature {
-                        message: block.message.block_header(),
-                        signature: block.signature.into(),
+                        message: block.message().block_header(),
+                        signature: block.signature().clone().into(),
                     },
                 };
 
@@ -798,7 +798,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     // Determine the delay after the start of the slot, register it with metrics.
                     let delay =
-                        get_block_delay_ms(seen_timestamp, &block.message, &chain.slot_clock);
+                        get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
                     metrics::observe_duration(
                         &metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES,
                         delay,
@@ -816,7 +816,7 @@ pub fn serve<T: BeaconChainTypes>(
                             // Notify the validator monitor.
                             chain.validator_monitor.read().register_api_block(
                                 seen_timestamp,
-                                &block.message,
+                                block.message(),
                                 root,
                                 &chain.slot_clock,
                             );
@@ -935,7 +935,7 @@ pub fn serve<T: BeaconChainTypes>(
                 block_id
                     .block(&chain)
                     // FIXME(altair): could avoid clone with by-value accessor
-                    .map(|block| block.message.body_ref().attestations().clone())
+                    .map(|block| block.message().body().attestations().clone())
                     .map(api_types::GenericResponse::from)
             })
         });

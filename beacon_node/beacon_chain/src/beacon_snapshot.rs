@@ -31,7 +31,7 @@ impl<E: EthSpec> BeaconSnapshot<E> {
     ///
     /// It is not strictly enforced that `root(self.beacon_state) == self.beacon_state_root()`.
     pub fn beacon_state_root(&self) -> Hash256 {
-        self.beacon_block.message.state_root()
+        self.beacon_block.message().state_root()
     }
 
     /// Update all fields of the checkpoint.

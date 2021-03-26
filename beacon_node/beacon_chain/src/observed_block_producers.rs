@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{BeaconBlock, EthSpec, Slot, Unsigned};
+use types::{BeaconBlockRef, EthSpec, Slot, Unsigned};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -52,7 +52,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn observe_proposer(&mut self, block: &BeaconBlock<E>) -> Result<bool, Error> {
+    pub fn observe_proposer(&mut self, block: BeaconBlockRef<'_, E>) -> Result<bool, Error> {
         self.sanitize_block(block)?;
 
         let did_not_exist = self
@@ -72,7 +72,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn proposer_has_been_observed(&self, block: &BeaconBlock<E>) -> Result<bool, Error> {
+    pub fn proposer_has_been_observed(&self, block: BeaconBlockRef<'_, E>) -> Result<bool, Error> {
         self.sanitize_block(block)?;
 
         let exists = self
@@ -84,7 +84,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     }
 
     /// Returns `Ok(())` if the given `block` is sane.
-    fn sanitize_block(&self, block: &BeaconBlock<E>) -> Result<(), Error> {
+    fn sanitize_block(&self, block: BeaconBlockRef<'_, E>) -> Result<(), Error> {
         if block.proposer_index() >= E::ValidatorRegistryLimit::to_u64() {
             return Err(Error::ValidatorIndexTooHigh(block.proposer_index()));
         }

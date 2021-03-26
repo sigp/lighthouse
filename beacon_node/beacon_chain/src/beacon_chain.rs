@@ -1459,8 +1459,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        let slot = block.message.slot();
-        let graffiti_string = block.message.body_ref().graffiti().as_utf8_lossy();
+        let slot = block.slot();
+        let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
         match GossipVerifiedBlock::new(block, self) {
             Ok(verified) => {
@@ -1577,7 +1577,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
-        for a in signed_block.message.body_ref().attestations() {
+        for a in signed_block.message().body().attestations() {
             match self
                 .observed_attestations
                 .write()
@@ -1596,7 +1596,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If a slasher is configured, provide the attestations from the block.
         if let Some(slasher) = self.slasher.as_ref() {
-            for attestation in signed_block.message.body_ref().attestations() {
+            for attestation in signed_block.message().body().attestations() {
                 let committee =
                     state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
                 let indexed_attestation =
@@ -1642,7 +1642,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Do not import a block that doesn't descend from the finalized root.
         let signed_block =
             check_block_is_finalized_descendant::<T, _>(signed_block, &fork_choice, &self.store)?;
-        let block = &signed_block.message;
+        let (block, block_signature) = signed_block.clone().deconstruct();
 
         // compare the existing finalized checkpoint with the incoming block's finalized checkpoint
         let old_finalized_checkpoint = fork_choice.finalized_checkpoint();
@@ -1681,7 +1681,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             fork_choice
-                .on_block(current_slot, block, block_root, &state)
+                .on_block(current_slot, &block, block_root, &state)
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
@@ -1692,7 +1692,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let validator_monitor = self.validator_monitor.read();
 
         // Register each attestation in the block with the fork choice service.
-        for attestation in block.body_ref().attestations() {
+        for attestation in block.body().attestations() {
             let _fork_choice_attestation_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
@@ -1717,21 +1717,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             {
                 validator_monitor.register_attestation_in_block(
                     &indexed_attestation,
-                    &block,
+                    block.to_ref(),
                     &self.spec,
                 );
             }
         }
 
-        for exit in block.body_ref().voluntary_exits() {
+        for exit in block.body().voluntary_exits() {
             validator_monitor.register_block_voluntary_exit(&exit.message)
         }
 
-        for slashing in block.body_ref().attester_slashings() {
+        for slashing in block.body().attester_slashings() {
             validator_monitor.register_block_attester_slashing(slashing)
         }
 
-        for slashing in block.body_ref().proposer_slashings() {
+        for slashing in block.body().proposer_slashings() {
             validator_monitor.register_block_proposer_slashing(slashing)
         }
 
@@ -1739,7 +1739,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-            block.body_ref().attestations().len() as f64,
+            block.body().attestations().len() as f64,
         );
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
@@ -1749,10 +1749,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        ops.push(StoreOp::PutBlock(
-            block_root,
-            Box::new(signed_block.clone()),
-        ));
+        ops.push(StoreOp::PutBlock(block_root, Box::new(signed_block)));
         ops.push(StoreOp::PutState(block.state_root(), &state));
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
@@ -1789,11 +1786,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // about it.
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME,
-            get_block_delay_ms(timestamp_now(), &signed_block.message, &self.slot_clock),
+            get_block_delay_ms(timestamp_now(), block.to_ref(), &self.slot_clock),
         );
 
         let parent_root = block.parent_root();
         let slot = block.slot();
+        let signed_block = SignedBeaconBlock::from_block(block, block_signature);
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -2016,8 +2014,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(attestation_packing_timer);
 
         // FIXME(altair): propose altair blocks
-        let mut block = SignedBeaconBlock {
-            message: BeaconBlock::Base(BeaconBlockBase {
+        let block = SignedBeaconBlock::from_block(
+            BeaconBlock::Base(BeaconBlockBase {
                 slot: state.slot(),
                 proposer_index: state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64,
                 parent_root,
@@ -2034,8 +2032,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
             }),
             // The block is not signed here, that is the task of a validator client.
-            signature: Signature::empty(),
-        };
+            Signature::empty(),
+        );
 
         let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
         per_block_processing(
@@ -2051,19 +2049,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_root = state.update_tree_hash_cache()?;
         drop(state_root_timer);
 
-        *block.message.state_root_mut() = state_root;
+        let (mut block, _) = block.deconstruct();
+        *block.state_root_mut() = state_root;
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
         trace!(
             self.log,
             "Produced beacon block";
-            "parent" => %block.message.parent_root(),
-            "attestations" => block.message.body_ref().attestations().len(),
-            "slot" => block.message.slot()
+            "parent" => %block.parent_root(),
+            "attestations" => block.body().attestations().len(),
+            "slot" => block.slot()
         );
 
-        Ok((block.message, state))
+        Ok((block, state))
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
