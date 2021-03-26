@@ -660,7 +660,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
-        Ok(partial_state.try_into()?)
+        partial_state.try_into()
     }
 
     /// Load a restore point state by its `restore_point_index`.

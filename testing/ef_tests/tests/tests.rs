@@ -1,6 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use types::*;
 
@@ -29,6 +30,12 @@ fn config_test<E: EthSpec + TypeName>() {
 
     let phase0_from_spec = YamlConfig::from_spec::<E>(&spec);
     assert_eq!(phase0_from_spec, phase0_config);
+
+    assert_eq!(
+        phase0_config.extra_fields,
+        HashMap::new(),
+        "not all config fields read"
+    );
 }
 
 #[test]
