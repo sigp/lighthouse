@@ -10,7 +10,7 @@ use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
@@ -91,7 +91,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
 
 /// Gets the keypair and validator_index for every validator and calls `publish_voluntary_exit` on it.
 async fn publish_voluntary_exit<E: EthSpec>(
-    keystore_path: &PathBuf,
+    keystore_path: &Path,
     password_file_path: Option<&PathBuf>,
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
@@ -310,7 +310,7 @@ fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<
 /// If the `password_file_path` is Some, unlock keystore using password in given file
 /// otherwise, prompts user for a password to unlock the keystore.
 fn load_voting_keypair(
-    voting_keystore_path: &PathBuf,
+    voting_keystore_path: &Path,
     password_file_path: Option<&PathBuf>,
     stdin_inputs: bool,
 ) -> Result<Keypair, String> {

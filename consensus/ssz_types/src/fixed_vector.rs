@@ -108,9 +108,9 @@ impl<T: Default, N: Unsigned> From<Vec<T>> for FixedVector<T, N> {
     }
 }
 
-impl<T, N: Unsigned> Into<Vec<T>> for FixedVector<T, N> {
-    fn into(self) -> Vec<T> {
-        self.vec
+impl<T, N: Unsigned> From<FixedVector<T, N>> for Vec<T> {
+    fn from(vector: FixedVector<T, N>) -> Vec<T> {
+        vector.vec
     }
 }
 
