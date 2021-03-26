@@ -121,7 +121,11 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --all --tests -- -D warnings
+	cargo clippy --all --tests -- \
+        -D warnings \
+        -A clippy::from-over-into \
+        -A clippy::upper-case-acronyms \
+        -A clippy::vec-init-then-push
 
 # Runs the makefile in the `ef_tests` repo.
 #
