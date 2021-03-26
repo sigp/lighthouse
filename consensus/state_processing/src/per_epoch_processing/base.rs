@@ -1,19 +1,16 @@
-use super::{
-    process_registry_updates, process_slashings, EpochProcessingSummary, Error,
-};
-use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch, Unsigned, VariableList};
-
-pub mod final_updates;
-pub mod rewards_and_penalties;
-pub mod validator_statuses;
-pub mod justification_and_finalization;
-
-pub use final_updates::process_final_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-pub use justification_and_finalization::process_justification_and_finalization;
-pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
+use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch, Unsigned, VariableList};
+
+use crate::per_epoch_processing::process_justification_and_finalization;
+pub use crate::per_epoch_processing::validator_statuses::{
+    TotalBalances, ValidatorStatus, ValidatorStatuses,
+};
+
+use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
+
+pub mod rewards_and_penalties;
 
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,

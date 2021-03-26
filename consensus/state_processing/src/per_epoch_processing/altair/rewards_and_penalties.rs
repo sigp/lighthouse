@@ -1,5 +1,5 @@
 use crate::common::get_base_reward;
-use crate::per_epoch_processing::base::validator_statuses::{
+use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
 use crate::per_epoch_processing::Error;

@@ -1259,6 +1259,34 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn clone_with_only_committee_caches(&self) -> Self {
         self.clone_with(CloneConfig::committee_caches_only())
     }
+
+    pub fn get_unslashed_participating_indices(
+        &self,
+        flag_index: u64,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        match self {
+            BeaconState::Base(state) => Err(Error::IncorrectStateVariant),
+            BeaconState::Altair(state) => {
+                let epoch_participation = if epoch == self.current_epoch() {
+                    Ok(&state.current_epoch_participation)
+                } else if epoch == self.previous_epoch() {
+                    Ok(&state.previous_epoch_participation)
+                } else {
+                    Err(Error::EpochOutOfBounds)
+                }?;
+                let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
+                Ok(active_validator_indices
+                    .into_iter()
+                    .filter(|&val_index| {
+                        epoch_participation[val_index].has_flag(flag_index)
+                            && !self.validators()[val_index].slashed
+                    })
+                    .collect())
+            }
+        }
+    }
 }
 
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
@@ -1364,28 +1392,5 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants"),
         }
-    }
-}
-
-
-impl BeaconStateAltair {
-    //TODO: altair only
-    /// Get the attestations from the current or previous epoch.
-    pub fn get_unslashed_participating_indices(
-        &self,
-        flag_index: u64,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<Vec<usize>, Error>{
-        let epoch_participation = if epoch == self.current_epoch() {
-            Ok(&self.current_epoch_participation)
-        } else if epoch == self.previous_epoch() {
-            Ok(&self.previous_epoch_participation)
-        } else {
-            Err(Error::EpochOutOfBounds)
-        }?;
-        let active_validator_indices = self.get_active_validator_indices(epoch, spec);
-        Ok(active_validator_indices.iter()
-            .filter(|val_index|epoch_participation[val_index].has_flag(flag_index) && !self.validators[val_index].slashed).collect())
     }
 }

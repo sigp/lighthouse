@@ -1,22 +1,26 @@
-use super::*;
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+
+use serde_derive::Deserialize;
+
+use ssz::Decode;
+use state_processing::per_epoch_processing::validator_statuses::ValidatorStatuses;
+use state_processing::per_epoch_processing::{
+    base::process_effective_balance_updates, base::process_eth1_data_reset,
+    base::process_historical_roots_update, base::process_participation_record_updates,
+    base::process_randao_mixes_reset, base::process_rewards_and_penalties,
+    base::process_slashings_reset, errors::EpochProcessingError,
+    process_justification_and_finalization, process_registry_updates, process_slashings,
+};
+use types::{BeaconState, ChainSpec, EthSpec};
+
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{snappy_decode_file, ssz_decode_file, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
-use serde_derive::Deserialize;
-use ssz::Decode;
-use state_processing::per_epoch_processing::{
-    base::process_effective_balance_updates, base::process_eth1_data_reset,
-    base::process_final_updates, base::process_historical_roots_update,
-    base::process_participation_record_updates, base::process_randao_mixes_reset,
-    base::process_rewards_and_penalties, base::process_slashings_reset,
-    base::validator_statuses::ValidatorStatuses, errors::EpochProcessingError,
-    process_justification_and_finalization, process_registry_updates, process_slashings,
-};
-use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
-use types::{BeaconState, ChainSpec, EthSpec};
+
+use super::*;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -59,7 +63,6 @@ pub struct RandaoMixesReset;
 pub struct HistoricalRootsUpdate;
 #[derive(Debug)]
 pub struct ParticipationRecordUpdates;
-
 
 type_name!(
     JustificationAndFinalization,

@@ -1,6 +1,11 @@
 #![deny(clippy::wildcard_imports)]
 
+// FIXME(altair): refactor to remove phase0/base structs, including `EpochProcessingSummary`
+pub use base::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 use errors::EpochProcessingError as Error;
+pub use justification_and_finalization::process_justification_and_finalization;
+pub use registry_updates::process_registry_updates;
+pub use slashings::process_slashings;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 pub mod altair;
@@ -10,12 +15,7 @@ pub mod justification_and_finalization;
 pub mod registry_updates;
 pub mod slashings;
 pub mod tests;
-
-pub use justification_and_finalization::process_justification_and_finalization;
-pub use registry_updates::process_registry_updates;
-pub use slashings::process_slashings;
-// FIXME(altair): refactor to remove phase0/base structs, including `EpochProcessingSummary`
-pub use base::{TotalBalances, ValidatorStatus, ValidatorStatuses};
+pub mod validator_statuses;
 
 /// Provides a summary of validator participation during the epoch.
 pub struct EpochProcessingSummary {
