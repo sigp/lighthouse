@@ -2,7 +2,7 @@
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig,
+    BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
@@ -18,6 +18,7 @@ use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{Config, Context};
 use network::NetworkMessage;
+use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::iter::Iterator;
@@ -1682,6 +1683,42 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_duties_proposer_early(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+        let previous_epoch = current_epoch - 1;
+        let current_epoch_start = self
+            .chain
+            .slot_clock
+            .start_of(current_epoch.start_slot(E::slots_per_epoch()))
+            .unwrap();
+
+        self.chain.slot_clock.set_current_time(
+            current_epoch_start + MAXIMUM_GOSSIP_CLOCK_DISPARITY + Duration::from_millis(1),
+        );
+
+        assert_eq!(
+            self.client
+                .get_validator_duties_proposer(previous_epoch)
+                .await
+                .unwrap_err()
+                .status()
+                .map(Into::into),
+            Some(400),
+            "should not get duties outside of tolerance"
+        );
+
+        self.chain
+            .slot_clock
+            .set_current_time(current_epoch_start + MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+
+        self.client
+            .get_validator_duties_proposer(previous_epoch)
+            .await
+            .expect("should get duties within tolerance");
+
+        self
+    }
+
     pub async fn test_block_production(self) -> Self {
         let fork = self.chain.head_info().unwrap().fork;
         let genesis_validators_root = self.chain.genesis_validators_root;
@@ -2371,7 +2408,11 @@ async fn get_validator_duties_attester_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer() {
-    ApiTester::new().test_get_validator_duties_proposer().await;
+    ApiTester::new()
+        .test_get_validator_duties_proposer()
+        .await
+        .test_get_validator_duties_proposer_early()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
