@@ -1683,9 +1683,9 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_validator_duties_proposer_early(self) -> Self {
+    pub async fn test_get_validator_duties_early(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
-        let previous_epoch = current_epoch - 1;
+        let next_epoch = current_epoch + 1;
         let current_epoch_start = self
             .chain
             .slot_clock
@@ -1693,28 +1693,43 @@ impl ApiTester {
             .unwrap();
 
         self.chain.slot_clock.set_current_time(
-            current_epoch_start + MAXIMUM_GOSSIP_CLOCK_DISPARITY + Duration::from_millis(1),
+            current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1),
         );
 
         assert_eq!(
             self.client
-                .get_validator_duties_proposer(previous_epoch)
+                .get_validator_duties_proposer(current_epoch)
                 .await
                 .unwrap_err()
                 .status()
                 .map(Into::into),
             Some(400),
-            "should not get duties outside of tolerance"
+            "should not get proposer duties outside of tolerance"
+        );
+
+        assert_eq!(
+            self.client
+                .post_validator_duties_attester(next_epoch, &[0])
+                .await
+                .unwrap_err()
+                .status()
+                .map(Into::into),
+            Some(400),
+            "should not get proposer duties outside of tolerance"
         );
 
         self.chain
             .slot_clock
-            .set_current_time(current_epoch_start + MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+            .set_current_time(current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
 
         self.client
-            .get_validator_duties_proposer(previous_epoch)
+            .get_validator_duties_proposer(current_epoch)
             .await
-            .expect("should get duties within tolerance");
+            .expect("should get proposer duties within tolerance");
+        self.client
+            .post_validator_duties_attester(next_epoch, &[0])
+            .await
+            .expect("should get attester duties within tolerance");
 
         self
     }
@@ -2394,6 +2409,11 @@ async fn node_get() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_early() {
+    ApiTester::new().test_get_validator_duties_early().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_attester() {
     ApiTester::new().test_get_validator_duties_attester().await;
 }
@@ -2408,11 +2428,7 @@ async fn get_validator_duties_attester_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer() {
-    ApiTester::new()
-        .test_get_validator_duties_proposer()
-        .await
-        .test_get_validator_duties_proposer_early()
-        .await;
+    ApiTester::new().test_get_validator_duties_proposer().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

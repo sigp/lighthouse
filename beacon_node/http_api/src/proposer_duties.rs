@@ -24,7 +24,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
         .epoch()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    // Determine what the current epoch would be if we rewound our system clock by
+    // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     let tolerant_current_epoch = chain
         .slot_clock
@@ -32,18 +32,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
         .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
         .epoch(T::EthSpec::slots_per_epoch());
 
-    if request_epoch > current_epoch {
-        // Reject queries about the future as they're very expensive there's no look-ahead for
-        // proposer duties.
-        //
-        // Don't even allow requests with the clock disparity tolerance since it's rare we'll get
-        // late requests and it's difficult to determine the proposer shuffling cache key for such
-        // requests.
-        Err(warp_utils::reject::custom_bad_request(format!(
-            "request epoch {} is ahead of the current epoch {}",
-            request_epoch, current_epoch
-        )))
-    } else if request_epoch == current_epoch || request_epoch == tolerant_current_epoch {
+    if request_epoch == current_epoch || request_epoch == tolerant_current_epoch {
         // If we could consider ourselves in the `request_epoch` when allowing for clock disparity
         // tolerance then serve this request from the cache.
         if let Some(duties) = try_proposer_duties_from_cache(request_epoch, chain)? {
@@ -56,6 +45,13 @@ pub fn proposer_duties<T: BeaconChainTypes>(
             );
             compute_and_cache_proposer_duties(request_epoch, chain)
         }
+    } else if request_epoch > current_epoch {
+        // Reject queries about the future as they're very expensive there's no look-ahead for
+        // proposer duties.
+        Err(warp_utils::reject::custom_bad_request(format!(
+            "request epoch {} is ahead of the current epoch {}",
+            request_epoch, current_epoch
+        )))
     } else {
         // request_epoch < current_epoch
         //

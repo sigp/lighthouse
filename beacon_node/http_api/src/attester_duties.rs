@@ -24,7 +24,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
         .epoch()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    // Determine what the current epoch would be if we rewound our system clock by
+    // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     let tolerant_current_epoch = chain
         .slot_clock
@@ -35,6 +35,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
     if request_epoch == current_epoch
         || request_epoch == tolerant_current_epoch
         || request_epoch == current_epoch + 1
+        || request_epoch == tolerant_current_epoch + 1
     {
         cached_attestation_duties(request_epoch, request_indices, chain)
     } else if request_epoch > current_epoch + 1 {
