@@ -7,7 +7,7 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
+    AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
     Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot,
     SignedVoluntaryExit, SigningData,
@@ -73,7 +73,7 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let block = &signed_block.message;
+    let block = signed_block.message();
     let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
 
     if proposer_index as u64 != block.proposer_index() {
@@ -101,7 +101,7 @@ where
     };
 
     Ok(SignatureSet::single_pubkey(
-        &signed_block.signature,
+        signed_block.signature(),
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
@@ -111,7 +111,7 @@ where
 pub fn randao_signature_set<'a, T, F>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
-    block: &'a BeaconBlock<T>,
+    block: BeaconBlockRef<'a, T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -133,7 +133,7 @@ where
         .signing_root(domain);
 
     Ok(SignatureSet::single_pubkey(
-        block.body_ref().randao_reveal(),
+        block.body().randao_reveal(),
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))

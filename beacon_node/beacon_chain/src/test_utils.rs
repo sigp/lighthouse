@@ -660,7 +660,7 @@ where
             .chain
             .head_beacon_block()
             .unwrap()
-            .message
+            .message()
             .block_header();
         block_header_1.proposer_index = validator_index;
 

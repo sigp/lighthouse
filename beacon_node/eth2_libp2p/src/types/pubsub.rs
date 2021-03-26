@@ -189,8 +189,8 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BeaconBlock(block) => write!(
                 f,
                 "Beacon Block: slot: {}, proposer_index: {}",
-                block.message.slot(),
-                block.message.proposer_index()
+                block.slot(),
+                block.message().proposer_index()
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

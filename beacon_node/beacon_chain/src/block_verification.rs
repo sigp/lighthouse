@@ -71,7 +71,7 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
     PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
@@ -492,7 +492,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let block_root = get_block_root(&block);
 
         // Do not gossip a block from a finalized slot.
-        check_block_against_finalized_slot(&block.message, chain)?;
+        check_block_against_finalized_slot(block.message(), chain)?;
 
         // Check if the block is already known. We know it is post-finalization, so it is
         // sufficient to check the fork choice.
@@ -509,12 +509,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         if chain
             .observed_block_producers
             .read()
-            .proposer_has_been_observed(&block.message)
+            .proposer_has_been_observed(block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
             return Err(BlockError::RepeatProposal {
-                proposer: block.message.proposer_index(),
-                slot: block.message.slot(),
+                proposer: block.message().proposer_index(),
+                slot: block.slot(),
             });
         }
 
@@ -563,7 +563,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             };
 
         // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, parent_block.slot, &block.message)?;
+        check_block_skip_slots(chain, parent_block.slot, block.message())?;
 
         // We assign to a variable instead of using `if let Some` directly to ensure we drop the
         // write lock before trying to acquire it again in the `else` clause.
@@ -616,8 +616,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let signature_is_valid = {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
-                .get(block.message.proposer_index() as usize)
-                .ok_or(BlockError::UnknownValidator(block.message.proposer_index()))?;
+                .get(block.message().proposer_index() as usize)
+                .ok_or(BlockError::UnknownValidator(
+                    block.message().proposer_index(),
+                ))?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,
@@ -639,18 +641,18 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         if chain
             .observed_block_producers
             .write()
-            .observe_proposer(&block.message)
+            .observe_proposer(block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
             return Err(BlockError::RepeatProposal {
-                proposer: block.message.proposer_index(),
-                slot: block.message.slot(),
+                proposer: block.message().proposer_index(),
+                slot: block.slot(),
             });
         }
 
-        if block.message.proposer_index() != expected_proposer as u64 {
+        if block.message().proposer_index() != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {
-                block: block.message.proposer_index(),
+                block: block.message().proposer_index(),
                 local_shuffling: expected_proposer as u64,
             });
         }
@@ -695,7 +697,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let (mut parent, block) = load_parent(block, chain)?;
 
         // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, parent.beacon_block.slot(), &block.message)?;
+        check_block_skip_slots(chain, parent.beacon_block.slot(), block.message())?;
 
         let block_root = get_block_root(&block);
 
@@ -856,7 +858,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, parent.beacon_block.slot(), &block.message)?;
+        check_block_skip_slots(chain, parent.beacon_block.slot(), block.message())?;
 
         /*
          *  Perform cursory checks to see if the block is even worth processing.
@@ -1066,7 +1068,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 fn check_block_skip_slots<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     parent_slot: Slot,
-    block: &BeaconBlock<T::EthSpec>,
+    block: BeaconBlockRef<'_, T::EthSpec>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     // Reject any block that exceeds our limit on skipped slots.
     if let Some(max_skip_slots) = chain.config.import_max_skip_slots {
@@ -1086,7 +1088,7 @@ fn check_block_skip_slots<T: BeaconChainTypes>(
 /// Returns an error if the block is earlier or equal to the finalized slot, or there was an error
 /// verifying that condition.
 fn check_block_against_finalized_slot<T: BeaconChainTypes>(
-    block: &BeaconBlock<T::EthSpec>,
+    block: BeaconBlockRef<'_, T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let finalized_slot = chain
@@ -1147,7 +1149,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
     chain: &BeaconChain<T>,
 ) -> Result<Hash256, BlockError<T::EthSpec>> {
-    let block = &signed_block.message;
+    let block = signed_block.message();
 
     // Do not process blocks from the future.
     if block.slot() > chain.slot()? {
@@ -1205,7 +1207,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     if let Some(proto_block) = chain
         .fork_choice
         .read()
-        .get_block(&block.message.parent_root())
+        .get_block(&block.message().parent_root())
     {
         Ok((proto_block, block))
     } else {

@@ -194,7 +194,7 @@ where
         let set = randao_signature_set(
             self.state,
             self.get_pubkey.clone(),
-            &block.message,
+            block.message(),
             self.spec,
         )?;
         self.sets.push(set);
@@ -204,11 +204,11 @@ where
     /// Includes all signatures in `self.block.body.proposer_slashings` for verification.
     pub fn include_proposer_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
         self.sets
-            .reserve(block.message.body_ref().proposer_slashings().len() * 2);
+            .reserve(block.message().body().proposer_slashings().len() * 2);
 
         block
-            .message
-            .body_ref()
+            .message()
+            .body()
             .proposer_slashings()
             .iter()
             .try_for_each(|proposer_slashing| {
@@ -229,11 +229,11 @@ where
     /// Includes all signatures in `self.block.body.attester_slashings` for verification.
     pub fn include_attester_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
         self.sets
-            .reserve(block.message.body_ref().attester_slashings().len() * 2);
+            .reserve(block.message().body().attester_slashings().len() * 2);
 
         block
-            .message
-            .body_ref()
+            .message()
+            .body()
             .attester_slashings()
             .iter()
             .try_for_each(|attester_slashing| {
@@ -257,15 +257,15 @@ where
         block: &'a SignedBeaconBlock<T>,
     ) -> Result<Vec<IndexedAttestation<T>>> {
         self.sets
-            .reserve(block.message.body_ref().attestations().len());
+            .reserve(block.message().body().attestations().len());
 
         block
-            .message
-            .body_ref()
+            .message()
+            .body()
             .attestations()
             .iter()
             .try_fold(
-                Vec::with_capacity(block.message.body_ref().attestations().len()),
+                Vec::with_capacity(block.message().body().attestations().len()),
                 |mut vec, attestation| {
                     let committee = self
                         .state
@@ -292,11 +292,11 @@ where
     /// Includes all signatures in `self.block.body.voluntary_exits` for verification.
     pub fn include_exits(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
         self.sets
-            .reserve(block.message.body_ref().voluntary_exits().len());
+            .reserve(block.message().body().voluntary_exits().len());
 
         block
-            .message
-            .body_ref()
+            .message()
+            .body()
             .voluntary_exits()
             .iter()
             .try_for_each(|exit| {

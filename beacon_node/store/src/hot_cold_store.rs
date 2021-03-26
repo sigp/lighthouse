@@ -660,7 +660,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
-        Ok(partial_state.try_into()?)
+        partial_state.try_into()
     }
 
     /// Load a restore point state by its `restore_point_index`.
@@ -738,14 +738,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .filter(|result| {
                     result
                         .as_ref()
-                        .map_or(true, |block| block.message.slot() <= end_slot)
+                        .map_or(true, |block| block.slot() <= end_slot)
                 })
                 // Include the block at the start slot (if any). Whilst it doesn't need to be applied
                 // to the state, it contains a potentially useful state root.
                 .take_while(|result| {
                     result
                         .as_ref()
-                        .map_or(true, |block| block.message.slot() >= start_slot)
+                        .map_or(true, |block| block.slot() >= start_slot)
                 })
                 .collect::<Result<_, _>>()?;
         blocks.reverse();
@@ -765,16 +765,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<BeaconState<E>, Error> {
         if block_replay == BlockReplay::InconsistentStateRoots {
             for i in 0..blocks.len() {
-                *blocks[i].message.state_root_mut() = Hash256::zero();
+                let prev_block_root = if i > 0 {
+                    blocks[i - 1].canonical_root()
+                } else {
+                    // Not read.
+                    Hash256::zero()
+                };
+
+                let (state_root, parent_root) = match &mut blocks[i] {
+                    SignedBeaconBlock::Base(block) => (
+                        &mut block.message.state_root,
+                        &mut block.message.parent_root,
+                    ),
+                    SignedBeaconBlock::Altair(block) => (
+                        &mut block.message.state_root,
+                        &mut block.message.parent_root,
+                    ),
+                };
+
+                *state_root = Hash256::zero();
                 if i > 0 {
-                    *blocks[i].message.parent_root_mut() = blocks[i - 1].canonical_root()
+                    *parent_root = prev_block_root;
                 }
             }
         }
 
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
-                let prev_block = &blocks[i - 1].message;
+                let prev_block = blocks[i - 1].message();
                 if prev_block.slot() == state.slot() {
                     Some(prev_block.state_root())
                 } else {
@@ -786,11 +804,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         for (i, block) in blocks.iter().enumerate() {
-            if block.message.slot() <= state.slot() {
+            if block.slot() <= state.slot() {
                 continue;
             }
 
-            while state.slot() < block.message.slot() {
+            while state.slot() < block.slot() {
                 let state_root = match block_replay {
                     BlockReplay::Accurate => state_root_from_prev_block(i, &state),
                     BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),

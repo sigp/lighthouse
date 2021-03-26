@@ -27,7 +27,8 @@ use tree_hash_derive::TreeHash;
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
-    )
+    ),
+    ref_attributes(derive(Debug, PartialEq, TreeHash))
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
@@ -47,16 +48,6 @@ pub struct BeaconBlock<T: EthSpec> {
     pub body: BeaconBlockBodyBase<T>,
     #[superstruct(only(Altair))]
     pub body: BeaconBlockBodyAltair<T>,
-}
-
-impl<T: EthSpec> BeaconBlock<T> {
-    /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
-    pub fn body_ref(&self) -> BeaconBlockBodyRef<'_, T> {
-        match self {
-            BeaconBlock::Base(ref block) => BeaconBlockBodyRef::Base(&block.body),
-            BeaconBlock::Altair(ref block) => BeaconBlockBodyRef::Altair(&block.body),
-        }
-    }
 }
 
 /// Custom `Decode` implementation for blocks that differentiates between hard fork blocks by slot.
@@ -94,6 +85,7 @@ impl<T: EthSpec> Decode for BeaconBlock<T> {
 }
 
 impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
+impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
@@ -196,6 +188,11 @@ impl<T: EthSpec> BeaconBlock<T> {
         BeaconBlock::Base(block)
     }
 
+    /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
+    pub fn body(&self) -> BeaconBlockBodyRef<'_, T> {
+        self.to_ref().body()
+    }
+
     /// Returns the epoch corresponding to `self.slot()`.
     pub fn epoch(&self) -> Epoch {
         self.slot().epoch(T::slots_per_epoch())
@@ -213,29 +210,17 @@ impl<T: EthSpec> BeaconBlock<T> {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     pub fn block_header(&self) -> BeaconBlockHeader {
-        BeaconBlockHeader {
-            slot: self.slot(),
-            proposer_index: self.proposer_index(),
-            parent_root: self.parent_root(),
-            state_root: self.state_root(),
-            body_root: self.body_root(),
-        }
-    }
-
-    /// Return the tree hash root of the block's body.
-    pub fn body_root(&self) -> Hash256 {
-        match self {
-            BeaconBlock::Base(block) => block.body.tree_hash_root(),
-            BeaconBlock::Altair(block) => block.body.tree_hash_root(),
-        }
+        self.to_ref().block_header()
     }
 
     /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
     pub fn temporary_block_header(&self) -> BeaconBlockHeader {
-        BeaconBlockHeader {
-            state_root: Hash256::zero(),
-            ..self.block_header()
-        }
+        self.to_ref().temporary_block_header()
+    }
+
+    /// Return the tree hash root of the block's body.
+    pub fn body_root(&self) -> Hash256 {
+        self.to_ref().body_root()
     }
 
     /// Signs `self`, producing a `SignedBeaconBlock`.
@@ -254,9 +239,43 @@ impl<T: EthSpec> BeaconBlock<T> {
         );
         let message = self.signing_root(domain);
         let signature = secret_key.sign(message);
-        SignedBeaconBlock {
-            message: self,
-            signature,
+        SignedBeaconBlock::from_block(self, signature)
+    }
+}
+
+impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
+    /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
+    pub fn body(&self) -> BeaconBlockBodyRef<'a, T> {
+        match self {
+            BeaconBlockRef::Base(block) => BeaconBlockBodyRef::Base(&block.body),
+            BeaconBlockRef::Altair(block) => BeaconBlockBodyRef::Altair(&block.body),
+        }
+    }
+
+    /// Return the tree hash root of the block's body.
+    pub fn body_root(&self) -> Hash256 {
+        match self {
+            BeaconBlockRef::Base(block) => block.body.tree_hash_root(),
+            BeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
+        }
+    }
+
+    /// Returns a full `BeaconBlockHeader` of this block.
+    pub fn block_header(&self) -> BeaconBlockHeader {
+        BeaconBlockHeader {
+            slot: self.slot(),
+            proposer_index: self.proposer_index(),
+            parent_root: self.parent_root(),
+            state_root: self.state_root(),
+            body_root: self.body_root(),
+        }
+    }
+
+    /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
+    pub fn temporary_block_header(self) -> BeaconBlockHeader {
+        BeaconBlockHeader {
+            state_root: Hash256::zero(),
+            ..self.block_header()
         }
     }
 }

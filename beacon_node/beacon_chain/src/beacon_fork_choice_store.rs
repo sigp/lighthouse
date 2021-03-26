@@ -321,7 +321,8 @@ where
                 .get_item::<SignedBeaconBlock<E>>(&self.justified_checkpoint.root)
                 .map_err(Error::FailedToReadBlock)?
                 .ok_or(Error::MissingBlock(self.justified_checkpoint.root))?
-                .message;
+                .deconstruct()
+                .0;
 
             // FIXME(altair): could remove clone with by-value `balances` accessor
             self.justified_balances = self

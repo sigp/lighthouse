@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
-    AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Epoch, EthSpec,
+    AttestationData, AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec,
     Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, Slot,
     VoluntaryExit,
 };
@@ -469,7 +469,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn register_gossip_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
@@ -480,7 +480,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn register_api_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
@@ -491,7 +491,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         &self,
         src: &str,
         seen_timestamp: Duration,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
@@ -739,7 +739,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn register_attestation_in_block(
         &self,
         indexed_attestation: &IndexedAttestation<T>,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         spec: &ChainSpec,
     ) {
         let data = &indexed_attestation.data;
@@ -1041,7 +1041,7 @@ fn u64_to_i64(n: impl Into<u64>) -> i64 {
 /// Returns the delay between the start of `block.slot` and `seen_timestamp`.
 pub fn get_block_delay_ms<T: EthSpec, S: SlotClock>(
     seen_timestamp: Duration,
-    block: &BeaconBlock<T>,
+    block: BeaconBlockRef<'_, T>,
     slot_clock: &S,
 ) -> Duration {
     get_slot_delay_ms::<S>(seen_timestamp, block.slot(), slot_clock)

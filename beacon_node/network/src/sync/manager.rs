@@ -331,11 +331,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // check if the parent of this block isn't in our failed cache. If it is, this
                 // chain should be dropped and the peer downscored.
-                if self.failed_chains.contains(&block.message.parent_root()) {
+                if self.failed_chains.contains(&block.message().parent_root()) {
                     debug!(
                         self.log,
                         "Parent chain ignored due to past failure";
-                        "block" => ?block.message.parent_root(),
+                        "block" => ?block.message().parent_root(),
                         "slot" => block.slot()
                     );
                     if !parent_request.downloaded_blocks.is_empty() {
@@ -510,7 +510,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let block_root = block.canonical_root();
         // If this block or it's parent is part of a known failed chain, ignore it.
-        if self.failed_chains.contains(&block.message.parent_root())
+        if self.failed_chains.contains(&block.message().parent_root())
             || self.failed_chains.contains(&block_root)
         {
             debug!(self.log, "Block is from a past failed chain. Dropping"; "block_root" => ?block_root, "block_slot" => block.slot());

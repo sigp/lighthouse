@@ -83,7 +83,7 @@ pub fn per_block_processing<T: EthSpec>(
     block_signature_strategy: BlockSignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let block = &signed_block.message;
+    let block = signed_block.message();
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
@@ -114,9 +114,9 @@ pub fn per_block_processing<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-    process_randao(state, &block, verify_signatures, spec)?;
-    process_eth1_data(state, block.body_ref().eth1_data())?;
-    process_operations(state, block.body_ref(), verify_signatures, spec)?;
+    process_randao(state, block, verify_signatures, spec)?;
+    process_eth1_data(state, block.body().eth1_data())?;
+    process_operations(state, block.body(), verify_signatures, spec)?;
 
     // FIXME(altair): process_sync_committee
 
@@ -126,7 +126,7 @@ pub fn per_block_processing<T: EthSpec>(
 /// Processes the block header.
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
+    block: BeaconBlockRef<'_, T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -204,7 +204,7 @@ pub fn verify_block_signature<T: EthSpec>(
 /// `state.latest_randao_mixes`.
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
+    block: BeaconBlockRef<'_, T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -217,7 +217,7 @@ pub fn process_randao<T: EthSpec>(
     }
 
     // Update the current epoch RANDAO mix.
-    state.update_randao_mix(state.current_epoch(), block.body_ref().randao_reveal())?;
+    state.update_randao_mix(state.current_epoch(), block.body().randao_reveal())?;
 
     Ok(())
 }
