@@ -127,7 +127,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        Ok(process_block_header(state, self, spec)?)
+        Ok(process_block_header(state, self.to_ref(), spec)?)
     }
 }
 
