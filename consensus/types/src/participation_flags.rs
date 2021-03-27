@@ -23,6 +23,12 @@ impl ParticipationFlags {
     }
 }
 
+impl Default for ParticipationFlags {
+    fn default() -> Self {
+        Self { bits: 0 }
+    }
+}
+
 /// Decode implementation that transparently behaves like the inner `u8`.
 impl Decode for ParticipationFlags {
     fn is_ssz_fixed_len() -> bool {

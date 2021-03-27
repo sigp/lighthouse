@@ -1,26 +1,20 @@
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
-use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch, Unsigned, VariableList};
+use types::{
+    BeaconState, BeaconStateAltair, ChainSpec, EthSpec, ParticipationFlags, RelativeEpoch,
+    Unsigned, VariableList,
+};
 
+pub mod justification_and_finalization;
 pub mod rewards_and_penalties;
-//pub mod validator_statuses;
 
 use crate::per_block_processing::process_eth1_data;
-use crate::per_epoch_processing::process_justification_and_finalization;
 use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
+pub use justification_and_finalization::process_justification_and_finalization;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-
-const TIMELY_HEAD_FLAG_INDEX: u64 = 0;
-const TIMELY_SOURCE_FLAG_INDEX: u64 = 1;
-const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
-const TIMELY_HEAD_WEIGHT: u64 = 12;
-const TIMELY_SOURCE_WEIGHT: u64 = 12;
-const TIMELY_TARGET_WEIGHT: u64 = 24;
-const SYNC_REWARD_WEIGHT: u64 = 8;
-const WEIGHT_DENOMINATOR: u64 = 64;
 
 // FIXME(altair): implement
 pub fn process_epoch<T: EthSpec>(
@@ -41,14 +35,14 @@ pub fn process_epoch<T: EthSpec>(
 
     // Justification and finalization.
     //TODO: modified
-    process_justification_and_finalization(state, &validator_statuses.total_balances)?;
+    process_justification_and_finalization(state, spec)?;
 
     //TODO: new
     process_inactivity_updates(state)?;
 
     // Rewards and Penalties.
     //TODO: modified
-    process_rewards_and_penalties(state, &mut validator_statuses, spec)?;
+    process_rewards_and_penalties(state, spec)?;
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
@@ -182,9 +176,14 @@ pub fn process_participation_record_updates<T: EthSpec>(
 }
 
 fn process_participation_flag_updates<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
-    //TODO: move to beacon state method?
-    state.previous_epoch_participation = state.current_epoch_participation.clone();
-    state.current_epoch_participation = state.current_epoch_participation.clone();
+    let altair_state = state.as_altair_mut()?;
+    altair_state.previous_epoch_participation =
+        std::mem::take(&mut altair_state.current_epoch_participation);
+    altair_state.current_epoch_participation =
+        VariableList::new(vec![
+            ParticipationFlags::default();
+            altair_state.validators.len()
+        ])?;
     Ok(())
 }
 

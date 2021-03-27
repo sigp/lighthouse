@@ -4,16 +4,13 @@ use safe_arith::SafeArith;
 use types::{BeaconState, Checkpoint, EthSpec};
 
 /// Update the justified and finalized checkpoints for matching target attestations.
-/// FIXME(altair): abstract over target indices, etc
 #[allow(clippy::if_same_then_else)] // For readability and consistency with spec.
-pub fn process_justification_and_finalization<T: EthSpec>(
+pub fn weigh_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
-    total_balances: &TotalBalances,
+    total_active_balance: u64,
+    previous_target_balance: u64,
+    current_target_balance: u64,
 ) -> Result<(), Error> {
-    if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
-        return Ok(());
-    }
-
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
 
@@ -24,11 +21,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     *state.previous_justified_checkpoint_mut() = state.current_justified_checkpoint();
     state.justification_bits_mut().shift_up(1)?;
 
-    if total_balances
-        .previous_epoch_target_attesters()
-        .safe_mul(3)?
-        >= total_balances.current_epoch().safe_mul(2)?
-    {
+    if previous_target_balance.safe_mul(3)? >= total_active_balance.safe_mul(2)? {
         *state.current_justified_checkpoint_mut() = Checkpoint {
             epoch: previous_epoch,
             root: *state.get_block_root_at_epoch(previous_epoch)?,
@@ -36,11 +29,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
         state.justification_bits_mut().set(1, true)?;
     }
     // If the current epoch gets justified, fill the last bit.
-    if total_balances
-        .current_epoch_target_attesters()
-        .safe_mul(3)?
-        >= total_balances.current_epoch().safe_mul(2)?
-    {
+    if current_target_balance.safe_mul(3)? >= total_active_balance.safe_mul(2)? {
         *state.current_justified_checkpoint_mut() = Checkpoint {
             epoch: current_epoch,
             root: *state.get_block_root_at_epoch(current_epoch)?,

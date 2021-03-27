@@ -6,13 +6,9 @@ use serde_derive::Deserialize;
 use ssz::Decode;
 use state_processing::per_epoch_processing::validator_statuses::ValidatorStatuses;
 use state_processing::per_epoch_processing::{
-    base::process_effective_balance_updates, base::process_eth1_data_reset,
-    base::process_historical_roots_update, base::process_participation_record_updates,
-    base::process_randao_mixes_reset, base::process_rewards_and_penalties,
-    base::process_slashings_reset, errors::EpochProcessingError,
-    process_justification_and_finalization, process_registry_updates, process_slashings,
+    altair, base, process_registry_updates, process_slashings,
 };
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{BeaconState, BeaconStateAltair, BeaconStateBase, ChainSpec, EthSpec};
 
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
@@ -21,6 +17,7 @@ use crate::type_name;
 use crate::type_name::TypeName;
 
 use super::*;
+use state_processing::EpochProcessingError;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -80,17 +77,33 @@ type_name!(ParticipationRecordUpdates, "participation_record_updates");
 
 impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-        validator_statuses.process_attestations(state, spec)?;
-        process_justification_and_finalization(state, &validator_statuses.total_balances)
+        match state {
+            BeaconState::Base(_) => {
+                let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
+                validator_statuses.process_attestations(state, spec)?;
+                base::process_justification_and_finalization(
+                    state,
+                    &validator_statuses.total_balances,
+                    spec,
+                )
+            }
+            BeaconState::Altair(_) => altair::process_justification_and_finalization(state, spec),
+        }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-        validator_statuses.process_attestations(state, spec)?;
-        process_rewards_and_penalties(state, &mut validator_statuses, spec)
+        match state {
+            BeaconState::Base(_) => {
+                let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
+                validator_statuses.process_attestations(state, spec)?;
+                base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
+            }
+            BeaconState::Altair(_) => {
+                altair::process_rewards_and_penalties(state, &mut validator_statuses, spec)
+            }
+        }
     }
 }
 
@@ -115,37 +128,55 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
 
 impl<E: EthSpec> EpochTransition<E> for Eth1DataReset {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_eth1_data_reset(state)
+        match state {
+            BeaconState::Base(_) => base::process_eth1_data_reset(state),
+            BeaconState::Altair(_) => altair::process_eth1_data_reset(state),
+        }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for EffectiveBalanceUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_effective_balance_updates(state, spec)
+        match state {
+            BeaconState::Base(_) => base::process_effective_balance_updates(state, spec),
+            BeaconState::Altair(_) => altair::process_effective_balance_updates(state, spec),
+        }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for SlashingsReset {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_slashings_reset(state)
+        match state {
+            BeaconState::Base(_) => base::process_slashings_reset(state),
+            BeaconState::Altair(_) => altair::process_slashings_reset(state),
+        }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for RandaoMixesReset {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_randao_mixes_reset(state)
+        match state {
+            BeaconState::Base(_) => base::process_randao_mixes_reset(state),
+            BeaconState::Altair(_) => altair::process_randao_mixes_reset(state),
+        }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for HistoricalRootsUpdate {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_historical_roots_update(state)
+        match state {
+            BeaconState::Base(_) => base::process_historical_roots_update(state),
+            BeaconState::Altair(_) => altair::process_historical_roots_update(state),
+        }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for ParticipationRecordUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_participation_record_updates(state)
+        match state {
+            BeaconState::Base(_) => base::process_participation_record_updates(state),
+            BeaconState::Altair(_) => altair::process_participation_record_updates(state),
+        }
     }
 }
 

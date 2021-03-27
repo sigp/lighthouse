@@ -1267,7 +1267,7 @@ impl<T: EthSpec> BeaconState<T> {
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
         match self {
-            BeaconState::Base(state) => Err(Error::IncorrectStateVariant),
+            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Altair(state) => {
                 let epoch_participation = if epoch == self.current_epoch() {
                     Ok(&state.current_epoch_participation)

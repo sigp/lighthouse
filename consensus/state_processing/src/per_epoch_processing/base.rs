@@ -1,15 +1,18 @@
+pub use justification_and_finalization::process_justification_and_finalization;
 pub use rewards_and_penalties::process_rewards_and_penalties;
+
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch, Unsigned, VariableList};
 
-use crate::per_epoch_processing::process_justification_and_finalization;
 pub use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
+use crate::per_epoch_processing::weigh_justification_and_finalization;
 
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
 
+pub mod justification_and_finalization;
 pub mod rewards_and_penalties;
 
 pub fn process_epoch<T: EthSpec>(
@@ -28,7 +31,7 @@ pub fn process_epoch<T: EthSpec>(
     validator_statuses.process_attestations(&state, spec)?;
 
     // Justification and finalization.
-    process_justification_and_finalization(state, &validator_statuses.total_balances)?;
+    process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
 
     // Rewards and Penalties.
     process_rewards_and_penalties(state, &mut validator_statuses, spec)?;

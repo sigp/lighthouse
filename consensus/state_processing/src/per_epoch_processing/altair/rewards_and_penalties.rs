@@ -1,10 +1,23 @@
-use crate::common::get_base_reward;
 use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
 use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec, Epoch};
+use criterion::SamplingMode::Flat;
+use integer_sqrt::IntegerSquareRoot;
+
+//TODO: move to chainspec
+const TIMELY_HEAD_FLAG_INDEX: u64 = 0;
+const TIMELY_SOURCE_FLAG_INDEX: u64 = 1;
+const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
+const TIMELY_HEAD_WEIGHT: u64 = 12;
+const TIMELY_SOURCE_WEIGHT: u64 = 12;
+const TIMELY_TARGET_WEIGHT: u64 = 24;
+const SYNC_REWARD_WEIGHT: u64 = 8;
+const WEIGHT_DENOMINATOR: u64 = 64;
+
+const FLAG_INDICES_AND_WEIGHTS: [(u64, u64);3]= [(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT), (TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT), (TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT),];
 
 /// Use to track the changes to a validators balance.
 #[derive(Default, Clone)]
@@ -35,15 +48,54 @@ impl Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.12.1
+/// Spec v1.1.0
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
-    validator_statuses: &mut ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if state.current_epoch() == T::genesis_epoch() {
         return Ok(());
     }
+
+    let deltas = FLAG_INDICES_AND_WEIGHTS.iter().map(|(index, numerator)| {
+        get_flag_index_deltas(state, *index, *numerator, spec);
+    }).collect();
+
+    flag_indices_and_numerators = get_flag_indices_and_weights()
+    flag_deltas = [get_flag_index_deltas(state, index, numerator) for (index, numerator) in flag_indices_and_numerators]
+    deltas = flag_deltas + [get_inactivity_penalty_deltas(state)]
+    for (rewards, penalties) in deltas:
+    for index in range(len(state.validators)):
+        increase_balance(state, ValidatorIndex(index), rewards[index])
+    decrease_balance(state, ValidatorIndex(index), penalties[index])
+
+
+
+
+
+    // def get_flag_index_deltas(state: BeaconState, flag_index: int, weight: uint64) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
+    // """
+    // Return the deltas for a given flag index by scanning through the participation flags.
+    // """
+    // rewards = [Gwei(0)] * len(state.validators)
+    // penalties = [Gwei(0)] * len(state.validators)
+    // unslashed_participating_indices = get_unslashed_participating_indices(state, flag_index, get_previous_epoch(state))
+    // increment = EFFECTIVE_BALANCE_INCREMENT  # Factored out from balances to avoid uint64 overflow
+    // unslashed_participating_increments = get_total_balance(state, unslashed_participating_indices) // increment
+    // active_increments = get_total_active_balance(state) // increment
+    // for index in get_eligible_validator_indices(state):
+    //     base_reward = get_base_reward(state, index)
+    // if index in unslashed_participating_indices:
+    // if is_in_inactivity_leak(state):
+    // # This flag reward cancels the inactivity penalty corresponding to the flag index
+    // rewards[index] += Gwei(base_reward * weight // WEIGHT_DENOMINATOR)
+    // else:
+    // reward_numerator = base_reward * weight * unslashed_participating_increments
+    // rewards[index] += Gwei(reward_numerator // (active_increments * WEIGHT_DENOMINATOR))
+    // else:
+    // penalties[index] += Gwei(base_reward * weight // WEIGHT_DENOMINATOR)
+    // return rewards, penalties
+
 
     // Guard against an out-of-bounds during the validator balance update.
     if validator_statuses.statuses.len() != state.balances().len()
@@ -62,6 +114,90 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     }
 
     Ok(())
+}
+
+fn get_eligible_validator_indices<T: EthSpec>(state: &mut BeaconState<T>) -> Vec<u64>{
+    let previous_epoch = state.previous_epoch();
+    state.validators().iter().enumerate().filter(|(i, val)|{
+        val.is_active_at(previous_epoch) || (val.is_slashed() && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
+    }).collect()
+}
+
+/// Returns the base reward for some validator.
+///
+/// Spec v1.1.0
+pub fn get_base_reward<T: EthSpec>(
+    state: &BeaconState<T>,
+    index: usize,
+    // Should be == get_total_active_balance(state, spec)
+    total_active_balance: u64,
+    spec: &ChainSpec,
+) -> Result<u64, Error> {
+    if total_active_balance == 0 {
+        Ok(0)
+    } else {
+        Ok(state
+            .get_effective_balance(index, spec)?
+            .safe_div(spec.effective_balance_increment)?
+            .safe_mul(get_base_reward_per_increment(total_active_balance, spec)?)?)
+    }
+}
+
+/// Returns the base reward for some validator.
+///
+/// Spec v1.1.0
+pub fn get_base_reward_per_increment<T: EthSpec>(
+    total_active_balance: u64,
+    spec: &ChainSpec,
+) -> Result<u64, Error> {
+    return Ok(spec.effective_balance_increment.safe_mul(spec.base_reward_factor)
+        .safe_div(total_active_balance.integer_sqrt())?)
+}
+
+
+/// Return the deltas for a given flag index by scanning through the participation flags.
+///
+/// Spec v1.1.0
+fn get_flag_index_deltas<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    flag_index: u64,
+    weight: u64,
+    spec: &ChainSpec,
+) -> Result<Vec<Delta>, Error> {
+
+    let mut deltas = vec![Delta::default(); state.validators().len()];
+
+let  unslashed_participating_indices = state.get_unslashed_participating_indices( flag_index, state.previous_epoch(), spec)?;
+let increment = spec.effective_balance_increment;  //Factored out from balances to avoid uint64 overflow
+let  unslashed_participating_increments = state.get_total_balance(unslashed_participating_indices.as_slice(), spec)?; // increment
+let  active_increments =    state.get_total_balance(state.get_active_validator_indices(current_epoch, spec)?.as_slice(), spec)?; // increment
+    Ok(get_eligible_validator_indices(state).into_iter().map(|index| {
+        let base_reward = get_base_reward()?;
+        if unslashed_participating_increments.contains(&index) {
+            if is_in_inactivity_leak(state, spec) {
+
+            }
+
+        }
+    }).collect())
+// for index in get_eligible_validator_indices(state):
+//     base_reward = get_base_reward(state, index)
+// if index in unslashed_participating_indices:
+// if is_in_inactivity_leak(state):
+// # This flag reward cancels the inactivity penalty corresponding to the flag index
+// rewards[index] += Gwei(base_reward * weight // WEIGHT_DENOMINATOR)
+// else:
+// reward_numerator = base_reward * weight * unslashed_participating_increments
+// rewards[index] += Gwei(reward_numerator // (active_increments * WEIGHT_DENOMINATOR))
+// else:
+// penalties[index] += Gwei(base_reward * weight // WEIGHT_DENOMINATOR)
+// return rewards, penalties
+
+
+}
+
+fn is_in_inactivity_leak(state: &BeaconState<T>,spec: &ChainSpec) -> bool {
+    (state.previous_epoch() - state.finalized_checkpoint().epoch()) > spec.min_epochs_to_inactivity_penalty
 }
 
 /// Apply rewards for participation in attestations during the previous epoch.
@@ -230,6 +366,27 @@ fn get_inclusion_delay_delta(
         Ok((Delta::default(), None))
     }
 }
+
+
+// def get_inactivity_penalty_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
+// """
+// Return the inactivity penalty deltas by considering timely target participation flags and inactivity scores.
+// """
+// rewards = [Gwei(0) for _ in range(len(state.validators))]
+// penalties = [Gwei(0) for _ in range(len(state.validators))]
+// if is_in_inactivity_leak(state):
+//     previous_epoch = get_previous_epoch(state)
+// matching_target_indices = get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, previous_epoch)
+// for index in get_eligible_validator_indices(state):
+// for (_, weight) in get_flag_indices_and_weights():
+// # This inactivity penalty cancels the flag reward corresponding to the flag index
+// penalties[index] += Gwei(get_base_reward(state, index) * weight // WEIGHT_DENOMINATOR)
+// if index not in matching_target_indices:
+//     penalty_numerator = state.validators[index].effective_balance * state.inactivity_scores[index]
+// penalty_denominator = INACTIVITY_SCORE_BIAS * INACTIVITY_PENALTY_QUOTIENT_ALTAIR
+// penalties[index] += Gwei(penalty_numerator // penalty_denominator)
+// return rewards, penalties
+
 
 fn get_inactivity_penalty_delta(
     validator: &ValidatorStatus,
