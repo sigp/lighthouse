@@ -16,6 +16,10 @@ pub use rewards_and_penalties::process_rewards_and_penalties;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 
+//TODO: move to chainspec
+const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
+const INACTIVITY_SCORE_BIAS: u64 = 4;
+
 // FIXME(altair): implement
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -29,7 +33,7 @@ pub fn process_epoch<T: EthSpec>(
     // Load the struct we use to assign validators into sets based on their participation.
     //
     // E.g., attestation in the previous epoch, attested to the head, etc.
-    //TODO: implement for altair
+    //TODO: remove for altair?
     let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
     validator_statuses.process_attestations(&state, spec)?;
 
@@ -38,7 +42,7 @@ pub fn process_epoch<T: EthSpec>(
     process_justification_and_finalization(state, spec)?;
 
     //TODO: new
-    process_inactivity_updates(state)?;
+    process_inactivity_updates(state, spec)?;
 
     // Rewards and Penalties.
     //TODO: modified
@@ -87,15 +91,25 @@ pub fn process_epoch<T: EthSpec>(
     })
 }
 
-//TODO: new
-pub fn process_inactivity_updates<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
-    // for index in get_eligible_validator_indices(state):
-    // if index in get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, get_previous_epoch(state)):
-    // if state.inactivity_scores[index] > 0:
-    //     state.inactivity_scores[index] -= 1
-    // elif is_in_inactivity_leak(state):
-    //     state.inactivity_scores[index] += INACTIVITY_SCORE_BIAS
-
+//TODO: add EF test
+pub fn process_inactivity_updates<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    for index in state.get_eligible_validator_indices()? {
+        let unslashed_indices = state.get_unslashed_participating_indices(
+            TIMELY_TARGET_FLAG_INDEX,
+            state.previous_epoch(),
+            spec,
+        )?;
+        if unslashed_indices.contains(&index) {
+            if state.as_altair()?.inactivity_scores[index] > 0 {
+                state.as_altair_mut()?.inactivity_scores[index].safe_sub_assign(1);
+            }
+        } else if state.is_in_inactivity_leak(spec) {
+            state.as_altair_mut()?.inactivity_scores[index].safe_add_assign(INACTIVITY_SCORE_BIAS);
+        }
+    }
     Ok(())
 }
 

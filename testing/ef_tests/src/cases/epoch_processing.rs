@@ -100,9 +100,7 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
                 validator_statuses.process_attestations(state, spec)?;
                 base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
             }
-            BeaconState::Altair(_) => {
-                altair::process_rewards_and_penalties(state, &mut validator_statuses, spec)
-            }
+            BeaconState::Altair(_) => altair::process_rewards_and_penalties(state, spec),
         }
     }
 }

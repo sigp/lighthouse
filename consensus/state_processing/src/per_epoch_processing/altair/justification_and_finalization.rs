@@ -25,7 +25,12 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     )?;
     let current_indices =
         state.get_unslashed_participating_indices(TIMELY_TARGET_FLAG_INDEX, current_epoch, spec)?;
-    let  total_active_balance = state.get_total_balance(state.get_active_validator_indices(current_epoch, spec)?.as_slice(), spec)?;
+    let total_active_balance = state.get_total_balance(
+        state
+            .get_active_validator_indices(current_epoch, spec)?
+            .as_slice(),
+        spec,
+    )?;
     let previous_target_balance = state.get_total_balance(previous_indices.as_slice(), spec)?;
     let current_target_balance = state.get_total_balance(current_indices.as_slice(), spec)?;
     weigh_justification_and_finalization(
