@@ -1,15 +1,14 @@
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
 use types::{
-    BeaconState, BeaconStateAltair, ChainSpec, EthSpec, ParticipationFlags, RelativeEpoch,
+    BeaconState, ChainSpec, EthSpec, ParticipationFlags, RelativeEpoch,
     Unsigned, VariableList,
 };
 
 pub mod justification_and_finalization;
 pub mod rewards_and_penalties;
 
-use crate::per_block_processing::process_eth1_data;
 use crate::per_epoch_processing::validator_statuses::{
-    TotalBalances, ValidatorStatus, ValidatorStatuses,
+    ValidatorStatuses,
 };
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use rewards_and_penalties::process_rewards_and_penalties;
@@ -201,6 +200,6 @@ fn process_participation_flag_updates<T: EthSpec>(state: &mut BeaconState<T>) ->
     Ok(())
 }
 
-fn process_sync_committee_udpates<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
+fn process_sync_committee_udpates<T: EthSpec>(_state: &mut BeaconState<T>) -> Result<(), Error> {
     Ok(())
 }

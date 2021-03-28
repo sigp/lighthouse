@@ -1,11 +1,7 @@
-use crate::per_epoch_processing::validator_statuses::{
-    TotalBalances, ValidatorStatus, ValidatorStatuses,
-};
 use crate::per_epoch_processing::Error;
 use integer_sqrt::IntegerSquareRoot;
 use safe_arith::SafeArith;
-use std::ops::Deref;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec};
 
 //TODO: move to chainspec
 const TIMELY_HEAD_FLAG_INDEX: u64 = 0;

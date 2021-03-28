@@ -1,4 +1,3 @@
-use crate::per_epoch_processing::base::TotalBalances;
 use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
 use types::{BeaconState, Checkpoint, EthSpec};

@@ -8,7 +8,6 @@ use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch, Unsigned, VariableLi
 pub use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
-use crate::per_epoch_processing::weigh_justification_and_finalization;
 
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
 

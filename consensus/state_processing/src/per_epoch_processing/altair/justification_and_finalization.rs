@@ -1,8 +1,8 @@
-use crate::per_epoch_processing::base::TotalBalances;
+
 use crate::per_epoch_processing::weigh_justification_and_finalization;
 use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
-use types::{BeaconState, ChainSpec, Checkpoint, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec};
 
 //TODO: move to ethspec
 const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
