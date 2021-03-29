@@ -149,7 +149,7 @@ mod post {
             let r = run_testcase(u).unwrap_err();
 
             for msg in msgs.iter() {
-                assert!(r.contains(msg), format!("{:?} should contain {:?}", r, msg));
+                assert!(r.contains(msg), "{:?} should contain {:?}", r, msg);
             }
         };
 

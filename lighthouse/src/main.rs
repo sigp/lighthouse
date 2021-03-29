@@ -1,3 +1,5 @@
+mod metrics;
+
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
@@ -117,7 +119,7 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo"])
+                .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo", "prater"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -218,6 +220,9 @@ fn run<E: EthSpec>(
         .build()?;
 
     let log = environment.core_context().log().clone();
+
+    // Allow Prometheus to export the time at which the process was started.
+    metrics::expose_process_start_time(&log);
 
     if matches.is_present("spec") {
         warn!(

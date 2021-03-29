@@ -279,7 +279,8 @@ Typical Responses | 200
     {
         "enable": true,
         "description": "validator_one",
-        "deposit_gwei": "32000000000"
+        "deposit_gwei": "32000000000",
+        "graffiti": "Mr F was here"
     },
     {
         "enable": false,
