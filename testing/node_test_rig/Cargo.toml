@@ -9,7 +9,6 @@ environment = { path = "../../lighthouse/environment" }
 beacon_node = { path = "../../beacon_node" }
 types = { path = "../../consensus/types" }
 eth2_config = { path = "../../common/eth2_config" }
-exit-future = "0.2.0"
 tempfile = "3.1.0"
 reqwest = { version = "0.11.0", features = ["native-tls-vendored"] }
 url = "2.1.1"

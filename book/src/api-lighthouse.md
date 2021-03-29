@@ -310,3 +310,18 @@ curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
 ```
 
 *Example omitted for brevity, the body simply contains SSZ bytes.*
+
+### `/lighthouse/seen_validators?ids={ids}&epochs={epochs}`
+
+Checks if any of the given validators have attested in the given epochs. Returns a list
+of the validators that have attested.
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/seen_validators?ids=0xb0127e191555550fae82788061320428d2cef31b0807aa33b88f48c53682baddce6398bb737b1ba5c503ca696d0cab4a,0xa1c80aabbcdf40976fcc86b69598439c850426d81a773aaad2c1cc737343c31b4ac1e3384bbeaad6ad7d19d64f57701e&epochs=0,1" | jq
+```
+
+```json
+{
+  "data": [0,1]
+}
+```

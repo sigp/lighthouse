@@ -111,15 +111,6 @@ pub fn testing_validator_config() -> ValidatorConfig {
     ValidatorConfig {
         init_slashing_protection: true,
         disable_auto_discover: false,
-        disable_doppelganger_detection: true,
-        ..ValidatorConfig::default()
-    }
-}
-
-pub fn testing_validator_doppelganger_config() -> ValidatorConfig {
-    ValidatorConfig {
-        init_slashing_protection: true,
-        disable_auto_discover: false,
         ..ValidatorConfig::default()
     }
 }
@@ -216,10 +207,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
                 client
                     .start_service()
                     .expect("should start validator services");
-                Self {
-                    client,
-                    files,
-                }
+                Self { client, files }
             })
     }
 }
