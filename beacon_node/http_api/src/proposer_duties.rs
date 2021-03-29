@@ -27,7 +27,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     //
-    // Most of the time, `tolerant_current_epoch` will be equal to `current_epoch`, however during
+    // Most of the time, `tolerant_current_epoch` will be equal to `current_epoch`. However, during
     // the first `MAXIMUM_GOSSIP_CLOCK_DISPARITY` duration of the epoch `tolerant_current_epoch`
     // will equal `current_epoch + 1`
     let tolerant_current_epoch = chain
@@ -84,9 +84,6 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         // head_epoch == request_epoch
         Ordering::Equal => head.proposer_shuffling_decision_root,
         // head_epoch < request_epoch
-        //
-        // This path is only sensible whilst we restrict calls to this function to be within a small
-        // tolerance (i.e., less than a slot) from the current epoch.
         Ordering::Less => head.block_root,
         // head_epoch > request_epoch
         Ordering::Greater => {

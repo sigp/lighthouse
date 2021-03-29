@@ -1715,7 +1715,7 @@ impl ApiTester {
                 .status()
                 .map(Into::into),
             Some(400),
-            "should not get proposer duties outside of tolerance"
+            "should not get attester duties outside of tolerance"
         );
 
         self.chain
