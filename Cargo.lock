@@ -3345,6 +3345,7 @@ dependencies = [
  "directory",
  "dirs 3.0.1",
  "environment",
+ "eth1_test_rig",
  "eth2_keystore",
  "eth2_libp2p",
  "eth2_network_config",
@@ -3365,6 +3366,7 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_dir",
+ "web3",
 ]
 
 [[package]]
