@@ -2,7 +2,7 @@
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig,
+    BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
@@ -18,6 +18,7 @@ use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{Config, Context};
 use network::NetworkMessage;
+use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::iter::Iterator;
@@ -103,10 +104,12 @@ impl ApiTester {
         let (next_block, _next_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
+        let head_state_root = head.beacon_state_root();
         let attestations = harness
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
+                head_state_root,
                 head.beacon_block_root,
                 harness.chain.slot().unwrap(),
             )
@@ -234,10 +237,12 @@ impl ApiTester {
         let (next_block, _next_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
+        let head_state_root = head.beacon_state_root();
         let attestations = harness
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
+                head_state_root,
                 head.beacon_block_root,
                 harness.chain.slot().unwrap(),
             )
@@ -1563,50 +1568,168 @@ impl ApiTester {
     pub async fn test_get_validator_duties_proposer(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
 
-        let dependent_root = self
-            .chain
-            .root_at_slot(current_epoch.start_slot(E::slots_per_epoch()) - 1)
-            .unwrap()
-            .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+        for epoch in 0..=self.chain.epoch().unwrap().as_u64() {
+            let epoch = Epoch::from(epoch);
 
-        let result = self
-            .client
-            .get_validator_duties_proposer(current_epoch)
-            .await
-            .unwrap();
+            let dependent_root = self
+                .chain
+                .root_at_slot(epoch.start_slot(E::slots_per_epoch()) - 1)
+                .unwrap()
+                .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
-        let mut state = self.chain.head_beacon_state().unwrap();
+            // Presently, the beacon chain harness never runs the code that primes the proposer
+            // cache. If this changes in the future then we'll need some smarter logic here, but
+            // this is succinct and effective for the time being.
+            assert!(
+                self.chain
+                    .beacon_proposer_cache
+                    .lock()
+                    .get_epoch::<E>(dependent_root, epoch)
+                    .is_none(),
+                "the proposer cache should miss initially"
+            );
 
-        while state.current_epoch() < current_epoch {
-            per_slot_processing(&mut state, None, &self.chain.spec).unwrap();
+            let result = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap();
+
+            // Check that current-epoch requests prime the proposer cache, whilst non-current
+            // requests don't.
+            if epoch == current_epoch {
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_some(),
+                    "a current-epoch request should prime the proposer cache"
+                );
+            } else {
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_none(),
+                    "a non-current-epoch request should not prime the proposer cache"
+                );
+            }
+
+            let mut state = self
+                .chain
+                .state_at_slot(
+                    epoch.start_slot(E::slots_per_epoch()),
+                    StateSkipConfig::WithStateRoots,
+                )
+                .unwrap();
+
+            state
+                .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                .unwrap();
+
+            let expected_duties = epoch
+                .slot_iter(E::slots_per_epoch())
+                .map(|slot| {
+                    let index = state
+                        .get_beacon_proposer_index(slot, &self.chain.spec)
+                        .unwrap();
+                    let pubkey = state.validators[index].pubkey.clone().into();
+
+                    ProposerData {
+                        pubkey,
+                        validator_index: index as u64,
+                        slot,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let expected = DutiesResponse {
+                data: expected_duties,
+                dependent_root,
+            };
+
+            assert_eq!(result, expected);
+
+            // If it's the current epoch, check the function with a primed proposer cache.
+            if epoch == current_epoch {
+                // This is technically a double-check, but it's defensive.
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_some(),
+                    "the request should prime the proposer cache"
+                );
+
+                let result = self
+                    .client
+                    .get_validator_duties_proposer(epoch)
+                    .await
+                    .unwrap();
+
+                assert_eq!(result, expected);
+            }
         }
 
-        state
-            .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+        // Requests to future epochs should fail.
+        self.client
+            .get_validator_duties_proposer(current_epoch + 1)
+            .await
+            .unwrap_err();
+
+        self
+    }
+
+    pub async fn test_get_validator_duties_early(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+        let next_epoch = current_epoch + 1;
+        let current_epoch_start = self
+            .chain
+            .slot_clock
+            .start_of(current_epoch.start_slot(E::slots_per_epoch()))
             .unwrap();
 
-        let expected_duties = current_epoch
-            .slot_iter(E::slots_per_epoch())
-            .map(|slot| {
-                let index = state
-                    .get_beacon_proposer_index(slot, &self.chain.spec)
-                    .unwrap();
-                let pubkey = state.validators[index].pubkey.clone().into();
+        self.chain.slot_clock.set_current_time(
+            current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1),
+        );
 
-                ProposerData {
-                    pubkey,
-                    validator_index: index as u64,
-                    slot,
-                }
-            })
-            .collect::<Vec<_>>();
+        assert_eq!(
+            self.client
+                .get_validator_duties_proposer(current_epoch)
+                .await
+                .unwrap_err()
+                .status()
+                .map(Into::into),
+            Some(400),
+            "should not get proposer duties outside of tolerance"
+        );
 
-        let expected = DutiesResponse {
-            data: expected_duties,
-            dependent_root,
-        };
+        assert_eq!(
+            self.client
+                .post_validator_duties_attester(next_epoch, &[0])
+                .await
+                .unwrap_err()
+                .status()
+                .map(Into::into),
+            Some(400),
+            "should not get attester duties outside of tolerance"
+        );
 
-        assert_eq!(result, expected);
+        self.chain
+            .slot_clock
+            .set_current_time(current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+
+        self.client
+            .get_validator_duties_proposer(current_epoch)
+            .await
+            .expect("should get proposer duties within tolerance");
+        self.client
+            .post_validator_duties_attester(next_epoch, &[0])
+            .await
+            .expect("should get attester duties within tolerance");
 
         self
     }
@@ -2283,6 +2406,11 @@ async fn node_get() {
         .await
         .test_get_node_peer_count()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_early() {
+    ApiTester::new().test_get_validator_duties_early().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -2,13 +2,13 @@ use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
 use clap::ArgMatches;
 use eth2_libp2p::discv5::{enr::CombinedKey, Enr};
 use eth2_libp2p::{
-    discovery::{create_enr_builder_from_config, use_or_load_enr},
+    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
 use ssz::Encode;
 use std::convert::TryFrom;
-use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
@@ -68,58 +68,64 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             );
         }
 
-        let private_key = load_private_key(&network_config, &logger);
-        let local_key = CombinedKey::from_libp2p(&private_key)?;
-
-        // build the enr_fork_id and add it to the local_enr if it exists
-        let enr_fork = {
-            let spec = eth2_network_config
-                .yaml_config
-                .as_ref()
-                .ok_or("The network directory must contain a spec config")?
-                .apply_to_chain_spec::<T>(&T::default_spec())
-                .ok_or("The loaded config is not compatible with the current spec")?;
-
-            if eth2_network_config.beacon_state_is_known() {
-                let genesis_state = eth2_network_config.beacon_state::<T>()?;
-
-                slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
-                let enr_fork = spec.enr_fork_id(
-                    types::Slot::from(0u64),
-                    genesis_state.genesis_validators_root,
-                );
-
-                Some(enr_fork.as_ssz_bytes())
-            } else {
-                slog::warn!(
-                    logger,
-                    "No genesis state provided. No Eth2 field added to the ENR"
-                );
-                None
-            }
-        };
-
-        // Build the local ENR
-
-        let mut local_enr = {
-            let mut builder = create_enr_builder_from_config(&network_config, false);
-
-            // If we know of the ENR field, add it to the initial construction
-            if let Some(enr_fork_bytes) = enr_fork {
-                builder.add_value("eth2", &enr_fork_bytes);
-            }
-            builder
-                .build(&local_key)
-                .map_err(|e| format!("Failed to build ENR: {:?}", e))?
-        };
-
-        use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
-
         let auto_update = matches.is_present("enable-enr_auto_update");
 
         // the address to listen on
         let listen_socket =
             SocketAddr::new(network_config.listen_address, network_config.discovery_port);
+
+        let private_key = load_private_key(&network_config, &logger);
+        let local_key = CombinedKey::from_libp2p(&private_key)?;
+
+        let local_enr = if let Some(dir) = matches.value_of("network-dir") {
+            let network_dir: PathBuf = dir.into();
+            load_enr_from_disk(&network_dir)?
+        } else {
+            // build the enr_fork_id and add it to the local_enr if it exists
+            let enr_fork = {
+                let spec = eth2_network_config
+                    .yaml_config
+                    .as_ref()
+                    .ok_or("The network directory must contain a spec config")?
+                    .apply_to_chain_spec::<T>(&T::default_spec())
+                    .ok_or("The loaded config is not compatible with the current spec")?;
+
+                if eth2_network_config.beacon_state_is_known() {
+                    let genesis_state = eth2_network_config.beacon_state::<T>()?;
+
+                    slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
+                    let enr_fork = spec.enr_fork_id(
+                        types::Slot::from(0u64),
+                        genesis_state.genesis_validators_root,
+                    );
+
+                    Some(enr_fork.as_ssz_bytes())
+                } else {
+                    slog::warn!(
+                        logger,
+                        "No genesis state provided. No Eth2 field added to the ENR"
+                    );
+                    None
+                }
+            };
+
+            // Build the local ENR
+
+            let mut local_enr = {
+                let mut builder = create_enr_builder_from_config(&network_config, false);
+
+                // If we know of the ENR field, add it to the initial construction
+                if let Some(enr_fork_bytes) = enr_fork {
+                    builder.add_value("eth2", &enr_fork_bytes);
+                }
+                builder
+                    .build(&local_key)
+                    .map_err(|e| format!("Failed to build ENR: {:?}", e))?
+            };
+
+            use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
+            local_enr
+        };
 
         Ok(BootNodeConfig {
             listen_socket,

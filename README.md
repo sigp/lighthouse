@@ -69,8 +69,8 @@ The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh). Alternatively, you may use the
 [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 
-Sign up to the [Lighthouse Development Updates](https://mailchi.mp/3d9df0417779/lighthouse-dev-updates)
-mailing list for email notifications about releases, network status and other important information.
+Sign up to the [Lighthouse Development Updates](http://eepurl.com/dh9Lvb) mailing list for email
+notifications about releases, network status and other important information.
 
 Encrypt sensitive messages using our [PGP
 key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=15e66d941f697e28f49381f426416dc3f30674b0).

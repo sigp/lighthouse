@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use types::{
     graffiti::GraffitiString, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
-    Graffiti, Hash256, Keypair, PublicKey, SelectionProof, Signature, SignedAggregateAndProof,
+    Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedRoot, Slot,
 };
 use validator_dir::ValidatorDir;
@@ -106,7 +106,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
         self.slashing_protection
-            .register_validator(&validator_def.voting_public_key)
+            .register_validator(validator_def.voting_public_key.compress())
             .map_err(|e| format!("failed to register validator: {:?}", e))?;
 
         validator_def.enabled = enable;
@@ -120,7 +120,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(validator_def)
     }
 
-    pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
+    pub fn voting_pubkeys(&self) -> Vec<PublicKeyBytes> {
         self.validators
             .read()
             .iter_voting_pubkeys()
@@ -136,7 +136,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.fork_service.fork()
     }
 
-    pub fn randao_reveal(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<Signature> {
+    pub fn randao_reveal(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        epoch: Epoch,
+    ) -> Option<Signature> {
         self.validators
             .read()
             .voting_keypair(validator_pubkey)
@@ -153,13 +157,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             })
     }
 
-    pub fn graffiti(&self, validator_pubkey: &PublicKey) -> Option<Graffiti> {
+    pub fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.read().graffiti(validator_pubkey)
     }
 
     pub fn sign_block(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         block: BeaconBlock<E>,
         current_slot: Slot,
     ) -> Option<SignedBeaconBlock<E>> {
@@ -236,7 +240,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn sign_attestation(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
         current_epoch: Epoch,
@@ -334,7 +338,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// modified by actors other than the signing validator.
     pub fn produce_signed_aggregate_and_proof(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         validator_index: u64,
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
@@ -359,7 +363,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// `validator_pubkey`.
     pub fn produce_selection_proof(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
     ) -> Option<SelectionProof> {
         let validators = self.validators.read();

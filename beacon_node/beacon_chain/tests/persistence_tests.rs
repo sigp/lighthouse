@@ -29,10 +29,8 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
     let log = NullLoggerBuilder.build().expect("logger should build");
-    Arc::new(
-        HotColdDB::open(&hot_path, &cold_path, config, spec, log)
-            .expect("disk store should initialize"),
-    )
+    HotColdDB::open(&hot_path, &cold_path, |_, _, _| Ok(()), config, spec, log)
+        .expect("disk store should initialize")
 }
 
 #[test]

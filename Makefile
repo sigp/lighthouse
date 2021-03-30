@@ -10,6 +10,8 @@ BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
 AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
+PINNED_NIGHTLY ?= nightly
+
 # Builds the Lighthouse binary in release (optimized).
 #
 # Binaries will most likely be found in `./target/release`
@@ -119,7 +121,11 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --all --tests -- -D warnings
+	cargo clippy --all --tests -- \
+        -D warnings \
+        -A clippy::from-over-into \
+        -A clippy::upper-case-acronyms \
+        -A clippy::vec-init-then-push
 
 # Runs the makefile in the `ef_tests` repo.
 #
@@ -136,11 +142,11 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0146
+	cargo audit
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
-	cargo +nightly udeps --tests --all-targets --release
+	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:

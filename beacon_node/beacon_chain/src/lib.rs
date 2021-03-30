@@ -20,6 +20,7 @@ mod observed_block_producers;
 pub mod observed_operations;
 mod persisted_beacon_chain;
 mod persisted_fork_choice;
+pub mod schema_change;
 mod shuffling_cache;
 mod snapshot_cache;
 pub mod state_advance_timer;
@@ -29,7 +30,7 @@ pub mod validator_monitor;
 mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, ChainSegmentResult,
+    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
     ForkChoiceError, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;

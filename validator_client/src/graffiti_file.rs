@@ -5,7 +5,7 @@ use std::io::{prelude::*, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bls::blst_implementations::PublicKey;
+use bls::blst_implementations::PublicKeyBytes;
 use types::{graffiti::GraffitiString, Graffiti};
 
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub enum Error {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraffitiFile {
     graffiti_path: PathBuf,
-    graffitis: HashMap<PublicKey, Graffiti>,
+    graffitis: HashMap<PublicKeyBytes, Graffiti>,
     default: Option<Graffiti>,
 }
 
@@ -44,7 +44,10 @@ impl GraffitiFile {
     /// default graffiti.
     ///
     /// Returns an error if loading from the graffiti file fails.
-    pub fn load_graffiti(&mut self, public_key: &PublicKey) -> Result<Option<Graffiti>, Error> {
+    pub fn load_graffiti(
+        &mut self,
+        public_key: &PublicKeyBytes,
+    ) -> Result<Option<Graffiti>, Error> {
         self.read_graffiti_file()?;
         Ok(self.graffitis.get(public_key).copied().or(self.default))
     }
@@ -78,7 +81,7 @@ impl GraffitiFile {
 /// `Ok((None, graffiti))` represents the graffiti for the default key.
 /// `Ok((Some(pk), graffiti))` represents graffiti for the public key `pk`.
 /// Returns an error if the line is in the wrong format or does not contain a valid public key or graffiti.
-fn read_line(line: &str) -> Result<(Option<PublicKey>, Graffiti), Error> {
+fn read_line(line: &str) -> Result<(Option<PublicKeyBytes>, Graffiti), Error> {
     if let Some(i) = line.find(':') {
         let (key, value) = line.split_at(i);
         // Note: `value.len() >=1` so `value[1..]` is safe
@@ -88,7 +91,7 @@ fn read_line(line: &str) -> Result<(Option<PublicKey>, Graffiti), Error> {
         if key == "default" {
             Ok((None, graffiti))
         } else {
-            let pk = PublicKey::from_str(&key).map_err(Error::InvalidPublicKey)?;
+            let pk = PublicKeyBytes::from_str(&key).map_err(Error::InvalidPublicKey)?;
             Ok((Some(pk), graffiti))
         }
     } else {
@@ -114,9 +117,9 @@ mod tests {
     // Create a graffiti file in the required format and return a path to the file.
     fn create_graffiti_file() -> PathBuf {
         let temp = TempDir::new().unwrap();
-        let pk1 = PublicKey::deserialize(&hex::decode(&PK1[2..]).unwrap()).unwrap();
-        let pk2 = PublicKey::deserialize(&hex::decode(&PK2[2..]).unwrap()).unwrap();
-        let pk3 = PublicKey::deserialize(&hex::decode(&PK3[2..]).unwrap()).unwrap();
+        let pk1 = PublicKeyBytes::deserialize(&hex::decode(&PK1[2..]).unwrap()).unwrap();
+        let pk2 = PublicKeyBytes::deserialize(&hex::decode(&PK2[2..]).unwrap()).unwrap();
+        let pk3 = PublicKeyBytes::deserialize(&hex::decode(&PK3[2..]).unwrap()).unwrap();
 
         let file_name = temp.into_path().join("graffiti.txt");
 
@@ -143,9 +146,9 @@ mod tests {
         let graffiti_file_path = create_graffiti_file();
         let mut gf = GraffitiFile::new(graffiti_file_path);
 
-        let pk1 = PublicKey::deserialize(&hex::decode(&PK1[2..]).unwrap()).unwrap();
-        let pk2 = PublicKey::deserialize(&hex::decode(&PK2[2..]).unwrap()).unwrap();
-        let pk3 = PublicKey::deserialize(&hex::decode(&PK3[2..]).unwrap()).unwrap();
+        let pk1 = PublicKeyBytes::deserialize(&hex::decode(&PK1[2..]).unwrap()).unwrap();
+        let pk2 = PublicKeyBytes::deserialize(&hex::decode(&PK2[2..]).unwrap()).unwrap();
+        let pk3 = PublicKeyBytes::deserialize(&hex::decode(&PK3[2..]).unwrap()).unwrap();
 
         // Read once
         gf.read_graffiti_file().unwrap();
@@ -165,7 +168,7 @@ mod tests {
         );
 
         // Random pk should return the default graffiti
-        let random_pk = Keypair::random().pk;
+        let random_pk = Keypair::random().pk.compress();
         assert_eq!(
             gf.load_graffiti(&random_pk).unwrap().unwrap(),
             GraffitiString::from_str(DEFAULT_GRAFFITI).unwrap().into()
