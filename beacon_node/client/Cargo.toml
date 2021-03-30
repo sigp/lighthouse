@@ -44,3 +44,7 @@ http_api = { path = "../http_api" }
 http_metrics = { path = "../http_metrics" }
 slasher = { path = "../../slasher" }
 slasher_service = { path = "../../slasher/service" }
+
+[features]
+# Use the system allocator instead of jemalloc. This replicates default Rust behaviour.
+sysalloc = ["http_metrics/sysalloc"]
