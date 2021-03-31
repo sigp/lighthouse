@@ -1135,18 +1135,31 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(cache.get_attestation_duties(validator_index))
     }
 
-    /// Return the combined effective balance of an array of validators.
+    /// Implementation of `get_total_balance`, matching the spec.
     ///
-    /// Spec v0.12.1
+    /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
     pub fn get_total_balance(
         &self,
         validator_indices: &[usize],
         spec: &ChainSpec,
     ) -> Result<u64, Error> {
-        validator_indices.iter().try_fold(0_u64, |acc, i| {
+        let total_balance = validator_indices.iter().try_fold(0_u64, |acc, i| {
             self.get_effective_balance(*i, spec)
                 .and_then(|bal| Ok(acc.safe_add(bal)?))
-        })
+        })?;
+        Ok(std::cmp::max(
+            total_balance,
+            spec.effective_balance_increment,
+        ))
+    }
+
+    /// Implementation of `get_total_active_balance`, matching the spec.
+    pub fn get_total_active_balance(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        // Order is irrelevant, so use the cached indices.
+        self.get_total_balance(
+            self.get_cached_active_validator_indices(RelativeEpoch::Current)?,
+            spec,
+        )
     }
 
     /// Get the number of outstanding deposits.

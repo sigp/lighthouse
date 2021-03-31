@@ -19,7 +19,7 @@ serde_yaml = "0.8.13"
 [dependencies]
 bls = { path = "../../crypto/bls" }
 integer-sqrt = "0.1.5"
-itertools = "0.9.0"
+itertools = "0.10.0"
 eth2_ssz = "0.1.2"
 eth2_ssz_types = { path = "../ssz_types" }
 merkle_proof = { path = "../merkle_proof" }

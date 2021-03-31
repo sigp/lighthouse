@@ -189,6 +189,18 @@ where
         }
     }
 
+    /// Wrapper to `fast_aggregate_verify` accepting the infinity signature when `pubkeys` is empty.
+    pub fn eth2_fast_aggregate_verify(
+        &self,
+        msg: Hash256,
+        pubkeys: &[&GenericPublicKey<Pub>],
+    ) -> bool {
+        if pubkeys.is_empty() && self.is_infinity {
+            return true;
+        }
+        self.fast_aggregate_verify(msg, pubkeys)
+    }
+
     /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed their
     /// corresponding message in `msgs`.
     ///

@@ -11,7 +11,7 @@ pub fn slash_validator<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if slashed_index >= state.validators().len() || slashed_index >= state.balances().len() {
-        return Err(BeaconStateError::UnknownValidator(slashed_index as u64));
+        return Err(BeaconStateError::UnknownValidator(slashed_index));
     }
 
     let epoch = state.current_epoch();
@@ -51,9 +51,7 @@ pub fn slash_validator<T: EthSpec>(
 
     // Ensure the whistleblower index is in the validator registry.
     if state.validators().get(whistleblower_index).is_none() {
-        return Err(BeaconStateError::UnknownValidator(
-            whistleblower_index as u64,
-        ));
+        return Err(BeaconStateError::UnknownValidator(whistleblower_index));
     }
 
     increase_balance(state, proposer_index, proposer_reward)?;

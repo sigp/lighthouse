@@ -1,17 +1,17 @@
 use crate::per_epoch_processing::Error;
 use integer_sqrt::IntegerSquareRoot;
-use safe_arith::SafeArith;
+use safe_arith::{ArithError, SafeArith};
 use types::{BeaconState, ChainSpec, EthSpec};
 
-//TODO: move to chainspec
+//TODO: move to chainspec -- or constants file in types
 const TIMELY_HEAD_FLAG_INDEX: u64 = 0;
 const TIMELY_SOURCE_FLAG_INDEX: u64 = 1;
 const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
 const TIMELY_HEAD_WEIGHT: u64 = 12;
 const TIMELY_SOURCE_WEIGHT: u64 = 12;
 const TIMELY_TARGET_WEIGHT: u64 = 24;
-const SYNC_REWARD_WEIGHT: u64 = 8;
-const WEIGHT_DENOMINATOR: u64 = 64;
+pub const SYNC_REWARD_WEIGHT: u64 = 8;
+pub const WEIGHT_DENOMINATOR: u64 = 64;
 const INACTIVITY_SCORE_BIAS: u64 = 4;
 const INACTIVITY_PENALTY_QUOTIENT_ALTAIR: u64 = u64::pow(2, 24).saturating_mul(3);
 
@@ -203,7 +203,7 @@ pub fn get_base_reward<T: EthSpec>(
 pub fn get_base_reward_per_increment(
     total_active_balance: u64,
     spec: &ChainSpec,
-) -> Result<u64, Error> {
+) -> Result<u64, ArithError> {
     return Ok(spec
         .effective_balance_increment
         .safe_mul(spec.base_reward_factor)?

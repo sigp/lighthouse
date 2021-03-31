@@ -47,6 +47,9 @@ pub enum BlockProcessingError {
         index: usize,
         reason: ExitInvalid,
     },
+    SyncAggregateInvalid {
+        reason: SyncAggregateInvalid,
+    },
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
@@ -75,6 +78,12 @@ impl From<ssz_types::Error> for BlockProcessingError {
 impl From<ArithError> for BlockProcessingError {
     fn from(e: ArithError) -> Self {
         BlockProcessingError::ArithError(e)
+    }
+}
+
+impl From<SyncAggregateInvalid> for BlockProcessingError {
+    fn from(reason: SyncAggregateInvalid) -> Self {
+        BlockProcessingError::SyncAggregateInvalid { reason }
     }
 }
 
@@ -340,4 +349,12 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum SyncAggregateInvalid {
+    /// One or more of the aggregate public keys is invalid.
+    PubkeyInvalid,
+    /// The signature is invalid.
+    SignatureInvalid,
 }

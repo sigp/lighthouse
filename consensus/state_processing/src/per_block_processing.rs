@@ -20,6 +20,7 @@ pub use verify_deposit::{
 };
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
 
+pub mod altair;
 // FIXME(altair): re-enable
 // pub mod block_processing_builder;
 pub mod block_signature_verifier;
