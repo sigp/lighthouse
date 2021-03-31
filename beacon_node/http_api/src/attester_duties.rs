@@ -1,8 +1,11 @@
 //! Contains the handler for the `GET validator/duties/attester/{epoch}` endpoint.
 
 use crate::state_id::StateId;
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+};
 use eth2::types::{self as api_types};
+use slot_clock::SlotClock;
 use state_processing::state_advance::partial_state_advance;
 use types::{
     AttestationDuty, BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, RelativeEpoch,
@@ -20,16 +23,32 @@ pub fn attester_duties<T: BeaconChainTypes>(
     let current_epoch = chain
         .epoch()
         .map_err(warp_utils::reject::beacon_chain_error)?;
-    let next_epoch = current_epoch + 1;
 
-    if request_epoch > next_epoch {
+    // Determine what the current epoch would be if we fast-forward our system clock by
+    // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+    //
+    // Most of the time, `tolerant_current_epoch` will be equal to `current_epoch`. However, during
+    // the first `MAXIMUM_GOSSIP_CLOCK_DISPARITY` duration of the epoch `tolerant_current_epoch`
+    // will equal `current_epoch + 1`
+    let tolerant_current_epoch = chain
+        .slot_clock
+        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
+        .epoch(T::EthSpec::slots_per_epoch());
+
+    if request_epoch == current_epoch
+        || request_epoch == tolerant_current_epoch
+        || request_epoch == current_epoch + 1
+        || request_epoch == tolerant_current_epoch + 1
+    {
+        cached_attestation_duties(request_epoch, request_indices, chain)
+    } else if request_epoch > current_epoch + 1 {
         Err(warp_utils::reject::custom_bad_request(format!(
             "request epoch {} is more than one epoch past the current epoch {}",
             request_epoch, current_epoch
         )))
-    } else if request_epoch == current_epoch || request_epoch == next_epoch {
-        cached_attestation_duties(request_epoch, request_indices, chain)
     } else {
+        // request_epoch < current_epoch
         compute_historic_attester_duties(request_epoch, request_indices, chain)
     }
 }
