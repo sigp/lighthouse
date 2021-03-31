@@ -23,12 +23,18 @@ union U {
     y: &'static libc::c_char,
 }
 
+#[cfg(not(feature = "jemalloc-profiling"))]
+const JEMALLOC_CONFIG: &[u8] = b"narenas:1\0";
+
+#[cfg(feature = "jemalloc-profiling")]
+const JEMALLOC_CONFIG: &[u8] = b"narenas:1,prof:true,prof_prefix:jeprof.out\0";
+
 #[cfg(not(feature = "sysalloc"))]
 #[allow(non_upper_case_globals)]
 #[export_name = "_rjem_malloc_conf"]
 pub static malloc_conf: Option<&'static libc::c_char> = Some(unsafe {
     U {
-        x: &b"narenas:1,prof:true,prof_prefix:jeprof.out\0"[0],
+        x: &JEMALLOC_CONFIG[0],
     }
     .y
 });

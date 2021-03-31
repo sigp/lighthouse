@@ -19,6 +19,8 @@ spec-minimal = []
 spec-v12 = []
 # Use the system allocator instead of jemalloc. This replicates default Rust behaviour.
 sysalloc = ["beacon_node/sysalloc"]
+# Jemalloc profiling
+jemalloc-profiling = ["jemallocator/profiling"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
@@ -45,7 +47,7 @@ account_utils = { path = "../common/account_utils" }
 remote_signer = { "path" = "../remote_signer" }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
-jemallocator = { version = "0.3.2", features = ["profiling"] }
+jemallocator = { version = "0.3.2" }
 jemalloc-sys = { version = "0.3.2" }
 libc = { version = "0.2.86" }
 

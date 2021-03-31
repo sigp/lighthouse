@@ -2136,7 +2136,7 @@ pub fn serve<T: BeaconChainTypes>(
                 // This endpoint has no purpose without jemalloc.
                 #[cfg(feature = "sysalloc")]
                 {
-                    return Err::<i32, _>(warp_utils::reject::custom_not_found(
+                    return Err::<String, _>(warp_utils::reject::custom_not_found(
                         "jemalloc not enabled, see the sysalloc compile feature".to_string(),
                     ));
                 }
@@ -2157,7 +2157,15 @@ pub fn serve<T: BeaconChainTypes>(
                             std::mem::size_of::<*mut std::ffi::c_void>(),
                         )
                     };
-                    Ok::<_, warp::reject::Rejection>(result)
+
+                    if result == 0 {
+                        Ok("profile dumped")
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(format!(
+                            "profiling dump failed with code {}, is the jemalloc-profiling feature enabled?",
+                            result
+                        )))
+                    }
                 }
             })
         });
