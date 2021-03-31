@@ -28,6 +28,7 @@ const JEMALLOC_CONFIG: &[u8] = b"narenas:1\
                                lg_tcache_max:13,\
                                dirty_decay_ms:1000,\
                                muzzy_decay_ms:0,\
+                               retain:false,\
                                \0";
 
 #[cfg(feature = "jemalloc-profiling")]
@@ -35,6 +36,7 @@ const JEMALLOC_CONFIG: &[u8] = b"narenas:1,\
                                lg_tcache_max:13,\
                                dirty_decay_ms:1000,\
                                muzzy_decay_ms:0,\
+                               retain:false,\
                                prof:true,\
                                prof_prefix:jeprof.out\
                                \0";
