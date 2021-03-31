@@ -28,9 +28,19 @@ impl<T: BeaconChainTypes> Worker<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         result_tx: BlockResultSender<T::EthSpec>,
     ) {
+        let slot = block.slot();
         let block_result = self.chain.process_block(block);
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
+
+        if let Ok(root) = &block_result {
+            info!(
+                self.log,
+                "New RPC block received",
+                "slot" => slot,
+                "hash" => %root
+            );
+        }
 
         if result_tx.send(block_result).is_err() {
             crit!(self.log, "Failed return sync block result");
