@@ -12,14 +12,20 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
 
+ifeq ($(PROFILING), true)
+    PROFILING_FEATURE=jemalloc-profiling
+else
+    PROFILING_FEATURE=
+endif
+
 # Builds the Lighthouse binary in release (optimized).
 #
 # Binaries will most likely be found in `./target/release`
 install:
 ifeq ($(PORTABLE), true)
-	cargo install --path lighthouse --force --locked --features portable
+	cargo install --path lighthouse --force --locked --features $(PROFILING_FEATURE),portable
 else
-	cargo install --path lighthouse --force --locked
+	cargo install --path lighthouse --force --locked --features $(PROFILING_FEATURE)
 endif
 
 # Builds the lcli binary in release (optimized).
