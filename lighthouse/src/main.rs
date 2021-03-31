@@ -24,7 +24,7 @@ union U {
 }
 
 #[cfg(not(feature = "jemalloc-profiling"))]
-const JEMALLOC_CONFIG: &[u8] = b"narenas:1\
+const JEMALLOC_CONFIG: &[u8] = b"narenas:1,\
                                lg_tcache_max:13,\
                                dirty_decay_ms:1000,\
                                muzzy_decay_ms:0,\
