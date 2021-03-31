@@ -1,5 +1,5 @@
 use crate::common::get_base_reward;
-use crate::per_epoch_processing::base::validator_statuses::{
+use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
 use crate::per_epoch_processing::Error;
@@ -220,7 +220,6 @@ fn get_inclusion_delay_delta(
 
         let proposer_reward = get_proposer_reward(base_reward, spec)?;
         proposer_delta.reward(proposer_reward)?;
-
         let max_attester_reward = base_reward.safe_sub(proposer_reward)?;
         delta.reward(max_attester_reward.safe_div(inclusion_info.delay)?)?;
 

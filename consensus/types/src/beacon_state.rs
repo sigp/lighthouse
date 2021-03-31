@@ -1399,6 +1399,63 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn clone_with_only_committee_caches(&self) -> Self {
         self.clone_with(CloneConfig::committee_caches_only())
     }
+
+    pub fn get_unslashed_participating_indices(
+        &self,
+        flag_index: u64,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        match self {
+            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Altair(state) => {
+                let epoch_participation = if epoch == self.current_epoch() {
+                    Ok(&state.current_epoch_participation)
+                } else if epoch == self.previous_epoch() {
+                    Ok(&state.previous_epoch_participation)
+                } else {
+                    Err(Error::EpochOutOfBounds)
+                }?;
+                let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
+                Ok(active_validator_indices
+                    .into_iter()
+                    .filter(|&val_index| {
+                        epoch_participation[val_index].has_flag(flag_index)
+                            && !self.validators()[val_index].slashed
+                    })
+                    .collect())
+            }
+        }
+    }
+
+    pub fn get_eligible_validator_indices(&self) -> Result<Vec<usize>, Error> {
+        match self {
+            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Altair(_) => {
+                let previous_epoch = self.previous_epoch();
+                Ok(self
+                    .validators()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, val)| {
+                        if val.is_active_at(previous_epoch)
+                            || (val.slashed
+                                && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
+                        {
+                            Some(i)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect())
+            }
+        }
+    }
+
+    pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
+        (self.previous_epoch() - self.finalized_checkpoint().epoch)
+            > spec.min_epochs_to_inactivity_penalty
+    }
 }
 
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is

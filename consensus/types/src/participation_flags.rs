@@ -11,6 +11,24 @@ pub struct ParticipationFlags {
     bits: u8,
 }
 
+//TODO: add constraints
+impl ParticipationFlags {
+    pub fn add_flag(mut self, flag_index: u64) -> Self {
+        self.bits = self.bits | (1 << flag_index);
+        self
+    }
+
+    pub fn has_flag(&self, flag_index: u64) -> bool {
+        self.bits & (1 << flag_index) == (1 << flag_index)
+    }
+}
+
+impl Default for ParticipationFlags {
+    fn default() -> Self {
+        Self { bits: 0 }
+    }
+}
+
 /// Decode implementation that transparently behaves like the inner `u8`.
 impl Decode for ParticipationFlags {
     fn is_ssz_fixed_len() -> bool {
