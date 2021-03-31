@@ -6,7 +6,7 @@ use crate::sync::manager::SyncMessage;
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::{BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
-use slog::{crit, debug, error, trace, warn};
+use slog::{crit, debug, error, info, trace, warn};
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
 /// Id associated to a block processing request, either a batch or a single block.
@@ -36,7 +36,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         if let Ok(root) = &block_result {
             info!(
                 self.log,
-                "New RPC block received",
+                "New RPC block received";
                 "slot" => slot,
                 "hash" => %root
             );
