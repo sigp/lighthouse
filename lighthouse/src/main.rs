@@ -28,7 +28,7 @@ union U {
 #[export_name = "_rjem_malloc_conf"]
 pub static malloc_conf: Option<&'static libc::c_char> = Some(unsafe {
     U {
-        x: &b"narenas:1\0"[0],
+        x: &b"narenas:1,prof:true,prof_prefix:jeprof.out\0"[0],
     }
     .y
 });

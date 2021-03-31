@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[features]
+# Use the system allocator instead of jemalloc. This replicates default Rust behaviour.
+sysalloc = []
+
 [dependencies]
 warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 serde = { version = "1.0.116", features = ["derive"] }
@@ -29,6 +33,8 @@ slot_clock = { path = "../../common/slot_clock" }
 eth2_ssz = { path = "../../consensus/ssz" }
 bs58 = "0.4.0"
 futures = "0.3.8"
+jemalloc-sys = { version = "0.3.2" }
+libc = { version = "0.2.86" }
 
 [dev-dependencies]
 store = { path = "../store" }

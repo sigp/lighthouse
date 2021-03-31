@@ -2127,6 +2127,41 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/jemalloc_prof_dump
+    let get_lighthouse_jemalloc_prof_dump = warp::path("lighthouse")
+        .and(warp::path("jemalloc_prof_dump"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                // This endpoint has no purpose without jemalloc.
+                #[cfg(feature = "sysalloc")]
+                {
+                    return Err::<i32, _>(warp_utils::reject::custom_not_found(
+                        "jemalloc not enabled, see the sysalloc compile feature".to_string(),
+                    ));
+                }
+
+                // When using jemalloc, create profile dump as per:
+                //
+                // https://github.com/jemalloc/jemalloc/wiki/Use-Case%3A-Heap-Profiling
+                #[cfg(not(feature = "sysalloc"))]
+                {
+                    let result = unsafe {
+                        let opt_name = "prof.dump";
+                        let opt_c_name = std::ffi::CString::new(opt_name).unwrap();
+                        jemalloc_sys::mallctl(
+                            opt_c_name.as_ptr(),
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                            std::mem::size_of::<*mut std::ffi::c_void>(),
+                        )
+                    };
+                    Ok::<_, warp::reject::Rejection>(result)
+                }
+            })
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2233,6 +2268,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
+                .or(get_lighthouse_jemalloc_prof_dump.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
