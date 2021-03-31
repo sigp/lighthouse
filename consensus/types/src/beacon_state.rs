@@ -25,6 +25,7 @@ use tree_hash_derive::TreeHash;
 pub use self::committee_cache::CommitteeCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
+pub use sync_committee_cache::SyncCommitteeCache;
 pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
@@ -32,6 +33,7 @@ mod committee_cache;
 mod clone_config;
 mod exit_cache;
 mod pubkey_cache;
+mod sync_committee_cache;
 mod tests;
 mod tree_hash_cache;
 
@@ -44,11 +46,12 @@ pub enum Error {
     IncorrectStateVariant,
     EpochOutOfBounds,
     SlotOutOfBounds,
-    UnknownValidator(u64),
+    UnknownValidator(usize),
     UnableToDetermineProducer,
     InvalidBitfield,
     ValidatorIsWithdrawable,
     UnableToShuffle,
+    ShuffleIndexOutOfBounds(usize),
     TooManyValidators,
     InsufficientValidators,
     InsufficientRandaoMixes,
@@ -72,6 +75,8 @@ pub enum Error {
     RelativeEpochError(RelativeEpochError),
     ExitCacheUninitialized,
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
+    SyncCommitteeCacheUninitialized,
+    BlsError(bls::Error),
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
@@ -254,6 +259,13 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
+    pub sync_committee_cache: SyncCommitteeCache<T>,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[derivative(Clone(clone_with = "clone_default"))]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing)]
@@ -367,6 +379,7 @@ impl<T: EthSpec> BeaconState<T> {
                 CommitteeCache::default(),
                 CommitteeCache::default(),
             ],
+            sync_committee_cache: SyncCommitteeCache::default(),
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache: None,
@@ -597,12 +610,7 @@ impl<T: EthSpec> BeaconState<T> {
                 spec.shuffle_round_count,
             )
             .ok_or(Error::UnableToShuffle)?];
-            let random_byte = {
-                let mut preimage = seed.to_vec();
-                preimage.append(&mut int_to_bytes8(i.safe_div(32)? as u64));
-                let hash = hash(&preimage);
-                hash[i.safe_rem(32)?]
-            };
+            let random_byte = Self::shuffling_random_byte(i, seed)?;
             let effective_balance = self.validators()[candidate_index].effective_balance;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
                 >= spec
@@ -613,6 +621,15 @@ impl<T: EthSpec> BeaconState<T> {
             }
             i.safe_add_assign(1)?;
         }
+    }
+
+    /// Get a random byte from the given `seed`.
+    ///
+    /// Used by the proposer & sync committee selection functions.
+    fn shuffling_random_byte(i: usize, seed: &[u8]) -> Result<u8, Error> {
+        let mut preimage = seed.to_vec();
+        preimage.append(&mut int_to_bytes8(i.safe_div(32)? as u64));
+        Ok(hash(&preimage)[i.safe_rem(32)?])
     }
 
     /// Return `true` if the validator who produced `slot_signature` is eligible to aggregate.
@@ -686,6 +703,114 @@ impl<T: EthSpec> BeaconState<T> {
             .to_vec();
         preimage.append(&mut int_to_bytes8(slot.as_u64()));
         Ok(hash(&preimage))
+    }
+
+    /// Get the sync committee indices using the cache.
+    ///
+    /// Will error if the cache isn't initialised at the correct base epoch.
+    pub fn get_sync_committee_indices(&self, spec: &ChainSpec) -> Result<&[usize], Error> {
+        let base_epoch = self.sync_committee_base_epoch(spec)?;
+        self.sync_committee_cache()
+            .get_sync_committee_indices(base_epoch)
+            .ok_or(Error::SyncCommitteeCacheUninitialized)
+    }
+
+    /// Calculate the sync committee indices for the state's base epoch from scratch.
+    pub fn compute_sync_committee_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
+        let base_epoch = self.sync_committee_base_epoch(spec)?;
+        let active_validator_indices = self.get_active_validator_indices(base_epoch, spec)?;
+        let active_validator_count = active_validator_indices.len();
+
+        let seed = self.get_seed(base_epoch, Domain::SyncCommittee, spec)?;
+
+        let mut i = 0;
+        let mut sync_committee_indices = Vec::with_capacity(T::SyncCommitteeSize::to_usize());
+        while sync_committee_indices.len() < T::SyncCommitteeSize::to_usize() {
+            let shuffled_index = compute_shuffled_index(
+                i.safe_rem(active_validator_count)?,
+                active_validator_count,
+                seed.as_bytes(),
+                spec.shuffle_round_count,
+            )
+            .ok_or(Error::UnableToShuffle)?;
+            let candidate_index = *active_validator_indices
+                .get(shuffled_index)
+                .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
+            let random_byte = Self::shuffling_random_byte(i, seed.as_bytes())?;
+            let effective_balance = self
+                .validators()
+                .get(candidate_index)
+                .ok_or(Error::UnknownValidator(candidate_index))?
+                .effective_balance;
+            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
+                >= spec
+                    .max_effective_balance
+                    .safe_mul(u64::from(random_byte))?
+            {
+                sync_committee_indices.push(candidate_index);
+            }
+            i += 1;
+        }
+        Ok(sync_committee_indices)
+    }
+
+    /// Get the sync committee using the cache.
+    ///
+    /// Will error if the cache isn't initialised at the correct base epoch.
+    pub fn get_sync_committee(&self, spec: &ChainSpec) -> Result<&SyncCommittee<T>, Error> {
+        let base_epoch = self.sync_committee_base_epoch(spec)?;
+        self.sync_committee_cache()
+            .get_sync_committee(base_epoch)
+            .ok_or(Error::SyncCommitteeCacheUninitialized)
+    }
+
+    /// Compute the sync committee for a given list of indices.
+    pub fn compute_sync_committee(
+        &self,
+        sync_committee_indices: &[usize],
+    ) -> Result<SyncCommittee<T>, Error> {
+        if sync_committee_indices.len() != T::SyncCommitteeSize::to_usize() {
+            return Err(Error::InsufficientValidators);
+        }
+
+        let pubkeys = sync_committee_indices
+            .iter()
+            .map(|&index| {
+                self.validators()
+                    .get(index)
+                    .map(|v| v.pubkey)
+                    .ok_or(Error::UnknownValidator(index))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let pubkeys_per_aggregate = T::SyncPubkeysPerAggregate::to_usize();
+        let pubkey_aggregates = pubkeys
+            .chunks_exact(pubkeys_per_aggregate)
+            .map(|preaggregate| {
+                // Decompress the pubkeys and aggregate them
+                let decompressed_keys = preaggregate
+                    .iter()
+                    .map(|key_bytes| key_bytes.decompress())
+                    .collect::<Result<Vec<_>, _>>()?;
+                let agg_pk = AggregatePublicKey::aggregate(&decompressed_keys)?;
+                Ok(agg_pk.to_public_key().compress())
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+
+        Ok(SyncCommittee {
+            pubkeys: FixedVector::new(pubkeys)?,
+            pubkey_aggregates: FixedVector::new(pubkey_aggregates)?,
+        })
+    }
+
+    /// Compute the `base_epoch` used by sync committees.
+    fn sync_committee_base_epoch(&self, spec: &ChainSpec) -> Result<Epoch, Error> {
+        let epoch = self.current_epoch();
+        Ok(std::cmp::max(
+            epoch.safe_div(spec.epochs_per_sync_committee_period)?,
+            Epoch::new(1),
+        )
+        .safe_sub(1)?
+        .safe_mul(spec.epochs_per_sync_committee_period)?)
     }
 
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
@@ -965,7 +1090,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.validators()
             .get(validator_index)
             .map(|v| v.effective_balance)
-            .ok_or_else(|| Error::UnknownValidator(validator_index as u64))
+            .ok_or_else(|| Error::UnknownValidator(validator_index))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -1037,9 +1162,10 @@ impl<T: EthSpec> BeaconState<T> {
             })
     }
 
-    /// Build all the caches, if they need to be built.
+    /// Build all caches (except the tree hash cache), if they need to be built.
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
+        self.build_sync_committee_cache(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
 
@@ -1058,6 +1184,17 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn build_exit_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if self.exit_cache().check_initialized().is_err() {
             *self.exit_cache_mut() = ExitCache::new(self.validators(), spec)?;
+        }
+        Ok(())
+    }
+
+    /// Build the sync committee cache if it needs to be built.
+    pub fn build_sync_committee_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        if !self
+            .sync_committee_cache()
+            .is_initialized_for(self.sync_committee_base_epoch(spec)?)
+        {
+            *self.sync_committee_cache_mut() = SyncCommitteeCache::new(self, spec)?;
         }
         Ok(())
     }
@@ -1244,6 +1381,9 @@ impl<T: EthSpec> BeaconState<T> {
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
         }
+        if config.sync_committee_caches {
+            *res.sync_committee_cache_mut() = self.sync_committee_cache().clone();
+        }
         if config.pubkey_cache {
             *res.pubkey_cache_mut() = self.pubkey_cache().clone();
         }
@@ -1288,6 +1428,12 @@ impl From<RelativeEpochError> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Error {
         Error::SszTypesError(e)
+    }
+}
+
+impl From<bls::Error> for Error {
+    fn from(e: bls::Error) -> Error {
+        Error::BlsError(e)
     }
 }
 

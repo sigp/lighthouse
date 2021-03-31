@@ -74,7 +74,7 @@ where
 impl<'a, Pub, AggPub, Sig, AggSig> GenericSignatureSet<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
-    AggPub: TAggregatePublicKey + Clone,
+    AggPub: TAggregatePublicKey<Pub> + Clone,
     Sig: TSignature<Pub> + Clone,
     AggSig: TAggregateSignature<Pub, AggPub, Sig> + Clone,
 {

@@ -173,7 +173,7 @@ where
 impl<Pub, AggPub, Sig, AggSig> GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
-    AggPub: TAggregatePublicKey + Clone,
+    AggPub: TAggregatePublicKey<Pub> + Clone,
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {

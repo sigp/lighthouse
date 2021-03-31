@@ -2,6 +2,7 @@
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct CloneConfig {
     pub committee_caches: bool,
+    pub sync_committee_caches: bool,
     pub pubkey_cache: bool,
     pub exit_cache: bool,
     pub tree_hash_cache: bool,
@@ -11,6 +12,7 @@ impl CloneConfig {
     pub fn all() -> Self {
         Self {
             committee_caches: true,
+            sync_committee_caches: true,
             pubkey_cache: true,
             exit_cache: true,
             tree_hash_cache: true,
