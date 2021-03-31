@@ -24,10 +24,20 @@ union U {
 }
 
 #[cfg(not(feature = "jemalloc-profiling"))]
-const JEMALLOC_CONFIG: &[u8] = b"narenas:1\0";
+const JEMALLOC_CONFIG: &[u8] = b"narenas:1\
+                               lg_tcache_max:13,\
+                               dirty_decay_ms:1000,\
+                               muzzy_decay_ms:0,\
+                               \0";
 
 #[cfg(feature = "jemalloc-profiling")]
-const JEMALLOC_CONFIG: &[u8] = b"narenas:1,prof:true,prof_prefix:jeprof.out\0";
+const JEMALLOC_CONFIG: &[u8] = b"narenas:1,\
+                               lg_tcache_max:13,\
+                               dirty_decay_ms:1000,\
+                               muzzy_decay_ms:0,\
+                               prof:true,\
+                               prof_prefix:jeprof.out\
+                               \0";
 
 #[cfg(not(feature = "sysalloc"))]
 #[allow(non_upper_case_globals)]
