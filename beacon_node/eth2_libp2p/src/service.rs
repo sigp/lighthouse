@@ -95,6 +95,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
             &log,
         ));
 
+        // Initialize the fork digests
+        // TODO: can we avoid using globals
+        crate::rpc::ALTAIR_FORK.write() = Some(Context::new(
+            chain_spec.altair_fork_version,
+            genesis_validators_root,
+        ));
+        crate::rpc::GENESIS_FORK.write() = Some(Context::new(
+            chain_spec.genesis_fork_version,
+            genesis_validators_root,
+        ));
+
         info!(log, "Libp2p Service"; "peer_id" => %enr.peer_id());
         let discovery_string = if config.disable_discovery {
             "None".into()

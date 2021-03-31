@@ -19,6 +19,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use types::EthSpec;
 
+pub(crate) use context::{Context, ALTAIR_FORK, GENESIS_FORK};
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::{RPCProtocol, RPCRequest};
@@ -31,6 +32,7 @@ pub use methods::{
 pub use protocol::{Protocol, RPCError};
 
 pub(crate) mod codec;
+mod context;
 mod handler;
 pub mod methods;
 mod protocol;

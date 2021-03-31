@@ -23,7 +23,9 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use types::{BeaconBlock, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock};
+use types::{
+    BeaconBlock, ChainSpec, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
+};
 
 lazy_static! {
     // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -156,10 +158,11 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
         vec![
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            // V2 variants have higher preference then V1
             ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
         ]
@@ -383,16 +386,16 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            RPCRequest::BlocksByRange(_) => vec![ProtocolId::new(
-                Protocol::BlocksByRange,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new(
-                Protocol::BlocksByRoot,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
+            RPCRequest::BlocksByRange(_) => vec![
+                // V2 has higher preference when negotiating a stream
+                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            ],
+            RPCRequest::BlocksByRoot(_) => vec![
+                // V2 has higher preference when negotiating a stream
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ],
             RPCRequest::Ping(_) => vec![ProtocolId::new(
                 Protocol::Ping,
                 Version::V1,

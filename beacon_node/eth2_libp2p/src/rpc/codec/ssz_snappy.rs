@@ -4,6 +4,7 @@ use crate::rpc::{
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
+use crate::rpc::{ALTAIR_FORK, GENESIS_FORK};
 use libp2p::{bytes::BytesMut, core::ProtocolName};
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -14,7 +15,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::{convert::TryInto, io::Cursor};
 use tokio_util::codec::{Decoder, Encoder};
-use types::{EthSpec, SignedBeaconBlock, SignedBeaconBlockBase};
+use types::{EthSpec, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase};
 use unsigned_varint::codec::Uvi;
 
 /* Inbound Codec */
@@ -261,14 +262,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
         // Read the context bytes if required
         if self.protocol.version == Version::V2 && self.context_bytes.is_none() {
             let context_bytes = src.split_to(4);
+            let mut result = [0; 4];
+            result.copy_from_slice(&context_bytes.as_bytes()[0..4]);
 
-            let context_bytes: [u8; 4] = context_bytes.try_into().map_err(|_| {
-                RPCError::ErrorResponse(
-                    RPCResponseErrorCode::InvalidRequest,
-                    "Invalid v2 request".to_string(),
-                )
-            })?;
-            self.context_bytes = Some(context_bytes);
+            self.context_bytes = Some(result);
         }
         let length = if let Some(length) = self.len {
             length
@@ -314,13 +311,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         ))),
                         // This case should be unreachable as `Goodbye` has no response.
                         Protocol::Goodbye => Err(RPCError::InvalidData),
-                        // TODO
                         Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                            SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
                         )))),
-                        // TODO
                         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                            SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
                         )))),
                         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
@@ -329,15 +324,53 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                             MetaData::from_ssz_bytes(&decoded_buffer)?,
                         ))),
                     },
-                    Version::V2 => match self.protocol.message_name {
-                        // TODO: Decode the correct fork type of SignedBeaconBlock based on `self.context_bytes`
-                        Protocol::BlocksByRange => unimplemented!(),
-                        Protocol::BlocksByRoot => unimplemented!(),
-                        _ => Err(RPCError::ErrorResponse(
-                            RPCResponseErrorCode::InvalidRequest,
-                            "Invalid v2 request".to_string(),
-                        )),
-                    },
+                    Version::V2 => {
+                        let context_bytes = self.context_bytes.ok_or_else(|| {
+                            RPCError::ErrorResponse(
+                                RPCResponseErrorCode::InvalidRequest,
+                                "No context bytes provided",
+                            )
+                        })?;
+
+                        match self.protocol.message_name {
+                            Protocol::BlocksByRange => {
+                                if context_bytes == ALTAIR_FORK.read().unwrap() {
+                                    Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                    ))))
+                                } else if context_bytes == GENESIS_FORK.read().unwrap() {
+                                    Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                        SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
+                                    ))))
+                                } else {
+                                    Err(RPCError::ErrorResponse(
+                                        RPCResponseErrorCode::InvalidRequest,
+                                        "Context bytes does not correspond to a valid fork",
+                                    ))
+                                }
+                            }
+                            Protocol::BlocksByRoot => {
+                                if context_bytes == ALTAIR_FORK.read().unwrap() {
+                                    Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                    ))))
+                                } else if context_bytes == GENESIS_FORK.read().unwrap() {
+                                    Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                        SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
+                                    ))))
+                                } else {
+                                    Err(RPCError::ErrorResponse(
+                                        RPCResponseErrorCode::InvalidRequest,
+                                        "Context bytes does not correspond to a valid fork",
+                                    ))
+                                }
+                            }
+                            _ => Err(RPCError::ErrorResponse(
+                                RPCResponseErrorCode::InvalidRequest,
+                                "Invalid v2 request".to_string(),
+                            )),
+                        }
+                    }
                 }
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
