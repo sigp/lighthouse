@@ -352,6 +352,13 @@ where
 // `OutboundUpgrade`
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RpcRequestContainer<TSpec: EthSpec> {
+    pub req: RPCRequest<T>,
+    pub spec: ChainSpec,
+    pub genesis_validators_root: Hash256,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum RPCRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
@@ -361,7 +368,7 @@ pub enum RPCRequest<TSpec: EthSpec> {
     MetaData(PhantomData<TSpec>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for RPCRequest<TSpec> {
+impl<TSpec: EthSpec> UpgradeInfo for RpcRequestContainer<TSpec> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -372,9 +379,9 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCRequest<TSpec> {
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> RPCRequest<TSpec> {
+impl<TSpec: EthSpec> RpcRequestContainer<TSpec> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
-        match self {
+        match self.req {
             // add more protocols when versions/encodings are supported
             RPCRequest::Status(_) => vec![ProtocolId::new(
                 Protocol::Status,
@@ -413,7 +420,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
     /// Number of responses expected for this request.
     pub fn expected_responses(&self) -> u64 {
-        match self {
+        match self.req {
             RPCRequest::Status(_) => 1,
             RPCRequest::Goodbye(_) => 0,
             RPCRequest::BlocksByRange(req) => req.count,
@@ -425,7 +432,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
     /// Gives the corresponding `Protocol` to this request.
     pub fn protocol(&self) -> Protocol {
-        match self {
+        match self.req {
             RPCRequest::Status(_) => Protocol::Status,
             RPCRequest::Goodbye(_) => Protocol::Goodbye,
             RPCRequest::BlocksByRange(_) => Protocol::BlocksByRange,
@@ -438,7 +445,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
     /// Returns the `ResponseTermination` type associated with the request if a stream gets
     /// terminated.
     pub fn stream_termination(&self) -> ResponseTermination {
-        match self {
+        match self.req {
             // this only gets called after `multiple_responses()` returns true. Therefore, only
             // variants that have `multiple_responses()` can have values.
             RPCRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
@@ -457,7 +464,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
 pub type OutboundFramed<TSocket, TSpec> = Framed<Compat<TSocket>, OutboundCodec<TSpec>>;
 
-impl<TSocket, TSpec> OutboundUpgrade<TSocket> for RPCRequest<TSpec>
+impl<TSocket, TSpec> OutboundUpgrade<TSocket> for RpcRequestContainer<TSpec>
 where
     TSpec: EthSpec + Send + 'static,
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -471,8 +478,12 @@ where
         let socket = socket.compat();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
-                let ssz_snappy_codec =
-                    BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(protocol, MAX_RPC_SIZE));
+                let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
+                    protocol,
+                    MAX_RPC_SIZE,
+                    self.genesis_validators_root,
+                    self.spec.clone(),
+                ));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)
             }
         };
@@ -480,7 +491,7 @@ where
         let mut socket = Framed::new(socket, codec);
 
         async {
-            socket.send(self).await?;
+            socket.send(self.req).await?;
             socket.close().await?;
             Ok(socket)
         }

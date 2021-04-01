@@ -225,7 +225,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Valid score params and thresholds");
 
         Ok(Behaviour {
-            eth2_rpc: RPC::new(log.clone()),
+            eth2_rpc: RPC::new(genesis_validators_root, chain_spec.clone(), log.clone()),
             gossipsub,
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)

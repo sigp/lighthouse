@@ -4,7 +4,6 @@ use crate::rpc::{
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
-use crate::rpc::{ALTAIR_FORK, GENESIS_FORK};
 use libp2p::{bytes::BytesMut, core::ProtocolName};
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -15,7 +14,9 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::{convert::TryInto, io::Cursor};
 use tokio_util::codec::{Decoder, Encoder};
-use types::{EthSpec, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase};
+use types::{
+    ChainSpec, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+};
 use unsigned_varint::codec::Uvi;
 
 /* Inbound Codec */
@@ -193,11 +194,18 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
     context_bytes: Option<[u8; 4]>,
+    genesis_validators_root: H256,
+    spec: ChainSpec,
     phantom: PhantomData<TSpec>,
 }
 
 impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
-    pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
+    pub fn new(
+        protocol: ProtocolId,
+        max_packet_size: usize,
+        genesis_validators_root: Hash256,
+        spec: ChainSpec,
+    ) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
         debug_assert_eq!(protocol.encoding, Encoding::SSZSnappy);
@@ -208,6 +216,8 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
             max_packet_size,
             len: None,
             context_bytes: None,
+            genesis_validators_root,
+            spec,
             phantom: PhantomData,
         }
     }
@@ -334,11 +344,15 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
                         match self.protocol.message_name {
                             Protocol::BlocksByRange => {
-                                if context_bytes == ALTAIR_FORK.read().unwrap() {
+                                if context_bytes
+                                    == self.spec.altair_fork_digest(self.genesis_validators_root)
+                                {
                                     Ok(Some(RPCResponse::BlocksByRange(Box::new(
                                         SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
                                     ))))
-                                } else if context_bytes == GENESIS_FORK.read().unwrap() {
+                                } else if context_bytes
+                                    == self.spec.genesis_fork_digest(self.genesis_validators_root)
+                                {
                                     Ok(Some(RPCResponse::BlocksByRange(Box::new(
                                         SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
                                     ))))
@@ -350,11 +364,15 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                                 }
                             }
                             Protocol::BlocksByRoot => {
-                                if context_bytes == ALTAIR_FORK.read().unwrap() {
+                                if context_bytes
+                                    == self.spec.altair_fork_digest(self.genesis_validators_root)
+                                {
                                     Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                                         SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
                                     ))))
-                                } else if context_bytes == GENESIS_FORK.read().unwrap() {
+                                } else if context_bytes
+                                    == self.spec.genesis_fork_digest(self.genesis_validators_root)
+                                {
                                     Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                                         SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
                                     ))))
