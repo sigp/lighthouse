@@ -110,6 +110,14 @@ fn operations_block_header() {
 }
 
 #[test]
+fn operations_sync_aggregate() {
+    if get_fork_name() != "phase0" {
+        OperationsHandler::<MinimalEthSpec, SyncAggregate<_>>::run();
+        OperationsHandler::<MainnetEthSpec, SyncAggregate<_>>::run();
+    }
+}
+
+#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::run();
     SanityBlocksHandler::<MainnetEthSpec>::run();

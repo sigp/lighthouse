@@ -9,6 +9,7 @@ pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
+pub use altair::sync_committee::process_sync_committee;
 pub use block_signature_verifier::BlockSignatureVerifier;
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use process_operations::process_operations;
@@ -105,7 +106,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
     };
 
-    process_block_header(state, block, spec)?;
+    let proposer_index = process_block_header(state, block, spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -119,17 +120,19 @@ pub fn per_block_processing<T: EthSpec>(
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), verify_signatures, spec)?;
 
-    // FIXME(altair): process_sync_committee
+    if let BeaconBlockRef::Altair(inner) = block {
+        process_sync_committee(state, &inner.body.sync_aggregate, proposer_index, spec)?;
+    }
 
     Ok(())
 }
 
-/// Processes the block header.
+/// Processes the block header, returning the proposer index.
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T>,
     spec: &ChainSpec,
-) -> Result<(), BlockOperationError<HeaderInvalid>> {
+) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
     verify!(
         block.slot() == state.slot(),
@@ -174,7 +177,7 @@ pub fn process_block_header<T: EthSpec>(
         HeaderInvalid::ProposerSlashed(proposer_index)
     );
 
-    Ok(())
+    Ok(block.proposer_index())
 }
 
 /// Verifies the signature of a block.

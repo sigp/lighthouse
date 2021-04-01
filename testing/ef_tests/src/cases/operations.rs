@@ -12,13 +12,13 @@ use state_processing::per_block_processing::{
         base::{process_attestations, process_deposits},
         process_attester_slashings, process_exits, process_proposer_slashings,
     },
-    VerifySignatures,
+    process_sync_committee, VerifySignatures,
 };
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
-    ProposerSlashing, SignedVoluntaryExit,
+    ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -41,7 +41,7 @@ pub trait Operation<E: EthSpec>: Decode + TypeName + Debug + Sync {
     }
 
     fn filename() -> String {
-        format!("{}.ssz", Self::handler_name())
+        format!("{}.ssz_snappy", Self::handler_name())
     }
 
     fn apply_to(
@@ -119,7 +119,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
     }
 
     fn filename() -> String {
-        "block.ssz".into()
+        "block.ssz_snappy".into()
     }
 
     fn apply_to(
@@ -127,7 +127,27 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        Ok(process_block_header(state, self.to_ref(), spec)?)
+        process_block_header(state, self.to_ref(), spec)?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
+    fn handler_name() -> String {
+        "sync_committee".into()
+    }
+
+    fn filename() -> String {
+        "sync_aggregate.ssz_snappy".into()
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<(), BlockProcessingError> {
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
+        process_sync_committee(state, self, proposer_index, spec)
     }
 }
 
@@ -140,7 +160,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
             Metadata::default()
         };
 
-        let pre = ssz_decode_file(&path.join("pre.ssz"))?;
+        let pre = ssz_decode_file(&path.join("pre.ssz_snappy"))?;
 
         // Check BLS setting here before SSZ deserialization, as most types require signatures
         // to be valid.
@@ -153,7 +173,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         } else {
             (None, None)
         };
-        let post_filename = path.join("post.ssz");
+        let post_filename = path.join("post.ssz_snappy");
         let post = if post_filename.is_file() {
             if let Some(bls_error) = bls_error {
                 panic!("input is unexpectedly invalid: {}", bls_error);

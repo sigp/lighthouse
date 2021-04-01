@@ -1217,6 +1217,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_committee_cache(RelativeEpoch::Previous);
         self.drop_committee_cache(RelativeEpoch::Current);
         self.drop_committee_cache(RelativeEpoch::Next);
+        *self.sync_committee_cache_mut() = SyncCommitteeCache::default();
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
         *self.exit_cache_mut() = ExitCache::default();
