@@ -5,7 +5,7 @@
 # Produces a testnet specification and a genesis state where the genesis time
 # is now + $GENESIS_DELAY.
 #
-# Generates datadirs for multiple validator keys according to the 
+# Generates datadirs for multiple validator keys according to the
 # $VALIDATOR_COUNT and $NODE_COUNT variables.
 #
 
@@ -31,8 +31,9 @@ lcli \
 	--genesis-delay $GENESIS_DELAY \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
 	--eth1-id $BOOTNODE_PORT \
-	--eth1-follow-distance 1 \
-	--seconds-per-eth1-block 1 \
+	--eth1-follow-distance 16 \
+	--seconds-per-slot $SECONDS_PER_SLOT \
+	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
 	--force
 
 echo Specification generated at $TESTNET_DIR.
