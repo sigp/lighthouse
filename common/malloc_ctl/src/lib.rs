@@ -17,14 +17,17 @@ pub const DEFAULT_TRIM: c_ulong = 1_024 * 128;
 const M_ARENA_MAX: c_int = -8;
 
 mod ffi {
+    /// See: https://man7.org/linux/man-pages/man3/malloc_trim.3.html
     extern "C" {
         pub fn malloc_trim(__pad: std::os::raw::c_ulong) -> ::std::os::raw::c_int;
     }
 
+    /// See: https://man7.org/linux/man-pages/man3/malloc_stats.3.html
     extern "C" {
         pub fn malloc_stats();
     }
 
+    /// See: https://man7.org/linux/man-pages/man3/mallopt.3.html
     extern "C" {
         pub fn mallopt(
             __param: ::std::os::raw::c_int,
@@ -41,6 +44,15 @@ fn into_result(result: c_int) -> Result<(), c_int> {
     }
 }
 
+/// Uses `mallopt` to set the `M_ARENA_MAX` value, specifying the number of memory arenas to be
+/// created by malloc.
+///
+/// Generally speaking, a smaller arena count reduces memory fragmentation at the cost of memory contention
+/// between threads.
+///
+/// ## Resources
+///
+/// - https://man7.org/linux/man-pages/man3/mallopt.3.html
 pub fn malloc_arena_max(num_arenas: c_int) -> Result<(), c_int> {
     unsafe { into_result(ffi::mallopt(M_ARENA_MAX, num_arenas)) }
 }
