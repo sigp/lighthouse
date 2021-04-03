@@ -2860,6 +2860,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
+ "malloc_ctl",
  "network",
  "parking_lot",
  "serde",
@@ -3727,6 +3728,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "logging",
+ "malloc_ctl",
  "remote_signer",
  "slashing_protection",
  "slog",
@@ -3852,6 +3854,10 @@ checksum = "b823e83b2affd8f40a9ee8c29dbc56404c1e34cd2710921f2801e2cf29527afa"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "malloc_ctl"
+version = "0.1.0"
 
 [[package]]
 name = "maplit"

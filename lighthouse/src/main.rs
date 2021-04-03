@@ -6,6 +6,11 @@ use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
+use malloc_ctl::{
+    malloc_arena_max,
+    trimmer_thread::{spawn_trimmer_thread, DEFAULT_TRIM_INTERVAL},
+    DEFAULT_TRIM,
+};
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
@@ -27,6 +32,19 @@ fn bls_library_name() -> &'static str {
 }
 
 fn main() {
+    // Configure malloc as the first thing we do, before it has the change to use the default
+    // values for anything.
+    //
+    // TODO: check for env variable so we don't overwrite it.
+    if let Err(e) = malloc_arena_max(1) {
+        eprintln!("Failed (code {}) to set malloc max arena count", e);
+        exit(1)
+    }
+
+    // Spawn a thread which will periodically force malloc to "trim" itself, returning fragmented
+    // memory to the OS.
+    spawn_trimmer_thread(DEFAULT_TRIM_INTERVAL, DEFAULT_TRIM);
+
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())

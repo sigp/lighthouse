@@ -32,6 +32,7 @@ members = [
     "common/lockfile",
     "common/logging",
     "common/lru_cache",
+    "common/malloc_ctl",
     "common/remote_signer_consumer",
     "common/slot_clock",
     "common/task_executor",
