@@ -22,6 +22,7 @@ use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
+use malloc_ctl::{eprintln_malloc_stats, malloc_trim, DEFAULT_TRIM};
 use network::NetworkMessage;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
@@ -2127,6 +2128,32 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/malloc_stats
+    let get_lighthouse_malloc_stats = warp::path("lighthouse")
+        .and(warp::path("malloc_stats"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                eprintln_malloc_stats();
+                Ok::<_, warp::reject::Rejection>(())
+            })
+        });
+
+    // GET lighthouse/malloc_trim
+    let get_lighthouse_malloc_trim = warp::path("lighthouse")
+        .and(warp::path("malloc_trim"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                malloc_trim(DEFAULT_TRIM).map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "malloc_trim failed with code {}",
+                        e
+                    ))
+                })
+            })
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2233,6 +2260,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
+                .or(get_lighthouse_malloc_stats.boxed())
+                .or(get_lighthouse_malloc_trim.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(

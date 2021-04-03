@@ -43,6 +43,7 @@ account_utils = { path = "../common/account_utils" }
 remote_signer = { "path" = "../remote_signer" }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
+malloc_ctl = { path = "../common/malloc_ctl" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
