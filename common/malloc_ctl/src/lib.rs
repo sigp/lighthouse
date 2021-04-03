@@ -11,10 +11,8 @@ pub const DEFAULT_TRIM: c_ulong = 1_024 * 128;
 
 /// A default value to be provided to `malloc_mmap_threshold`.
 ///
-/// One megabyte.
-///
 /// Value chosen so that it will store the values of the validators tree hash cache.
-pub const DEFAULT_MMAP_THRESHOLD: c_int = 1_024 * 1_024;
+pub const DEFAULT_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 
 /// Constants used to configure malloc internals.
 ///
