@@ -1,3 +1,6 @@
+#![feature(backtrace)]
+
+pub mod profiling_allocator;
 pub mod trimmer_thread;
 
 pub use std::os::raw::{c_int, c_ulong};

@@ -1,3 +1,5 @@
+#![recursion_limit="256"]
+
 mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
@@ -10,12 +12,16 @@ use malloc_ctl::{
     malloc_arena_max, malloc_mmap_threshold,
     trimmer_thread::{spawn_trimmer_thread, DEFAULT_TRIM_INTERVAL},
     DEFAULT_MMAP_THRESHOLD, DEFAULT_TRIM,
+    profiling_allocator::ProfilingAllocator
 };
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
+
+#[global_allocator]
+static A: ProfilingAllocator = ProfilingAllocator;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
