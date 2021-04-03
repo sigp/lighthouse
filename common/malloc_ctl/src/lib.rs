@@ -9,11 +9,19 @@ pub use std::os::raw::{c_int, c_ulong};
 /// - https://man7.org/linux/man-pages/man3/mallopt.3.html
 pub const DEFAULT_TRIM: c_ulong = 1_024 * 128;
 
-/// Used to configure malloc internals.
+/// A default value to be provided to `malloc_mmap_threshold`.
+///
+/// One megabyte.
+///
+/// Value chosen so that it will store the values of the validators tree hash cache.
+pub const DEFAULT_MMAP_THRESHOLD: c_int = 1_024 * 1_024;
+
+/// Constants used to configure malloc internals.
 ///
 /// Source:
 ///
-/// https://github.com/lattera/glibc/blob/895ef79e04a953cac1493863bcae29ad85657ee1/malloc/malloc.h#L123
+/// https://github.com/lattera/glibc/blob/895ef79e04a953cac1493863bcae29ad85657ee1/malloc/malloc.h#L115-L123
+const M_MMAP_THRESHOLD: c_int = -4;
 const M_ARENA_MAX: c_int = -8;
 
 mod ffi {
@@ -55,6 +63,16 @@ fn into_result(result: c_int) -> Result<(), c_int> {
 /// - https://man7.org/linux/man-pages/man3/mallopt.3.html
 pub fn malloc_arena_max(num_arenas: c_int) -> Result<(), c_int> {
     unsafe { into_result(ffi::mallopt(M_ARENA_MAX, num_arenas)) }
+}
+
+/// Uses `mallopt` to set the `M_MMAP_THRESHOLD` value, specifying the threshold where objects of this
+/// size or larger are allocated via an `mmap`.
+///
+/// ## Resources
+///
+/// - https://man7.org/linux/man-pages/man3/mallopt.3.html
+pub fn malloc_mmap_threshold(num_arenas: c_int) -> Result<(), c_int> {
+    unsafe { into_result(ffi::mallopt(M_MMAP_THRESHOLD, num_arenas)) }
 }
 
 /// Calls `malloc_trim(0)`, freeing up available memory at the expense of CPU time and arena

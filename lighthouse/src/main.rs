@@ -7,9 +7,9 @@ use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use malloc_ctl::{
-    malloc_arena_max,
+    malloc_arena_max, malloc_mmap_threshold,
     trimmer_thread::{spawn_trimmer_thread, DEFAULT_TRIM_INTERVAL},
-    DEFAULT_TRIM,
+    DEFAULT_MMAP_THRESHOLD, DEFAULT_TRIM,
 };
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -38,6 +38,11 @@ fn main() {
     // TODO: check for env variable so we don't overwrite it.
     if let Err(e) = malloc_arena_max(1) {
         eprintln!("Failed (code {}) to set malloc max arena count", e);
+        exit(1)
+    }
+
+    if let Err(e) = malloc_mmap_threshold(DEFAULT_MMAP_THRESHOLD) {
+        eprintln!("Failed (code {}) to set malloc mmap threshold", e);
         exit(1)
     }
 
