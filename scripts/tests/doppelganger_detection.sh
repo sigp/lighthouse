@@ -39,7 +39,7 @@ sleep 64
 
 # Use same keys as keys from VC1, but connect to BN2
 # This process should not last longer than an epoch
-gtimeout 64 time ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100 &
+timeout 64 time ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100 &
 VALIDATOR_4_PID=$!
 
 wait $VALIDATOR_4_PID
