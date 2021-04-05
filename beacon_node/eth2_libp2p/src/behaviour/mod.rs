@@ -233,6 +233,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
             score_settings,
+            spec: chain_spec.clone(),
             update_gossipsub_scores,
         })
     }
