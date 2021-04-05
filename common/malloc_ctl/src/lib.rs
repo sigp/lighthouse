@@ -1,4 +1,5 @@
 #![feature(backtrace)]
+#![feature(backtrace_frames)]
 
 pub mod profiling_allocator;
 pub mod trimmer_thread;
