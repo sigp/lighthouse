@@ -35,11 +35,11 @@ VALIDATOR_2_PID=$!
 VALIDATOR_3_PID=$!
 
 # Wait an epoch before starting a validator for doppelganger detection
-# sleep 64
+sleep 64
 
 # Use same keys as keys from VC1, but connect to BN2
 # This process should not last longer than an epoch
-timeout 1 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
+timeout 64 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
 DOPPELGANGER_EXIT=$?
 
 # Cleanup
