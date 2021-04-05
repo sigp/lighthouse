@@ -38,8 +38,8 @@ VALIDATOR_3_PID=$!
 sleep 64
 
 # Use same keys as keys from VC1, but connect to BN2
-# This process should not last longer than an epoch
-timeout 64 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
+# This process should not last longer than an 2 epochs
+timeout 128 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
 DOPPELGANGER_EXIT=$?
 
 # Cleanup
