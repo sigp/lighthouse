@@ -1,4 +1,4 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+// #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::beacon_processor::*;
@@ -46,6 +46,7 @@ struct TestRig {
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     beacon_processor_tx: mpsc::Sender<WorkEvent<T>>,
+    /// TODO: document this guy
     work_journal_rx: mpsc::Receiver<String>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
@@ -64,6 +65,7 @@ impl Drop for TestRig {
 
 impl TestRig {
     pub fn new(chain_length: u64) -> Self {
+
         let mut harness = BeaconChainHarness::new(
             MainnetEthSpec,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
@@ -272,7 +274,7 @@ impl TestRig {
     /// to use the `NOTHING_TO_DO` event to ensure that execution has completed.
     pub fn assert_event_journal(&mut self, expected: &[&str]) {
         let events = self.runtime().block_on(async {
-            let mut events = vec![];
+            let mut events = Vec::with_capacity(expected.len());
 
             let drain_future = async {
                 loop {

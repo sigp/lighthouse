@@ -37,7 +37,7 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
-use block_delay_queue::{spawn_block_delay_queue, QueuedBlock};
+use block_delay_queue::{spawn_reprocess_scheduler, QueuedBlock, ReadyWork};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -555,7 +555,7 @@ enum InboundEvent<T: BeaconChainTypes> {
     /// There is new work to be done.
     WorkEvent(WorkEvent<T>),
     /// A block that was delayed for import at a later slot has become ready.
-    QueuedBlock(Box<QueuedBlock<T>>),
+    ReprocessingWork(WorkEvent<T>),
 }
 
 /// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
@@ -567,8 +567,8 @@ struct InboundEvents<T: BeaconChainTypes> {
     idle_rx: mpsc::Receiver<()>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<T>>,
-    /// Used internally for queuing blocks for processing once their slot arrives.
-    post_delay_block_queue_rx: mpsc::Receiver<QueuedBlock<T>>,
+    /// Used internally for queuing work ready to be reprocessed.
+    reprocess_work_rx: mpsc::Receiver<ReadyWork<T>>,
 }
 
 impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
@@ -589,9 +589,9 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
 
         // Poll for delayed blocks before polling for new work. It might be the case that a delayed
         // block is required to successfully process some new work.
-        match self.post_delay_block_queue_rx.poll_recv(cx) {
-            Poll::Ready(Some(queued_block)) => {
-                return Poll::Ready(Some(InboundEvent::QueuedBlock(Box::new(queued_block))));
+        match self.reprocess_work_rx.poll_recv(cx) {
+            Poll::Ready(Some(ready_work)) => {
+                return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -683,7 +683,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
         let pre_delay_block_queue_tx = {
             if let Some(chain) = self.beacon_chain.upgrade() {
-                spawn_block_delay_queue(
+                spawn_reprocess_scheduler(
                     post_delay_block_queue_tx,
                     &self.executor,
                     chain.slot_clock.clone(),
@@ -704,7 +704,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             let mut inbound_events = InboundEvents {
                 idle_rx,
                 event_rx,
-                post_delay_block_queue_rx,
+                reprocess_work_rx: post_delay_block_queue_rx,
             };
 
             loop {
@@ -714,7 +714,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         None
                     }
                     Some(InboundEvent::WorkEvent(event)) => Some(event),
-                    Some(InboundEvent::QueuedBlock(queued_block)) => {
+                    Some(InboundEvent::ReprocessingWork(queued_block)) => {
                         Some(WorkEvent::delayed_import_beacon_block(
                             queued_block.peer_id,
                             Box::new(queued_block.block),
@@ -766,7 +766,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     None if can_spawn => {
                         let toolbox = Toolbox {
                             idle_tx: idle_tx.clone(),
-                            delayed_block_tx: pre_delay_block_queue_tx.clone(),
+                            work_reprocessing_tx: pre_delay_block_queue_tx.clone(),
                         };
 
                         // Check for chain segments first, they're the most efficient way to get
@@ -857,7 +857,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         let work_id = work.str_id();
                         let toolbox = Toolbox {
                             idle_tx: idle_tx.clone(),
-                            delayed_block_tx: pre_delay_block_queue_tx.clone(),
+                            work_reprocessing_tx: pre_delay_block_queue_tx.clone(),
                         };
 
                         match work {
@@ -960,7 +960,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(&mut self, work: Work<T>, toolbox: Toolbox<T>) {
         let idle_tx = toolbox.idle_tx;
-        let delayed_block_tx = toolbox.delayed_block_tx;
+        let delayed_block_tx = toolbox.work_reprocessing_tx;
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
