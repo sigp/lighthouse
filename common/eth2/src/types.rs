@@ -829,7 +829,7 @@ impl FromStr for Accept {
 
 #[derive(Deserialize)]
 pub struct SeenValidatorQuery {
-    pub ids: QueryVec<PublicKeyBytes>,
+    pub ids: QueryVec<ValidatorId>,
     pub epochs: QueryVec<Epoch>,
 }
 

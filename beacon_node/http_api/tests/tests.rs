@@ -2090,8 +2090,8 @@ impl ApiTester {
                 self.validator_keypairs
                     .iter()
                     .cloned()
-                    .map(|keypair| keypair.pk.compress())
-                    .collect::<Vec<PublicKeyBytes>>()
+                    .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
+                    .collect::<Vec<ValidatorId>>()
                     .as_slice(),
                 &[self.chain.epoch().unwrap()],
             )
@@ -2112,8 +2112,8 @@ impl ApiTester {
                 self.validator_keypairs
                     .iter()
                     .cloned()
-                    .map(|keypair| keypair.pk.compress())
-                    .collect::<Vec<PublicKeyBytes>>()
+                    .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
+                    .collect::<Vec<ValidatorId>>()
                     .as_slice(),
                 &[self.chain.epoch().unwrap()],
             )

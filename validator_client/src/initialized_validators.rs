@@ -24,6 +24,7 @@ use types::{Epoch, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
+use eth2::types::ValidatorId;
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
@@ -695,7 +696,7 @@ impl InitializedValidators {
     pub fn get_doppelganger_detecting_validators_by_epoch(
         &self,
         current_epoch: Epoch,
-    ) -> HashMap<Epoch, Vec<PublicKeyBytes>> {
+    ) -> HashMap<Epoch, Vec<ValidatorId>> {
         self.validators
             .iter()
             .filter(|(_, val)| {
@@ -709,7 +710,9 @@ impl InitializedValidators {
             })
             .fold(HashMap::new(), |mut map, (pubkey, val)| {
                 if let Some(epoch) = val.doppelganger_detection_epoch {
-                    map.entry(epoch).or_insert_with(Vec::new).push(*pubkey);
+                    map.entry(epoch)
+                        .or_insert_with(Vec::new)
+                        .push(ValidatorId::PublicKey(*pubkey));
                 }
                 map
             })

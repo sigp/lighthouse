@@ -122,8 +122,8 @@ jobs:
         run: sudo npm install -g ganache-cli
       - name: Run the syncing simulator
         run: cargo run --release --bin simulator syncing-sim
-  local-testnet-scenarios:
-      name: local-testnet-scenarios
+  doppelganger-detection-test:
+      name: doppelganger-detection-test
       runs-on: ubuntu-latest
       needs: cargo-fmt
       steps:
@@ -136,6 +136,8 @@ jobs:
             run: |
                 make
                 make install-lcli
+          - name: Run the doppelganger detection test script
+            run: |
                 cd scripts/tests
                 ./doppelganger_detection.sh
   check-benchmarks:

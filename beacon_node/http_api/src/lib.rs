@@ -2140,8 +2140,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .ids
                         .0
                         .iter()
-                        .map(|pubkey| {
-                            chain
+                        .map(|id| match id {
+                            ValidatorId::PublicKey(pubkey) => chain
                                 .validator_index(pubkey)
                                 .map_err(warp_utils::reject::beacon_chain_error)?
                                 .ok_or_else(|| {
@@ -2149,7 +2149,8 @@ pub fn serve<T: BeaconChainTypes>(
                                         "Could not find index for validator public key: {}",
                                         pubkey
                                     ))
-                                })
+                                }),
+                            ValidatorId::Index(index) => Ok(*index as usize),
                         })
                         .collect::<Result<_, _>>()?;
 
