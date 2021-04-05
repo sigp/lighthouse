@@ -111,7 +111,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", &enr_fork_bytes);
+                    builder.add_value("eth2", enr_fork_bytes.as_slice());
                 }
                 builder
                     .build(&local_key)
