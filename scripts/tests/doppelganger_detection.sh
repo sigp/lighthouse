@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-ls -l ../local_testnet/vars.env
-ls -l ../local_testnet/vars.env.bkp
-echo $HOME
 
 cp ../local_testnet/vars.env ../local_testnet/vars.env.bkp
 cp ./vars.env ../local_testnet/vars.env
@@ -42,13 +39,11 @@ VALIDATOR_3_PID=$!
 
 # Use same keys as keys from VC1, but connect to BN2
 # This process should not last longer than an epoch
-timeout 64 time ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100 &
-VALIDATOR_4_PID=$!
-
-wait $VALIDATOR_4_PID
+timeout 1 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
+DOPPELGANGER_EXIT=$?
 
 # Cleanup
 kill $BOOT_PID $BEACON_PID $BEACON2_PID $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $BEACON3_PID
 mv ../local_testnet/vars.env.bkp ../local_testnet/vars.env
 
-exit $?
+exit $DOPPELGANGER_EXIT
