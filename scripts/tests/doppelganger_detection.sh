@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+ls -l ../local_testnet/vars.env
+ls -l ../local_testnet/vars.env.bkp
+echo $HOME
 
 cp ../local_testnet/vars.env ../local_testnet/vars.env.bkp
 cp ./vars.env ../local_testnet/vars.env
