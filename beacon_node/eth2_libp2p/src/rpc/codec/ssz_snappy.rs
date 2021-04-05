@@ -27,11 +27,18 @@ pub struct SSZSnappyInboundCodec<TSpec: EthSpec> {
     len: Option<usize>,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
+    genesis_validators_root: Hash256,
+    spec: ChainSpec,
     phantom: PhantomData<TSpec>,
 }
 
 impl<T: EthSpec> SSZSnappyInboundCodec<T> {
-    pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
+    pub fn new(
+        protocol: ProtocolId,
+        max_packet_size: usize,
+        genesis_validators_root: Hash256,
+        spec: ChainSpec,
+    ) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
         debug_assert_eq!(protocol.encoding, Encoding::SSZSnappy);
@@ -41,6 +48,8 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
             protocol,
             len: None,
             phantom: PhantomData,
+            genesis_validators_root,
+            spec,
             max_packet_size,
         }
     }
@@ -74,6 +83,26 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 "attempting to encode data > max_packet_size",
             ));
         }
+
+        // Add the context bytes if required
+        if self.protocol.version == Version::V2 {
+            if let RPCCodedResponse(RPCResponse::BlocksByRange(res)) = item {
+                if let SignedBeaconBlockAltair { .. } = res {
+                    dst.extend_from_slice(
+                        self.spec.altair_fork_digest(self.genesis_validators_root),
+                    );
+                }
+            }
+
+            if let RPCCodedResponse(RPCResponse::BlocksByRoot(res)) = item {
+                if let SignedBeaconBlockAltair { .. } = res {
+                    dst.extend_from_slice(
+                        self.spec.altair_fork_digest(self.genesis_validators_root),
+                    );
+                }
+            }
+        }
+
         // Inserts the length prefix of the uncompressed bytes into dst
         // encoded as a unsigned varint
         self.inner
@@ -160,7 +189,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             }
                         }
                     },
-                    // TODO: Behaviour unclear
                     // Receiving a Rpc request for protocol version 2 for range and root
                     Version::V2 => {
                         match self.protocol.message_name {

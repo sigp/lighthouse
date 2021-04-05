@@ -182,6 +182,8 @@ where
         RPCHandler::new(
             SubstreamProtocol::new(
                 RPCProtocol {
+                    genesis_validators_root: self.genesis_validators_root,
+                    spec: self.spec,
                     phantom: PhantomData,
                 },
                 (),

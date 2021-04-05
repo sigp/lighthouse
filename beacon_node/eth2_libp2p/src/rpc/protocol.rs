@@ -146,6 +146,8 @@ impl std::fmt::Display for Version {
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
+    pub spec: ChainSpec,
+    pub genesis_validators_root: Hash256,
     pub phantom: PhantomData<TSpec>,
 }
 
@@ -314,8 +316,12 @@ where
             let socket = socket.compat();
             let codec = match protocol.encoding {
                 Encoding::SSZSnappy => {
-                    let ssz_snappy_codec =
-                        BaseInboundCodec::new(SSZSnappyInboundCodec::new(protocol, MAX_RPC_SIZE));
+                    let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
+                        protocol,
+                        MAX_RPC_SIZE,
+                        self.genesis_validators_root,
+                        self.spec,
+                    ));
                     InboundCodec::SSZSnappy(ssz_snappy_codec)
                 }
             };
