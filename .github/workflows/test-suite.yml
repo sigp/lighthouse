@@ -136,7 +136,8 @@ jobs:
             run: |
                 make
                 make install-lcli
-                ./scripts/tests/doppelganger_detection.sh
+                cd scripts/tests
+                ./doppelganger_detection.sh
   check-benchmarks:
     name: check-benchmarks
     runs-on: ubuntu-latest
