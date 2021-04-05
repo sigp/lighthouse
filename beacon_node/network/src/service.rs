@@ -165,6 +165,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             config,
             enr_fork_id,
             &network_log,
+            beacon_chain.genesis_validators_root,
             &beacon_chain.spec,
         )
         .await?;
