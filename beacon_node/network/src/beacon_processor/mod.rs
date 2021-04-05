@@ -591,7 +591,16 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
         // block is required to successfully process some new work.
         match self.reprocess_work_rx.poll_recv(cx) {
             Poll::Ready(Some(ready_work)) => {
-                return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
+                let event = match ready_work {
+                    ReadyWork::Block(queued_block) => WorkEvent::delayed_import_beacon_block(
+                        queued_block.peer_id,
+                        Box::new(queued_block.block),
+                        queued_block.seen_timestamp,
+                    ),
+                    ReadyWork::Attestation => todo!(),
+                    ReadyWork::Aggregate => todo!(),
+                };
+                return Poll::Ready(Some(InboundEvent::ReprocessingWork(event)));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -713,14 +722,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
                     }
-                    Some(InboundEvent::WorkEvent(event)) => Some(event),
-                    Some(InboundEvent::ReprocessingWork(queued_block)) => {
-                        Some(WorkEvent::delayed_import_beacon_block(
-                            queued_block.peer_id,
-                            Box::new(queued_block.block),
-                            queued_block.seen_timestamp,
-                        ))
-                    }
+                    Some(InboundEvent::WorkEvent(event))
+                    | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
                         debug!(
                             self.log,
@@ -960,7 +963,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(&mut self, work: Work<T>, toolbox: Toolbox<T>) {
         let idle_tx = toolbox.idle_tx;
-        let delayed_block_tx = toolbox.work_reprocessing_tx;
+        let reprocess_tx = toolbox.work_reprocessing_tx;
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
@@ -1059,7 +1062,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         *block,
-                        delayed_block_tx,
+                        reprocess_tx,
                         seen_timestamp,
                     ),
                     /*

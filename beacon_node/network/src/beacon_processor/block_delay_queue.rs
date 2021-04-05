@@ -37,7 +37,7 @@ const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// Messages that the scheduler can receive.
 pub enum ReprocessSchedulerMessage<T: BeaconChainTypes> {
-    /// A block that has been received early that we should queue for later processing.
+    /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedBlock<T>),
     /// A block that was succesfully processed. We use this to handle attestations for unknown
     /// blocks.
@@ -67,6 +67,18 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyBlock(QueuedBlock<T>),
     /// The `DelayQueue` returned an error.
     DelayQueueError(TimeError),
+    BlockProcessed(Hash256),
+}
+
+impl<T: BeaconChainTypes> From<ReprocessSchedulerMessage<T>> for InboundEvent<T> {
+    fn from(msg: ReprocessSchedulerMessage<T>) -> Self {
+        match msg {
+            ReprocessSchedulerMessage::EarlyBlock(block) => InboundEvent::EarlyBlock(block),
+            ReprocessSchedulerMessage::BlockProcessed(hash) => InboundEvent::BlockProcessed(hash),
+            ReprocessSchedulerMessage::UnknownBlockAttestation => todo!(),
+            ReprocessSchedulerMessage::UnknownBlockAggregate => todo!(),
+        }
+    }
 }
 
 /// Combines the `DelayQueue` and `Receiver` streams into a single stream.
@@ -76,7 +88,7 @@ enum InboundEvent<T: BeaconChainTypes> {
 struct InboundEvents<T: BeaconChainTypes> {
     pub delay_queue: DelayQueue<QueuedBlock<T>>,
     /// When several works are ready simultaneously, they are queued to be sent back.
-    ready_works: VecDeque<ReadyWork<T>>,
+    // ready_works: VecDeque<ReadyWork<T>>,
     /// Receiver of messages relevant to schedule works for reprocessing.
     work_reprocessing_rx: Receiver<ReprocessSchedulerMessage<T>>,
 }
@@ -102,8 +114,8 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
         }
 
         match self.work_reprocessing_rx.poll_recv(cx) {
-            Poll::Ready(Some(queued_block)) => {
-                return Poll::Ready(Some(InboundEvent::EarlyBlock(queued_block)));
+            Poll::Ready(Some(message)) => {
+                return Poll::Ready(Some(message.into()));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -144,7 +156,7 @@ async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
 
     let mut inbound_events = InboundEvents {
         work_reprocessing_rx,
-        ready_works: VecDeque::new(), // TODO: bound this
+        // ready_works: VecDeque::new(), // TODO: bound this
         delay_queue: DelayQueue::new(),
     };
 
@@ -192,7 +204,11 @@ async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
                     // doesn't distinguish between a slot that has already arrived and an
                     // error reading the slot clock.
                     if let Some(now) = slot_clock.now() {
-                        if block_slot <= now && ready_work_tx.try_send(early_block).is_err() {
+                        if block_slot <= now
+                            && ready_work_tx
+                                .try_send(ReadyWork::Block(early_block))
+                                .is_err()
+                        {
                             error!(
                                 log,
                                 "Failed to send block";
@@ -215,18 +231,19 @@ async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
                         );
                 }
 
-                if ready_work_tx.try_send(ready_block).is_err() {
+                if ready_work_tx.try_send(ReadyWork::Block(ready_block)).is_err() {
                     error!(
                         log,
                         "Failed to pop queued block";
-                        );
+                    );
                 }
             }
+            Some(InboundEvent::BlockProcessed(hash)) => todo!(),
             Some(InboundEvent::DelayQueueError(e)) => crit!(
                 log,
                 "Failed to poll block delay queue";
                 "e" => ?e
-                ),
+            ),
             None => {
                 debug!(
                     log,

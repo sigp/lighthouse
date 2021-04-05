@@ -17,7 +17,7 @@ use types::{
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
-use super::{super::block_delay_queue::QueuedBlock, Worker};
+use super::{super::block_delay_queue::QueuedBlock, ReprocessSchedulerMessage, Worker};
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
@@ -238,7 +238,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
-        delayed_import_tx: mpsc::Sender<QueuedBlock<T>>,
+        reprocess_tx: mpsc::Sender<ReprocessSchedulerMessage<T>>,
         seen_duration: Duration,
     ) {
         // Log metrics to track delay from other nodes on the network.
@@ -360,12 +360,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
-                if delayed_import_tx
-                    .try_send(QueuedBlock {
+                if reprocess_tx
+                    .try_send(ReprocessSchedulerMessage::EarlyBlock(QueuedBlock {
                         peer_id,
                         block: verified_block,
                         seen_timestamp: seen_duration,
-                    })
+                    }))
                     .is_err()
                 {
                     error!(
