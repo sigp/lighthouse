@@ -14,13 +14,16 @@ pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
+pub const SIGNED_CONTRIBUTION_AND_PROOF: &str = "sync_committee_contribution_and_proof";
+pub const SYNC_COMMITTEE_PREFIX: &str = "sync_committee_";
 
-pub const CORE_TOPICS: [GossipKind; 5] = [
+pub const CORE_TOPICS: [GossipKind; 6] = [
     GossipKind::BeaconBlock,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
+    GossipKind::SignedContributionAndProof,
 ];
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
@@ -53,12 +56,19 @@ pub enum GossipKind {
     ProposerSlashing,
     /// Topic for publishing attester slashings.
     AttesterSlashing,
+    /// Topic for publishing partially aggregated sync committee signatures.
+    SignedContributionAndProof,
+    /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
+    SyncCommitteeSignature(SubnetId),
 }
 
 impl std::fmt::Display for GossipKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GossipKind::Attestation(subnet_id) => write!(f, "beacon_attestation_{}", **subnet_id),
+            GossipKind::SyncCommitteeSignature(subnet_id) => {
+                write!(f, "sync_committee_{}", **subnet_id)
+            }
             x => f.write_str(x.as_ref()),
         }
     }
@@ -163,6 +173,10 @@ impl Into<String> for GossipTopic {
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
             GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
             GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
+            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF.into(),
+            GossipKind::SyncCommitteeSignature(index) => {
+                format!("{}{}", SYNC_COMMITTEE_PREFIX, *index)
+            }
         };
         format!(
             "/{}/{}/{}/{}",

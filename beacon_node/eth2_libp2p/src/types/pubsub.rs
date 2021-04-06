@@ -7,10 +7,10 @@ use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
 use std::boxed::Box;
 use std::io::{Error, ErrorKind};
-use types::SubnetId;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockBase, SignedVoluntaryExit,
+    SignedBeaconBlock, SignedBeaconBlockBase, SignedVoluntaryExit, SignedVoluntaryExit, SubnetId,
+    SyncAggregate, SyncCommittee,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +27,10 @@ pub enum PubsubMessage<T: EthSpec> {
     ProposerSlashing(Box<ProposerSlashing>),
     /// Gossipsub message providing notification of a new attester slashing.
     AttesterSlashing(Box<AttesterSlashing<T>>),
+    /// Gossipsub message providing notification of partially aggregated sync committee signatures
+    SignedContributionAndProof(Box<SyncAggregate<T>>),
+    /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
+    SyncCommitteeSignature(Box<(SubnetId, SyncCommittee<T>)>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -107,6 +111,10 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::VoluntaryExit(_) => GossipKind::VoluntaryExit,
             PubsubMessage::ProposerSlashing(_) => GossipKind::ProposerSlashing,
             PubsubMessage::AttesterSlashing(_) => GossipKind::AttesterSlashing,
+            PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
+            PubsubMessage::SyncCommitteeSignature(data) => {
+                GossipKind::SyncCommitteeSignature(data.0)
+            }
         }
     }
 
@@ -163,6 +171,21 @@ impl<T: EthSpec> PubsubMessage<T> {
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
+                    GossipKind::SignedContributionAndProof => {
+                        let sync_aggregate =
+                            SyncAggregate::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::SignedContributionAndProof(Box::new(
+                            sync_aggregate,
+                        )))
+                    }
+                    GossipKind::SyncCommitteeSignature(subnet_id) => {
+                        let sync_committee =
+                            SyncCommittee::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::SyncCommitteeSignature(Box::new((
+                            *subnet_id,
+                            sync_committee,
+                        ))))
+                    }
                 }
             }
         }
@@ -182,6 +205,8 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
             PubsubMessage::AttesterSlashing(data) => data.as_ssz_bytes(),
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
+            PubsubMessage::SyncCommitteeSignature(data) => data.1.as_ssz_bytes(),
         }
     }
 }
@@ -210,6 +235,12 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),
             PubsubMessage::AttesterSlashing(_data) => write!(f, "Attester Slashing"),
+            PubsubMessage::SignedContributionAndProof(_) => {
+                write!(f, "Signed Contribution and Proof")
+            }
+            PubsubMessage::SyncCommitteeSignature(data) => {
+                write!(f, "Sync committee signature: subnet_id: {}", *data.0)
+            }
         }
     }
 }
