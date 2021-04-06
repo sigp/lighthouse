@@ -171,7 +171,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let possible_fork_digests = vec![enr_fork_id.fork_digest];
+        let possible_fork_digests = vec![
+            chain_spec.altair_fork_digest(genesis_validators_root),
+            chain_spec.genesis_fork_digest(genesis_validators_root),
+        ];
         let filter = MaxCountSubscriptionFilter {
             filter: Self::create_whitelist_filter(possible_fork_digests, 64), //TODO change this to a constant
             max_subscribed_topics: 200, //TODO change this to a constant
@@ -344,7 +347,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Subscribes to a gossipsub topic.
-    fn subscribe(&mut self, topic: GossipTopic) -> bool {
+    pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
             .gossipsub_subscriptions
@@ -366,7 +369,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Unsubscribe from a gossipsub topic.
-    fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
+    pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
             .gossipsub_subscriptions
