@@ -1,13 +1,12 @@
+use crate::common::{altair::get_base_reward_per_increment, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
+use crate::per_epoch_processing::altair::rewards_and_penalties::{
+    SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR,
+};
 use itertools::Itertools;
+use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::{BeaconState, ChainSpec, Domain, EthSpec, SigningData, SyncAggregate};
-// FIXME(altair): move this to common?
-use crate::common::increase_balance;
-use crate::per_epoch_processing::altair::rewards_and_penalties::{
-    get_base_reward_per_increment, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR,
-};
-use safe_arith::SafeArith;
 
 pub fn process_sync_committee<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -16,11 +15,11 @@ pub fn process_sync_committee<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify sync committee aggregate signature signing over the previous slot block root
-    state.build_sync_committee_cache(spec)?;
+    state.build_current_sync_committee_cache(spec)?;
 
     let previous_slot = state.slot().saturating_sub(1u64);
 
-    let committee_indices = state.get_sync_committee_indices(spec)?;
+    let committee_indices = state.get_current_sync_committee_indices(spec)?;
 
     let included_indices = committee_indices
         .iter()

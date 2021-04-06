@@ -12,3 +12,13 @@ pub struct SyncAggregate<T: EthSpec> {
     pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,
     pub sync_committee_signature: AggregateSignature,
 }
+
+impl<T: EthSpec> SyncAggregate<T> {
+    /// Empty aggregate to be used at genesis.
+    pub fn empty() -> Self {
+        Self {
+            sync_committee_bits: BitVector::default(),
+            sync_committee_signature: AggregateSignature::empty(),
+        }
+    }
+}

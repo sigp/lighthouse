@@ -90,7 +90,13 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        Self::Base(BeaconBlockBase::empty(spec))
+        if get_fork_schedule().map_or(false, |schedule| {
+            schedule.altair_fork_slot == Some(spec.altair_fork_slot)
+        }) {
+            Self::Altair(BeaconBlockAltair::empty(spec))
+        } else {
+            Self::Base(BeaconBlockBase::empty(spec))
+        }
     }
 
     /// Return a block where the block has maximum size.
@@ -301,6 +307,33 @@ impl<T: EthSpec> BeaconBlockBase<T> {
                 attestations: VariableList::empty(),
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
+            },
+        }
+    }
+}
+
+impl<T: EthSpec> BeaconBlockAltair<T> {
+    /// Returns an empty block to be used during genesis.
+    pub fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockAltair {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyAltair {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
             },
         }
     }

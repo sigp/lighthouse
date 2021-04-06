@@ -9,8 +9,8 @@ use state_processing::per_block_processing::{
     errors::BlockProcessingError,
     process_block_header,
     process_operations::{
-        base::{process_attestations, process_deposits},
-        process_attester_slashings, process_exits, process_proposer_slashings,
+        altair, base, process_attester_slashings, process_deposits, process_exits,
+        process_proposer_slashings,
     },
     process_sync_committee, VerifySignatures,
 };
@@ -57,7 +57,14 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
+        match state {
+            BeaconState::Base(_) => {
+                base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
+            }
+            BeaconState::Altair(_) => {
+                altair::process_attestation(state, self, 0, VerifySignatures::True, spec)
+            }
+        }
     }
 }
 

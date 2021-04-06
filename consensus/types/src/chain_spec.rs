@@ -366,8 +366,6 @@ impl ChainSpec {
     }
 
     /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
-    ///
-    /// Spec v0.12.1
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
