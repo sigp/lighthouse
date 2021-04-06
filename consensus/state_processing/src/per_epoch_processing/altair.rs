@@ -14,10 +14,7 @@ pub use justification_and_finalization::process_justification_and_finalization;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-
-//TODO: move to chainspec
-const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
-const INACTIVITY_SCORE_BIAS: u64 = 4;
+use crate::per_epoch_processing::altair::rewards_and_penalties::{TIMELY_TARGET_FLAG_INDEX, INACTIVITY_SCORE_BIAS};
 
 // FIXME(altair): implement
 pub fn process_epoch<T: EthSpec>(

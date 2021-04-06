@@ -6,13 +6,13 @@ use types::{BeaconState, ChainSpec, EthSpec};
 //TODO: move to chainspec -- or constants file in types
 const TIMELY_HEAD_FLAG_INDEX: u64 = 0;
 const TIMELY_SOURCE_FLAG_INDEX: u64 = 1;
-const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
+pub const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
 const TIMELY_HEAD_WEIGHT: u64 = 12;
 const TIMELY_SOURCE_WEIGHT: u64 = 12;
 const TIMELY_TARGET_WEIGHT: u64 = 24;
 pub const SYNC_REWARD_WEIGHT: u64 = 8;
 pub const WEIGHT_DENOMINATOR: u64 = 64;
-const INACTIVITY_SCORE_BIAS: u64 = 4;
+pub const INACTIVITY_SCORE_BIAS: u64 = 4;
 const INACTIVITY_PENALTY_QUOTIENT_ALTAIR: u64 = u64::pow(2, 24).saturating_mul(3);
 
 const FLAG_INDICES_AND_WEIGHTS: [(u64, u64); 3] = [
@@ -61,11 +61,13 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
     let mut deltas = vec![Delta::default(); state.validators().len()];
 
+    let total_active_balance = state.get_total_active_balance(spec)?;
+
     for (index, numerator) in FLAG_INDICES_AND_WEIGHTS.iter() {
-        get_flag_index_deltas(&mut deltas, state, *index, *numerator, spec)?;
+        get_flag_index_deltas(&mut deltas, state, *index, *numerator, total_active_balance, spec)?;
     }
 
-    get_inactivity_penalty_deltas(&mut deltas, state, spec)?;
+    get_inactivity_penalty_deltas(&mut deltas, state, total_active_balance, spec)?;
 
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
@@ -85,6 +87,7 @@ fn get_flag_index_deltas<T: EthSpec>(
     state: &mut BeaconState<T>,
     flag_index: u64,
     weight: u64,
+    total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let unslashed_participating_indices =
@@ -93,8 +96,7 @@ fn get_flag_index_deltas<T: EthSpec>(
     let unslashed_participating_increments = state
         .get_total_balance(unslashed_participating_indices.as_slice(), spec)?
         .safe_div(increment)?;
-    let active_increments = get_total_active_balance(state, spec)?.safe_div(increment)?;
-    let total_active_balance = get_total_active_balance(state, spec)?;
+    let active_increments = total_active_balance.safe_div(increment)?;
 
     for index in state.get_eligible_validator_indices()? {
         let base_reward = get_base_reward(state, index, total_active_balance, spec)?;
@@ -123,6 +125,7 @@ fn get_flag_index_deltas<T: EthSpec>(
 fn get_inactivity_penalty_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
+    total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if state.is_in_inactivity_leak(spec) {
@@ -136,7 +139,6 @@ fn get_inactivity_penalty_deltas<T: EthSpec>(
             let mut delta = Delta::default();
 
             for (_, weight) in FLAG_INDICES_AND_WEIGHTS.iter() {
-                let total_active_balance = get_total_active_balance(state, spec)?;
                 delta.penalize(
                     get_base_reward(state, index, total_active_balance, spec)?
                         .safe_mul(*weight)?
@@ -155,26 +157,6 @@ fn get_inactivity_penalty_deltas<T: EthSpec>(
         }
     }
     Ok(())
-}
-
-/// Return the combined effective balance of an array of validators.
-///
-/// Spec v1.1.0
-pub fn get_total_active_balance<T: EthSpec>(
-    state: &BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<u64, Error> {
-    let total_balance = state.get_total_balance(
-        state
-            .get_active_validator_indices(state.current_epoch(), spec)?
-            .as_slice(),
-        spec,
-    )?;
-    //TODO: this comparator should be in `get_total_balance`
-    Ok(std::cmp::max(
-        spec.effective_balance_increment,
-        total_balance,
-    ))
 }
 
 /// Returns the base reward for some validator.
