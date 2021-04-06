@@ -10,13 +10,8 @@ pub use inactivity_updates::process_inactivity_updates;
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
-use safe_arith::SafeArith;
 pub use sync_committee_udpates::process_sync_committee_udpates;
-use tree_hash::TreeHash;
-use types::consts::altair::{INACTIVITY_SCORE_BIAS, TIMELY_TARGET_FLAG_INDEX};
-use types::{
-    BeaconState, ChainSpec, EthSpec, ParticipationFlags, RelativeEpoch, Unsigned, VariableList,
-};
+use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
 pub mod inactivity_updates;
 pub mod justification_and_finalization;

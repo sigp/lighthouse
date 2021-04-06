@@ -4,7 +4,6 @@ use core::result::Result::Ok;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::beacon_state::BeaconState;
-use types::chain_spec::ChainSpec;
 use types::eth_spec::EthSpec;
 use types::Unsigned;
 

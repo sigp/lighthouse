@@ -10,9 +10,7 @@ use crate::per_epoch_processing::{
 };
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use rewards_and_penalties::process_rewards_and_penalties;
-use safe_arith::SafeArith;
-use tree_hash::TreeHash;
-use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch, Unsigned, VariableList};
+use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
 pub mod justification_and_finalization;
 pub mod rewards_and_penalties;

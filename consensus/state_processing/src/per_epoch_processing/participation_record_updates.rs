@@ -2,7 +2,6 @@ use super::errors::EpochProcessingError;
 use core::result::Result;
 use core::result::Result::Ok;
 use types::beacon_state::BeaconState;
-use types::chain_spec::ChainSpec;
 use types::eth_spec::EthSpec;
 
 pub fn process_participation_record_updates<T: EthSpec>(
