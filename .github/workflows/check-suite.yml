@@ -1,0 +1,12 @@
+name: check-suite
+
+on:
+  pull_request_target:
+env:
+jobs:
+  test-echo:
+    name: test-echo
+    runs-on: ubuntu-latest
+    steps:
+        - name: Test echo
+          run: echo test
