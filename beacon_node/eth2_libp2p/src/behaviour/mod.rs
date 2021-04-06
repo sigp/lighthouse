@@ -346,6 +346,19 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.unsubscribe(topic)
     }
 
+    /// Unsubscribe from all topics that doesn't have the given fork_digest
+    pub fn unsubscribe_from_fork_topics(&mut self, except: [u8; 4]) {
+        for topic in self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .iter()
+            .filter(|topic| topic.fork_id != except)
+        {
+            self.unsubscribe(topic);
+        }
+    }
+
     /// Subscribes to a gossipsub topic.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
@@ -542,26 +555,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.peer_manager
             .discovery_mut()
             .update_eth2_enr(enr_fork_id.clone());
-
-        // unsubscribe from all gossip topics and re-subscribe to their new fork counterparts
-        let subscribed_topics = self
-            .network_globals
-            .gossipsub_subscriptions
-            .read()
-            .iter()
-            .cloned()
-            .collect::<Vec<GossipTopic>>();
-
-        //  unsubscribe from all topics
-        for topic in &subscribed_topics {
-            self.unsubscribe(topic.clone());
-        }
-
-        // re-subscribe modifying the fork version
-        for mut topic in subscribed_topics {
-            *topic.digest() = enr_fork_id.fork_digest;
-            self.subscribe(topic);
-        }
 
         // update the local reference
         self.enr_fork_id = enr_fork_id;

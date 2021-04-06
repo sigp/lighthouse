@@ -2730,6 +2730,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.spec.enr_fork_id(slot, self.genesis_validators_root)
     }
 
+    /// Gets the current `ForkDigest`.
+    pub fn fork_digest(&self) -> [u8; 4] {
+        // If we are unable to read the slot clock we assume that it is prior to genesis and
+        // therefore use the genesis slot.
+        // TODO: check
+        let slot = self.slot().unwrap_or(self.spec.genesis_slot);
+
+        self.spec.fork_digest(slot, self.genesis_validators_root)
+    }
+
     /// Calculates the `Duration` to the next fork, if one exists.
     pub fn duration_to_next_fork(&self) -> Option<Duration> {
         let epoch = self.spec.next_fork_epoch()?;

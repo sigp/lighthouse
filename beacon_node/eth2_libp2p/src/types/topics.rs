@@ -33,7 +33,7 @@ pub struct GossipTopic {
     /// The encoding of the topic.
     encoding: GossipEncoding,
     /// The fork digest of the topic,
-    fork_digest: [u8; 4],
+    pub fork_digest: [u8; 4],
     /// The kind of topic.
     kind: GossipKind,
 }
