@@ -87,8 +87,6 @@ impl<T: BeaconChainTypes> From<ReprocessSchedulerMessage<T>> for InboundEvent<T>
 /// control (specifically in the ordering of event processing).
 struct InboundEvents<T: BeaconChainTypes> {
     pub delay_queue: DelayQueue<QueuedBlock<T>>,
-    /// When several works are ready simultaneously, they are queued to be sent back.
-    // ready_works: VecDeque<ReadyWork<T>>,
     /// Receiver of messages relevant to schedule works for reprocessing.
     work_reprocessing_rx: Receiver<ReprocessSchedulerMessage<T>>,
 }

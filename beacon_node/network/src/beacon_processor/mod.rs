@@ -37,7 +37,7 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
-use block_delay_queue::{spawn_reprocess_scheduler, QueuedBlock, ReadyWork};
+use work_reprocessing_queue::{spawn_reprocess_scheduler, QueuedBlock, ReadyWork};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -60,7 +60,7 @@ use types::{
 
 use worker::{Toolbox, Worker};
 
-mod block_delay_queue;
+mod work_reprocessing_queue;
 mod tests;
 mod worker;
 
