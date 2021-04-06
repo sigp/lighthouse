@@ -13,10 +13,10 @@ pub mod linux {
 
 pub mod not_linux {
     #[allow(dead_code, clippy::unnecessary_wraps)]
-    fn configure_memory_allocator() -> Result<(), String> {
+    pub fn configure_memory_allocator() -> Result<(), String> {
         Ok(())
     }
 
     #[allow(dead_code)]
-    fn eprintln_allocator_stats() {}
+    pub fn eprintln_allocator_stats() {}
 }
