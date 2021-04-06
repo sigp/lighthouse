@@ -1,16 +1,28 @@
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
-use crate::per_epoch_processing::validator_statuses::ValidatorStatuses;
+use crate::per_epoch_processing::{
+    effective_balance_updates::process_effective_balance_updates,
+    historical_roots_update::process_historical_roots_update,
+    participation_record_updates::process_participation_record_updates,
+    resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
+    validator_statuses::ValidatorStatuses,
+};
+pub use inactivity_updates::process_inactivity_updates;
 pub use justification_and_finalization::process_justification_and_finalization;
+pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 use safe_arith::SafeArith;
+pub use sync_committee_udpates::process_sync_committee_udpates;
 use tree_hash::TreeHash;
 use types::consts::altair::{INACTIVITY_SCORE_BIAS, TIMELY_TARGET_FLAG_INDEX};
 use types::{
     BeaconState, ChainSpec, EthSpec, ParticipationFlags, RelativeEpoch, Unsigned, VariableList,
 };
 
+pub mod inactivity_updates;
 pub mod justification_and_finalization;
+pub mod participation_flag_updates;
 pub mod rewards_and_penalties;
+pub mod sync_committee_udpates;
 
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -76,132 +88,4 @@ pub fn process_epoch<T: EthSpec>(
         total_balances: validator_statuses.total_balances,
         statuses: validator_statuses.statuses,
     })
-}
-
-//TODO: there's no EF test for this one
-pub fn process_inactivity_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    for index in state.get_eligible_validator_indices()? {
-        let unslashed_indices = state.get_unslashed_participating_indices(
-            TIMELY_TARGET_FLAG_INDEX,
-            state.previous_epoch(),
-            spec,
-        )?;
-        if unslashed_indices.contains(&index) {
-            if state.as_altair()?.inactivity_scores[index] > 0 {
-                state.as_altair_mut()?.inactivity_scores[index].safe_sub_assign(1)?;
-            }
-        } else if state.is_in_inactivity_leak(spec) {
-            state.as_altair_mut()?.inactivity_scores[index]
-                .safe_add_assign(INACTIVITY_SCORE_BIAS)?;
-        }
-    }
-    Ok(())
-}
-
-pub fn process_eth1_data_reset<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
-    if state
-        .slot()
-        .safe_add(1)?
-        .safe_rem(T::SlotsPerEth1VotingPeriod::to_u64())?
-        == 0
-    {
-        *state.eth1_data_votes_mut() = VariableList::empty();
-    }
-    Ok(())
-}
-
-pub fn process_effective_balance_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let hysteresis_increment = spec
-        .effective_balance_increment
-        .safe_div(spec.hysteresis_quotient)?;
-    let downward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_downward_multiplier)?;
-    let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
-    let (validators, balances) = state.validators_and_balances_mut();
-    for (index, validator) in validators.iter_mut().enumerate() {
-        let balance = balances[index];
-
-        if balance.safe_add(downward_threshold)? < validator.effective_balance
-            || validator.effective_balance.safe_add(upward_threshold)? < balance
-        {
-            validator.effective_balance = std::cmp::min(
-                balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            );
-        }
-    }
-    Ok(())
-}
-
-pub fn process_slashings_reset<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
-    let next_epoch = state.next_epoch()?;
-    state.set_slashings(next_epoch, 0)?;
-    Ok(())
-}
-
-pub fn process_randao_mixes_reset<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
-    let current_epoch = state.current_epoch();
-    let next_epoch = state.next_epoch()?;
-    state.set_randao_mix(next_epoch, *state.get_randao_mix(current_epoch)?)?;
-    Ok(())
-}
-
-pub fn process_historical_roots_update<T: EthSpec>(
-    state: &mut BeaconState<T>,
-) -> Result<(), Error> {
-    let next_epoch = state.next_epoch()?;
-    if next_epoch
-        .as_u64()
-        .safe_rem(T::SlotsPerHistoricalRoot::to_u64().safe_div(T::slots_per_epoch())?)?
-        == 0
-    {
-        let historical_batch = state.historical_batch();
-        state
-            .historical_roots_mut()
-            .push(historical_batch.tree_hash_root())?;
-    }
-    Ok(())
-}
-
-pub fn process_participation_record_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
-) -> Result<(), Error> {
-    let base_state = state.as_base_mut()?;
-    base_state.previous_epoch_attestations =
-        std::mem::take(&mut base_state.current_epoch_attestations);
-    Ok(())
-}
-
-//TODO: there's no EF test for this one
-fn process_participation_flag_updates<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
-    let altair_state = state.as_altair_mut()?;
-    altair_state.previous_epoch_participation =
-        std::mem::take(&mut altair_state.current_epoch_participation);
-    altair_state.current_epoch_participation =
-        VariableList::new(vec![
-            ParticipationFlags::default();
-            altair_state.validators.len()
-        ])?;
-    Ok(())
-}
-
-pub fn process_sync_committee_udpates<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let next_epoch = state.next_epoch()?;
-    if next_epoch.safe_rem(spec.epochs_per_sync_committee_period)? == 0 {
-        state.as_altair_mut()?.current_sync_committee =
-            state.as_altair()?.next_sync_committee.clone();
-        state.as_altair_mut()?.next_sync_committee = state.get_sync_committee(
-            next_epoch.safe_add(spec.epochs_per_sync_committee_period)?,
-            spec,
-        )?;
-    }
-    Ok(())
 }
