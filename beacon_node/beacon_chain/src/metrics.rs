@@ -644,10 +644,8 @@ lazy_static! {
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     let _ = beacon_chain.with_head(|head| {
-        Ok::<_, BeaconChainError>(scrape_head_state(
-            &head.beacon_state,
-            head.beacon_state_root(),
-        ))
+        scrape_head_state(&head.beacon_state, head.beacon_state_root());
+        Ok::<_, BeaconChainError>(())
     });
 
     if let Some(slot) = beacon_chain.slot_clock.now() {
