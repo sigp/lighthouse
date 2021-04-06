@@ -38,6 +38,22 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
     process_activations(&mut state, spec)?;
 
+    // To support testnets with Altair enabled from genesis, perform a possible state upgrade here.
+    // This must happen *after* deposits and activations are processed or the calculation of sync
+    // committees during the upgrade will fail.
+    if get_fork_schedule().map_or(false, |schedule| {
+        schedule.altair_fork_slot == Some(spec.genesis_slot)
+    }) {
+        state = state.upgrade_to_altair(spec)?;
+
+        // Reset the sync committees (this seems to be what the tests want)
+        state.as_altair_mut()?.current_sync_committee = SyncCommittee::temporary()?;
+        state.as_altair_mut()?.next_sync_committee = SyncCommittee::temporary()?;
+
+        // Reset the fork version too.
+        state.fork_mut().current_version = spec.genesis_fork_version;
+    }
+
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
 

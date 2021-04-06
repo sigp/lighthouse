@@ -15,11 +15,11 @@ pub fn process_sync_committee<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify sync committee aggregate signature signing over the previous slot block root
-    state.build_sync_committee_cache(spec)?;
+    state.build_current_sync_committee_cache(spec)?;
 
     let previous_slot = state.slot().saturating_sub(1u64);
 
-    let committee_indices = state.get_sync_committee_indices(spec)?;
+    let committee_indices = state.get_current_sync_committee_indices(spec)?;
 
     let included_indices = committee_indices
         .iter()
