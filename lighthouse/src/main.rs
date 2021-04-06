@@ -6,11 +6,7 @@ use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
-use malloc_ctl::{
-    malloc_arena_max, malloc_mmap_threshold,
-    trimmer_thread::{spawn_trimmer_thread, DEFAULT_TRIM_INTERVAL},
-    DEFAULT_MMAP_THRESHOLD, DEFAULT_TRIM,
-};
+use malloc_ctl::configure_memory_allocator;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
@@ -18,6 +14,9 @@ use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+
+// CLI flags:
+pub const DISABLE_MALLOC_TUNING: &str = "disable-malloc-tuning";
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
@@ -32,24 +31,6 @@ fn bls_library_name() -> &'static str {
 }
 
 fn main() {
-    // Configure malloc as the first thing we do, before it has the change to use the default
-    // values for anything.
-    //
-    // TODO: check for env variable so we don't overwrite it.
-    if let Err(e) = malloc_arena_max(1) {
-        eprintln!("Failed (code {}) to set malloc max arena count", e);
-        exit(1)
-    }
-
-    if let Err(e) = malloc_mmap_threshold(DEFAULT_MMAP_THRESHOLD) {
-        eprintln!("Failed (code {}) to set malloc mmap threshold", e);
-        exit(1)
-    }
-
-    // Spawn a thread which will periodically force malloc to "trim" itself, returning fragmented
-    // memory to the OS.
-    spawn_trimmer_thread(DEFAULT_TRIM_INTERVAL, DEFAULT_TRIM);
-
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())
@@ -148,12 +129,35 @@ fn main() {
                 .global(true)
 
         )
+        .arg(
+            Arg::with_name(DISABLE_MALLOC_TUNING)
+                .long(DISABLE_MALLOC_TUNING)
+                .help(
+                    "If present, do not configure the system allocator. Providing this flag will \
+                    generally increase memory usage, it should only be provided when debugging \
+                    specific memory allocation issues."
+                )
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .subcommand(remote_signer::cli_app())
         .get_matches();
+
+    // Configure the allocator early in the process, before it has the chance to use the default values for
+    // anything important.
+    if !matches.is_present(DISABLE_MALLOC_TUNING) {
+        if let Err(e) = configure_memory_allocator() {
+            eprintln!(
+                "Unable to configure the memory allocator: {} \n\
+                Try providing the --{} flag",
+                e, DISABLE_MALLOC_TUNING
+            );
+            exit(1)
+        }
+    }
 
     // Debugging output for libp2p and external crates.
     if matches.is_present("env_log") {
