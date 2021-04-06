@@ -2,7 +2,6 @@ name: check-suite
 
 on:
   pull_request:
-env:
 jobs:
   test-echo:
     name: test-echo
