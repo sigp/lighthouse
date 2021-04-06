@@ -12,7 +12,7 @@ pub mod linux {
 }
 
 pub mod not_linux {
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::unnecessary_wraps)]
     fn configure_memory_allocator() -> Result<(), String> {
         Ok(())
     }
