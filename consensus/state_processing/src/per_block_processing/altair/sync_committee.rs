@@ -1,13 +1,12 @@
+use crate::common::{altair::get_base_reward_per_increment, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
+use crate::per_epoch_processing::altair::rewards_and_penalties::{
+    SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR,
+};
 use itertools::Itertools;
+use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::{BeaconState, ChainSpec, Domain, EthSpec, SigningData, SyncAggregate};
-// FIXME(altair): move this to common?
-use crate::common::increase_balance;
-use crate::per_epoch_processing::altair::rewards_and_penalties::{
-    get_base_reward_per_increment, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR,
-};
-use safe_arith::SafeArith;
 
 pub fn process_sync_committee<T: EthSpec>(
     state: &mut BeaconState<T>,

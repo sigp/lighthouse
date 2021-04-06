@@ -1162,6 +1162,26 @@ impl<T: EthSpec> BeaconState<T> {
         )
     }
 
+    /// Get a mutable reference to the epoch participation flags for `epoch`.
+    pub fn get_epoch_participation_mut(
+        &mut self,
+        epoch: Epoch,
+    ) -> Result<&mut VariableList<ParticipationFlags, T::ValidatorRegistryLimit>, Error> {
+        if epoch == self.current_epoch() {
+            match self {
+                BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
+                BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
+            }
+        } else if epoch == self.previous_epoch() {
+            match self {
+                BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
+                BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
+            }
+        } else {
+            Err(BeaconStateError::EpochOutOfBounds)
+        }
+    }
+
     /// Get the number of outstanding deposits.
     ///
     /// Returns `Err` if the state is invalid.

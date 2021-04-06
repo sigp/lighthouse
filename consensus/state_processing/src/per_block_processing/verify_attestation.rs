@@ -15,14 +15,12 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// to `state`. Otherwise, returns a descriptive `Err`.
 ///
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
-///
-/// Spec v0.12.1
 pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<()> {
+) -> Result<IndexedAttestation<T>> {
     let data = &attestation.data;
 
     verify!(
@@ -56,7 +54,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     attestation: &Attestation<T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<()> {
+) -> Result<IndexedAttestation<T>> {
     let data = &attestation.data;
 
     verify!(
@@ -72,7 +70,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     let indexed_attestation = get_indexed_attestation(committee.committee, attestation)?;
     is_valid_indexed_attestation(state, &indexed_attestation, verify_signatures, spec)?;
 
-    Ok(())
+    Ok(indexed_attestation)
 }
 
 /// Check target epoch and source checkpoint.

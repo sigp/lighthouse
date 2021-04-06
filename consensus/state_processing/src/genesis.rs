@@ -1,5 +1,5 @@
 use super::per_block_processing::{
-    errors::BlockProcessingError, process_operations::base::process_deposit,
+    errors::BlockProcessingError, process_operations::process_deposit,
 };
 use crate::common::DepositDataTree;
 use safe_arith::{ArithError, SafeArith};
