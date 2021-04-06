@@ -9,17 +9,20 @@ use std::os::raw::{c_int, c_ulong};
 use std::thread;
 use std::time::Duration;
 
-/// A default value to be provided to `malloc_trim`.
+/// The value to be provided to `malloc_trim`.
 ///
 /// Value sourced from:
 ///
 /// - https://man7.org/linux/man-pages/man3/mallopt.3.html
-pub const DEFAULT_TRIM: c_ulong = 1_024 * 128;
+const OPTIMAL_TRIM: c_ulong = 1_024 * 128;
 
-/// A default value to be provided to `malloc_mmap_threshold`.
+/// The value to be provided to `malloc_mmap_threshold`.
 ///
 /// Value chosen so that it will store the values of the validators tree hash cache.
-const DEFAULT_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
+const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
+
+/// The maximum number of arenas allowed to be created by malloc.
+const OPTIMAL_ARENA_MAX: c_int = 1;
 
 /// Constants used to configure malloc internals.
 ///
@@ -30,7 +33,7 @@ const M_MMAP_THRESHOLD: c_int = -4;
 const M_ARENA_MAX: c_int = -8;
 
 /// The default interval between calls to `spawn_trimmer_thread`.
-const DEFAULT_TRIM_INTERVAL: Duration = Duration::from_secs(60);
+const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Environment variables used to configure malloc.
 ///
@@ -42,18 +45,18 @@ const ENV_VAR_MMAP_THRESHOLD: &str = "MALLOC_MMAP_THRESHOLD_";
 
 pub fn configure_glibc_malloc() -> Result<(), String> {
     if !env_var_present(ENV_VAR_ARENA_MAX) {
-        if let Err(e) = malloc_arena_max(1) {
+        if let Err(e) = malloc_arena_max(OPTIMAL_ARENA_MAX) {
             return Err(format!("failed (code {}) to set malloc max arena count", e));
         }
     }
 
     if !env_var_present(ENV_VAR_MMAP_THRESHOLD) {
-        if let Err(e) = malloc_mmap_threshold(DEFAULT_MMAP_THRESHOLD) {
+        if let Err(e) = malloc_mmap_threshold(OPTIMAL_MMAP_THRESHOLD) {
             return Err(format!("failed (code {}) to set malloc mmap threshold", e));
         }
     }
 
-    spawn_trimmer_thread(DEFAULT_TRIM_INTERVAL, DEFAULT_TRIM);
+    spawn_trimmer_thread(OPTIMAL_TRIM_INTERVAL, OPTIMAL_TRIM);
 
     Ok(())
 }
@@ -102,7 +105,7 @@ fn malloc_mmap_threshold(num_arenas: c_int) -> Result<(), c_int> {
 }
 
 /// The outcome of calling `malloc_trim`.
-pub enum TrimOutcome {
+enum TrimOutcome {
     /// Memory was actually released back to the system.
     MemoryFreed,
     /// It was not possible to release any memory.
@@ -115,7 +118,7 @@ pub enum TrimOutcome {
 /// ## Resources
 ///
 /// - https://man7.org/linux/man-pages/man3/malloc_trim.3.html
-pub fn malloc_trim(pad: c_ulong) -> Result<TrimOutcome, c_int> {
+fn malloc_trim(pad: c_ulong) -> Result<TrimOutcome, c_int> {
     unsafe {
         match ffi::malloc_trim(pad) {
             0 => Ok(TrimOutcome::NoMemoryFreed),
@@ -173,7 +176,7 @@ mod tests {
 
     #[test]
     fn malloc_default_trim_does_not_panic() {
-        malloc_trim(DEFAULT_TRIM).unwrap();
+        malloc_trim(OPTIMAL_TRIM).unwrap();
     }
 
     /// Unfortunately this test will print into the test results, even on success. I don't know any
