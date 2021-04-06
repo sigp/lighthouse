@@ -1,7 +1,7 @@
 name: check-suite
 
 on:
-  pull_request:
+  pull_request_target:
 jobs:
   test-echo:
     name: test-echo
