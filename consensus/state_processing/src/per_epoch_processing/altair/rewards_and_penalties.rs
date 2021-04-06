@@ -1,25 +1,12 @@
-use crate::common::altair::get_base_reward;
-use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
+use types::consts::altair::{
+    FLAG_INDICES_AND_WEIGHTS, INACTIVITY_PENALTY_QUOTIENT_ALTAIR, INACTIVITY_SCORE_BIAS,
+    TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
+};
 use types::{BeaconState, ChainSpec, EthSpec};
 
-//TODO: move to chainspec -- or constants file in types
-pub const TIMELY_HEAD_FLAG_INDEX: u64 = 0;
-pub const TIMELY_SOURCE_FLAG_INDEX: u64 = 1;
-pub const TIMELY_TARGET_FLAG_INDEX: u64 = 2;
-pub const TIMELY_HEAD_WEIGHT: u64 = 12;
-pub const TIMELY_SOURCE_WEIGHT: u64 = 12;
-pub const TIMELY_TARGET_WEIGHT: u64 = 24;
-pub const SYNC_REWARD_WEIGHT: u64 = 8;
-pub const WEIGHT_DENOMINATOR: u64 = 64;
-pub const INACTIVITY_SCORE_BIAS: u64 = 4;
-pub const INACTIVITY_PENALTY_QUOTIENT_ALTAIR: u64 = u64::pow(2, 24).saturating_mul(3);
-
-pub const FLAG_INDICES_AND_WEIGHTS: [(u64, u64); 3] = [
-    (TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT),
-    (TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT),
-    (TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT),
-];
+use crate::common::altair::get_base_reward;
+use crate::per_epoch_processing::Error;
 
 /// Use to track the changes to a validators balance.
 #[derive(Default, Clone)]
@@ -64,7 +51,14 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     let total_active_balance = state.get_total_active_balance(spec)?;
 
     for (index, numerator) in FLAG_INDICES_AND_WEIGHTS.iter() {
-        get_flag_index_deltas(&mut deltas, state, *index, *numerator, total_active_balance, spec)?;
+        get_flag_index_deltas(
+            &mut deltas,
+            state,
+            *index,
+            *numerator,
+            total_active_balance,
+            spec,
+        )?;
     }
 
     get_inactivity_penalty_deltas(&mut deltas, state, total_active_balance, spec)?;
@@ -105,19 +99,19 @@ fn get_flag_index_deltas<T: EthSpec>(
         if unslashed_participating_indices.contains(&(index as usize)) {
             if state.is_in_inactivity_leak(spec) {
                 // This flag reward cancels the inactivity penalty corresponding to the flag index
-                delta.reward(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?);
+                delta.reward(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
             } else {
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
                     .safe_mul(unslashed_participating_increments)?;
                 delta.reward(
                     reward_numerator.safe_div(active_increments.safe_mul(WEIGHT_DENOMINATOR)?)?,
-                );
+                )?;
             }
         } else {
-            delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?);
+            delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
         }
-        deltas[index as usize].combine(delta);
+        deltas[index as usize].combine(delta)?;
     }
     Ok(())
 }
@@ -143,7 +137,7 @@ fn get_inactivity_penalty_deltas<T: EthSpec>(
                     get_base_reward(state, index, total_active_balance, spec)?
                         .safe_mul(*weight)?
                         .safe_div(WEIGHT_DENOMINATOR)?,
-                );
+                )?;
             }
             if !matching_target_indices.contains(&index) {
                 let penalty_numerator = state.validators()[index]
@@ -153,7 +147,7 @@ fn get_inactivity_penalty_deltas<T: EthSpec>(
                     INACTIVITY_SCORE_BIAS.safe_mul(INACTIVITY_PENALTY_QUOTIENT_ALTAIR)?;
                 delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
             }
-            deltas[index].combine(delta);
+            deltas[index].combine(delta)?;
         }
     }
     Ok(())
@@ -177,37 +171,4 @@ pub fn get_total_active_balance<T: EthSpec>(
         spec.effective_balance_increment,
         total_balance,
     ))
-}
-
-/// Returns the base reward for some validator.
-///
-/// Spec v1.1.0
-pub fn get_base_reward<T: EthSpec>(
-    state: &BeaconState<T>,
-    index: usize,
-    // Should be == get_total_active_balance(state, spec)
-    total_active_balance: u64,
-    spec: &ChainSpec,
-) -> Result<u64, Error> {
-    if total_active_balance == 0 {
-        Ok(0)
-    } else {
-        Ok(state
-            .get_effective_balance(index, spec)?
-            .safe_div(spec.effective_balance_increment)?
-            .safe_mul(get_base_reward_per_increment(total_active_balance, spec)?)?)
-    }
-}
-
-/// Returns the base reward for some validator.
-///
-/// Spec v1.1.0
-pub fn get_base_reward_per_increment(
-    total_active_balance: u64,
-    spec: &ChainSpec,
-) -> Result<u64, ArithError> {
-    return Ok(spec
-        .effective_balance_increment
-        .safe_mul(spec.base_reward_factor)?
-        .safe_div(total_active_balance.integer_sqrt())?);
 }

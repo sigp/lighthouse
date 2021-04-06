@@ -3,13 +3,13 @@ use crate::common::{
     altair::get_base_reward, increase_balance, initiate_validator_exit, slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
-use crate::per_epoch_processing::altair::rewards_and_penalties::{
-    FLAG_INDICES_AND_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
-    TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
-};
 use crate::VerifySignatures;
 use integer_sqrt::IntegerSquareRoot;
 use safe_arith::SafeArith;
+use types::consts::altair::{
+    FLAG_INDICES_AND_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
+    TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
+};
 
 pub fn process_operations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,

@@ -1,22 +1,17 @@
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
+use crate::per_epoch_processing::validator_statuses::ValidatorStatuses;
+pub use justification_and_finalization::process_justification_and_finalization;
+pub use rewards_and_penalties::process_rewards_and_penalties;
+use safe_arith::SafeArith;
+use tree_hash::TreeHash;
+use types::consts::altair::{INACTIVITY_SCORE_BIAS, TIMELY_TARGET_FLAG_INDEX};
 use types::{
-    BeaconState, ChainSpec, EthSpec, ParticipationFlags, RelativeEpoch,
-    Unsigned, VariableList,
+    BeaconState, ChainSpec, EthSpec, ParticipationFlags, RelativeEpoch, Unsigned, VariableList,
 };
 
 pub mod justification_and_finalization;
 pub mod rewards_and_penalties;
 
-use crate::per_epoch_processing::validator_statuses::{
-    ValidatorStatuses,
-};
-pub use justification_and_finalization::process_justification_and_finalization;
-pub use rewards_and_penalties::process_rewards_and_penalties;
-use safe_arith::SafeArith;
-use tree_hash::TreeHash;
-use crate::per_epoch_processing::altair::rewards_and_penalties::{TIMELY_TARGET_FLAG_INDEX, INACTIVITY_SCORE_BIAS};
-
-// FIXME(altair): implement
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -34,24 +29,21 @@ pub fn process_epoch<T: EthSpec>(
     validator_statuses.process_attestations(&state, spec)?;
 
     // Justification and finalization.
-    //TODO: modified
     process_justification_and_finalization(state, spec)?;
 
-    //TODO: new
     process_inactivity_updates(state, spec)?;
 
     // Rewards and Penalties.
-    //TODO: modified
     process_rewards_and_penalties(state, spec)?;
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
 
     // Slashings.
-    //TODO: modified
     process_slashings(
         state,
-        validator_statuses.total_balances.current_epoch(),
+        state.get_total_active_balance(spec)?,
+        spec.proportional_slashing_multiplier_altair,
         spec,
     )?;
 
@@ -73,10 +65,9 @@ pub fn process_epoch<T: EthSpec>(
     // Rotate current/previous epoch attestations
     process_participation_record_updates(state)?;
 
-    //TODO: new
     process_participation_flag_updates(state)?;
-    //TODO: new
-    process_sync_committee_udpates(state)?;
+
+    process_sync_committee_udpates(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
@@ -87,7 +78,7 @@ pub fn process_epoch<T: EthSpec>(
     })
 }
 
-//TODO: add EF test
+//TODO: there's no EF test for this one
 pub fn process_inactivity_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -100,10 +91,11 @@ pub fn process_inactivity_updates<T: EthSpec>(
         )?;
         if unslashed_indices.contains(&index) {
             if state.as_altair()?.inactivity_scores[index] > 0 {
-                state.as_altair_mut()?.inactivity_scores[index].safe_sub_assign(1);
+                state.as_altair_mut()?.inactivity_scores[index].safe_sub_assign(1)?;
             }
         } else if state.is_in_inactivity_leak(spec) {
-            state.as_altair_mut()?.inactivity_scores[index].safe_add_assign(INACTIVITY_SCORE_BIAS);
+            state.as_altair_mut()?.inactivity_scores[index]
+                .safe_add_assign(INACTIVITY_SCORE_BIAS)?;
         }
     }
     Ok(())
@@ -185,6 +177,7 @@ pub fn process_participation_record_updates<T: EthSpec>(
     Ok(())
 }
 
+//TODO: there's no EF test for this one
 fn process_participation_flag_updates<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
     let altair_state = state.as_altair_mut()?;
     altair_state.previous_epoch_participation =
@@ -197,6 +190,18 @@ fn process_participation_flag_updates<T: EthSpec>(state: &mut BeaconState<T>) ->
     Ok(())
 }
 
-fn process_sync_committee_udpates<T: EthSpec>(_state: &mut BeaconState<T>) -> Result<(), Error> {
+pub fn process_sync_committee_udpates<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let next_epoch = state.next_epoch()?;
+    if next_epoch.safe_rem(spec.epochs_per_sync_committee_period)? == 0 {
+        state.as_altair_mut()?.current_sync_committee =
+            state.as_altair()?.next_sync_committee.clone();
+        state.as_altair_mut()?.next_sync_committee = state.get_sync_committee(
+            next_epoch.safe_add(spec.epochs_per_sync_committee_period)?,
+            spec,
+        )?;
+    }
     Ok(())
 }

@@ -354,6 +354,12 @@ fn epoch_processing_participation_record_updates() {
 }
 
 #[test]
+fn epoch_processing_sync_committee_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, SyncCommitteeUpdates>::run();
+    EpochProcessingHandler::<MainnetEthSpec, SyncCommitteeUpdates>::run();
+}
+
+#[test]
 fn finality() {
     FinalityHandler::<MinimalEthSpec>::run();
     FinalityHandler::<MainnetEthSpec>::run();

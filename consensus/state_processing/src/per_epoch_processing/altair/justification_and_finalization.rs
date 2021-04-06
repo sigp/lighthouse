@@ -1,8 +1,7 @@
-
 use crate::per_epoch_processing::weigh_justification_and_finalization;
 use crate::per_epoch_processing::Error;
-use crate::per_epoch_processing::altair::rewards_and_penalties::TIMELY_TARGET_FLAG_INDEX;
 use safe_arith::SafeArith;
+use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Update the justified and finalized checkpoints for matching target attestations.

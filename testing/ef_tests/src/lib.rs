@@ -6,7 +6,7 @@ pub use cases::Case;
 pub use cases::{
     EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, JustificationAndFinalization,
     ParticipationRecordUpdates, RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings,
-    SlashingsReset,
+    SlashingsReset, SyncCommitteeUpdates,
 };
 pub use error::Error;
 pub use handler::*;

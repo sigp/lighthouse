@@ -6,15 +6,14 @@ use types::{BeaconState, ChainSpec, EthSpec, Unsigned};
 pub fn process_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     total_balance: u64,
+    slashing_multiplier: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = state.current_epoch();
     let sum_slashings = state.get_all_slashings().iter().copied().safe_sum()?;
-    // FIXME(altair): abstract over slashing multiplier
-    let adjusted_total_slashing_balance = std::cmp::min(
-        sum_slashings.safe_mul(spec.proportional_slashing_multiplier)?,
-        total_balance,
-    );
+
+    let adjusted_total_slashing_balance =
+        std::cmp::min(sum_slashings.safe_mul(slashing_multiplier)?, total_balance);
 
     let (validators, balances) = state.validators_and_balances_mut();
     for (index, validator) in validators.iter().enumerate() {

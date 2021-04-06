@@ -23,6 +23,7 @@ pub mod beacon_committee;
 pub mod beacon_state;
 pub mod chain_spec;
 pub mod checkpoint;
+pub mod consts;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_message;

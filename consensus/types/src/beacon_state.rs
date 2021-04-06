@@ -727,7 +727,9 @@ impl<T: EthSpec> BeaconState<T> {
 
         // Fail if attempting to compute the sync committee indices for anything other than
         // the current or next sync period.
-        if base_epoch != current_base_epoch && base_epoch != current_base_epoch.safe_add(1)? {
+        if base_epoch != current_base_epoch
+            && base_epoch != current_base_epoch.safe_add(spec.epochs_per_sync_committee_period)?
+        {
             return Err(Error::EpochOutOfBounds);
         }
 
@@ -776,7 +778,7 @@ impl<T: EthSpec> BeaconState<T> {
         spec: &ChainSpec,
     ) -> Result<SyncCommittee<T>, Error> {
         let base_epoch = self.sync_committee_base_epoch(epoch, spec)?;
-        let current_base_epoch = self.sync_committee_base_epoch(epoch, spec)?;
+        let current_base_epoch = self.sync_committee_base_epoch(self.current_epoch(), spec)?;
 
         let sync_committee_indices = if base_epoch == current_base_epoch {
             Cow::Borrowed(self.get_current_sync_committee_indices(spec)?)
