@@ -143,7 +143,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("disable-enr-auto-update")
                 .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot.")
-                .takes_value(true),
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("libp2p-addresses")
