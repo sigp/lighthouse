@@ -349,7 +349,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_slot: Slot::new(0),
+            altair_fork_slot: Slot::new(u64::MAX),
 
             /*
              * Network specific
@@ -388,7 +388,7 @@ impl ChainSpec {
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
-            altair_fork_slot: Slot::new(0),
+            altair_fork_slot: Slot::new(u64::MAX),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -843,7 +843,6 @@ impl YamlConfig {
 }
 
 /// The Altair spec file
-// FIXME(altair): this may get rolled into the main spec file?
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct AltairConfig {
@@ -864,11 +863,10 @@ pub struct AltairConfig {
     epochs_per_sync_committee_period: Epoch,
     #[serde(with = "serde_utils::u32_hex")]
     domain_sync_committee: u32,
-    // FIXME(altair): missing from alpha.2
-    // #[serde(with = "serde_utils::u32_hex")]
-    // domain_sync_committee_selection_proof: u32,
-    // #[serde(with = "serde_utils::u32_hex")]
-    // domain_contribution_and_proof: u32,
+    #[serde(with = "serde_utils::u32_hex")]
+    domain_sync_committee_selection_proof: u32,
+    #[serde(with = "serde_utils::u32_hex")]
+    domain_contribution_and_proof: u32,
     #[serde(with = "serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
     #[serde(with = "serde_utils::quoted_u64")]
@@ -898,11 +896,10 @@ impl AltairConfig {
             inactivity_score_bias: self.inactivity_score_bias,
             epochs_per_sync_committee_period: self.epochs_per_sync_committee_period,
             domain_sync_committee: self.domain_sync_committee,
+            domain_sync_committee_selection_proof: self.domain_sync_committee_selection_proof,
+            domain_contribution_and_proof: self.domain_contribution_and_proof,
             altair_fork_version: self.altair_fork_version,
             altair_fork_slot: self.altair_fork_slot,
-            // FIXME(altair): missing
-            // domain_sync_committee_selection_proof: self.domain_sync_committee_selection_proof,
-            // domain_contribution_and_proof: self.domain_contribution_and_proof,
             ..chain_spec.clone()
         })
     }

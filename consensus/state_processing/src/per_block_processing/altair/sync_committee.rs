@@ -3,8 +3,8 @@ use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInv
 use itertools::Itertools;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-use types::consts::altair::{SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{BeaconState, ChainSpec, Domain, EthSpec, SigningData, SyncAggregate};
+use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
+use types::{BeaconState, ChainSpec, Domain, EthSpec, SigningData, SyncAggregate, Unsigned};
 
 pub fn process_sync_committee<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -17,17 +17,9 @@ pub fn process_sync_committee<T: EthSpec>(
 
     let previous_slot = state.slot().saturating_sub(1u64);
 
-    let committee_indices = state.get_current_sync_committee_indices(spec)?;
-
-    let included_indices = committee_indices
-        .iter()
-        .zip(aggregate.sync_committee_bits.iter())
-        .flat_map(|(index, bit)| Some(*index).filter(|_| bit))
-        .collect_vec();
-
     let committee_pubkeys = &state.as_altair()?.current_sync_committee.pubkeys;
 
-    let included_pubkeys = committee_pubkeys
+    let participant_pubkeys = committee_pubkeys
         .iter()
         .zip(aggregate.sync_committee_bits.iter())
         .flat_map(|(pubkey, bit)| {
@@ -54,7 +46,7 @@ pub fn process_sync_committee<T: EthSpec>(
     }
     .tree_hash_root();
 
-    let pubkey_refs = included_pubkeys.iter().collect::<Vec<_>>();
+    let pubkey_refs = participant_pubkeys.iter().collect::<Vec<_>>();
     if !aggregate
         .sync_committee_signature
         .eth2_fast_aggregate_verify(signing_root, &pubkey_refs)
@@ -62,34 +54,33 @@ pub fn process_sync_committee<T: EthSpec>(
         return Err(SyncAggregateInvalid::SignatureInvalid.into());
     }
 
-    // Compute the maximum sync rewards for the slot
+    // Compute participant and proposer rewards
     let total_active_balance = state.get_total_active_balance(spec)?;
     let total_active_increments =
         total_active_balance.safe_div(spec.effective_balance_increment)?;
     let total_base_rewards = get_base_reward_per_increment(total_active_balance, spec)?
         .safe_mul(total_active_increments)?;
-    let max_epoch_rewards = total_base_rewards
+    let max_participant_rewards = total_base_rewards
         .safe_mul(SYNC_REWARD_WEIGHT)?
-        .safe_div(WEIGHT_DENOMINATOR)?;
-    let max_slot_rewards = max_epoch_rewards
-        .safe_mul(included_indices.len() as u64)?
-        .safe_div(committee_indices.len() as u64)?
+        .safe_div(WEIGHT_DENOMINATOR)?
         .safe_div(T::slots_per_epoch())?;
+    let participant_reward = max_participant_rewards.safe_div(T::SyncCommitteeSize::to_u64())?;
+    let proposer_reward = participant_reward
+        .safe_mul(PROPOSER_WEIGHT)?
+        .safe_div(WEIGHT_DENOMINATOR.safe_sub(PROPOSER_WEIGHT)?)?;
 
-    // Compute the participant and proposer sync rewards
-    let committee_effective_balance = state.get_total_balance(&included_indices, spec)?;
-    for included_index in included_indices {
-        let effective_balance = state.validators()[included_index].effective_balance;
-        let inclusion_reward = max_slot_rewards
-            .safe_mul(effective_balance)?
-            .safe_div(committee_effective_balance)?;
-        let proposer_reward = inclusion_reward.safe_div(spec.proposer_reward_quotient)?;
+    // Apply participant and proposer rewards
+    let committee_indices = state.get_current_sync_committee_indices(spec)?;
+
+    let participant_indices = committee_indices
+        .iter()
+        .zip(aggregate.sync_committee_bits.iter())
+        .flat_map(|(index, bit)| Some(*index).filter(|_| bit))
+        .collect_vec();
+
+    for participant_index in participant_indices {
+        increase_balance(state, participant_index as usize, participant_reward)?;
         increase_balance(state, proposer_index as usize, proposer_reward)?;
-        increase_balance(
-            state,
-            included_index as usize,
-            inclusion_reward.safe_sub(proposer_reward)?,
-        )?;
     }
 
     Ok(())

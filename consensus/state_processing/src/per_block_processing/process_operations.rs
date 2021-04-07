@@ -7,7 +7,7 @@ use crate::VerifySignatures;
 use integer_sqrt::IntegerSquareRoot;
 use safe_arith::SafeArith;
 use types::consts::altair::{
-    FLAG_INDICES_AND_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
+    FLAG_INDICES_AND_WEIGHTS, PROPOSER_WEIGHT, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
     TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
 };
 
@@ -172,8 +172,11 @@ pub mod altair {
             }
         }
 
-        let proposer_reward = proposer_reward_numerator
-            .safe_div(WEIGHT_DENOMINATOR.safe_mul(spec.proposer_reward_quotient)?)?;
+        let proposer_reward_denominator = WEIGHT_DENOMINATOR
+            .safe_sub(PROPOSER_WEIGHT)?
+            .safe_mul(WEIGHT_DENOMINATOR)?
+            .safe_div(PROPOSER_WEIGHT)?;
+        let proposer_reward = proposer_reward_numerator.safe_div(proposer_reward_denominator)?;
         // FIXME(altair): optimise by passing in proposer_index
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)?;
         increase_balance(state, proposer_index, proposer_reward)?;
