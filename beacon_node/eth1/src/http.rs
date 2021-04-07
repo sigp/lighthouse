@@ -91,14 +91,21 @@ pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id,
 
 /// Get the eth1 chain id of the given endpoint.
 pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
-    let response_body = send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
-    hex_to_u64_be(
-        response_result(&response_body)?
-            .ok_or("No result was returned for chain id")?
-            .as_str()
-            .ok_or("Data was not string")?,
-    )
-    .map(Into::into)
+    let response_body: String =
+        send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
+
+    /* extract response text here */
+    let response_result: Result<Option<serde_json::Value>, String> =
+        response_result(&response_body);
+
+    /* specifically handle Geth's pre-EIP-155 sync error message */
+    match response_result {
+        Ok(t) => Ok(Eth1Id::from(hex_to_u64_be(t.ok_or("No result was returned for chain id")?.as_str().ok_or("Data was not string")?)?)),
+        Err(e) => match e.as_str() {
+            "Eth1 node returned error: {\"code\":-32000,\"message\":\"chain not synced beyond EIP-155 replay-protection fork block\"}" => return Ok(Eth1Id::Custom(0)),
+            _ => Err(e)
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
