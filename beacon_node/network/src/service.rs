@@ -18,7 +18,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use types::{EthSpec, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
+use types::{EthSpec, ForkContext, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
 
 mod tests;
 
@@ -159,13 +159,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // keep track of when our fork_id needs to be updated
         let next_fork_update = next_fork_delay(&beacon_chain);
 
+        // Create a fork context for the given config and genesis validators root
+        let fork_context = Arc::new(ForkContext::new(beacon_chain.genesis_validators_root, spec));
+
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(
             executor.clone(),
             config,
             enr_fork_id,
             &network_log,
-            beacon_chain.genesis_validators_root,
+            fork_context,
             &beacon_chain.spec,
         )
         .await?;

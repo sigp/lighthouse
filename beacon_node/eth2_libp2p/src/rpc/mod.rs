@@ -17,7 +17,7 @@ use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use types::{ChainSpec, EthSpec, Hash256};
+use types::{ChainSpec, EthSpec, ForkContext, Hash256};
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
@@ -96,14 +96,13 @@ pub struct RPC<TSpec: EthSpec> {
     limiter: RateLimiter,
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCSend<TSpec>, RPCMessage<TSpec>>>,
-    genesis_validators_root: Hash256,
-    spec: ChainSpec,
+    fork_context: Arc<ForkContext>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
 impl<TSpec: EthSpec> RPC<TSpec> {
-    pub fn new(genesis_validators_root: Hash256, spec: ChainSpec, log: slog::Logger) -> Self {
+    pub fn new(fork_context: ForkContext, log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
@@ -124,9 +123,8 @@ impl<TSpec: EthSpec> RPC<TSpec> {
             .expect("Configuration parameters are valid");
         RPC {
             limiter,
-            genesis_validators_root,
-            spec,
             events: Vec::new(),
+            fork_context,
             log,
         }
     }
@@ -163,8 +161,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
                 request_id,
                 RpcRequestContainer {
                     req: event,
-                    genesis_validators_root: self.genesis_validators_root,
-                    spec: self.spec,
+                    fork_context: self.fork_context.clone(),
                 },
             ),
         });
@@ -182,8 +179,7 @@ where
         RPCHandler::new(
             SubstreamProtocol::new(
                 RPCProtocol {
-                    genesis_validators_root: self.genesis_validators_root,
-                    spec: self.spec,
+                    fork_context: self.fork_context.clone(),
                     phantom: PhantomData,
                 },
                 (),
@@ -205,8 +201,7 @@ where
             RequestId::Behaviour,
             RpcRequestContainer {
                 req: RPCRequest::MetaData(PhantomData),
-                genesis_validators_root: self.genesis_validators_root,
-                spec: self.spec,
+                fork_context: self.fork_context.clone(),
             },
         );
         self.events.push(NetworkBehaviourAction::NotifyHandler {

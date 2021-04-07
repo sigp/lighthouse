@@ -43,7 +43,9 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{ChainSpec, EnrForkId, EthSpec, Hash256, SignedBeaconBlock, Slot, SubnetId};
+use types::{
+    ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot, SubnetId,
+};
 
 mod gossipsub_scoring_parameters;
 mod handler;
@@ -136,10 +138,8 @@ pub struct Behaviour<TSpec: EthSpec> {
 
     score_settings: PeerScoreSettings<TSpec>,
 
-    spec: ChainSpec,
-
-    /// The genesis root for the eth2 network
-    genesis_validators_root: Hash256,
+    /// Fork specific info
+    fork_context: Arc<ForkContext>,
 
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
@@ -152,8 +152,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
-        genesis_validators_root: Hash256,
-        chain_spec: &ChainSpec,
+        fork_context: Arc<ForkContext>,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
 
@@ -225,7 +224,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Valid score params and thresholds");
 
         Ok(Behaviour {
-            eth2_rpc: RPC::new(genesis_validators_root, chain_spec.clone(), log.clone()),
+            eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
             gossipsub,
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
@@ -238,9 +237,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
             score_settings,
-            spec: chain_spec.clone(),
             update_gossipsub_scores,
-            genesis_validators_root,
+            fork_context,
         })
     }
 

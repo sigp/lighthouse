@@ -15,7 +15,8 @@ use std::marker::PhantomData;
 use std::{convert::TryInto, io::Cursor};
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    ChainSpec, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    ChainSpec, EthSpec, ForkContext, ForkType, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -27,8 +28,7 @@ pub struct SSZSnappyInboundCodec<TSpec: EthSpec> {
     len: Option<usize>,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
-    genesis_validators_root: Hash256,
-    spec: ChainSpec,
+    fork_context: Arc<ForkContext>,
     phantom: PhantomData<TSpec>,
 }
 
@@ -36,8 +36,7 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
     pub fn new(
         protocol: ProtocolId,
         max_packet_size: usize,
-        genesis_validators_root: Hash256,
-        spec: ChainSpec,
+        fork_context: Arc<ForkContext>,
     ) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
@@ -48,8 +47,7 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
             protocol,
             len: None,
             phantom: PhantomData,
-            genesis_validators_root,
-            spec,
+            fork_context,
             max_packet_size,
         }
     }
@@ -88,17 +86,13 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
         if self.protocol.version == Version::V2 {
             if let RPCCodedResponse(RPCResponse::BlocksByRange(res)) = item {
                 if let SignedBeaconBlockAltair { .. } = res {
-                    dst.extend_from_slice(
-                        self.spec.altair_fork_digest(self.genesis_validators_root),
-                    );
+                    dst.extend_from_slice(self.fork_context.to_context_bytes(ForkType::Altair));
                 }
             }
 
             if let RPCCodedResponse(RPCResponse::BlocksByRoot(res)) = item {
                 if let SignedBeaconBlockAltair { .. } = res {
-                    dst.extend_from_slice(
-                        self.spec.altair_fork_digest(self.genesis_validators_root),
-                    );
+                    dst.extend_from_slice(self.fork_context.to_context_bytes(ForkType::Genesis));
                 }
             }
         }
@@ -222,8 +216,7 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
     context_bytes: Option<[u8; 4]>,
-    genesis_validators_root: H256,
-    spec: ChainSpec,
+    fork_context: Arc<ForkContext>,
     phantom: PhantomData<TSpec>,
 }
 
@@ -231,8 +224,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
     pub fn new(
         protocol: ProtocolId,
         max_packet_size: usize,
-        genesis_validators_root: Hash256,
-        spec: ChainSpec,
+        fork_context: Arc<ForkContext>,
     ) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
@@ -244,8 +236,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
             max_packet_size,
             len: None,
             context_bytes: None,
-            genesis_validators_root,
-            spec,
+            fork_context,
             phantom: PhantomData,
         }
     }
@@ -371,46 +362,42 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         })?;
 
                         match self.protocol.message_name {
-                            Protocol::BlocksByRange => {
-                                if context_bytes
-                                    == self.spec.altair_fork_digest(self.genesis_validators_root)
-                                {
-                                    Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
-                                    ))))
-                                } else if context_bytes
-                                    == self.spec.genesis_fork_digest(self.genesis_validators_root)
-                                {
-                                    Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                        SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
-                                    ))))
-                                } else {
+                            Protocol::BlocksByRange => match self
+                                .fork_context
+                                .from_context_bytes(context_bytes)
+                                .ok_or_else(|| {
                                     Err(RPCError::ErrorResponse(
                                         RPCResponseErrorCode::InvalidRequest,
                                         "Context bytes does not correspond to a valid fork",
                                     ))
-                                }
-                            }
-                            Protocol::BlocksByRoot => {
-                                if context_bytes
-                                    == self.spec.altair_fork_digest(self.genesis_validators_root)
-                                {
-                                    Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
-                                    ))))
-                                } else if context_bytes
-                                    == self.spec.genesis_fork_digest(self.genesis_validators_root)
-                                {
-                                    Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                })? {
+                                ForkType::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                    SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                )))),
+
+                                ForkType::Genesis => {
+                                    Ok(Some(RPCResponse::BlocksByRange(Box::new(
                                         SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
                                     ))))
-                                } else {
+                                }
+                            },
+                            Protocol::BlocksByRoot => match self
+                                .fork_context
+                                .from_context_bytes(context_bytes)
+                                .ok_or_else(|| {
                                     Err(RPCError::ErrorResponse(
                                         RPCResponseErrorCode::InvalidRequest,
                                         "Context bytes does not correspond to a valid fork",
                                     ))
-                                }
-                            }
+                                })? {
+                                ForkType::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                    SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                )))),
+                                ForkType::Genesis => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                    SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
+                                )))),
+                            },
+
                             _ => Err(RPCError::ErrorResponse(
                                 RPCResponseErrorCode::InvalidRequest,
                                 "Invalid v2 request".to_string(),

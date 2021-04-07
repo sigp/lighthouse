@@ -24,7 +24,8 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, ChainSpec, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
+    BeaconBlock, ChainSpec, EthSpec, ForkContext, Hash256, MainnetEthSpec, Signature,
+    SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -146,8 +147,7 @@ impl std::fmt::Display for Version {
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
-    pub spec: ChainSpec,
-    pub genesis_validators_root: Hash256,
+    pub fork_context: Arc<ForkContext>,
     pub phantom: PhantomData<TSpec>,
 }
 
@@ -319,8 +319,7 @@ where
                     let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
                         protocol,
                         MAX_RPC_SIZE,
-                        self.genesis_validators_root,
-                        self.spec,
+                        self.fork_context.clone(),
                     ));
                     InboundCodec::SSZSnappy(ssz_snappy_codec)
                 }
@@ -360,8 +359,7 @@ where
 #[derive(Debug, Clone, PartialEq)]
 pub struct RpcRequestContainer<TSpec: EthSpec> {
     pub req: RPCRequest<T>,
-    pub spec: ChainSpec,
-    pub genesis_validators_root: Hash256,
+    pub fork_context: Arc<ForkContext>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -487,8 +485,7 @@ where
                 let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
                     protocol,
                     MAX_RPC_SIZE,
-                    self.genesis_validators_root,
-                    self.spec.clone(),
+                    self.fork_context.clone(),
                 ));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)
             }

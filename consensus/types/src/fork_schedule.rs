@@ -48,13 +48,14 @@ pub enum ForkType {
     Genesis,
 }
 
+#[derive(Debug, Clone)]
 pub struct ForkContext {
     fork_to_digest: HashMap<ForkType, [u8; 4]>,
     digest_to_fork: HashMap<[u8; 4], ForkType>,
 }
 
 impl ForkContext {
-    pub fn new(genesis_validators_root: H256, spec: ChainSpec) -> Self {
+    pub fn new(genesis_validators_root: H256, spec: &ChainSpec) -> Self {
         let genesis_fork_version = spec.genesis_fork_digest(genesis_validators_root);
         let altair_fork_version = spec.genesis_fork_digest(genesis_validators_root);
         let fork_to_digest = vec![
