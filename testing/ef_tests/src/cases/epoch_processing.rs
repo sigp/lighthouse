@@ -1,29 +1,23 @@
-use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
-
-use serde_derive::Deserialize;
-
-use ssz::Decode;
-use state_processing::per_epoch_processing::validator_statuses::ValidatorStatuses;
-use state_processing::per_epoch_processing::{
-    altair, base, process_registry_updates, process_slashings,
-};
-use types::{BeaconState, ChainSpec, EthSpec};
-
+use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{snappy_decode_file, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
-
-use super::*;
+use serde_derive::Deserialize;
+use ssz::Decode;
+use state_processing::per_epoch_processing::validator_statuses::ValidatorStatuses;
 use state_processing::per_epoch_processing::{
+    altair, base,
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
-    participation_record_updates::process_participation_record_updates,
+    process_registry_updates, process_slashings,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
 use state_processing::EpochProcessingError;
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+use types::{BeaconState, ChainSpec, EthSpec};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -178,7 +172,11 @@ impl<E: EthSpec> EpochTransition<E> for HistoricalRootsUpdate {
 
 impl<E: EthSpec> EpochTransition<E> for ParticipationRecordUpdates {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_participation_record_updates(state)
+        if let BeaconState::Base(_) = state {
+            base::process_participation_record_updates(state)
+        } else {
+            Ok(())
+        }
     }
 }
 

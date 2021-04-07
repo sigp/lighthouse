@@ -29,9 +29,9 @@ impl<E: EthSpec> LoadCase for SanitySlots<E> {
         } else {
             Metadata::default()
         };
-        let pre = ssz_decode_file(&path.join("pre.ssz"))?;
+        let pre = ssz_decode_file(&path.join("pre.ssz_snappy"))?;
         let slots: u64 = yaml_decode_file(&path.join("slots.yaml"))?;
-        let post_file = path.join("post.ssz");
+        let post_file = path.join("post.ssz_snappy");
         let post = if post_file.is_file() {
             Some(ssz_decode_file(&post_file)?)
         } else {

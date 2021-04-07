@@ -23,18 +23,24 @@ pub trait Handler {
     fn handler_name() -> String;
 
     fn run() {
-        // FIXME(altair): this is a hack, work out a better place to put this
-        // should probably be in the individual test cases, but not duplicated too much
+        // XXX: This is a a bit of a hack.
         let fork_name = get_fork_name();
         INIT_FORK.call_once(|| {
             init_testing_fork_schedule(&fork_name);
         });
 
+        // If the test is for the "general" config, then all its files lived under phase0.
+        let effective_fork_name = if Self::config_name() == "general" {
+            "phase0"
+        } else {
+            &fork_name
+        };
+
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("eth2.0-spec-tests")
             .join("tests")
             .join(Self::config_name())
-            .join(fork_name)
+            .join(effective_fork_name)
             .join(Self::runner_name())
             .join(Self::handler_name());
 

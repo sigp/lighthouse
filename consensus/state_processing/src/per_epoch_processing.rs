@@ -13,7 +13,6 @@ pub mod base;
 pub mod effective_balance_updates;
 pub mod errors;
 pub mod historical_roots_update;
-pub mod participation_record_updates;
 pub mod registry_updates;
 pub mod resets;
 pub mod slashings;

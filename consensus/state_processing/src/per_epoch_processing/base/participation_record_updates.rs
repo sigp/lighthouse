@@ -1,6 +1,4 @@
-use super::errors::EpochProcessingError;
-use core::result::Result;
-use core::result::Result::Ok;
+use crate::EpochProcessingError;
 use types::beacon_state::BeaconState;
 use types::eth_spec::EthSpec;
 

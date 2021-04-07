@@ -91,7 +91,7 @@ impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         if get_fork_schedule().map_or(false, |schedule| {
-            schedule.altair_fork_slot == Some(spec.altair_fork_slot)
+            schedule.altair_fork_slot == Some(spec.genesis_slot)
         }) {
             Self::Altair(BeaconBlockAltair::empty(spec))
         } else {

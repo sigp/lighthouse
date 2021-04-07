@@ -14,7 +14,7 @@ pub struct GenesisValidity<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for GenesisValidity<E> {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
-        let genesis = ssz_decode_file(&path.join("genesis.ssz"))?;
+        let genesis = ssz_decode_file(&path.join("genesis.ssz_snappy"))?;
         let is_valid = yaml_decode_file(&path.join("is_valid.yaml"))?;
 
         Ok(Self { genesis, is_valid })

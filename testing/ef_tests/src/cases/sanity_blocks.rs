@@ -27,14 +27,14 @@ pub struct SanityBlocks<E: EthSpec> {
 impl<E: EthSpec> LoadCase for SanityBlocks<E> {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
-        let pre = ssz_decode_file(&path.join("pre.ssz"))?;
+        let pre = ssz_decode_file(&path.join("pre.ssz_snappy"))?;
         let blocks: Vec<SignedBeaconBlock<E>> = (0..metadata.blocks_count)
             .map(|i| {
-                let filename = format!("blocks_{}.ssz", i);
+                let filename = format!("blocks_{}.ssz_snappy", i);
                 ssz_decode_file(&path.join(filename))
             })
             .collect::<Result<_, _>>()?;
-        let post_file = path.join("post.ssz");
+        let post_file = path.join("post.ssz_snappy");
         let post = if post_file.is_file() {
             Some(ssz_decode_file(&post_file)?)
         } else {

@@ -2,7 +2,6 @@ use super::{process_registry_updates, process_slashings, EpochProcessingSummary,
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
-    participation_record_updates::process_participation_record_updates,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
     validator_statuses::ValidatorStatuses,
 };
@@ -27,13 +26,6 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
-
-    // Load the struct we use to assign validators into sets based on their participation.
-    //
-    // E.g., attestation in the previous epoch, attested to the head, etc.
-    //TODO: remove for altair?
-    let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-    validator_statuses.process_attestations(&state, spec)?;
 
     // Justification and finalization.
     process_justification_and_finalization(state, spec)?;
@@ -69,15 +61,19 @@ pub fn process_epoch<T: EthSpec>(
     // Set historical root accumulator
     process_historical_roots_update(state)?;
 
-    // Rotate current/previous epoch attestations
-    process_participation_record_updates(state)?;
-
+    // Rotate current/previous epoch participation
     process_participation_flag_updates(state)?;
 
     process_sync_committee_updates(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
+
+    // FIXME(altair): this is an incorrect dummy value, we should think harder
+    // about how we want to unify validator statuses between phase0 & altair.
+    // We should benchmark the new state transition and work out whether Altair could
+    // be accelerated by some similar cache.
+    let validator_statuses = ValidatorStatuses::new(state, spec)?;
 
     Ok(EpochProcessingSummary {
         total_balances: validator_statuses.total_balances,

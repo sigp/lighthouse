@@ -69,8 +69,10 @@ fn derived_typenum_values() {
 
 #[test]
 fn shuffling() {
-    ShufflingHandler::<MinimalEthSpec>::run();
-    ShufflingHandler::<MainnetEthSpec>::run();
+    if get_fork_name() == "phase0" {
+        ShufflingHandler::<MinimalEthSpec>::run();
+        ShufflingHandler::<MainnetEthSpec>::run();
+    }
 }
 
 #[test]
@@ -355,8 +357,10 @@ fn epoch_processing_participation_record_updates() {
 
 #[test]
 fn epoch_processing_sync_committee_updates() {
-    EpochProcessingHandler::<MinimalEthSpec, SyncCommitteeUpdates>::run();
-    EpochProcessingHandler::<MainnetEthSpec, SyncCommitteeUpdates>::run();
+    if get_fork_name() != "phase0" {
+        EpochProcessingHandler::<MinimalEthSpec, SyncCommitteeUpdates>::run();
+        EpochProcessingHandler::<MainnetEthSpec, SyncCommitteeUpdates>::run();
+    }
 }
 
 #[test]
