@@ -10,14 +10,14 @@ pub use inactivity_updates::process_inactivity_updates;
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
-pub use sync_committee_udpates::process_sync_committee_udpates;
+pub use sync_committee_updates::process_sync_committee_updates;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
 pub mod inactivity_updates;
 pub mod justification_and_finalization;
 pub mod participation_flag_updates;
 pub mod rewards_and_penalties;
-pub mod sync_committee_udpates;
+pub mod sync_committee_updates;
 
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -74,7 +74,7 @@ pub fn process_epoch<T: EthSpec>(
 
     process_participation_flag_updates(state)?;
 
-    process_sync_committee_udpates(state, spec)?;
+    process_sync_committee_updates(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();

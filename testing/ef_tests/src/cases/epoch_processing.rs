@@ -186,7 +186,7 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) => altair::process_sync_committee_udpates(state, spec),
+            BeaconState::Altair(_) => altair::process_sync_committee_updates(state, spec),
         }
     }
 }
