@@ -1,11 +1,15 @@
+//! Contains functions for tuning and controlling "The GNU Allocator", included in the `glibc`
+//! library.
+//!
+//! https://www.gnu.org/software/libc/manual/html_node/The-GNU-Allocator.html
+//!
+//! These functions are generally only suitable for Linux systems.
+use lazy_static::lazy_static;
+use libc;
+use lighthouse_metrics::*;
 use std::env;
-/// Contains functions for tuning and controlling "The GNU Allocator", included in the `glibc`
-/// library.
-///
-/// https://www.gnu.org/software/libc/manual/html_node/The-GNU-Allocator.html
-///
-/// These functions are generally only suitable for Linux systems.
 use std::os::raw::{c_int, c_ulong};
+use std::result::Result;
 use std::thread;
 use std::time::Duration;
 
@@ -42,6 +46,67 @@ const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60);
 /// https://man7.org/linux/man-pages/man3/mallopt.3.html
 const ENV_VAR_ARENA_MAX: &str = "MALLOC_ARENA_MAX";
 const ENV_VAR_MMAP_THRESHOLD: &str = "MALLOC_MMAP_THRESHOLD_";
+
+// Metrics for the malloc. For more information, see:
+//
+// https://man7.org/linux/man-pages/man3/mallinfo.3.html
+lazy_static! {
+    pub static ref MALLINFO_ARENA: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_arena",
+        "The total amount of memory allocated by means other than mmap(2). \
+            This figure includes both in-use blocks and blocks on the free list.",
+    );
+    pub static ref MALLINFO_ORDBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_ordblks",
+        "The number of ordinary (i.e., non-fastbin) free blocks.",
+    );
+    pub static ref MALLINFO_SMBLKS: lighthouse_metrics::Result<IntGauge> =
+        try_create_int_gauge("mallinfo_smblks", "The number of fastbin free blocks.",);
+    pub static ref MALLINFO_HBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_hblks",
+        "The number of blocks currently allocated using mmap.",
+    );
+    pub static ref MALLINFO_HBLKHD: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_hblkhd",
+        "The number of bytes in blocks currently allocated using mmap.",
+    );
+    pub static ref MALLINFO_FSMBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_fsmblks",
+        "The total number of bytes in fastbin free blocks.",
+    );
+    pub static ref MALLINFO_UORDBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_uordblks",
+        "The total number of bytes used by in-use allocations.",
+    );
+    pub static ref MALLINFO_FORDBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_fordblks",
+        "The total number of bytes in free blocks.",
+    );
+    pub static ref MALLINFO_KEEPCOST: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+        "mallinfo_keepcost",
+        "The total amount of releasable free space at the top of the heap..",
+    );
+}
+
+/// Calls `mallinfo` and updates Prometheus metrics with the results.
+pub fn scrape_mallinfo_metrics() {
+    // The docs for this function say it is thread-unsafe since it may return inconsistent results.
+    // Since these are just metrics it's not a concern to us if they're sometimes inconsistent.
+    //
+    // Docs:
+    //
+    // https://man7.org/linux/man-pages/man3/mallinfo.3.html
+    let mallinfo = unsafe { libc::mallinfo() };
+
+    set_gauge(&MALLINFO_ARENA, mallinfo.arena as i64);
+    set_gauge(&MALLINFO_ORDBLKS, mallinfo.ordblks as i64);
+    set_gauge(&MALLINFO_SMBLKS, mallinfo.smblks as i64);
+    set_gauge(&MALLINFO_HBLKHD, mallinfo.hblkhd as i64);
+    set_gauge(&MALLINFO_FSMBLKS, mallinfo.fsmblks as i64);
+    set_gauge(&MALLINFO_UORDBLKS, mallinfo.uordblks as i64);
+    set_gauge(&MALLINFO_FORDBLKS, mallinfo.fordblks as i64);
+    set_gauge(&MALLINFO_KEEPCOST, mallinfo.keepcost as i64);
+}
 
 pub fn configure_glibc_malloc() -> Result<(), String> {
     if !env_var_present(ENV_VAR_ARENA_MAX) {

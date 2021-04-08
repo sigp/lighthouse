@@ -1,6 +1,7 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
+use malloc_ctl::scrape_allocator_metrics;
 
 pub use lighthouse_metrics::*;
 
@@ -40,6 +41,8 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     eth2_libp2p::scrape_discovery_metrics();
 
     warp_utils::metrics::scrape_health_metrics();
+
+    scrape_allocator_metrics();
 
     encoder
         .encode(&lighthouse_metrics::gather(), &mut buffer)

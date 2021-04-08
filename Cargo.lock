@@ -2888,6 +2888,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
+ "malloc_ctl",
  "prometheus",
  "reqwest",
  "serde",
@@ -3858,6 +3859,11 @@ dependencies = [
 [[package]]
 name = "malloc_ctl"
 version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "libc",
+ "lighthouse_metrics",
+]
 
 [[package]]
 name = "maplit"
