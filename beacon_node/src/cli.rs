@@ -250,7 +250,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("explorer-endpoint")
                 .long("explorer-endpoint")
                 .value_name("ADDRESS")
-                .help("Set the address where the beacon node metrics would be sent")
+                .help("Set the endpoint where the beacon node metrics would be sent")
                 .takes_value(true),
         )
 

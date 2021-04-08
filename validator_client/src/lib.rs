@@ -127,7 +127,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             None
         };
 
-        // Start the explorer client which periodically sends beacon
+        // Start the explorer client which periodically sends validator process
         // and system metrics to the configured endpoint.
         if let Some(explorer_config) = &config.explorer_metrics {
             let explorer_client = ExplorerHttpClient::new(explorer_config, context.log().clone())?;

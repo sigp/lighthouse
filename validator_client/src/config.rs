@@ -230,18 +230,13 @@ impl Config {
          * Explorer metrics
          */
         if cli_args.is_present("explorer-metrics") {
-            let explorer_endpoint = cli_args
-                .value_of("explorer-address")
-                .expect("guaranteed by clap")
-                .to_string();
-            config.explorer_metrics = Some(explorer_api::Config {
-                validator_endpoint: Some(format!(
-                    "http://{}:{}",
-                    config.http_metrics.listen_addr, config.http_metrics.listen_port
-                )),
-                beacon_endpoint: None,
-                explorer_endpoint,
-            });
+            if let Some(explorer_endpoint) = cli_args.value_of("explorer-endpoint") {
+                config.explorer_metrics = Some(explorer_api::Config {
+                    db_path: None,
+                    freezer_db_path: None,
+                    explorer_endpoint: explorer_endpoint.to_string(),
+                });
+            }
         }
 
         Ok(config)

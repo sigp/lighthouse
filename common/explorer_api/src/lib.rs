@@ -48,8 +48,13 @@ impl std::fmt::Display for Error {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
+    /// Endpoint
     pub explorer_endpoint: String,
+    /// Path for the hot database required for fetching beacon db size metrics.
+    /// Note: not relevant for validator and system metrics.
     pub db_path: Option<PathBuf>,
+    /// Path for the cold database required for fetching beacon db size metrics.
+    /// Note: not relevant for validator and system metrics.
     pub freezer_db_path: Option<PathBuf>,
 }
 
