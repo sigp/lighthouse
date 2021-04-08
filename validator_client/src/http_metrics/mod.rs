@@ -1,7 +1,6 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
-mod explorer_metrics;
 pub mod metrics;
 
 use crate::{DutiesService, ValidatorStore};
@@ -114,8 +113,7 @@ pub fn serve<T: EthSpec>(
     }
 
     let inner_ctx = ctx.clone();
-    let inner_ctx1 = ctx.clone();
-    let metrics = warp::get()
+    let routes = warp::get()
         .and(warp::path("metrics"))
         .map(move || inner_ctx.clone())
         .and_then(|ctx: Arc<Context<T>>| async move {
@@ -130,28 +128,7 @@ pub fn serve<T: EthSpec>(
                             .unwrap()
                     }),
             )
-        });
-
-    let validator_process_metrics = warp::get()
-        .and(warp::path("validator_process"))
-        .and(warp::path::end())
-        .map(move || inner_ctx1.clone())
-        .and_then(|ctx: Arc<Context<T>>| async move {
-            Ok::<_, warp::Rejection>(
-                explorer_metrics::gather_required_metrics(&ctx)
-                    .map(|body| Response::builder().status(200).body(body).unwrap())
-                    .unwrap_or_else(|e| {
-                        Response::builder()
-                            .status(500)
-                            .header("Content-Type", "text/plain")
-                            .body(format!("Unable to gather metrics: {:?}", e))
-                            .unwrap()
-                    }),
-            )
-        });
-
-    let routes = warp::any()
-        .and(warp::get().and(metrics.or(validator_process_metrics)))
+        })
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         .with(cors_builder.build());
