@@ -100,11 +100,20 @@ pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, S
 
     /* specifically handle Geth's pre-EIP-155 sync error message */
     match response_result {
-        Ok(t) => Ok(Eth1Id::from(hex_to_u64_be(t.ok_or("No result was returned for chain id")?.as_str().ok_or("Data was not string")?)?)),
-        Err(e) => match e.as_str() {
-            "Eth1 node returned error: {\"code\":-32000,\"message\":\"chain not synced beyond EIP-155 replay-protection fork block\"}" => return Ok(Eth1Id::Custom(0)),
-            _ => Err(e)
-        }
+        Ok(t) => Ok(Eth1Id::from(hex_to_u64_be(
+            t.ok_or("No result was returned for chain id")?
+                .as_str()
+                .ok_or("Data was not string")?,
+        )?)),
+        Err(e) => match rpc_error_msg(e.as_str()) {
+            Ok(error_msg) => match &*error_msg {
+                "chain not synced beyond EIP-155 replay-protection fork block" => {
+                    Ok(Eth1Id::Custom(0))
+                }
+                _ => Err(e),
+            },
+            Err(err) => Err(err),
+        },
     }
 }
 
@@ -427,6 +436,29 @@ fn response_result(response: &str) -> Result<Option<Value>, String> {
             .cloned()
             .map(Some)
             .unwrap_or_else(|| None))
+    }
+}
+
+/// Extracts the human-readable message string from a RPC error.
+///
+/// Note: the input string, `s`, will be of the form:
+///     "Eth1 node returned error: {\"code\":[code],\"message\":\"[message]\"}"
+fn rpc_error_msg(s: &str) -> Result<String, String> {
+    /* get just the JSON by removing the head of the input string by splitting
+     * on ':' */
+    let chopped: &str = s.splitn(2, ':').skip(1).next().unwrap();
+
+    /* parse JSON */
+    let json = serde_json::from_str::<Value>(chopped)
+        .map_err(|e| format!("Failed to parse error response: {:?}", e))?;
+
+    /* handle various JSON issues */
+    match json.get("message") {
+        Some(msg) => match msg.as_str() {
+            Some(msg_str) => Ok(msg_str.to_string()),
+            None => Err("Error message string was not string".to_string()),
+        },
+        None => Err("No error message".to_string()),
     }
 }
 
