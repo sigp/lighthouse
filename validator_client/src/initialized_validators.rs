@@ -14,6 +14,7 @@ use account_utils::{
     ZeroizeString,
 };
 use eth2_keystore::Keystore;
+use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
@@ -609,6 +610,16 @@ impl InitializedValidators {
         } else {
             debug!(log, "Key cache not modified");
         }
+
+        // Update the enabled and total validator counts
+        set_gauge(
+            &crate::http_metrics::metrics::ENABLED_VALIDATORS_COUNT,
+            self.num_enabled() as i64,
+        );
+        set_gauge(
+            &crate::http_metrics::metrics::TOTAL_VALIDATORS_COUNT,
+            self.num_total() as i64,
+        );
         Ok(())
     }
 }

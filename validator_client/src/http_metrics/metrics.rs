@@ -131,20 +131,6 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
             }
         }
 
-        if let Some(validator_store) = &shared.validator_store {
-            let initialized_validators_lock = validator_store.initialized_validators();
-            let initialized_validators = initialized_validators_lock.read();
-
-            set_gauge(
-                &ENABLED_VALIDATORS_COUNT,
-                initialized_validators.num_enabled() as i64,
-            );
-            set_gauge(
-                &TOTAL_VALIDATORS_COUNT,
-                initialized_validators.num_total() as i64,
-            );
-        }
-
         if let Some(duties_service) = &shared.duties_service {
             if let Some(slot) = duties_service.slot_clock.now() {
                 let current_epoch = slot.epoch(T::slots_per_epoch());
