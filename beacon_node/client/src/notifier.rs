@@ -77,6 +77,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             };
 
             let head_slot = head_info.slot;
+
+            metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
+
             let current_slot = match beacon_chain.slot() {
                 Ok(slot) => slot,
                 Err(e) => {
