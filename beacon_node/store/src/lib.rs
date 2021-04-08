@@ -21,7 +21,7 @@ mod impls;
 mod leveldb_store;
 mod memory_store;
 pub mod metadata;
-mod metrics;
+pub mod metrics;
 mod partial_beacon_state;
 
 pub mod iter;

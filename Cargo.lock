@@ -2196,12 +2196,14 @@ version = "0.1.0"
 dependencies = [
  "eth2",
  "futures 0.3.13",
+ "lighthouse_metrics",
  "lighthouse_version",
  "reqwest",
  "serde",
  "serde_derive",
  "serde_json",
  "slog",
+ "store",
  "task_executor",
  "tokio 1.2.0",
 ]

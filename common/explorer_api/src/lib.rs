@@ -1,10 +1,12 @@
+mod gather;
 mod types;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use eth2::lighthouse::SystemHealth;
+use gather::{gather_beacon_metrics, gather_validator_metrics};
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{debug, error, info};
 use task_executor::TaskExecutor;
 use tokio::time::{interval_at, Instant};
@@ -46,10 +48,6 @@ impl std::fmt::Display for Error {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Beacon metrics endpoint.
-    pub beacon_endpoint: Option<String>,
-    /// Validator metrics endpoint.
-    pub validator_endpoint: Option<String>,
     /// Explorer endpoint where we post the data to
     pub explorer_endpoint: String,
 }
@@ -57,48 +55,29 @@ pub struct Config {
 #[derive(Clone)]
 pub struct ExplorerHttpClient {
     client: reqwest::Client,
-    beacon_endpoint: Option<Url>,
-    validator_endpoint: Option<Url>,
+    /// Path to the hot database. Required for getting db size metrics
+    db_path: Option<PathBuf>,
+    /// Path to the freezer database.
+    freezer_db_path: Option<PathBuf>,
     explorer_endpoint: Url,
     log: slog::Logger,
 }
 
 impl ExplorerHttpClient {
-    pub fn new(config: &Config, log: slog::Logger) -> Result<Self, String> {
+    pub fn new(
+        config: &String,
+        db_path: Option<PathBuf>,
+        freezer_db_path: Option<PathBuf>,
+        log: slog::Logger,
+    ) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
-            beacon_endpoint: config
-                .beacon_endpoint
-                .as_ref()
-                .map(|u| Url::parse(&format!("{}/{}", u, BEACON_ENDPOINT)))
-                .transpose()
-                .map_err(|e| format!("Invalid beacon endpoint: {}", e))?,
-            validator_endpoint: config
-                .validator_endpoint
-                .as_ref()
-                .map(|u| Url::parse(&format!("{}/{}", u, VALIDATOR_ENDPOINT)))
-                .transpose()
-                .map_err(|e| format!("Invalid validator endpoint: {}", e))?,
+            db_path,
+            freezer_db_path,
             explorer_endpoint: Url::parse(&config.explorer_endpoint)
                 .map_err(|e| format!("Invalid explorer endpoint: {}", e))?,
             log,
         })
-    }
-
-    /// Perform a HTTP GET request.
-    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        let response = self
-            .client
-            .get(url)
-            .timeout(Duration::from_secs(TIMEOUT_DURATION))
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_error(response)
-            .await?
-            .json()
-            .await
-            .map_err(Error::Reqwest)
     }
 
     /// Perform a HTTP POST request.
@@ -144,25 +123,27 @@ impl ExplorerHttpClient {
 
     /// Gets beacon metrics and updates the metrics struct
     pub async fn get_beacon_metrics(&self) -> Result<ExplorerMetrics, Error> {
-        let path = self.beacon_endpoint.clone().ok_or_else(|| {
-            Error::BeaconMetricsFailed("Beacon metrics endpoint not provided".to_string())
+        let db_path = self.db_path.as_ref().ok_or_else(|| {
+            Error::BeaconMetricsFailed("Beacon metrics require db path".to_string())
         })?;
-        let resp: BeaconProcessMetrics = self.get(path).await?;
+
+        let freezer_db_path = self.db_path.as_ref().ok_or_else(|| {
+            Error::BeaconMetricsFailed("Beacon metrics require freezer db path".to_string())
+        })?;
+        let metrics = gather_beacon_metrics(&db_path, &freezer_db_path)
+            .map_err(|e| Error::BeaconMetricsFailed(e))?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),
-            process_metrics: Process::Beacon(resp),
+            process_metrics: Process::Beacon(metrics),
         })
     }
 
     /// Gets validator process metrics by querying the validator metrics endpoint
     pub async fn get_validator_metrics(&self) -> Result<ExplorerMetrics, Error> {
-        let path = self.validator_endpoint.clone().ok_or_else(|| {
-            Error::ValidatorMetricsFailed("Validator metrics endpoint not provided".to_string())
-        })?;
-        let resp: ValidatorProcessMetrics = self.get(path).await?;
+        let metrics = gather_validator_metrics().map_err(|e| Error::BeaconMetricsFailed(e))?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),
-            process_metrics: Process::Validator(resp),
+            process_metrics: Process::Validator(metrics),
         })
     }
 
@@ -220,27 +201,3 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
         Err(Error::StatusCode(status))
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-
-//     #[tokio::test]
-//     async fn test_api() {
-//         // let config = Config {
-//         //     beacon_endpoint: Url::parse(DEFAULT_BEACON_ENDPOINT).unwrap(),
-//         //     validator_endpoint: Url::parse(DEFAULT_VALIDATOR_ENDPOINT).unwrap(),
-//         //     explorer_endpoint: Url::parse(DEFAULT_BEACON_ENDPOINT).unwrap(),
-//         //     update_interval_seconds: Duration::from_secs(DEFAULT_UPDATE_DURATION),
-//         // };
-
-//         // let client = ExplorerHttpClient::new(config);
-//         // let beacon_metrics = client.get_beacon_metrics().await;
-//         // let validator_metrics = client.get_validator_metrics().await;
-//         // let system_metrics = client.get_system_metrics().await;
-
-//         // assert!(beacon_metrics.is_ok());
-//         // assert!(validator_metrics.is_ok());
-//         // assert!(system_metrics.is_ok());
-//     }
-// }

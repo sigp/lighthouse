@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use eth2::lighthouse::SystemHealth;
+use eth2::lighthouse::{ProcessHealth, SystemHealth};
 use lighthouse_version::VERSION_NUMBER;
 use serde_derive::{Deserialize, Serialize};
 
@@ -75,6 +75,18 @@ pub struct ProcessMetrics {
     client_version: String,
     #[serde(default = "client_build")]
     client_build: u64,
+}
+
+impl From<ProcessHealth> for ProcessMetrics {
+    fn from(health: ProcessHealth) -> Self {
+        Self {
+            cpu_process_seconds_total: health.cpu_process_seconds_total,
+            memory_process_bytes: health.pid_mem_virtual_memory_size,
+            client_name: client_name(),
+            client_version: client_version(),
+            client_build: client_build(),
+        }
+    }
 }
 
 /// Metrics related to the system.
