@@ -7,6 +7,7 @@
 use lazy_static::lazy_static;
 use libc;
 use lighthouse_metrics::*;
+use parking_lot::Mutex;
 use std::env;
 use std::os::raw::{c_int, c_ulong};
 use std::result::Result;
@@ -46,6 +47,10 @@ const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60 * 5);
 /// https://man7.org/linux/man-pages/man3/mallopt.3.html
 const ENV_VAR_ARENA_MAX: &str = "MALLOC_ARENA_MAX";
 const ENV_VAR_MMAP_THRESHOLD: &str = "MALLOC_MMAP_THRESHOLD_";
+
+lazy_static! {
+    pub static ref TRIMMER_THREAD_HANDLE: Mutex<Option<thread::JoinHandle<()>>> = <_>::default();
+}
 
 // Metrics for the malloc. For more information, see:
 //
@@ -122,7 +127,7 @@ pub fn configure_glibc_malloc() -> Result<(), String> {
         }
     }
 
-    spawn_trimmer_thread(OPTIMAL_TRIM_INTERVAL, OPTIMAL_TRIM);
+    *TRIMMER_THREAD_HANDLE.lock() = Some(spawn_trimmer_thread(OPTIMAL_TRIM_INTERVAL, OPTIMAL_TRIM));
 
     Ok(())
 }

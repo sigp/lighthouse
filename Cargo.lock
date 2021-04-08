@@ -3863,6 +3863,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "lighthouse_metrics",
+ "parking_lot",
 ]
 
 [[package]]
