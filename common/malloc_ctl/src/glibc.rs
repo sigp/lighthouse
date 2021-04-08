@@ -101,6 +101,7 @@ pub fn scrape_mallinfo_metrics() {
     set_gauge(&MALLINFO_ARENA, mallinfo.arena as i64);
     set_gauge(&MALLINFO_ORDBLKS, mallinfo.ordblks as i64);
     set_gauge(&MALLINFO_SMBLKS, mallinfo.smblks as i64);
+    set_gauge(&MALLINFO_HBLKS, mallinfo.hblks as i64);
     set_gauge(&MALLINFO_HBLKHD, mallinfo.hblkhd as i64);
     set_gauge(&MALLINFO_FSMBLKS, mallinfo.fsmblks as i64);
     set_gauge(&MALLINFO_UORDBLKS, mallinfo.uordblks as i64);
