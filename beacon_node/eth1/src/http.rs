@@ -446,7 +446,7 @@ fn response_result(response: &str) -> Result<Option<Value>, String> {
 fn rpc_error_msg(s: &str) -> Result<String, String> {
     /* get just the JSON by removing the head of the input string by splitting
      * on ':' */
-    let chopped: &str = s.splitn(2, ':').skip(1).next().unwrap();
+    let chopped: &str = s.splitn(2, ':').nth(1).unwrap();
 
     /* parse JSON */
     let json = serde_json::from_str::<Value>(chopped)
