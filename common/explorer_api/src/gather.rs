@@ -12,7 +12,7 @@ pub const BEACON_PROCESS_METRICS: &[&str] = &[
     "libp2p_peer_connected_peers_total",
     "libp2p_outbound_bytes",
     "libp2p_inbound_bytes",
-    "beacon_head_state_slot",
+    "notifier_head_slot",
     "sync_eth2_synced",
 ];
 

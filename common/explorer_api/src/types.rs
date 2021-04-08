@@ -169,7 +169,7 @@ pub struct BeaconMetrics {
     #[serde(deserialize_with = "int_to_bool")]
     #[serde(default)]
     sync_eth2_synced: bool,
-    #[serde(rename = "beacon_head_state_slot")]
+    #[serde(rename = "notifier_head_slot")]
     sync_beacon_head_slot: u64,
     #[serde(default)]
     #[serde(deserialize_with = "int_to_bool")]
@@ -236,41 +236,5 @@ where
     match u8::deserialize(deserializer)? {
         0 => Ok(false),
         _ => Ok(true),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_deserialize() {
-        let beacon_process = r#"
-        {
-            "beacon_head_state_slot": 615072,
-            "cpu_process_seconds_total": 12,
-            "libp2p_peer_connected_peers_total": 0,
-            "process_virtual_memory_bytes": 2647228416,
-            "store_disk_db_size": 5443346289,
-            "sync_eth1_connected": 0,
-            "sync_eth1_fallback_configured": 1
-          }
-        "#;
-
-        let decoded: Result<BeaconProcessMetrics, _> = serde_json::from_str(beacon_process);
-        assert!(decoded.is_ok());
-
-        let validator_process = r#"
-        {
-            "cpu_process_seconds_total": 29,
-            "process_virtual_memory_bytes": 1080483840,
-            "sync_eth2_fallback_configured": 0,
-            "vc_validators_enabled_count": 5,
-            "vc_validators_total_count": 5
-          }
-        "#;
-
-        let decoded: Result<ValidatorProcessMetrics, _> = serde_json::from_str(validator_process);
-        assert!(decoded.is_ok());
     }
 }

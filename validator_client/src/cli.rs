@@ -191,7 +191,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         This can be used to monitor your setup on services like the beaconcha.in api \
                         Should enable metrics to get all process data")
                 .takes_value(false)
-                .requires_all(&["metrics", "explorer-address"]),
+                .requires_all(&["metrics", "explorer-endpoint"]),
         )
         .arg(
             Arg::with_name("explorer-endpoint")

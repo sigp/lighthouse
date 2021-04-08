@@ -99,7 +99,8 @@ impl ExplorerHttpClient {
     /// to the configured remote endpoint.
     pub fn auto_update(self, executor: TaskExecutor, processes: Vec<ProcessType>) {
         let mut interval = interval_at(
-            Instant::now() + Duration::from_secs(10),
+            // Have some initial delay for the metrics to get initialized
+            Instant::now() + Duration::from_secs(25),
             Duration::from_secs(UPDATE_DURATION),
         );
 
