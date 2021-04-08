@@ -1,4 +1,4 @@
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
@@ -643,9 +643,10 @@ lazy_static! {
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
-    if let Ok(head) = beacon_chain.head() {
-        scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root())
-    }
+    let _ = beacon_chain.with_head(|head| {
+        scrape_head_state(&head.beacon_state, head.beacon_state_root());
+        Ok::<_, BeaconChainError>(())
+    });
 
     if let Some(slot) = beacon_chain.slot_clock.now() {
         scrape_attestation_observation(slot, beacon_chain);
@@ -675,7 +676,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.
-fn scrape_head_state<T: BeaconChainTypes>(state: &BeaconState<T::EthSpec>, state_root: Hash256) {
+fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
     set_gauge_by_slot(&HEAD_STATE_SLOT, state.slot);
     set_gauge_by_hash(&HEAD_STATE_ROOT, state_root);
     set_gauge_by_slot(
@@ -703,29 +704,31 @@ fn scrape_head_state<T: BeaconChainTypes>(state: &BeaconState<T::EthSpec>, state
         &HEAD_STATE_FINALIZED_EPOCH,
         state.finalized_checkpoint.epoch,
     );
+    set_gauge_by_u64(&HEAD_STATE_ETH1_DEPOSIT_INDEX, state.eth1_deposit_index);
     set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators.len());
     set_gauge_by_u64(&HEAD_STATE_VALIDATOR_BALANCES, state.balances.iter().sum());
-    set_gauge_by_usize(
-        &HEAD_STATE_ACTIVE_VALIDATORS,
-        state
-            .validators
-            .iter()
-            .filter(|v| v.is_active_at(state.current_epoch()))
-            .count(),
-    );
-    set_gauge_by_usize(
-        &HEAD_STATE_SLASHED_VALIDATORS,
-        state.validators.iter().filter(|v| v.slashed).count(),
-    );
-    set_gauge_by_usize(
-        &HEAD_STATE_WITHDRAWN_VALIDATORS,
-        state
-            .validators
-            .iter()
-            .filter(|v| v.is_withdrawable_at(state.current_epoch()))
-            .count(),
-    );
-    set_gauge_by_u64(&HEAD_STATE_ETH1_DEPOSIT_INDEX, state.eth1_deposit_index);
+
+    let mut num_active: usize = 0;
+    let mut num_slashed: usize = 0;
+    let mut num_withdrawn: usize = 0;
+
+    for v in &state.validators {
+        if v.is_active_at(state.current_epoch()) {
+            num_active += 1;
+        }
+
+        if v.slashed {
+            num_slashed += 1;
+        }
+
+        if v.is_withdrawable_at(state.current_epoch()) {
+            num_withdrawn += 1;
+        }
+    }
+
+    set_gauge_by_usize(&HEAD_STATE_ACTIVE_VALIDATORS, num_active);
+    set_gauge_by_usize(&HEAD_STATE_SLASHED_VALIDATORS, num_slashed);
+    set_gauge_by_usize(&HEAD_STATE_WITHDRAWN_VALIDATORS, num_withdrawn);
 }
 
 fn scrape_attestation_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &BeaconChain<T>) {
