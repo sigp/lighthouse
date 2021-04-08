@@ -155,10 +155,11 @@ impl From<SystemHealth> for SystemMetrics {
 pub struct BeaconMetrics {
     #[serde(rename = "store_disk_db_size")]
     disk_beaconchain_bytes_total: u64,
-    /*
+
+    #[serde(rename = "libp2p_inbound_bytes")]
     network_libp2p_bytes_total_receive: u64,
+    #[serde(rename = "libp2p_outbound_bytes")]
     network_libp2p_bytes_total_transmit: u64,
-    */
     #[serde(rename = "libp2p_peer_connected_peers_total")]
     network_peers_connected: u64,
 

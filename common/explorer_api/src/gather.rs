@@ -10,6 +10,8 @@ pub const BEACON_PROCESS_METRICS: &[&str] = &[
     "sync_eth1_connected",
     "store_disk_db_size",
     "libp2p_peer_connected_peers_total",
+    "libp2p_outbound_bytes",
+    "libp2p_inbound_bytes",
     "beacon_head_state_slot",
     "sync_eth2_synced",
 ];
@@ -32,7 +34,12 @@ fn gather_metrics<T: DeserializeOwned>(required_metrics: &[&str]) -> Result<T, S
     let json_string = String::from_utf8(buffer)
         .map_err(|e| format!("Failed to encode prometheus info: {:?}", e))?;
 
-    serde_json::from_str(&json_string).map_err(|e| format!("Failed to decode json string: {}", e))
+    serde_json::from_str(&json_string).map_err(|e| {
+        format!(
+            "Failed to decode json string: {}, string: {:?}",
+            e, json_string
+        )
+    })
 }
 
 pub fn gather_beacon_metrics(
