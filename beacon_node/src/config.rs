@@ -139,18 +139,13 @@ pub fn get_config<E: EthSpec>(
      * Explorer metrics
      */
     if cli_args.is_present("explorer-metrics") {
-        let explorer_endpoint = cli_args
-            .value_of("explorer-address")
-            .expect("guaranteed by clap")
-            .to_string();
-        client_config.explorer_metrics = Some(explorer_api::Config {
-            beacon_endpoint: Some(format!(
-                "http://{}:{}",
-                client_config.http_metrics.listen_addr, client_config.http_metrics.listen_port
-            )),
-            validator_endpoint: None,
-            explorer_endpoint,
-        });
+        if let Some(explorer_endpoint) = cli_args.value_of("explorer-endpoint") {
+            client_config.explorer_metrics = Some(explorer_api::Config {
+                db_path: None,
+                freezer_db_path: None,
+                explorer_endpoint: explorer_endpoint.to_string(),
+            });
+        }
     }
 
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly

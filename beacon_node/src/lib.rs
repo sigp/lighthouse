@@ -63,14 +63,14 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let log = context.log().clone();
         let datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
-        let freezer_db_path_res = client_config.create_freezer_db_path();
+        let freezer_db_path = client_config.create_freezer_db_path()?;
         let executor = context.executor.clone();
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
             .http_api_config(client_config.http_api.clone())
-            .disk_store(&datadir, &db_path, &freezer_db_path_res?, store_config)?;
+            .disk_store(&datadir, &db_path, &freezer_db_path, store_config)?;
 
         let builder = if let Some(slasher_config) = client_config.slasher.clone() {
             let slasher = Arc::new(
@@ -82,7 +82,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
         };
 
-        let builder = if let Some(explorer_config) = &client_config.explorer_metrics {
+        let builder = if let Some(explorer_config) = &mut client_config.explorer_metrics {
+            explorer_config.db_path = Some(db_path);
+            explorer_config.freezer_db_path = Some(freezer_db_path);
             builder.explorer_client(explorer_config)?
         } else {
             builder

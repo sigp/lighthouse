@@ -46,10 +46,11 @@ impl std::fmt::Display for Error {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
-    /// Explorer endpoint where we post the data to
     pub explorer_endpoint: String,
+    pub db_path: Option<PathBuf>,
+    pub freezer_db_path: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -64,16 +65,11 @@ pub struct ExplorerHttpClient {
 }
 
 impl ExplorerHttpClient {
-    pub fn new(
-        config: &String,
-        db_path: Option<PathBuf>,
-        freezer_db_path: Option<PathBuf>,
-        log: slog::Logger,
-    ) -> Result<Self, String> {
+    pub fn new(config: &Config, log: slog::Logger) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
-            db_path,
-            freezer_db_path,
+            db_path: config.db_path.clone(),
+            freezer_db_path: config.freezer_db_path.clone(),
             explorer_endpoint: Url::parse(&config.explorer_endpoint)
                 .map_err(|e| format!("Invalid explorer endpoint: {}", e))?,
             log,
