@@ -17,6 +17,7 @@ use state_processing::{
         ProposerSlashingValidationError,
     },
     signature_sets::Error as SignatureSetError,
+    state_advance::Error as StateAdvanceError,
     BlockProcessingError, SlotProcessingError,
 };
 use std::time::Duration;
@@ -51,6 +52,7 @@ pub enum BeaconChainError {
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
+    StateAdvanceError(StateAdvanceError),
     UnableToAdvanceState(String),
     NoStateForAttestation {
         beacon_block_root: Hash256,
@@ -81,6 +83,7 @@ pub enum BeaconChainError {
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
     DuplicateValidatorPublicKey,
     ValidatorPubkeyCacheFileError(String),
+    ValidatorIndexUnknown(usize),
     OpPoolError(OpPoolError),
     NaiveAggregationError(NaiveAggregationError),
     ObservedAttestationsError(ObservedAttestationsError),
@@ -105,6 +108,10 @@ pub enum BeaconChainError {
         block_slot: Slot,
         state_slot: Slot,
     },
+    InvalidStateForShuffling {
+        state_epoch: Epoch,
+        shuffling_epoch: Epoch,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -122,6 +129,7 @@ easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 easy_from_to!(ForkChoiceStoreError, BeaconChainError);
+easy_from_to!(StateAdvanceError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
@@ -133,6 +141,7 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
+    StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
     /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
     /// cannot produce blocks.
@@ -147,3 +156,4 @@ easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
+easy_from_to!(StateAdvanceError, BlockProductionError);

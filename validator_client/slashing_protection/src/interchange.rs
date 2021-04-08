@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
-use types::{Epoch, Hash256, PublicKey, Slot};
+use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -13,7 +13,7 @@ pub struct InterchangeMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InterchangeData {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub signed_blocks: Vec<SignedBlock>,
     pub signed_attestations: Vec<SignedAttestation>,
 }

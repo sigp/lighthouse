@@ -23,6 +23,7 @@ use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
+    pubkey_bytes: Vec<PublicKeyBytes>,
     backing: PubkeyCacheBacking<T>,
 }
 
@@ -46,6 +47,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         let mut cache = Self {
             pubkeys: vec![],
             indices: HashMap::new(),
+            pubkey_bytes: vec![],
             backing: PubkeyCacheBacking::Database(store),
         };
 
@@ -58,12 +60,14 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     pub fn load_from_store(store: BeaconStore<T>) -> Result<Self, BeaconChainError> {
         let mut pubkeys = vec![];
         let mut indices = HashMap::new();
+        let mut pubkey_bytes = vec![];
 
         for validator_index in 0.. {
             if let Some(DatabasePubkey(pubkey)) =
                 store.get_item(&DatabasePubkey::key_for_index(validator_index))?
             {
                 pubkeys.push((&pubkey).try_into().map_err(Error::PubkeyDecode)?);
+                pubkey_bytes.push(pubkey);
                 indices.insert(pubkey, validator_index);
             } else {
                 break;
@@ -73,6 +77,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         Ok(ValidatorPubkeyCache {
             pubkeys,
             indices,
+            pubkey_bytes,
             backing: PubkeyCacheBacking::Database(store),
         })
     }
@@ -91,6 +96,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         let mut result = ValidatorPubkeyCache {
             pubkeys: Vec::with_capacity(existing_cache.pubkeys.len()),
             indices: HashMap::with_capacity(existing_cache.indices.len()),
+            pubkey_bytes: Vec::with_capacity(existing_cache.indices.len()),
             backing: PubkeyCacheBacking::Database(store),
         };
         result.import(existing_cache.pubkeys.iter().map(PublicKeyBytes::from))?;
@@ -120,6 +126,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     where
         I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
     {
+        self.pubkey_bytes.reserve(validator_keys.len());
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
 
@@ -153,6 +160,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                     .try_into()
                     .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
             );
+            self.pubkey_bytes.push(pubkey);
 
             self.indices.insert(pubkey, i);
         }
@@ -163,6 +171,11 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Get the public key for a validator with index `i`.
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
         self.pubkeys.get(i)
+    }
+
+    /// Get the public key (in bytes form) for a validator with index `i`.
+    pub fn get_pubkey_bytes(&self, i: usize) -> Option<&PublicKeyBytes> {
+        self.pubkey_bytes.get(i)
     }
 
     /// Get the index of a validator with `pubkey`.
@@ -264,13 +277,15 @@ impl ValidatorPubkeyCacheFile {
 
         let mut last = None;
         let mut pubkeys = Vec::with_capacity(list.len());
-        let mut indices = HashMap::new();
+        let mut indices = HashMap::with_capacity(list.len());
+        let mut pubkey_bytes = Vec::with_capacity(list.len());
 
         for (index, pubkey) in list {
             let expected = last.map(|n| n + 1);
             if expected.map_or(true, |expected| index == expected) {
                 last = Some(index);
                 pubkeys.push((&pubkey).try_into().map_err(Error::PubkeyDecode)?);
+                pubkey_bytes.push(pubkey);
                 indices.insert(pubkey, index);
             } else {
                 return Err(Error::InconsistentIndex {
@@ -283,6 +298,7 @@ impl ValidatorPubkeyCacheFile {
         Ok(ValidatorPubkeyCache {
             pubkeys,
             indices,
+            pubkey_bytes,
             backing: PubkeyCacheBacking::File(self),
         })
     }

@@ -5,13 +5,13 @@ use crate::{
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
-use futures::channel::mpsc::Receiver;
-use futures::{StreamExt, TryFutureExt};
+use futures::TryFutureExt;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use types::{EthSpec, PublicKey, Slot};
+use tokio::sync::mpsc;
+use types::{EthSpec, PublicKeyBytes, Slot};
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
@@ -121,13 +121,13 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
 /// Notification from the duties service that we should try to produce a block.
 pub struct BlockServiceNotification {
     pub slot: Slot,
-    pub block_proposers: Vec<PublicKey>,
+    pub block_proposers: Vec<PublicKeyBytes>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     pub fn start_update_service(
         self,
-        notification_rx: Receiver<BlockServiceNotification>,
+        mut notification_rx: mpsc::Receiver<BlockServiceNotification>,
     ) -> Result<(), String> {
         let log = self.context.log().clone();
 
@@ -135,14 +135,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let executor = self.inner.context.executor.clone();
 
-        let block_service_fut = notification_rx.for_each(move |notif| {
-            let service = self.clone();
+        executor.spawn(
             async move {
-                service.do_update(notif).await.ok();
-            }
-        });
-
-        executor.spawn(block_service_fut, "block_service");
+                while let Some(notif) = notification_rx.recv().await {
+                    let service = self.clone();
+                    service.do_update(notif).await.ok();
+                }
+                debug!(log, "Block service shutting down");
+            },
+            "block_service",
+        );
 
         Ok(())
     }
@@ -222,7 +224,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     /// Produce a block at the given slot for validator_pubkey
-    async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
+    async fn publish_block(
+        self,
+        slot: Slot,
+        validator_pubkey: PublicKeyBytes,
+    ) -> Result<(), String> {
         let log = self.context.log();
         let _timer =
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);

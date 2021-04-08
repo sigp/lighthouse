@@ -207,7 +207,7 @@ dependencies = [
 [[package]]
 name = "amcl"
 version = "0.3.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.0#45a076a776a6f1d9f8157fd2d574bfefaee2c81a"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.2#16655aa033175a90c10ef02aa144e2835de23aec"
 
 [[package]]
 name = "ansi_term"
@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "beacon_node",
  "clap",
@@ -3335,7 +3335,7 @@ dependencies = [
 
 [[package]]
 name = "lcli"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "account_utils",
  "bls",
@@ -3345,6 +3345,7 @@ dependencies = [
  "directory",
  "dirs 3.0.1",
  "environment",
+ "eth1_test_rig",
  "eth2_keystore",
  "eth2_libp2p",
  "eth2_network_config",
@@ -3365,6 +3366,7 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_dir",
+ "web3",
 ]
 
 [[package]]
@@ -3707,7 +3709,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3901,8 +3903,8 @@ dependencies = [
 
 [[package]]
 name = "milagro_bls"
-version = "1.4.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.0#45a076a776a6f1d9f8157fd2d574bfefaee2c81a"
+version = "1.4.2"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.2#16655aa033175a90c10ef02aa144e2835de23aec"
 dependencies = [
  "amcl",
  "hex",
@@ -7073,6 +7075,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "ring",
+ "safe_arith",
  "scrypt",
  "serde",
  "serde_derive",

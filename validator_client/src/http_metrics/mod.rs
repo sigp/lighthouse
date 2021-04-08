@@ -36,7 +36,7 @@ impl From<String> for Error {
 /// Contains objects which have shared access from inside/outside of the metrics server.
 pub struct Shared<T: EthSpec> {
     pub validator_store: Option<ValidatorStore<SystemTimeSlotClock, T>>,
-    pub duties_service: Option<DutiesService<SystemTimeSlotClock, T>>,
+    pub duties_service: Option<Arc<DutiesService<SystemTimeSlotClock, T>>>,
     pub genesis_time: Option<u64>,
 }
 

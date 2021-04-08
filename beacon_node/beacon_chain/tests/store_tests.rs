@@ -276,6 +276,7 @@ fn epoch_boundary_state_attestation_processing() {
         late_attestations.extend(harness.get_unaggregated_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
+            head.beacon_state_root(),
             head.beacon_block_root,
             head.beacon_block.slot(),
         ));
@@ -353,9 +354,9 @@ fn delete_blocks_and_states() {
 
     // Finalize an initial portion of the chain.
     let initial_slots: Vec<Slot> = (1..=unforked_blocks).map(Into::into).collect();
-    let state = harness.get_current_state();
+    let (state, state_root) = harness.get_current_state_and_root();
     let all_validators = harness.get_all_validators();
-    harness.add_attested_blocks_at_slots(state, &initial_slots, &all_validators);
+    harness.add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators);
 
     // Create a fork post-finalization.
     let two_thirds = (LOW_VALIDATOR_COUNT / 3) * 2;
@@ -478,9 +479,9 @@ fn multi_epoch_fork_valid_blocks_test(
     // Create the initial portion of the chain
     if initial_blocks > 0 {
         let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
-        let state = harness.get_current_state();
+        let (state, state_root) = harness.get_current_state_and_root();
         let all_validators = harness.get_all_validators();
-        harness.add_attested_blocks_at_slots(state, &initial_slots, &all_validators);
+        harness.add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators);
     }
 
     assert!(num_fork1_validators <= LOW_VALIDATOR_COUNT);
@@ -759,19 +760,26 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
     let rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
     let slots_per_epoch = rig.slots_per_epoch();
-    let mut state = rig.get_current_state();
+    let (mut state, state_root) = rig.get_current_state_and_root();
 
     let canonical_chain_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (canonical_chain_blocks_pre_finalization, _, _, new_state) =
-        rig.add_attested_blocks_at_slots(state, &canonical_chain_slots, &honest_validators);
+    let (canonical_chain_blocks_pre_finalization, _, _, new_state) = rig
+        .add_attested_blocks_at_slots(
+            state,
+            state_root,
+            &canonical_chain_slots,
+            &honest_validators,
+        );
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
     let stray_slots: Vec<Slot> = (canonical_chain_slot + 1..rig.epoch_start_slot(2))
         .map(Slot::new)
         .collect();
+    let (current_state, current_state_root) = rig.get_current_state_and_root();
     let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
-        rig.get_current_state(),
+        current_state,
+        current_state_root,
         &stray_slots,
         &adversarial_validators,
     );
@@ -803,8 +811,13 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         ..=(canonical_chain_slot + slots_per_epoch * 5))
         .map(Slot::new)
         .collect();
-    let (canonical_chain_blocks_post_finalization, _, _, _) =
-        rig.add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators);
+    let state_root = state.update_tree_hash_cache().unwrap();
+    let (canonical_chain_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
+        state,
+        state_root,
+        &finalization_slots,
+        &honest_validators,
+    );
 
     // Postcondition: New blocks got finalized
     assert_eq!(
@@ -852,13 +865,14 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
     let rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
     let slots_per_epoch = rig.slots_per_epoch();
-    let state = rig.get_current_state();
+    let (state, state_root) = rig.get_current_state_and_root();
 
     // Fill up 0th epoch
     let canonical_chain_slots_zeroth_epoch: Vec<Slot> =
         (1..rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (_, _, _, state) = rig.add_attested_blocks_at_slots(
+    let (_, _, _, mut state) = rig.add_attested_blocks_at_slots(
         state,
+        state_root,
         &canonical_chain_slots_zeroth_epoch,
         &honest_validators,
     );
@@ -868,9 +882,11 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=rig.epoch_start_slot(1) + 1)
         .map(Slot::new)
         .collect();
-    let (canonical_chain_blocks_first_epoch, _, shared_head, state) = rig
+    let state_root = state.update_tree_hash_cache().unwrap();
+    let (canonical_chain_blocks_first_epoch, _, shared_head, mut state) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
+            state_root,
             &canonical_chain_slots_first_epoch,
             &honest_validators,
         );
@@ -880,8 +896,10 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=rig.epoch_start_slot(1) + 2)
         .map(Slot::new)
         .collect();
+    let state_root = state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
         state.clone(),
+        state_root,
         &stray_chain_slots_first_epoch,
         &adversarial_validators,
     );
@@ -917,8 +935,13 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=(canonical_chain_slot + slots_per_epoch * 5))
         .map(Slot::new)
         .collect();
-    let (canonical_chain_blocks, _, _, _) =
-        rig.add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators);
+    let state_root = state.update_tree_hash_cache().unwrap();
+    let (canonical_chain_blocks, _, _, _) = rig.add_attested_blocks_at_slots(
+        state,
+        state_root,
+        &finalization_slots,
+        &honest_validators,
+    );
 
     // Postconditions
     assert_eq!(
@@ -967,12 +990,16 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
     let rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
     let slots_per_epoch = rig.slots_per_epoch();
-    let mut state = rig.get_current_state();
+    let (mut state, state_root) = rig.get_current_state_and_root();
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (canonical_chain_blocks, _, _, new_state) =
-        rig.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators);
+    let (canonical_chain_blocks, _, _, new_state) = rig.add_attested_blocks_at_slots(
+        state,
+        state_root,
+        &zeroth_epoch_slots,
+        &honest_validators,
+    );
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
@@ -980,8 +1007,10 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let first_epoch_slots: Vec<Slot> = ((rig.epoch_start_slot(1) + 1)..(rig.epoch_start_slot(2)))
         .map(Slot::new)
         .collect();
+    let state_root = state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
         state.clone(),
+        state_root,
         &first_epoch_slots,
         &adversarial_validators,
     );
@@ -1011,7 +1040,9 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
         ..=(canonical_chain_slot + slots_per_epoch * 4))
         .map(Slot::new)
         .collect();
-    let (_, _, _, _) = rig.add_attested_blocks_at_slots(state, &slots, &honest_validators);
+    let state_root = state.update_tree_hash_cache().unwrap();
+    let (_, _, _, _) =
+        rig.add_attested_blocks_at_slots(state, state_root, &slots, &honest_validators);
 
     // Postconditions
     assert_eq!(
@@ -1048,30 +1079,42 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
     let rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
-    let state = rig.get_current_state();
+    let (state, state_root) = rig.get_current_state_and_root();
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, state) =
-        rig.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators);
+    let (canonical_blocks_zeroth_epoch, _, _, mut state) = rig.add_attested_blocks_at_slots(
+        state,
+        state_root,
+        &zeroth_epoch_slots,
+        &honest_validators,
+    );
 
     // Fill up 1st epoch.  Contains a fork.
     let slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 1..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
-    let (stray_blocks_first_epoch, stray_states_first_epoch, _, stray_state) = rig
-        .add_attested_blocks_at_slots(state.clone(), &slots_first_epoch, &adversarial_validators);
-    let (canonical_blocks_first_epoch, _, _, canonical_state) =
-        rig.add_attested_blocks_at_slots(state, &slots_first_epoch, &honest_validators);
+    let state_root = state.update_tree_hash_cache().unwrap();
+    let (stray_blocks_first_epoch, stray_states_first_epoch, _, mut stray_state) = rig
+        .add_attested_blocks_at_slots(
+            state.clone(),
+            state_root,
+            &slots_first_epoch,
+            &adversarial_validators,
+        );
+    let (canonical_blocks_first_epoch, _, _, mut canonical_state) =
+        rig.add_attested_blocks_at_slots(state, state_root, &slots_first_epoch, &honest_validators);
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
     let stray_slots_second_epoch: Vec<Slot> = (rig.epoch_start_slot(2)
         ..=rig.epoch_start_slot(2) + 1)
         .map(Into::into)
         .collect();
+    let stray_state_root = stray_state.update_tree_hash_cache().unwrap();
     let (stray_blocks_second_epoch, stray_states_second_epoch, stray_head, _) = rig
         .add_attested_blocks_at_slots(
             stray_state,
+            stray_state_root,
             &stray_slots_second_epoch,
             &adversarial_validators,
         );
@@ -1113,8 +1156,13 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let canonical_slots: Vec<Slot> = (rig.epoch_start_slot(2)..=rig.epoch_start_slot(6))
         .map(Into::into)
         .collect();
-    let (canonical_blocks, _, _, _) =
-        rig.add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators);
+    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
+    let (canonical_blocks, _, _, _) = rig.add_attested_blocks_at_slots(
+        canonical_state,
+        canonical_state_root,
+        &canonical_slots,
+        &honest_validators,
+    );
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
@@ -1169,23 +1217,27 @@ fn prunes_skipped_slots_states() {
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
     let rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
-    let state = rig.get_current_state();
+    let (state, state_root) = rig.get_current_state_and_root();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
         (1..=rig.epoch_start_slot(1)).map(Into::into).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig.add_attested_blocks_at_slots(
-        state.clone(),
-        &canonical_slots_zeroth_epoch,
-        &honest_validators,
-    );
+    let (canonical_blocks_zeroth_epoch, _, _, mut canonical_state) = rig
+        .add_attested_blocks_at_slots(
+            state.clone(),
+            state_root,
+            &canonical_slots_zeroth_epoch,
+            &honest_validators,
+        );
 
     let skipped_slot: Slot = (rig.epoch_start_slot(1) + 1).into();
 
     let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
+    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
         canonical_state.clone(),
+        canonical_state_root,
         &stray_slots,
         &adversarial_validators,
     );
@@ -1225,8 +1277,13 @@ fn prunes_skipped_slots_states() {
     let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
-    let (canonical_blocks_post_finalization, _, _, _) =
-        rig.add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators);
+    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
+    let (canonical_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
+        canonical_state,
+        canonical_state_root,
+        &canonical_slots,
+        &honest_validators,
+    );
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
@@ -1279,23 +1336,27 @@ fn finalizes_non_epoch_start_slot() {
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
     let rig = BeaconChainHarness::new(MinimalEthSpec, validators_keypairs);
-    let state = rig.get_current_state();
+    let (state, state_root) = rig.get_current_state_and_root();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
         (1..rig.epoch_start_slot(1)).map(Into::into).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig.add_attested_blocks_at_slots(
-        state.clone(),
-        &canonical_slots_zeroth_epoch,
-        &honest_validators,
-    );
+    let (canonical_blocks_zeroth_epoch, _, _, mut canonical_state) = rig
+        .add_attested_blocks_at_slots(
+            state.clone(),
+            state_root,
+            &canonical_slots_zeroth_epoch,
+            &honest_validators,
+        );
 
     let skipped_slot: Slot = rig.epoch_start_slot(1).into();
 
     let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
+    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
         canonical_state.clone(),
+        canonical_state_root,
         &stray_slots,
         &adversarial_validators,
     );
@@ -1335,8 +1396,13 @@ fn finalizes_non_epoch_start_slot() {
     let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
-    let (canonical_blocks_post_finalization, _, _, _) =
-        rig.add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators);
+    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
+    let (canonical_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
+        canonical_state,
+        canonical_state_root,
+        &canonical_slots,
+        &honest_validators,
+    );
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
@@ -1530,8 +1596,10 @@ fn pruning_test(
 
     let start_slot = Slot::new(1);
     let divergence_slot = start_slot + num_initial_blocks;
+    let (state, state_root) = harness.get_current_state_and_root();
     let (_, _, _, divergence_state) = harness.add_attested_blocks_at_slots(
-        harness.get_current_state(),
+        state,
+        state_root,
         &slots(start_slot, num_initial_blocks)[..],
         &honest_validators,
     );
@@ -1553,7 +1621,7 @@ fn pruning_test(
             faulty_validators,
         ),
     ]);
-    let (_, _, _, canonical_state) = chains.remove(0);
+    let (_, _, _, mut canonical_state) = chains.remove(0);
     let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
 
     let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks - 1;
@@ -1577,8 +1645,10 @@ fn pruning_test(
     // Trigger finalization
     let num_finalization_blocks = 4 * E::slots_per_epoch();
     let canonical_slot = divergence_slot + num_canonical_skips + num_canonical_middle_blocks;
+    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     harness.add_attested_blocks_at_slots(
         canonical_state,
+        canonical_state_root,
         &slots(canonical_slot, num_finalization_blocks),
         &honest_validators,
     );

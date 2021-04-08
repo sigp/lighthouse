@@ -11,7 +11,6 @@ mod http_metrics;
 mod initialized_validators;
 mod key_cache;
 mod notifier;
-mod validator_duty;
 mod validator_store;
 
 pub mod http_api;
@@ -26,12 +25,11 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use duties_service::{DutiesService, DutiesServiceBuilder};
+use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::types::StateId;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
 use fork_service::{ForkService, ForkServiceBuilder};
-use futures::channel::mpsc;
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
@@ -44,7 +42,10 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::time::{sleep, Duration};
+use tokio::{
+    sync::mpsc,
+    time::{sleep, Duration},
+};
 use types::{EthSpec, Fork, Hash256};
 use validator_store::ValidatorStore;
 
@@ -60,7 +61,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
-    duties_service: DutiesService<SystemTimeSlotClock, T>,
+    duties_service: Arc<DutiesService<SystemTimeSlotClock, T>>,
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
@@ -285,13 +286,22 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_store.prune_slashing_protection_db(slot.epoch(T::slots_per_epoch()), true);
         }
 
-        let duties_service = DutiesServiceBuilder::new()
-            .slot_clock(slot_clock.clone())
-            .validator_store(validator_store.clone())
-            .beacon_nodes(beacon_nodes.clone())
-            .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
-            .runtime_context(context.service_context("duties".into()))
-            .build()?;
+        let duties_context = context.service_context("duties".into());
+        let duties_service = Arc::new(DutiesService {
+            attesters: <_>::default(),
+            proposers: <_>::default(),
+            indices: <_>::default(),
+            slot_clock: slot_clock.clone(),
+            beacon_nodes: beacon_nodes.clone(),
+            validator_store: validator_store.clone(),
+            require_synced: if config.allow_unsynced_beacon_node {
+                RequireSynced::Yes
+            } else {
+                RequireSynced::No
+            },
+            spec: context.eth2_config.spec.clone(),
+            context: duties_context,
+        });
 
         // Update the metrics server.
         if let Some(ctx) = &http_metrics_ctx {
@@ -343,13 +353,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
         let log = self.context.log();
 
-        self.duties_service
-            .clone()
-            .start_update_service(
-                block_service_tx,
-                Arc::new(self.context.eth2_config.spec.clone()),
-            )
-            .map_err(|e| format!("Unable to start duties service: {}", e))?;
+        duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
         self.fork_service
             .clone()
