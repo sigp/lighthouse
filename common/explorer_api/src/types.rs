@@ -63,10 +63,7 @@ pub enum Process {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessMetrics {
     cpu_process_seconds_total: u64,
-    // alias doesn't work with flattened structs
-    // https://github.com/serde-rs/serde/issues/1504
-    // TODO: use some alternative
-    #[serde(rename = "process_virtual_memory_bytes")]
+    #[serde(rename(deserialize = "process_virtual_memory_bytes"))]
     memory_process_bytes: u64,
 
     #[serde(default = "client_name")]
@@ -153,14 +150,14 @@ impl From<SystemHealth> for SystemMetrics {
 /// Metrics specific to the beacon node.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BeaconMetrics {
-    #[serde(rename = "store_disk_db_size")]
+    #[serde(rename(deserialize = "store_disk_db_size"))]
     disk_beaconchain_bytes_total: u64,
 
-    #[serde(rename = "libp2p_inbound_bytes")]
+    #[serde(rename(deserialize = "libp2p_inbound_bytes"))]
     network_libp2p_bytes_total_receive: u64,
-    #[serde(rename = "libp2p_outbound_bytes")]
+    #[serde(rename(deserialize = "libp2p_outbound_bytes"))]
     network_libp2p_bytes_total_transmit: u64,
-    #[serde(rename = "libp2p_peer_connected_peers_total")]
+    #[serde(rename(deserialize = "libp2p_peer_connected_peers_total"))]
     network_peers_connected: u64,
 
     #[serde(deserialize_with = "int_to_bool")]
@@ -169,7 +166,7 @@ pub struct BeaconMetrics {
     #[serde(deserialize_with = "int_to_bool")]
     #[serde(default)]
     sync_eth2_synced: bool,
-    #[serde(rename = "notifier_head_slot")]
+    #[serde(rename(deserialize = "notifier_head_slot"))]
     sync_beacon_head_slot: u64,
     #[serde(default)]
     #[serde(deserialize_with = "int_to_bool")]
@@ -182,9 +179,9 @@ pub struct BeaconMetrics {
 /// Metrics specific to validator client.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorMetrics {
-    #[serde(rename = "vc_validators_total_count")]
+    #[serde(rename(deserialize = "vc_validators_total_count"))]
     validator_total: u64,
-    #[serde(rename = "vc_validators_enabled_count")]
+    #[serde(rename(deserialize = "vc_validators_enabled_count"))]
     validator_active: u64,
 
     #[serde(deserialize_with = "int_to_bool")]

@@ -37,9 +37,8 @@ impl Encoder for JsonEncoder {
                     MetricType::COUNTER => metric.get_counter().get_value().to_string(),
                     MetricType::GAUGE => metric.get_gauge().get_value().to_string(),
                     _ => {
-                        // TODO: have a better error message
                         return Err(prometheus::Error::Msg(
-                            "Cannot encode this metric".to_string(),
+                            "Can only encode gauge and counter metrics".to_string(),
                         ));
                     }
                 };
