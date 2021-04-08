@@ -37,7 +37,7 @@ const M_MMAP_THRESHOLD: c_int = -4;
 const M_ARENA_MAX: c_int = -8;
 
 /// The default interval between calls to `spawn_trimmer_thread`.
-const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60);
+const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60 * 5);
 
 /// Environment variables used to configure malloc.
 ///
