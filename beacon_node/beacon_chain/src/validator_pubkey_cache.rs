@@ -316,23 +316,30 @@ fn append_to_file(file: &mut File, index: usize, pubkey: &PublicKeyBytes) -> Res
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{test_logger, EphemeralHarnessType};
+    use crate::test_utils::{test_logger, BeaconChainHarness, EphemeralHarnessType};
     use std::sync::Arc;
-    use store::HotColdDB;
+    use store::{HotColdDB, StoreConfig};
     use tempfile::tempdir;
     use types::{
-        test_utils::{generate_deterministic_keypair, TestingBeaconStateBuilder},
-        BeaconState, EthSpec, Keypair, MainnetEthSpec,
+        test_utils::generate_deterministic_keypair, BeaconState, EthSpec, Keypair, MainnetEthSpec,
     };
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;
 
     fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
-        let spec = E::default_spec();
-        let builder =
-            TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, &spec);
-        builder.build()
+        let harness = BeaconChainHarness::new_with_store_config(
+            MainnetEthSpec,
+            types::test_utils::generate_deterministic_keypairs(validator_count),
+            StoreConfig::default(),
+        );
+
+        harness.advance_slot();
+
+        (
+            harness.chain.head_beacon_state().unwrap(),
+            harness.validator_keypairs,
+        )
     }
 
     fn get_store() -> BeaconStore<T> {

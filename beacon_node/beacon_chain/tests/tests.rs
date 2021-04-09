@@ -51,7 +51,7 @@ fn massive_skips() {
         }
     };
 
-    assert!(state.slot > 1, "the state should skip at least one slot");
+    assert!(state.slot() > 1, "the state should skip at least one slot");
     assert_eq!(
         error,
         SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
@@ -133,7 +133,7 @@ fn iterators() {
 
     assert_eq!(
         *state_roots.first().expect("should have some state roots"),
-        (head.beacon_state_root(), head.beacon_state.slot),
+        (head.beacon_state_root(), head.beacon_state.slot()),
         "first state root and slot should be for the head state"
     );
 }
@@ -171,7 +171,7 @@ fn chooses_fork() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot,
+        state.slot(),
         Slot::from(initial_blocks + honest_fork_blocks),
         "head should be at the current slot"
     );
@@ -202,7 +202,8 @@ fn finalizes_with_full_participation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -211,12 +212,12 @@ fn finalizes_with_full_participation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_checkpoint.epoch,
+        state.current_justified_checkpoint().epoch,
         state.current_epoch() - 1,
         "the head should be justified one behind the current epoch"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch,
+        state.finalized_checkpoint().epoch,
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
     );
@@ -240,7 +241,8 @@ fn finalizes_with_two_thirds_participation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -254,12 +256,12 @@ fn finalizes_with_two_thirds_participation() {
     // included in blocks during that epoch.
 
     assert_eq!(
-        state.current_justified_checkpoint.epoch,
+        state.current_justified_checkpoint().epoch,
         state.current_epoch() - 2,
         "the head should be justified two behind the current epoch"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch,
+        state.finalized_checkpoint().epoch,
         state.current_epoch() - 4,
         "the head should be finalized three behind the current epoch"
     );
@@ -284,7 +286,8 @@ fn does_not_finalize_with_less_than_two_thirds_participation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -293,11 +296,13 @@ fn does_not_finalize_with_less_than_two_thirds_participation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_checkpoint.epoch, 0,
+        state.current_justified_checkpoint().epoch,
+        0,
         "no epoch should have been justified"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch, 0,
+        state.finalized_checkpoint().epoch,
+        0,
         "no epoch should have been finalized"
     );
 }
@@ -317,7 +322,8 @@ fn does_not_finalize_without_attestation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -326,11 +332,13 @@ fn does_not_finalize_without_attestation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_checkpoint.epoch, 0,
+        state.current_justified_checkpoint().epoch,
+        0,
         "no epoch should have been justified"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch, 0,
+        state.finalized_checkpoint().epoch,
+        0,
         "no epoch should have been finalized"
     );
 }

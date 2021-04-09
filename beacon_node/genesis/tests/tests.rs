@@ -91,7 +91,7 @@ fn basic() {
             // Note: using ganache these deposits are 1-per-block, therefore we know there should only be
             // the minimum number of validators.
             assert_eq!(
-                state.validators.len(),
+                state.validators().len(),
                 spec.min_genesis_active_validator_count as usize,
                 "should have expected validator count"
             );

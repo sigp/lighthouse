@@ -167,7 +167,7 @@ fn invalid_deposit_deposit_count_too_big() {
         builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let big_deposit_count = NUM_DEPOSITS + 1;
-    state.eth1_data.deposit_count = big_deposit_count;
+    state.eth1_data_mut().deposit_count = big_deposit_count;
 
     let result = per_block_processing(
         &mut state,
@@ -197,7 +197,7 @@ fn invalid_deposit_count_too_small() {
         builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let small_deposit_count = NUM_DEPOSITS - 1;
-    state.eth1_data.deposit_count = small_deposit_count;
+    state.eth1_data_mut().deposit_count = small_deposit_count;
 
     let result = per_block_processing(
         &mut state,

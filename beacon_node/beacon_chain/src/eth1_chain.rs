@@ -668,7 +668,7 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 mod test {
     use super::*;
     use environment::null_logger;
-    use types::{test_utils::DepositTestTask, MinimalEthSpec};
+    use types::{DepositData, MinimalEthSpec, Signature};
 
     type E = MinimalEthSpec;
 
@@ -682,9 +682,9 @@ mod test {
 
     fn get_voting_period_start_seconds(state: &BeaconState<E>, spec: &ChainSpec) -> u64 {
         let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-        let voting_period_start_slot = (state.slot / period) * period;
+        let voting_period_start_slot = (state.slot() / period) * period;
         slot_start_seconds::<E>(
-            state.genesis_time,
+            state.genesis_time(),
             spec.seconds_per_slot,
             voting_period_start_slot,
         )
@@ -725,10 +725,7 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
-        use types::{
-            test_utils::{generate_deterministic_keypair, TestingDepositBuilder},
-            EthSpec, MainnetEthSpec,
-        };
+        use types::{test_utils::generate_deterministic_keypair, EthSpec, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
             let eth1_config = Eth1Config {
@@ -745,13 +742,17 @@ mod test {
 
         fn get_deposit_log(i: u64, spec: &ChainSpec) -> DepositLog {
             let keypair = generate_deterministic_keypair(i as usize);
-            let mut builder =
-                TestingDepositBuilder::new(keypair.pk.clone(), spec.max_effective_balance);
-            builder.sign(DepositTestTask::Valid, &keypair, spec);
-            let deposit_data = builder.build().data;
+            let mut deposit = DepositData {
+                pubkey: keypair.pk.into(),
+                withdrawal_credentials: Hash256::zero(),
+                amount: spec.max_effective_balance,
+                signature: Signature::empty().into(),
+            };
+
+            deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
 
             DepositLog {
-                deposit_data,
+                deposit_data: deposit,
                 block_number: i,
                 index: i,
                 signature_is_valid: true,
@@ -770,8 +771,8 @@ mod test {
             );
 
             let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            state.eth1_deposit_index = 0;
-            state.eth1_data.deposit_count = 0;
+            *state.eth1_deposit_index_mut() = 0;
+            state.eth1_data_mut().deposit_count = 0;
 
             assert!(
                 eth1_chain
@@ -780,7 +781,7 @@ mod test {
                 "should succeed if cache is empty but no deposits are required"
             );
 
-            state.eth1_data.deposit_count = 1;
+            state.eth1_data_mut().deposit_count = 1;
 
             assert!(
                 eth1_chain
@@ -823,8 +824,8 @@ mod test {
             );
 
             let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            state.eth1_deposit_index = 0;
-            state.eth1_data.deposit_count = 0;
+            *state.eth1_deposit_index_mut() = 0;
+            state.eth1_data_mut().deposit_count = 0;
 
             assert!(
                 eth1_chain
@@ -834,10 +835,10 @@ mod test {
             );
 
             (0..3).for_each(|initial_deposit_index| {
-                state.eth1_deposit_index = initial_deposit_index as u64;
+                *state.eth1_deposit_index_mut() = initial_deposit_index as u64;
 
                 (initial_deposit_index..deposits.len()).for_each(|i| {
-                    state.eth1_data.deposit_count = i as u64;
+                    state.eth1_data_mut().deposit_count = i as u64;
 
                     let deposits_for_inclusion = eth1_chain
                         .deposits_for_block_inclusion(&state, &Eth1Data::default(), spec)
@@ -890,7 +891,8 @@ mod test {
                 .eth1_data_for_block_production(&state, &spec)
                 .expect("should produce default eth1 data vote");
             assert_eq!(
-                a, state.eth1_data,
+                a,
+                *state.eth1_data(),
                 "default vote should be same as state.eth1_data"
             );
         }
@@ -910,7 +912,7 @@ mod test {
 
             let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
 
-            state.slot = Slot::from(slots_per_eth1_voting_period * 10);
+            *state.slot_mut() = Slot::from(slots_per_eth1_voting_period * 10);
             let follow_distance_seconds = eth1_follow_distance * spec.seconds_per_eth1_block;
             let voting_period_start = get_voting_period_start_seconds(&state, &spec);
             let start_eth1_block = voting_period_start - follow_distance_seconds * 2;
@@ -976,8 +978,8 @@ mod test {
             let eth1_follow_distance = spec.eth1_follow_distance;
 
             let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            state.genesis_time = 0;
-            state.slot = Slot::from(slots_per_eth1_voting_period * 10);
+            *state.genesis_time_mut() = 0;
+            *state.slot_mut() = Slot::from(slots_per_eth1_voting_period * 10);
 
             let follow_distance_seconds = eth1_follow_distance * spec.seconds_per_eth1_block;
             let voting_period_start = get_voting_period_start_seconds(&state, &spec);
@@ -1057,7 +1059,7 @@ mod test {
 
             let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            state.eth1_data_votes = votes_to_consider[0..slots as usize / 4]
+            *state.eth1_data_votes_mut() = votes_to_consider[0..slots as usize / 4]
                 .iter()
                 .map(|(eth1_data, _)| eth1_data)
                 .cloned()
@@ -1086,7 +1088,7 @@ mod test {
                 .expect("should have some eth1 data")
                 .clone();
 
-            state.eth1_data_votes = vec![duplicate_eth1_data.clone(); 4]
+            *state.eth1_data_votes_mut() = vec![duplicate_eth1_data.clone(); 4]
                 .iter()
                 .map(|(eth1_data, _)| eth1_data)
                 .cloned()

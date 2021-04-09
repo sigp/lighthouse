@@ -62,7 +62,7 @@ fn finalizes_after_resuming_from_db() {
             .head()
             .expect("should read head")
             .beacon_state
-            .finalized_checkpoint
+            .finalized_checkpoint()
             .epoch
             > 0,
         "the chain should have already finalized"
@@ -115,7 +115,8 @@ fn finalizes_after_resuming_from_db() {
         .expect("should read head")
         .beacon_state;
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -124,12 +125,12 @@ fn finalizes_after_resuming_from_db() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_checkpoint.epoch,
+        state.current_justified_checkpoint().epoch,
         state.current_epoch() - 1,
         "the head should be justified one behind the current epoch"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch,
+        state.finalized_checkpoint().epoch,
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
     );

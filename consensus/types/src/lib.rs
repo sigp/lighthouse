@@ -100,7 +100,9 @@ pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
-pub use crate::signed_beacon_block::{SignedBeaconBlock, SignedBeaconBlockHash};
+pub use crate::signed_beacon_block::{
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
+};
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};

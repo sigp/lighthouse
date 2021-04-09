@@ -437,8 +437,8 @@ mod get_outstanding_deposit_len {
         let mut state = state();
         assert_eq!(state.get_outstanding_deposit_len(), Ok(0));
 
-        state.eth1_data.deposit_count = 17;
-        state.eth1_deposit_index = 16;
+        state.eth1_data_mut().deposit_count = 17;
+        *state.eth1_deposit_index_mut() = 16;
         assert_eq!(state.get_outstanding_deposit_len(), Ok(1));
     }
 
@@ -446,8 +446,8 @@ mod get_outstanding_deposit_len {
     fn returns_err_if_the_state_is_invalid() {
         let mut state = state();
         // The state is invalid, deposit count is lower than deposit index.
-        state.eth1_data.deposit_count = 16;
-        state.eth1_deposit_index = 17;
+        state.eth1_data_mut().deposit_count = 16;
+        *state.eth1_deposit_index_mut() = 17;
 
         assert_eq!(
             state.get_outstanding_deposit_len(),

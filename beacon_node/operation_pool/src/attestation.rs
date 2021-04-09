@@ -1,5 +1,6 @@
 use crate::max_cover::MaxCover;
-use state_processing::common::{get_attesting_indices, get_base_reward};
+//TODO: altair::base_reward
+use state_processing::common::{base::get_base_reward, get_attesting_indices};
 use std::collections::HashMap;
 use types::{Attestation, BeaconState, BitList, ChainSpec, EthSpec};
 

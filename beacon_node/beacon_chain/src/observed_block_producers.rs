@@ -119,14 +119,14 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::{BeaconBlock, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
     fn get_block(slot: u64, proposer: u64) -> BeaconBlock<E> {
         let mut block = BeaconBlock::empty(&E::default_spec());
-        block.slot = slot.into();
-        block.proposer_index = proposer;
+        *block.slot_mut() = slot.into();
+        *block.proposer_index_mut() = proposer;
         block
     }
 
@@ -138,10 +138,10 @@ mod tests {
         assert_eq!(cache.items.len(), 0, "no slots should be present");
 
         // Slot 0, proposer 0
-        let block_a = &get_block(0, 0);
+        let block_a = get_block(0, 0);
 
         assert_eq!(
-            cache.observe_proposer(block_a),
+            cache.observe_proposer(block_a.to_ref()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
@@ -197,10 +197,10 @@ mod tests {
          */
 
         // First slot of finalized epoch, proposer 0
-        let block_b = &get_block(E::slots_per_epoch(), 0);
+        let block_b = get_block(E::slots_per_epoch(), 0);
 
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Err(Error::FinalizedBlock {
                 slot: E::slots_per_epoch().into(),
                 finalized_slot: E::slots_per_epoch().into(),
@@ -217,10 +217,10 @@ mod tests {
         let three_epochs = E::slots_per_epoch() * 3;
 
         // First slot of finalized epoch, proposer 0
-        let block_b = &get_block(three_epochs, 0);
+        let block_b = get_block(three_epochs, 0);
 
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Ok(false),
             "can insert non-finalized block"
         );
@@ -266,25 +266,25 @@ mod tests {
         let mut cache = ObservedBlockProducers::default();
 
         // Slot 0, proposer 0
-        let block_a = &get_block(0, 0);
+        let block_a = get_block(0, 0);
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_a),
+            cache.proposer_has_been_observed(block_a.to_ref()),
             Ok(false),
             "no observation in empty cache"
         );
         assert_eq!(
-            cache.observe_proposer(block_a),
+            cache.observe_proposer(block_a.to_ref()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_a),
+            cache.proposer_has_been_observed(block_a.to_ref()),
             Ok(true),
             "observed block is indicated as true"
         );
         assert_eq!(
-            cache.observe_proposer(block_a),
+            cache.observe_proposer(block_a.to_ref()),
             Ok(true),
             "observing again indicates true"
         );
@@ -302,25 +302,25 @@ mod tests {
         );
 
         // Slot 1, proposer 0
-        let block_b = &get_block(1, 0);
+        let block_b = get_block(1, 0);
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_b),
+            cache.proposer_has_been_observed(block_b.to_ref()),
             Ok(false),
             "no observation for new slot"
         );
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Ok(false),
             "can observe proposer for new slot, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_b),
+            cache.proposer_has_been_observed(block_b.to_ref()),
             Ok(true),
             "observed block in slot 1 is indicated as true"
         );
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Ok(true),
             "observing slot 1 again indicates true"
         );
@@ -347,25 +347,25 @@ mod tests {
         );
 
         // Slot 0, proposer 1
-        let block_c = &get_block(0, 1);
+        let block_c = get_block(0, 1);
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_c),
+            cache.proposer_has_been_observed(block_c.to_ref()),
             Ok(false),
             "no observation for new proposer"
         );
         assert_eq!(
-            cache.observe_proposer(block_c),
+            cache.observe_proposer(block_c.to_ref()),
             Ok(false),
             "can observe new proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_c),
+            cache.proposer_has_been_observed(block_c.to_ref()),
             Ok(true),
             "observed new proposer block is indicated as true"
         );
         assert_eq!(
-            cache.observe_proposer(block_c),
+            cache.observe_proposer(block_c.to_ref()),
             Ok(true),
             "observing new proposer again indicates true"
         );
