@@ -82,7 +82,8 @@ impl FromStr for Eth1Id {
 pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
     let response_body = send_rpc_request(endpoint, "net_version", json!([]), timeout).await?;
     Eth1Id::from_str(
-        response_result(&response_body)?
+        response_result_or_error(&response_body)?
+            .ok()
             .ok_or("No result was returned for network id")?
             .as_str()
             .ok_or("Data was not string")?,
@@ -95,25 +96,24 @@ pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, S
         send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
 
     /* extract response text here */
-    let response_result: Result<Option<serde_json::Value>, String> =
-        response_result(&response_body);
+    let response_result: Result<Result<Value, Value>, String> =
+        response_result_or_error(&response_body);
 
     /* specifically handle Geth's pre-EIP-155 sync error message */
-    match response_result {
-        Ok(t) => Ok(Eth1Id::from(hex_to_u64_be(
-            t.ok_or("No result was returned for chain id")?
-                .as_str()
-                .ok_or("Data was not string")?,
-        )?)),
-        Err(e) => match rpc_error_msg(e.as_str()) {
-            Ok(error_msg) => match &*error_msg {
+    if let Ok(json_resp) = response_result {
+        match json_resp {
+            Ok(chain_id) => {
+                hex_to_u64_be(chain_id.as_str().ok_or("Data was not string")?).map(|id| id.into())
+            }
+            Err(rpc_err) => match rpc_err.as_str().ok_or("Data was not string")? {
                 "chain not synced beyond EIP-155 replay-protection fork block" => {
                     Ok(Eth1Id::Custom(0))
                 }
-                _ => Err(e),
+                _ => Err(rpc_err.to_string()),
             },
-            Err(err) => Err(err),
-        },
+        }
+    } else {
+        Err(response_result.unwrap_err())
     }
 }
 
@@ -130,7 +130,8 @@ pub struct Block {
 pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, String> {
     let response_body = send_rpc_request(endpoint, "eth_blockNumber", json!([]), timeout).await?;
     hex_to_u64_be(
-        response_result(&response_body)?
+        response_result_or_error(&response_body)?
+            .ok()
             .ok_or("No result field was returned for block number")?
             .as_str()
             .ok_or("Data was not string")?,
@@ -157,7 +158,8 @@ pub async fn get_block(
 
     let response_body = send_rpc_request(endpoint, "eth_getBlockByNumber", params, timeout).await?;
     let hash = hex_to_bytes(
-        response_result(&response_body)?
+        response_result_or_error(&response_body)?
+            .ok()
             .ok_or("No result field was returned for block")?
             .get("hash")
             .ok_or("No hash for block")?
@@ -171,7 +173,8 @@ pub async fn get_block(
     }?;
 
     let timestamp = hex_to_u64_be(
-        response_result(&response_body)?
+        response_result_or_error(&response_body)?
+            .ok()
             .ok_or("No result field was returned for timestamp")?
             .get("timestamp")
             .ok_or("No timestamp for block")?
@@ -180,7 +183,8 @@ pub async fn get_block(
     )?;
 
     let number = hex_to_u64_be(
-        response_result(&response_body)?
+        response_result_or_error(&response_body)?
+            .ok()
             .ok_or("No result field was returned for number")?
             .get("number")
             .ok_or("No number for block")?
@@ -297,7 +301,7 @@ async fn call(
     ]);
 
     let response_body = send_rpc_request(endpoint, "eth_call", params, timeout).await?;
-    match response_result(&response_body)? {
+    match response_result_or_error(&response_body)?.ok() {
         None => Ok(None),
         Some(result) => {
             let hex = result
@@ -337,7 +341,8 @@ pub async fn get_deposit_logs_in_range(
     }]);
 
     let response_body = send_rpc_request(endpoint, "eth_getLogs", params, timeout).await?;
-    response_result(&response_body)?
+    response_result_or_error(&response_body)?
+        .ok()
         .ok_or("No result field was returned for deposit logs")?
         .as_array()
         .cloned()
@@ -423,42 +428,19 @@ pub async fn send_rpc_request(
         .map_err(|e| format!("Failed to receive body: {:?}", e))
 }
 
-/// Accepts an entire HTTP body (as a string) and returns the `result` field, as a serde `Value`.
-fn response_result(response: &str) -> Result<Option<Value>, String> {
+/// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value` .
+fn response_result_or_error(response: &str) -> Result<Result<Value, Value>, String> {
     let json = serde_json::from_str::<Value>(&response)
         .map_err(|e| format!("Failed to parse response: {:?}", e))?;
 
-    if let Some(error) = json.get("error") {
-        Err(format!("Eth1 node returned error: {}", error))
+    if let Some(error) = json.get("error").map(|e| e.get("message")).flatten() {
+        Ok(Err(error.clone()))
     } else {
-        Ok(json
+        let res = json
             .get("result")
             .cloned()
-            .map(Some)
-            .unwrap_or_else(|| None))
-    }
-}
-
-/// Extracts the human-readable message string from a RPC error.
-///
-/// Note: the input string, `s`, will be of the form:
-///     "Eth1 node returned error: {\"code\":[code],\"message\":\"[message]\"}"
-fn rpc_error_msg(s: &str) -> Result<String, String> {
-    /* get just the JSON by removing the head of the input string by splitting
-     * on ':' */
-    let chopped: &str = s.splitn(2, ':').nth(1).unwrap();
-
-    /* parse JSON */
-    let json = serde_json::from_str::<Value>(chopped)
-        .map_err(|e| format!("Failed to parse error response: {:?}", e))?;
-
-    /* handle various JSON issues */
-    match json.get("message") {
-        Some(msg) => match msg.as_str() {
-            Some(msg_str) => Ok(msg_str.to_string()),
-            None => Err("Error message string was not string".to_string()),
-        },
-        None => Err("No error message".to_string()),
+            .ok_or_else(|| "Failed to get result".to_string())?;
+        Ok(Ok(res))
     }
 }
 
