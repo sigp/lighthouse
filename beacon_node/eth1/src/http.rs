@@ -96,24 +96,18 @@ pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, S
         send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
 
     /* extract response text here */
-    let response_result: Result<Result<Value, Value>, String> =
-        response_result_or_error(&response_body);
+    let response_result: Result<Value, Value> =
+        response_result_or_error(&response_body)?;
 
     /* specifically handle Geth's pre-EIP-155 sync error message */
-    if let Ok(json_resp) = response_result {
-        match json_resp {
-            Ok(chain_id) => {
-                hex_to_u64_be(chain_id.as_str().ok_or("Data was not string")?).map(|id| id.into())
-            }
-            Err(rpc_err) => match rpc_err.as_str().ok_or("Data was not string")? {
-                "chain not synced beyond EIP-155 replay-protection fork block" => {
-                    Ok(Eth1Id::Custom(0))
-                }
-                _ => Err(rpc_err.to_string()),
-            },
+    match response_result {
+        Ok(chain_id) => {
+            hex_to_u64_be(chain_id.as_str().ok_or("Data was not string")?).map(|id| id.into())
         }
-    } else {
-        Err(response_result.unwrap_err())
+        Err(rpc_err) => match rpc_err.as_str().ok_or("Data was not string")? {
+            "chain not synced beyond EIP-155 replay-protection fork block" => Ok(Eth1Id::Custom(0)),
+            _ => Err(rpc_err.to_string()),
+        },
     }
 }
 
