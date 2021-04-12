@@ -9,7 +9,7 @@ pub use persistence::PersistedOperationPool;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
-use max_cover::maximum_cover;
+use max_cover::{maximum_cover, MaxCover};
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
@@ -130,14 +130,17 @@ impl<T: EthSpec> OperationPool<T> {
         let total_active_balance = state
             .get_total_balance(&active_indices, spec)
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
-        let valid_attestations = reader
+
+        // Split attestations for the previous & current epochs, so that we
+        // can optimise them individually in parallel.
+        let (prev_epoch_att, curr_epoch_att) = reader
             .iter()
             .filter(|(key, _)| {
                 key.domain_bytes_match(&prev_domain_bytes)
                     || key.domain_bytes_match(&curr_domain_bytes)
             })
             .flat_map(|(_, attestations)| attestations)
-            // That are valid...
+            // Ensure attestations are valid for block inclusion
             .filter(|attestation| {
                 verify_attestation_for_block_inclusion(
                     state,
@@ -148,10 +151,23 @@ impl<T: EthSpec> OperationPool<T> {
                 .is_ok()
             })
             .filter(validity_filter)
-            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
+            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec))
+            .partition::<Vec<_>, _>(|att_cover| att_cover.epoch() == prev_epoch);
 
-        Ok(maximum_cover(
-            valid_attestations,
+        let prev_epoch_limit = std::cmp::min(
+            T::MaxPendingAttestations::to_usize()
+                .saturating_sub(state.previous_epoch_attestations.len()),
+            T::MaxAttestations::to_usize(),
+        );
+
+        let (prev_cover, curr_cover) = rayon::join(
+            move || maximum_cover(prev_epoch_att, prev_epoch_limit),
+            move || maximum_cover(curr_epoch_att, T::MaxAttestations::to_usize()),
+        );
+
+        Ok(max_cover::merge_solutions(
+            curr_cover,
+            prev_cover,
             T::MaxAttestations::to_usize(),
         ))
     }
@@ -231,7 +247,10 @@ impl<T: EthSpec> OperationPool<T> {
         let attester_slashings = maximum_cover(
             relevant_attester_slashings,
             T::MaxAttesterSlashings::to_usize(),
-        );
+        )
+        .into_iter()
+        .map(|cover| cover.object().clone())
+        .collect();
 
         (proposer_slashings, attester_slashings)
     }
