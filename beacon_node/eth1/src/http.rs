@@ -96,8 +96,7 @@ pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, S
         send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
 
     /* extract response text here */
-    let response_result: Result<Value, Value> =
-        response_result_or_error(&response_body)?;
+    let response_result: Result<Value, Value> = response_result_or_error(&response_body)?;
 
     /* specifically handle Geth's pre-EIP-155 sync error message */
     match response_result {
