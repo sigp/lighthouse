@@ -1970,9 +1970,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Map from attestation head block root to shuffling compatibility.
         // Used to memoize the `attestation_shuffling_is_compatible` function.
-        let mut shuffling_filter_cache = HashMap::new();
-        let attestation_filter = |att: &&Attestation<T::EthSpec>| -> bool {
-            *shuffling_filter_cache
+        // FIXME(sproul); dedupe
+        let mut prev_shuffling_filter_cache = HashMap::new();
+        let prev_attestation_filter = |att: &&Attestation<T::EthSpec>| -> bool {
+            *prev_shuffling_filter_cache
+                .entry((att.data.beacon_block_root, att.data.target.epoch))
+                .or_insert_with(|| {
+                    self.shuffling_is_compatible(
+                        &att.data.beacon_block_root,
+                        att.data.target.epoch,
+                        &state,
+                    )
+                })
+        };
+        let mut curr_shuffling_filter_cache = HashMap::new();
+        let curr_attestation_filter = |att: &&Attestation<T::EthSpec>| -> bool {
+            *curr_shuffling_filter_cache
                 .entry((att.data.beacon_block_root, att.data.target.epoch))
                 .or_insert_with(|| {
                     self.shuffling_is_compatible(
@@ -2014,7 +2027,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
         let attestations = self
             .op_pool
-            .get_attestations(&state, attestation_filter, &self.spec)
+            .get_attestations(
+                &state,
+                prev_attestation_filter,
+                curr_attestation_filter,
+                &self.spec,
+            )
             .map_err(BlockProductionError::OpPoolError)?
             .into();
         drop(attestation_packing_timer);

@@ -106,7 +106,8 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_attestations(
         &self,
         state: &BeaconState<T>,
-        validity_filter: impl FnMut(&&Attestation<T>) -> bool,
+        prev_epoch_validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
+        curr_epoch_validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
@@ -135,15 +136,15 @@ impl<T: EthSpec> OperationPool<T> {
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
         let filter_timer = metrics::start_timer(&metrics::ATTESTATION_FILTER_TIME);
-        let (prev_epoch_att, curr_epoch_att) = reader
+        let prev_epoch_att = reader
             .iter()
-            .filter(|(key, _)| {
-                key.domain_bytes_match(&prev_domain_bytes)
-                    || key.domain_bytes_match(&curr_domain_bytes)
-            })
+            .filter(|(key, _)| key.domain_bytes_match(&prev_domain_bytes))
             .flat_map(|(_, attestations)| attestations)
-            // Ensure attestations are valid for block inclusion
             .filter(|attestation| {
+                if attestation.data.target.epoch != prev_epoch {
+                    return false;
+                }
+                // Ensure attestations are valid for block inclusion
                 verify_attestation_for_block_inclusion(
                     state,
                     attestation,
@@ -152,11 +153,31 @@ impl<T: EthSpec> OperationPool<T> {
                 )
                 .is_ok()
             })
-            .filter(validity_filter)
-            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec))
-            .partition::<Vec<_>, _>(|att_cover| att_cover.epoch() == prev_epoch);
+            .filter(prev_epoch_validity_filter)
+            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
+
+        let curr_epoch_att = reader
+            .iter()
+            .filter(|(key, _)| key.domain_bytes_match(&curr_domain_bytes))
+            .flat_map(|(_, attestations)| attestations)
+            .filter(|attestation| {
+                if attestation.data.target.epoch != current_epoch {
+                    return false;
+                }
+                // Ensure attestations are valid for block inclusion
+                verify_attestation_for_block_inclusion(
+                    state,
+                    attestation,
+                    VerifySignatures::False,
+                    spec,
+                )
+                .is_ok()
+            })
+            .filter(curr_epoch_validity_filter)
+            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
         drop(filter_timer);
 
+        /*
         metrics::set_int_gauge(
             &metrics::ATTESTATIONS_AVAILABLE,
             &["previous"],
@@ -167,6 +188,7 @@ impl<T: EthSpec> OperationPool<T> {
             &["current"],
             curr_epoch_att.len() as i64,
         );
+        */
 
         let prev_epoch_limit = std::cmp::min(
             T::MaxPendingAttestations::to_usize()
