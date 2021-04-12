@@ -2,6 +2,7 @@ mod attestation;
 mod attestation_id;
 mod attester_slashing;
 mod max_cover;
+mod metrics;
 mod persistence;
 
 pub use persistence::PersistedOperationPool;
@@ -133,6 +134,7 @@ impl<T: EthSpec> OperationPool<T> {
 
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
+        let filter_timer = metrics::start_timer(&metrics::ATTESTATION_FILTER_TIME);
         let (prev_epoch_att, curr_epoch_att) = reader
             .iter()
             .filter(|(key, _)| {
@@ -153,6 +155,18 @@ impl<T: EthSpec> OperationPool<T> {
             .filter(validity_filter)
             .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec))
             .partition::<Vec<_>, _>(|att_cover| att_cover.epoch() == prev_epoch);
+        drop(filter_timer);
+
+        metrics::set_int_gauge(
+            &metrics::ATTESTATIONS_AVAILABLE,
+            &["previous"],
+            prev_epoch_att.len() as i64,
+        );
+        metrics::set_int_gauge(
+            &metrics::ATTESTATIONS_AVAILABLE,
+            &["current"],
+            curr_epoch_att.len() as i64,
+        );
 
         let prev_epoch_limit = std::cmp::min(
             T::MaxPendingAttestations::to_usize()
@@ -161,8 +175,14 @@ impl<T: EthSpec> OperationPool<T> {
         );
 
         let (prev_cover, curr_cover) = rayon::join(
-            move || maximum_cover(prev_epoch_att, prev_epoch_limit),
-            move || maximum_cover(curr_epoch_att, T::MaxAttestations::to_usize()),
+            move || {
+                let _timer = metrics::start_timer(&metrics::ATTESTATION_PREV_EPOCH_PACKING_TIME);
+                maximum_cover(prev_epoch_att, prev_epoch_limit)
+            },
+            move || {
+                let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
+                maximum_cover(curr_epoch_att, T::MaxAttestations::to_usize())
+            },
         );
 
         Ok(max_cover::merge_solutions(
