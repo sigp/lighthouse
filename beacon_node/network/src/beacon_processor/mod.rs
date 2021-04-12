@@ -597,8 +597,8 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
                         Box::new(queued_block.block),
                         queued_block.seen_timestamp,
                     ),
-                    ReadyWork::Attestation => todo!(),
-                    ReadyWork::Aggregate => todo!(),
+                    ReadyWork::Attestation(queued_attestation) => todo!(),
+                    ReadyWork::Aggregate(queued_aggregate) => todo!(),
                 };
                 return Poll::Ready(Some(InboundEvent::ReprocessingWork(event)));
             }
@@ -1072,7 +1072,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         block,
                         seen_timestamp,
-                    } => worker.process_gossip_verified_block(peer_id, *block, seen_timestamp),
+                    } => worker.process_gossip_verified_block(peer_id, *block, reprocess_tx, seen_timestamp),
                     /*
                      * Voluntary exits received on gossip.
                      */

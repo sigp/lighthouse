@@ -8,14 +8,13 @@
 //! There is the edge-case where the slot arrives before this queue manages to process it. In that
 //! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
 use super::MAX_DELAYED_BLOCK_QUEUE_LEN;
-use beacon_chain::types::Hash256;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
 use eth2_libp2p::PeerId;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use slog::{crit, debug, error, Logger};
 use slot_clock::SlotClock;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::task::Context;
 use std::time::Duration;
@@ -23,6 +22,10 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::DelayQueue;
+use types::{
+    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedVoluntaryExit, SubnetId, EthSpec
+};
 
 const TASK_NAME: &str = "beacon_processor_block_delay_queue";
 
@@ -36,7 +39,7 @@ const ADDITIONAL_DELAY: Duration = Duration::from_millis(5);
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// Messages that the scheduler can receive.
-pub enum ReprocessSchedulerMessage<T: BeaconChainTypes> {
+pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedBlock<T>),
     /// A block that was succesfully processed. We use this to handle attestations for unknown
@@ -48,8 +51,20 @@ pub enum ReprocessSchedulerMessage<T: BeaconChainTypes> {
 
 pub enum ReadyWork<T: BeaconChainTypes> {
     Block(QueuedBlock<T>),
-    Attestation,
-    Aggregate,
+    Attestation(QueuedAttestation<T::EthSpec>),
+    Aggregate(QueuedAggregate<T::EthSpec>),
+}
+
+pub struct QueuedAttestation<T: EthSpec> {
+    peer_id: PeerId,
+    attestation: Attestation<T>,
+    should_import: bool,
+}
+
+pub struct QueuedAggregate<T: EthSpec> {
+    peer_id: PeerId,
+    attestation: SignedAggregateAndProof<T>,
+    should_import: bool,
 }
 
 /// A block that arrived early and has been queued for later import.
@@ -67,39 +82,38 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyBlock(QueuedBlock<T>),
     /// The `DelayQueue` returned an error.
     DelayQueueError(TimeError),
-    BlockProcessed(Hash256),
-}
-
-impl<T: BeaconChainTypes> From<ReprocessSchedulerMessage<T>> for InboundEvent<T> {
-    fn from(msg: ReprocessSchedulerMessage<T>) -> Self {
-        match msg {
-            ReprocessSchedulerMessage::EarlyBlock(block) => InboundEvent::EarlyBlock(block),
-            ReprocessSchedulerMessage::BlockProcessed(hash) => InboundEvent::BlockProcessed(hash),
-            ReprocessSchedulerMessage::UnknownBlockAttestation => todo!(),
-            ReprocessSchedulerMessage::UnknownBlockAggregate => todo!(),
-        }
-    }
 }
 
 /// Combines the `DelayQueue` and `Receiver` streams into a single stream.
 ///
 //struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
-struct InboundEvents<T: BeaconChainTypes> {
-    pub delay_queue: DelayQueue<QueuedBlock<T>>,
+// TODO: rename and update docs
+struct ReprocessQueue<T: BeaconChainTypes> {
     /// Receiver of messages relevant to schedule works for reprocessing.
-    work_reprocessing_rx: Receiver<ReprocessSchedulerMessage<T>>,
+    work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
+    /// Queue to manage scheduled early blocks.
+    block_delay_queue: DelayQueue<QueuedBlock<T>>,
+    /// Queue to manage scheduled aggreated attestations.
+    aggregate_delay_queue: DelayQueue<QueuedBlock<T>>,
+    /// Queue to manage scheduled attestations.
+    attestations_delay_queue: DelayQueue<QueuedBlock<T>>,
+    /// Last processed root with works to unqueue.
+    current_processing_root: Option<Hash256>,
+    awaiting_attestations: HashMap<Hash256, HashSet<QueuedBlock<T>>>,
+    // work: ReadyWork<T>,
 }
 
-impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
+impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
     type Item = InboundEvent<T>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let work = ReadyWork::Aggregate::<T>;
         // Poll for expired blocks *before* we try to process new blocks.
         //
         // The sequential nature of blockchains means it is generally better to try and import all
         // existing blocks before new ones.
-        match self.delay_queue.poll_expired(cx) {
+        match self.block_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(queued_block))) => {
                 return Poll::Ready(Some(InboundEvent::ReadyBlock(queued_block.into_inner())));
             }
@@ -112,9 +126,14 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
         }
 
         match self.work_reprocessing_rx.poll_recv(cx) {
-            Poll::Ready(Some(message)) => {
-                return Poll::Ready(Some(message.into()));
-            }
+            Poll::Ready(Some(message)) => match message {
+                ReprocessQueueMessage::EarlyBlock(block) => {
+                    return Poll::Ready(Some(InboundEvent::EarlyBlock(block)))
+                }
+                ReprocessQueueMessage::BlockProcessed(hash) => todo!(),
+                ReprocessQueueMessage::UnknownBlockAttestation => todo!(),
+                ReprocessQueueMessage::UnknownBlockAggregate => todo!(),
+            },
             Poll::Ready(None) => {
                 return Poll::Ready(None);
             }
@@ -133,7 +152,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
     executor: &TaskExecutor,
     slot_clock: T::SlotClock,
     log: Logger,
-) -> Sender<ReprocessSchedulerMessage<T>> {
+) -> Sender<ReprocessQueueMessage<T>> {
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
     let queue_future =
@@ -145,20 +164,31 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
 }
 
 async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
-    work_reprocessing_rx: Receiver<ReprocessSchedulerMessage<T>>,
+    work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
     ready_work_tx: Sender<ReadyWork<T>>,
     slot_clock: T::SlotClock,
     log: Logger,
-) {
+    ) {
     let mut queued_block_roots = HashSet::new();
-
-    let mut inbound_events = InboundEvents {
+    //
+    // let delay_queue = DelayQueue::new();
+    //
+    let mut inbound_events = ReprocessQueue {
         work_reprocessing_rx,
-        // ready_works: VecDeque::new(), // TODO: bound this
-        delay_queue: DelayQueue::new(),
+        block_delay_queue: DelayQueue::new(),
+        current_processing_root: None,
+        awaiting_attestations: HashMap::new(),
     };
 
     loop {
+        // Poll for expired blocks *before* we try to process new blocks.
+        //
+        // The sequential nature of blockchains means it is generally better to try and import all
+        // existing blocks before new ones.
+        // match delay_queue.next().await {
+        //
+        // }
+
         match inbound_events.next().await {
             // Some block has been indicated as "early" and should be processed when the
             // appropriate slot arrives.
@@ -188,7 +218,7 @@ async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
                     // Queue the block until the start of the appropriate slot, plus
                     // `ADDITIONAL_DELAY`.
                     inbound_events
-                        .delay_queue
+                        .block_delay_queue
                         .insert(early_block, duration_till_slot + ADDITIONAL_DELAY);
                 } else {
                     // If there is no duration till the next slot, check to see if the slot
@@ -206,12 +236,12 @@ async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
                             && ready_work_tx
                                 .try_send(ReadyWork::Block(early_block))
                                 .is_err()
-                        {
-                            error!(
-                                log,
-                                "Failed to send block";
-                                );
-                        }
+                                {
+                                    error!(
+                                        log,
+                                        "Failed to send block";
+                                        );
+                                }
                     }
                 }
             }
@@ -229,19 +259,21 @@ async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
                         );
                 }
 
-                if ready_work_tx.try_send(ReadyWork::Block(ready_block)).is_err() {
-                    error!(
-                        log,
-                        "Failed to pop queued block";
-                    );
-                }
+                if ready_work_tx
+                    .try_send(ReadyWork::Block(ready_block))
+                        .is_err()
+                        {
+                            error!(
+                                log,
+                                "Failed to pop queued block";
+                                );
+                        }
             }
-            Some(InboundEvent::BlockProcessed(hash)) => todo!(),
             Some(InboundEvent::DelayQueueError(e)) => crit!(
                 log,
                 "Failed to poll block delay queue";
                 "e" => ?e
-            ),
+                ),
             None => {
                 debug!(
                     log,

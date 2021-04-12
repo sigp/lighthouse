@@ -17,7 +17,7 @@ use types::{
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
-use super::{super::block_delay_queue::QueuedBlock, ReprocessSchedulerMessage, Worker};
+use super::{super::work_reprocessing_queue::{QueuedBlock, ReprocessQueueMessage}, Worker};
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
@@ -238,7 +238,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
-        reprocess_tx: mpsc::Sender<ReprocessSchedulerMessage<T>>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) {
         // Log metrics to track delay from other nodes on the network.
@@ -361,7 +361,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessSchedulerMessage::EarlyBlock(QueuedBlock {
+                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
                         peer_id,
                         block: verified_block,
                         seen_timestamp: seen_duration,
@@ -377,7 +377,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     )
                 }
             }
-            Ok(_) => self.process_gossip_verified_block(peer_id, verified_block, seen_duration),
+            Ok(_) => self.process_gossip_verified_block(peer_id, verified_block, reprocess_tx, seen_duration),
             Err(e) => {
                 error!(
                     self.log,
@@ -398,14 +398,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
         let block = Box::new(verified_block.block.clone());
 
         match self.chain.process_block(verified_block) {
-            Ok(_block_root) => {
+            Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
+
+                reprocess_tx.try_send(ReprocessQueueMessage::BlockProcessed(block_root));
 
                 trace!(
                     self.log,
@@ -413,9 +416,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id
                 );
 
-                // The `MessageHandler` would be the place to put this, however it doesn't seem
-                // to have a reference to the `BeaconChain`. I will leave this for future
-                // works.
                 match self.chain.fork_choice() {
                     Ok(()) => trace!(
                         self.log,
