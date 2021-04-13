@@ -4438,9 +4438,11 @@ dependencies = [
 name = "operation_pool"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "eth2_ssz",
  "eth2_ssz_derive",
  "int_to_bytes",
+ "lazy_static",
  "parking_lot",
  "rand 0.7.3",
  "serde",

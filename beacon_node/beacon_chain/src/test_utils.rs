@@ -665,6 +665,64 @@ where
         }
     }
 
+    pub fn make_attester_slashing_different_indices(
+        &self,
+        validator_indices_1: Vec<u64>,
+        validator_indices_2: Vec<u64>,
+    ) -> AttesterSlashing<E> {
+        let data = AttestationData {
+            slot: Slot::new(0),
+            index: 0,
+            beacon_block_root: Hash256::zero(),
+            target: Checkpoint {
+                root: Hash256::zero(),
+                epoch: Epoch::new(0),
+            },
+            source: Checkpoint {
+                root: Hash256::zero(),
+                epoch: Epoch::new(0),
+            },
+        };
+
+        let mut attestation_1 = IndexedAttestation {
+            attesting_indices: VariableList::new(validator_indices_1).unwrap(),
+            data: data.clone(),
+            signature: AggregateSignature::infinity(),
+        };
+
+        let mut attestation_2 = IndexedAttestation {
+            attesting_indices: VariableList::new(validator_indices_2).unwrap(),
+            data,
+            signature: AggregateSignature::infinity(),
+        };
+
+        attestation_2.data.index += 1;
+
+        for attestation in &mut [&mut attestation_1, &mut attestation_2] {
+            for &i in &attestation.attesting_indices {
+                let sk = &self.validator_keypairs[i as usize].sk;
+
+                let fork = self.chain.head_info().unwrap().fork;
+                let genesis_validators_root = self.chain.genesis_validators_root;
+
+                let domain = self.chain.spec.get_domain(
+                    attestation.data.target.epoch,
+                    Domain::BeaconAttester,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = attestation.data.signing_root(domain);
+
+                attestation.signature.add_assign(&sk.sign(message));
+            }
+        }
+
+        AttesterSlashing {
+            attestation_1,
+            attestation_2,
+        }
+    }
+
     pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {
         let mut block_header_1 = self
             .chain

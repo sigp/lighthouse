@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
+use safe_arith::SafeArith;
 
 /// Each of the BLS signature domains.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -340,7 +341,7 @@ impl ChainSpec {
             /*
              * Altair hard fork params
              */
-            inactivity_penalty_quotient_altair: 3 * u64::pow(2, 24),
+            inactivity_penalty_quotient_altair: u64::pow(2, 24).saturating_mul(3),
             min_slashing_penalty_quotient_altair: u64::pow(2, 6),
             proportional_slashing_multiplier_altair: 2,
             inactivity_score_bias: 4,
