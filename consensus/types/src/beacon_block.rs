@@ -206,54 +206,6 @@ impl<T: EthSpec> BeaconBlock<T> {
         self.to_mut().body_mut()
     }
 
-    pub fn voluntary_exits_mut(
-        &mut self,
-    ) -> &mut VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits> {
-        match self {
-            BeaconBlock::Base(block) => &mut block.body.voluntary_exits,
-            BeaconBlock::Altair(block) => &mut block.body.voluntary_exits,
-        }
-    }
-
-    pub fn attestations_mut(&mut self) -> &mut VariableList<Attestation<T>, T::MaxAttestations> {
-        match self {
-            BeaconBlock::Base(block) => &mut block.body.attestations,
-            BeaconBlock::Altair(block) => &mut block.body.attestations,
-        }
-    }
-
-    pub fn attester_slashings_mut(
-        &mut self,
-    ) -> &mut VariableList<AttesterSlashing<T>, T::MaxAttesterSlashings> {
-        match self {
-            BeaconBlock::Base(block) => &mut block.body.attester_slashings,
-            BeaconBlock::Altair(block) => &mut block.body.attester_slashings,
-        }
-    }
-
-    pub fn proposer_slashings_mut(
-        &mut self,
-    ) -> &mut VariableList<ProposerSlashing, T::MaxProposerSlashings> {
-        match self {
-            BeaconBlock::Base(block) => &mut block.body.proposer_slashings,
-            BeaconBlock::Altair(block) => &mut block.body.proposer_slashings,
-        }
-    }
-
-    pub fn randao_reveal_mut(&mut self) -> &mut Signature {
-        match self {
-            BeaconBlock::Base(block) => &mut block.body.randao_reveal,
-            BeaconBlock::Altair(block) => &mut block.body.randao_reveal,
-        }
-    }
-
-    pub fn deposits_mut(&mut self) -> &mut VariableList<Deposit, T::MaxDeposits> {
-        match self {
-            BeaconBlock::Base(block) => &mut block.body.deposits,
-            BeaconBlock::Altair(block) => &mut block.body.deposits,
-        }
-    }
-
     /// Returns the epoch corresponding to `self.slot()`.
     pub fn epoch(&self) -> Epoch {
         self.slot().epoch(T::slots_per_epoch())
