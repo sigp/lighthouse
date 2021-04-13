@@ -176,8 +176,13 @@ impl<T: EthSpec> OperationPool<T> {
         );
 
         let prev_epoch_limit = std::cmp::min(
-            T::MaxPendingAttestations::to_usize()
-                .saturating_sub(state.previous_epoch_attestations.len()),
+            T::MaxPendingAttestations::to_usize().saturating_sub(
+                state
+                    .as_base()
+                    .expect("FIXME(altair)")
+                    .previous_epoch_attestations
+                    .len(),
+            ),
             T::MaxAttestations::to_usize(),
         );
 
