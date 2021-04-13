@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "beacon_node",
  "clap",
@@ -3378,7 +3378,7 @@ dependencies = [
 
 [[package]]
 name = "lcli"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "account_utils",
  "bls",
@@ -3388,6 +3388,7 @@ dependencies = [
  "directory",
  "dirs 3.0.1",
  "environment",
+ "eth1_test_rig",
  "eth2_keystore",
  "eth2_libp2p",
  "eth2_network_config",
@@ -3408,6 +3409,7 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_dir",
+ "web3",
 ]
 
 [[package]]
@@ -3750,7 +3752,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -4441,8 +4443,12 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "int_to_bytes",
+ "itertools 0.10.0",
+ "lazy_static",
+ "lighthouse_metrics",
  "parking_lot",
  "rand 0.7.3",
+ "rayon",
  "serde",
  "serde_derive",
  "state_processing",

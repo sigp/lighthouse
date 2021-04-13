@@ -75,4 +75,16 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         self.slot_of(self.now_duration()?.checked_sub(tolerance)?)
             .or_else(|| Some(self.genesis_slot()))
     }
+
+    /// Returns the delay between the start of the slot and when unaggregated attestations should be
+    /// produced.
+    fn unagg_attestation_production_delay(&self) -> Duration {
+        self.slot_duration() / 3
+    }
+
+    /// Returns the delay between the start of the slot and when aggregated attestations should be
+    /// produced.
+    fn agg_attestation_production_delay(&self) -> Duration {
+        self.slot_duration() * 2 / 3
+    }
 }
