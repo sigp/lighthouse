@@ -2860,7 +2860,6 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
- "malloc_utils",
  "network",
  "parking_lot",
  "serde",
