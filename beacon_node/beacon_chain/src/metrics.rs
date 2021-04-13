@@ -631,7 +631,7 @@ lazy_static! {
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_slot_start_delay_exceeded_total",
-        "Triggered when the duration between the start of the blocks slot and the current time is \
+        "Triggered when the duration between the start of the blocks slot and the current time \
         will result in failed attestations.",
     );
 
