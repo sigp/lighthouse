@@ -5,7 +5,6 @@
 //!
 //! These functions are generally only suitable for Linux systems.
 use lazy_static::lazy_static;
-use libc;
 use lighthouse_metrics::*;
 use parking_lot::Mutex;
 use std::env;
