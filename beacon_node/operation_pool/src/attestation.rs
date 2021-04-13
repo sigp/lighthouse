@@ -3,6 +3,7 @@ use state_processing::common::{get_attesting_indices, get_base_reward};
 use std::collections::HashMap;
 use types::{Attestation, BeaconState, BitList, ChainSpec, EthSpec};
 
+#[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, T: EthSpec> {
     /// Underlying attestation.
     att: &'a Attestation<T>,
