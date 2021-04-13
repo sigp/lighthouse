@@ -672,7 +672,7 @@ mod release_tests {
         state.slot -= 1;
         assert_eq!(
             op_pool
-                .get_attestations(state, |_| true, spec)
+                .get_attestations(state, |_| true, |_| true, spec)
                 .expect("should have attestations")
                 .len(),
             0
@@ -682,7 +682,7 @@ mod release_tests {
         state.slot += spec.min_attestation_inclusion_delay;
 
         let block_attestations = op_pool
-            .get_attestations(state, |_| true, spec)
+            .get_attestations(state, |_| true, |_| true, spec)
             .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
@@ -852,7 +852,7 @@ mod release_tests {
 
         state.slot += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, |_| true, spec)
+            .get_attestations(state, |_| true, |_| true, spec)
             .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -927,7 +927,7 @@ mod release_tests {
 
         state.slot += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, |_| true, spec)
+            .get_attestations(state, |_| true, |_| true, spec)
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
