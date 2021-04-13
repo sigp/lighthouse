@@ -2214,11 +2214,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(update_head_timer);
 
+        let block_delay = get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock);
+
         // Observe the delay between the start of the slot and when we set the block as head.
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
-            get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock),
+            block_delay,
         );
+
+        // If the block was enshrined as head too late for attestations to be created for it, log a
+        // debug warning and increment a metric.
+        //
+        // Don't create this log if the block was > 4 slots old, this helps prevent noise during
+        // sync.
+        if block_delay >= self.slot_clock.unagg_attestation_production_delay()
+            && block_delay < self.slot_clock.slot_duration() * 4
+        {
+            metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
+            debug!(
+                self.log,
+                "Delayed head block";
+                "delay" => ?block_delay,
+                "root" => ?beacon_block_root,
+                "slot" => head_slot,
+            );
+        }
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
