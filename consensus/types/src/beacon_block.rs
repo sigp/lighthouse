@@ -1,4 +1,6 @@
-use crate::beacon_block_body::{BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyRef};
+use crate::beacon_block_body::{
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+};
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
@@ -199,6 +201,11 @@ impl<T: EthSpec> BeaconBlock<T> {
         self.to_ref().body()
     }
 
+    /// Convenience accessor for the `body` as a `BeaconBlockBodyRefMut`.
+    pub fn body_mut(&mut self) -> BeaconBlockBodyRefMut<'_, T> {
+        self.to_mut().body_mut()
+    }
+
     pub fn voluntary_exits_mut(
         &mut self,
     ) -> &mut VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits> {
@@ -330,6 +337,16 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         BeaconBlockHeader {
             state_root: Hash256::zero(),
             ..self.block_header()
+        }
+    }
+}
+
+impl<'a, T: EthSpec> BeaconBlockRefMut<'a, T> {
+    /// Convert a mutable reference to a beacon block to a mutable ref to its body.
+    pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, T> {
+        match self {
+            BeaconBlockRefMut::Base(block) => BeaconBlockBodyRefMut::Base(&mut block.body),
+            BeaconBlockRefMut::Altair(block) => BeaconBlockBodyRefMut::Altair(&mut block.body),
         }
     }
 }

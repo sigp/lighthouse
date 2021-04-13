@@ -5,7 +5,7 @@ use std::io::{prelude::*, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bls::blst_implementations::PublicKeyBytes;
+use bls::PublicKeyBytes;
 use types::{graffiti::GraffitiString, Graffiti};
 
 #[derive(Debug)]
