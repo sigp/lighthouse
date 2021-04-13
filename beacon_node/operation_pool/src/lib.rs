@@ -117,10 +117,8 @@ impl<T: EthSpec> OperationPool<T> {
             .iter()
             .filter(move |(key, _)| key.domain_bytes_match(&domain_bytes))
             .flat_map(|(_, attestations)| attestations)
+            .filter(move |attestation| attestation.data.target.epoch == epoch)
             .filter(move |attestation| {
-                if attestation.data.target.epoch != epoch {
-                    return false;
-                }
                 // Ensure attestations are valid for block inclusion
                 verify_attestation_for_block_inclusion(
                     state,
@@ -131,7 +129,7 @@ impl<T: EthSpec> OperationPool<T> {
                 .is_ok()
             })
             .filter(validity_filter)
-            .flat_map(move |att| AttMaxCover::new(att, state, total_active_balance, spec))
+            .filter_map(move |att| AttMaxCover::new(att, state, total_active_balance, spec))
     }
 
     /// Get a list of attestations for inclusion in a block.
