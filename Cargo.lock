@@ -2101,6 +2101,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_utils",
+ "smallvec",
  "tree_hash",
  "tree_hash_derive",
  "typenum",
