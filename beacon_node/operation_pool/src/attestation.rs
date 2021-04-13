@@ -1,7 +1,7 @@
 use crate::max_cover::MaxCover;
 use state_processing::common::{get_attesting_indices, get_base_reward};
 use std::collections::HashMap;
-use types::{Attestation, BeaconState, BitList, ChainSpec, Epoch, EthSpec};
+use types::{Attestation, BeaconState, BitList, ChainSpec, EthSpec};
 
 #[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, T: EthSpec> {
@@ -38,11 +38,6 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
             att,
             fresh_validators_rewards,
         })
-    }
-
-    /// Epoch of the underlying attestation.
-    pub fn epoch(&self) -> Epoch {
-        self.att.data.target.epoch
     }
 }
 

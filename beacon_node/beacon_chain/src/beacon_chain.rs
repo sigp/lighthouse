@@ -1174,7 +1174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .or_insert_with(|| {
                 self.shuffling_is_compatible(
                     &att.data.beacon_block_root,
-                    att.data.slot,
+                    // att.data.slot,
                     att.data.target.epoch,
                     &state,
                 )
@@ -1193,7 +1193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn shuffling_is_compatible(
         &self,
         block_root: &Hash256,
-        slot: Slot,
+        // slot: Slot,
         target_epoch: Epoch,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
@@ -1208,11 +1208,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the block is on the same chain as `state` then it necessarily has the same
         // shuffling. This optimisation doesn't take into account skipped slots, but should
         // catch a great number of attestations.
+        /* FIXME(sproul): delete this if it really is slower
         if let Ok(state_block_root) = state.get_block_root(slot) {
             if state_block_root == block_root {
                 return true;
             }
         }
+        */
 
         // Otherwise the shuffling is determined by the block at the end of the target epoch
         // minus the shuffling lookahead (usually 2). We call this the "pivot".

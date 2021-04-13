@@ -97,6 +97,43 @@ impl<T: EthSpec> OperationPool<T> {
         self.attestations.read().values().map(Vec::len).sum()
     }
 
+    /// Return all valid attestations for the given epoch, for use in max cover.
+    fn get_valid_attestations_for_epoch<'a>(
+        &'a self,
+        epoch: Epoch,
+        all_attestations: &'a HashMap<AttestationId, Vec<Attestation<T>>>,
+        state: &'a BeaconState<T>,
+        total_active_balance: u64,
+        validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
+        spec: &'a ChainSpec,
+    ) -> impl Iterator<Item = AttMaxCover<'a, T>> + Send {
+        let domain_bytes = AttestationId::compute_domain_bytes(
+            epoch,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
+        all_attestations
+            .iter()
+            .filter(move |(key, _)| key.domain_bytes_match(&domain_bytes))
+            .flat_map(|(_, attestations)| attestations)
+            .filter(move |attestation| {
+                if attestation.data.target.epoch != epoch {
+                    return false;
+                }
+                // Ensure attestations are valid for block inclusion
+                verify_attestation_for_block_inclusion(
+                    state,
+                    attestation,
+                    VerifySignatures::False,
+                    spec,
+                )
+                .is_ok()
+            })
+            .filter(validity_filter)
+            .flat_map(move |att| AttMaxCover::new(att, state, total_active_balance, spec))
+    }
+
     /// Get a list of attestations for inclusion in a block.
     ///
     /// The `validity_filter` is a closure that provides extra filtering of the attestations
@@ -113,19 +150,7 @@ impl<T: EthSpec> OperationPool<T> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
-        let prev_domain_bytes = AttestationId::compute_domain_bytes(
-            prev_epoch,
-            &state.fork,
-            state.genesis_validators_root,
-            spec,
-        );
-        let curr_domain_bytes = AttestationId::compute_domain_bytes(
-            current_epoch,
-            &state.fork,
-            state.genesis_validators_root,
-            spec,
-        );
-        let reader = self.attestations.read();
+        let all_attestations = self.attestations.read();
         let active_indices = state
             .get_cached_active_validator_indices(RelativeEpoch::Current)
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
@@ -135,60 +160,22 @@ impl<T: EthSpec> OperationPool<T> {
 
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
-        let filter_timer = metrics::start_timer(&metrics::ATTESTATION_FILTER_TIME);
-        let prev_epoch_att = reader
-            .iter()
-            .filter(|(key, _)| key.domain_bytes_match(&prev_domain_bytes))
-            .flat_map(|(_, attestations)| attestations)
-            .filter(|attestation| {
-                if attestation.data.target.epoch != prev_epoch {
-                    return false;
-                }
-                // Ensure attestations are valid for block inclusion
-                verify_attestation_for_block_inclusion(
-                    state,
-                    attestation,
-                    VerifySignatures::False,
-                    spec,
-                )
-                .is_ok()
-            })
-            .filter(prev_epoch_validity_filter)
-            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
-
-        let curr_epoch_att = reader
-            .iter()
-            .filter(|(key, _)| key.domain_bytes_match(&curr_domain_bytes))
-            .flat_map(|(_, attestations)| attestations)
-            .filter(|attestation| {
-                if attestation.data.target.epoch != current_epoch {
-                    return false;
-                }
-                // Ensure attestations are valid for block inclusion
-                verify_attestation_for_block_inclusion(
-                    state,
-                    attestation,
-                    VerifySignatures::False,
-                    spec,
-                )
-                .is_ok()
-            })
-            .filter(curr_epoch_validity_filter)
-            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
-        drop(filter_timer);
-
-        /*
-        metrics::set_int_gauge(
-            &metrics::ATTESTATIONS_AVAILABLE,
-            &["previous"],
-            prev_epoch_att.len() as i64,
+        let prev_epoch_att = self.get_valid_attestations_for_epoch(
+            prev_epoch,
+            &*all_attestations,
+            state,
+            total_active_balance,
+            prev_epoch_validity_filter,
+            spec,
         );
-        metrics::set_int_gauge(
-            &metrics::ATTESTATIONS_AVAILABLE,
-            &["current"],
-            curr_epoch_att.len() as i64,
+        let curr_epoch_att = self.get_valid_attestations_for_epoch(
+            current_epoch,
+            &*all_attestations,
+            state,
+            total_active_balance,
+            curr_epoch_validity_filter,
+            spec,
         );
-        */
 
         let prev_epoch_limit = std::cmp::min(
             T::MaxPendingAttestations::to_usize()
@@ -199,7 +186,12 @@ impl<T: EthSpec> OperationPool<T> {
         let (prev_cover, curr_cover) = rayon::join(
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_PREV_EPOCH_PACKING_TIME);
-                maximum_cover(prev_epoch_att, prev_epoch_limit)
+                // If we're in the genesis epoch, just use the current epoch attestations.
+                if prev_epoch == current_epoch {
+                    vec![]
+                } else {
+                    maximum_cover(prev_epoch_att, prev_epoch_limit)
+                }
             },
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
