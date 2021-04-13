@@ -409,7 +409,7 @@ fn invalid_signature_randao_reveal() {
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
-        *block.randao_reveal_mut() = junk_signature();
+        *block.body_mut().randao_reveal_mut() = junk_signature();
         snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
@@ -434,6 +434,7 @@ fn invalid_signature_proposer_slashing() {
             },
         };
         block
+            .body_mut()
             .proposer_slashings_mut()
             .push(proposer_slashing)
             .expect("should update proposer slashing");
@@ -472,6 +473,7 @@ fn invalid_signature_attester_slashing() {
         };
         let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
         block
+            .body_mut()
             .attester_slashings_mut()
             .push(attester_slashing)
             .expect("should update attester slashing");
@@ -490,7 +492,7 @@ fn invalid_signature_attestation() {
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
-        if let Some(attestation) = block.attestations_mut().get_mut(0) {
+        if let Some(attestation) = block.body_mut().attestations_mut().get_mut(0) {
             attestation.signature = junk_aggregate_signature();
             snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
             update_parent_roots(&mut snapshots);
@@ -523,6 +525,7 @@ fn invalid_signature_deposit() {
         };
         let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
         block
+            .body_mut()
             .deposits_mut()
             .push(deposit)
             .expect("should update deposit");
@@ -554,6 +557,7 @@ fn invalid_signature_exit() {
         let epoch = snapshots[block_index].beacon_state.current_epoch();
         let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
         block
+            .body_mut()
             .voluntary_exits_mut()
             .push(SignedVoluntaryExit {
                 message: VoluntaryExit {
