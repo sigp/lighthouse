@@ -23,16 +23,16 @@ mod glibc;
 
 #[cfg(all(target_os = "linux", not(target_env = "musl")))]
 pub use glibc_interface::*;
-
-#[cfg(any(not(target_os = "linux"), target_env = "musl"))]
-pub use not_glibc_interface::*;
-
+#[cfg(all(target_os = "linux", not(target_env = "musl")))]
 mod glibc_interface {
     pub use crate::glibc::configure_glibc_malloc as configure_memory_allocator;
     pub use crate::glibc::eprintln_malloc_stats as eprintln_allocator_stats;
     pub use crate::glibc::scrape_mallinfo_metrics as scrape_allocator_metrics;
 }
 
+#[cfg(any(not(target_os = "linux"), target_env = "musl"))]
+pub use not_glibc_interface::*;
+#[cfg(any(not(target_os = "linux"), target_env = "musl"))]
 mod not_glibc_interface {
     #[allow(dead_code, clippy::unnecessary_wraps)]
     pub fn configure_memory_allocator() -> Result<(), String> {
