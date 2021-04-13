@@ -178,10 +178,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
 
     /// Returns the `tree_hash_root` of the block.
     pub fn canonical_root(&self) -> Hash256 {
-        match self {
-            SignedBeaconBlock::Base(block) => block.message.tree_hash_root(),
-            SignedBeaconBlock::Altair(block) => block.message.tree_hash_root(),
-        }
+        self.message().tree_hash_root()
     }
 }
 
