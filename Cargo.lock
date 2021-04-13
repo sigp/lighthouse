@@ -2860,7 +2860,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
- "malloc_ctl",
+ "malloc_utils",
  "network",
  "parking_lot",
  "serde",
@@ -2888,7 +2888,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
- "malloc_ctl",
+ "malloc_utils",
  "prometheus",
  "reqwest",
  "serde",
@@ -3729,7 +3729,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "logging",
- "malloc_ctl",
+ "malloc_utils",
  "remote_signer",
  "slashing_protection",
  "slog",
@@ -3857,7 +3857,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "malloc_ctl"
+name = "malloc_utils"
 version = "0.1.0"
 dependencies = [
  "lazy_static",

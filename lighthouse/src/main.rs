@@ -6,7 +6,7 @@ use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
-use malloc_ctl::configure_memory_allocator;
+use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;

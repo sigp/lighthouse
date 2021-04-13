@@ -1,7 +1,7 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
-use malloc_ctl::scrape_allocator_metrics;
+use malloc_utils::scrape_allocator_metrics;
 
 pub use lighthouse_metrics::*;
 

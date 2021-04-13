@@ -22,7 +22,7 @@ use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
-use malloc_ctl::eprintln_allocator_stats;
+use malloc_utils::eprintln_allocator_stats;
 use network::NetworkMessage;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
