@@ -152,23 +152,3 @@ fn get_inactivity_penalty_deltas<T: EthSpec>(
     }
     Ok(())
 }
-
-/// Return the combined effective balance of an array of validators.
-///
-/// Spec v1.1.0
-pub fn get_total_active_balance<T: EthSpec>(
-    state: &BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<u64, Error> {
-    let total_balance = state.get_total_balance(
-        state
-            .get_active_validator_indices(state.current_epoch(), spec)?
-            .as_slice(),
-        spec,
-    )?;
-    //TODO: this comparator should be in `get_total_balance`
-    Ok(std::cmp::max(
-        spec.effective_balance_increment,
-        total_balance,
-    ))
-}

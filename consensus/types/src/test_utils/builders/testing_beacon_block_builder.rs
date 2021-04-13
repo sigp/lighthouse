@@ -334,8 +334,8 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         if test_task == DepositTestTask::NoReset {
             state.eth1_data.deposit_count += num_deposits;
         } else {
-            state.eth1_deposit_index = 0;
-            state.eth1_data.deposit_count = num_deposits;
+            *state.eth1_deposit_index_mut() = 0;
+            state.eth1_data_mut().deposit_count = num_deposits;
         }
     }
 

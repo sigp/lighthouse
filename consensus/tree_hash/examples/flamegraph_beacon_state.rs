@@ -9,8 +9,8 @@ fn build_state<T: EthSpec>(validator_count: usize) -> BeaconState<T> {
         TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, &T::default_spec())
             .build();
 
-    assert_eq!(state.validators.len(), validator_count);
-    assert_eq!(state.balances.len(), validator_count);
+    assert_eq!(state.validators().len(), validator_count);
+    assert_eq!(state.balances().len(), validator_count);
     assert!(state.previous_epoch_attestations.is_empty());
     assert!(state.current_epoch_attestations.is_empty());
     assert!(state.eth1_data_votes.is_empty());

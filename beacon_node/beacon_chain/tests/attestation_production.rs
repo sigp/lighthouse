@@ -63,12 +63,12 @@ fn produces_attestations() {
             .block_at_slot(block_slot)
             .expect("should get block")
             .expect("block should not be skipped");
-        let block_root = block.message.tree_hash_root();
+        let block_root = block.message().tree_hash_root();
 
         let epoch_boundary_slot = state
             .current_epoch()
             .start_slot(MainnetEthSpec::slots_per_epoch());
-        let target_root = if state.slot == epoch_boundary_slot {
+        let target_root = if state.slot() == epoch_boundary_slot {
             block_root
         } else {
             *state
@@ -116,11 +116,13 @@ fn produces_attestations() {
             assert_eq!(data.slot, slot, "bad slot");
             assert_eq!(data.beacon_block_root, block_root, "bad block root");
             assert_eq!(
-                data.source, state.current_justified_checkpoint,
+                data.source,
+                state.current_justified_checkpoint(),
                 "bad source"
             );
             assert_eq!(
-                data.source, state.current_justified_checkpoint,
+                data.source,
+                state.current_justified_checkpoint(),
                 "bad source"
             );
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");

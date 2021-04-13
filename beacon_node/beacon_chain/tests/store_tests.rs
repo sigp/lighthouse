@@ -107,7 +107,11 @@ fn randomised_skips() {
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
-    assert_eq!(state.slot, num_slots, "head should be at the current slot");
+    assert_eq!(
+        state.slot(),
+        num_slots,
+        "head should be at the current slot"
+    );
 
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
@@ -195,7 +199,7 @@ fn randao_genesis_storage() {
         .head()
         .expect("should get head")
         .beacon_state
-        .randao_mixes
+        .randao_mixes()
         .iter()
         .find(|x| **x == genesis_value)
         .is_some());
@@ -212,7 +216,7 @@ fn randao_genesis_storage() {
         .head()
         .expect("should get head")
         .beacon_state
-        .randao_mixes
+        .randao_mixes()
         .iter()
         .find(|x| **x == genesis_value)
         .is_none());
@@ -550,18 +554,21 @@ fn multiple_attestations_per_block() {
     let head = harness.chain.head().unwrap();
     let committees_per_slot = head
         .beacon_state
-        .get_committee_count_at_slot(head.beacon_state.slot)
+        .get_committee_count_at_slot(head.beacon_state.slot())
         .unwrap();
     assert!(committees_per_slot > 1);
 
     for snapshot in harness.chain.chain_dump().unwrap() {
+        let slot = snapshot.beacon_block.slot();
         assert_eq!(
-            snapshot.beacon_block.message.body.attestations.len() as u64,
-            if snapshot.beacon_block.slot() <= 1 {
-                0
-            } else {
-                committees_per_slot
-            }
+            snapshot
+                .beacon_block
+                .deconstruct()
+                .0
+                .body()
+                .attestations()
+                .len() as u64,
+            if slot <= 1 { 0 } else { committees_per_slot }
         );
     }
 }
@@ -1691,15 +1698,17 @@ fn garbage_collect_temp_states_from_failed_block() {
 
     let genesis_state = harness.get_current_state();
     let block_slot = Slot::new(2 * slots_per_epoch);
-    let (mut block, state) = harness.make_block(genesis_state, block_slot);
+    let (signed_block, state) = harness.make_block(genesis_state, block_slot);
+
+    let (mut block, _) = signed_block.deconstruct();
 
     // Mutate the block to make it invalid, and re-sign it.
-    block.message.state_root = Hash256::repeat_byte(0xff);
-    let proposer_index = block.message.proposer_index as usize;
-    let block = block.message.sign(
+    *block.state_root_mut() = Hash256::repeat_byte(0xff);
+    let proposer_index = block.proposer_index() as usize;
+    let block = block.sign(
         &harness.validator_keypairs[proposer_index].sk,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
         &harness.spec,
     );
 
@@ -1725,7 +1734,8 @@ fn check_slot(harness: &TestHarness, expected_slot: u64) {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, expected_slot,
+        state.slot(),
+        expected_slot,
         "head should be at the current slot"
     );
 }
@@ -1737,12 +1747,12 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
     check_slot(harness, expected_slot);
 
     assert_eq!(
-        state.current_justified_checkpoint.epoch,
+        state.current_justified_checkpoint().epoch,
         state.current_epoch() - 1,
         "the head should be justified one behind the current epoch"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch,
+        state.finalized_checkpoint().epoch,
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
     );
@@ -1757,7 +1767,7 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
             .head()
             .expect("should get head")
             .beacon_state
-            .finalized_checkpoint
+            .finalized_checkpoint()
             .epoch
             .start_slot(E::slots_per_epoch()),
         split_slot
@@ -1788,8 +1798,8 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
                 .get_state(&checkpoint.beacon_state_root(), None)
                 .expect("no error")
                 .expect("state exists")
-                .slot,
-            checkpoint.beacon_state.slot
+                .slot(),
+            checkpoint.beacon_state.slot()
         );
     }
 
@@ -1866,7 +1876,7 @@ fn get_finalized_epoch_boundary_blocks(
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
-        .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint.root.into())
+        .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
 

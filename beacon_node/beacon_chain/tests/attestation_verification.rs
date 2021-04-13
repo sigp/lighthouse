@@ -75,7 +75,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         .sign(
             &validator_sk,
             validator_committee_index,
-            &head.beacon_state.fork,
+            &head.beacon_state.fork(),
             chain.genesis_validators_root,
             &chain.spec,
         )
@@ -120,7 +120,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
             let proof = SelectionProof::new::<T::EthSpec>(
                 aggregate.data.slot,
                 &aggregator_sk,
-                &state.fork,
+                &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
             );
@@ -138,7 +138,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         aggregate,
         None,
         &aggregator_sk,
-        &state.fork,
+        &state.fork(),
         chain.genesis_validators_root,
         &chain.spec,
     );
@@ -169,7 +169,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
             let proof = SelectionProof::new::<T::EthSpec>(
                 aggregate.data.slot,
                 &aggregator_sk,
-                &state.fork,
+                &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
             );
@@ -905,7 +905,7 @@ fn attestation_that_skips_epochs() {
         .expect("should not error getting state")
         .expect("should find state");
 
-    while state.slot < current_slot {
+    while state.slot() < current_slot {
         per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
     }
 
@@ -932,8 +932,8 @@ fn attestation_that_skips_epochs() {
         .get_item::<SignedBeaconBlock<E>>(&block_root)
         .expect("should not error getting block")
         .expect("should find attestation block")
-        .message
-        .slot;
+        .message()
+        .slot();
 
     assert!(
         attestation.data.slot - block_slot > E::slots_per_epoch() * 2,
