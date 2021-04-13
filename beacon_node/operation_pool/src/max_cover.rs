@@ -7,7 +7,7 @@ use itertools::Itertools;
 /// * `element`: something contained in a set, and covered by the covering set of an item
 /// * `object`: something extracted from an item in order to comprise a solution
 /// See: https://en.wikipedia.org/wiki/Maximum_coverage_problem
-pub trait MaxCover: Clone {
+pub trait MaxCover {
     /// The result type, of which we would eventually like a collection of maximal quality.
     type Object: Clone;
     /// The type used to represent sets.
