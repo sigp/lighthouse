@@ -9,6 +9,8 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
+use std::fs::File;
+use std::io::Write;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -124,6 +126,23 @@ fn main() {
                 .takes_value(true)
                 .global(true)
 
+        )
+        .arg(
+            Arg::with_name("dump-config")
+                .long("dump-config")
+                .hidden(true)
+                .help("Dumps the config to a desired location.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("immediate-shutdown")
+                .long("immediate-shutdown")
+                .hidden(true)
+                .help(
+                    "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
+                    Should only be used in Testing.")
+                .global(true)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
@@ -285,6 +304,24 @@ fn run<E: EthSpec>(
                 &context.eth2_config().spec,
                 context.log().clone(),
             )?;
+            let shutdown_flag = matches.is_present("immediate-shutdown");
+            let dump_config = matches.is_present("dump-config");
+            if dump_config {
+                if let Some(dump_path) = matches.value_of("dump-config") {
+                    dump_path.parse::<PathBuf>()
+                    .map_err(|e| format!("Failed to parse dump path: {:?}", e))?;
+
+                    let config_json = serde_json::to_string(&config)
+                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
+
+                    let mut file = File::create(dump_path)
+                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+
+                    file.write_all(config_json.as_bytes())
+                    .map_err(|e| format!("Unable to write to config file: {:?}", e))?;
+                };
+            }
+
             environment.runtime().spawn(async move {
                 if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
                     crit!(log, "Failed to start beacon node"; "reason" => e);
@@ -293,6 +330,11 @@ fn run<E: EthSpec>(
                     let _ = executor
                         .shutdown_sender()
                         .try_send("Failed to start beacon node");
+                } else if shutdown_flag {
+                    // shutdown the beacon node
+                    let _ = executor
+                        .shutdown_sender()
+                        .try_send("Beacon node immediate shutdown triggered.");
                 }
             });
         }
@@ -302,23 +344,46 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(&matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-            environment.runtime().spawn(async move {
-                let run = async {
-                    ProductionValidatorClient::new(context, config)
-                        .await?
-                        .start_service()?;
+            let shutdown_flag = matches.is_present("immediate-shutdown");
+            let dump_config = matches.is_present("dump-config");
+            if dump_config {
+                if let Some(dump_path) = matches.value_of("dump-config") {
+                    dump_path.parse::<PathBuf>()
+                    .map_err(|e| format!("Failed to parse dump path: {:?}", e))?;
 
-                    Ok::<(), String>(())
+                    let config_json = serde_json::to_string(&config)
+                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
+
+                    let mut file = File::create(dump_path)
+                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+
+                    file.write_all(config_json.as_bytes())
+                    .map_err(|e| format!("Unable to write to config file: {:?}", e))?;
                 };
-                if let Err(e) = run.await {
-                    crit!(log, "Failed to start validator client"; "reason" => e);
-                    // Ignore the error since it always occurs during normal operation when
-                    // shutting down.
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send("Failed to start validator client");
-                }
-            });
+            }
+            if !shutdown_flag {
+                environment.runtime().spawn(async move {
+                    let run = async {
+                        ProductionValidatorClient::new(context, config)
+                            .await?
+                            .start_service()?;
+
+                        Ok::<(), String>(())
+                    };
+                    if let Err(e) = run.await {
+                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send("Failed to start validator client");
+                    }
+                });
+            } else {
+                let _ = executor
+                    .shutdown_sender()
+                    .try_send("Validator client immediate shutdown triggered.");
+            }
         }
         ("remote_signer", Some(matches)) => {
             if let Err(e) = remote_signer::run(&mut environment, matches) {
