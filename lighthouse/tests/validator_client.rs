@@ -117,13 +117,11 @@ struct CompletedTest {
     dir: TempDir,
 }
 impl CompletedTest {
-    fn with_config<F: Fn(&Config)>(self, func: F) -> Self {
+    fn with_config<F: Fn(&Config)>(self, func: F) {
         func(&self.config);
-        self
     }
-    fn with_config_and_dir<F: Fn(&Config, &TempDir)>(self, func: F) -> Self {
+    fn with_config_and_dir<F: Fn(&Config, &TempDir)>(self, func: F) {
         func(&self.config, &self.dir);
-        self
     }
 }
 
@@ -284,7 +282,7 @@ fn http_allow_origin_flag() {
             assert_eq!(
                 config.http_api.allow_origin,
                 Some("http://localhost:9009".to_string())
-            )
+            );
         });
 }
 #[test]
@@ -327,7 +325,7 @@ fn metrics_allow_origin_flag() {
             assert_eq!(
                 config.http_metrics.allow_origin,
                 Some("http://localhost:9009".to_string())
-            )
+            );
         });
 }
 #[test]

@@ -93,13 +93,11 @@ struct CompletedTest {
     dir: TempDir,
 }
 impl CompletedTest {
-    fn with_config<F: Fn(&Config)>(self, func: F) -> Self {
+    fn with_config<F: Fn(&Config)>(self, func: F) {
         func(&self.config);
-        self
     }
-    fn with_config_and_dir<F: Fn(&Config, &TempDir)>(self, func: F) -> Self {
+    fn with_config_and_dir<F: Fn(&Config, &TempDir)>(self, func: F) {
         func(&self.config, &self.dir);
-        self
     }
 }
 
@@ -115,8 +113,10 @@ fn staking_flag() {
     CommandLineTest::new()
         .flag("staking", None)
         .run()
-        .with_config(|config| assert!(config.http_api.enabled))
-        .with_config(|config| assert!(config.sync_eth1_chain));
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+            assert!(config.sync_eth1_chain);
+        });
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn graffiti_flag() {
             assert_eq!(
                 config.graffiti.to_string(),
                 "0x6e6963652d677261666669746900000000000000000000000000000000000000"
-            )
+            );
         });
 }
 
@@ -248,7 +248,7 @@ fn network_target_peers_flag() {
         .flag("target-peers", Some("55"))
         .run()
         .with_config(|config| {
-            assert_eq!(config.network.target_peers, "55".parse::<usize>().unwrap())
+            assert_eq!(config.network.target_peers, "55".parse::<usize>().unwrap());
         });
 }
 #[test]
@@ -280,7 +280,7 @@ fn network_port_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(config.network.libp2p_port, 9009);
-            assert_eq!(config.network.discovery_port, 9009)
+            assert_eq!(config.network.discovery_port, 9009);
         });
 }
 #[test]
@@ -298,7 +298,7 @@ fn network_port_and_discovery_port_flags() {
         .run()
         .with_config(|config| {
             assert_eq!(config.network.libp2p_port, 9009);
-            assert_eq!(config.network.discovery_port, 9011)
+            assert_eq!(config.network.discovery_port, 9011);
         });
 }
 #[test]
@@ -379,7 +379,7 @@ fn enr_match_flag() {
             assert_eq!(config.network.listen_address, addr);
             assert_eq!(config.network.enr_address, Some(addr));
             assert_eq!(config.network.discovery_port, 9009);
-            assert_eq!(config.network.enr_udp_port, Some(9009))
+            assert_eq!(config.network.enr_udp_port, Some(9009));
         });
 }
 #[test]
@@ -391,7 +391,7 @@ fn enr_address_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, Some(addr));
-            assert_eq!(config.network.enr_udp_port, Some(9009))
+            assert_eq!(config.network.enr_udp_port, Some(9009));
         });
 }
 #[test]
@@ -407,7 +407,7 @@ fn enr_address_dns_flag() {
                 config.network.enr_address == Some(addr)
                     || config.network.enr_address == Some(ipv6addr)
             );
-            assert_eq!(config.network.enr_udp_port, Some(9009))
+            assert_eq!(config.network.enr_udp_port, Some(9009));
         });
 }
 #[test]
@@ -447,7 +447,7 @@ fn http_allow_origin_flag() {
         .flag("http-allow-origin", Some("127.0.0.99"))
         .run()
         .with_config(|config| {
-            assert_eq!(config.http_api.allow_origin, Some("127.0.0.99".to_string()))
+            assert_eq!(config.http_api.allow_origin, Some("127.0.0.99".to_string()));
         });
 }
 #[test]
@@ -593,7 +593,7 @@ fn slasher_dir_flag() {
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.database_path, dir.path())
+                assert_eq!(slasher_config.database_path, dir.path());
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
@@ -607,7 +607,7 @@ fn slasher_update_period_flag() {
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.update_period, 100)
+                assert_eq!(slasher_config.update_period, 100);
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
@@ -621,7 +621,7 @@ fn slasher_history_length_flag() {
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.history_length, 10)
+                assert_eq!(slasher_config.history_length, 10);
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
@@ -635,7 +635,7 @@ fn slasher_max_db_size_flag() {
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.max_db_size_mbs, 10240)
+                assert_eq!(slasher_config.max_db_size_mbs, 10240);
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
@@ -649,7 +649,7 @@ fn slasher_chunk_size_flag() {
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.chunk_size, 10)
+                assert_eq!(slasher_config.chunk_size, 10);
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
@@ -663,7 +663,7 @@ fn slasher_validator_chunk_size_flag() {
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.validator_chunk_size, 10)
+                assert_eq!(slasher_config.validator_chunk_size, 10);
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
@@ -677,7 +677,7 @@ fn slasher_broadcast_flag() {
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert!(slasher_config.broadcast)
+                assert!(slasher_config.broadcast);
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
