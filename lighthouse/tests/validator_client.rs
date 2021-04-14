@@ -16,7 +16,7 @@ const CONFIG_NAME: &str = "vc_dump.json";
 const DUMP_CONFIG_CMD: &str = "dump-config";
 const IMMEDIATE_SHUTDOWN_CMD: &str = "immediate-shutdown";
 
-/// Returns the `lighthouse validator_client --immediate-shutdown` command
+/// Returns the `lighthouse validator_client --immediate-shutdown` command.
 fn base_cmd() -> Command {
     let target_dir = env!("CARGO_BIN_EXE_lighthouse");
     let path = target_dir
@@ -43,7 +43,7 @@ fn output_result(cmd: &mut Command) -> Result<Output, String> {
     }
 }
 
-// Framework for Command Line Testing
+// Wrapper around `Command` for easier Command Line Testing.
 struct CommandLineTest {
     cmd: Command,
 }
@@ -54,7 +54,7 @@ impl CommandLineTest {
     }
 
     fn flag(mut self, flag: &str, value: Option<&str>) -> Self {
-        // Build the command by adding the flag and any values
+        // Build the command by adding the flag and any values.
         self.cmd.arg(format!("--{}", flag));
         if let Some(value) = value {
             self.cmd.arg(value);
@@ -63,21 +63,21 @@ impl CommandLineTest {
     }
 
     fn run(&mut self) -> CompletedTest {
-        // Setup temp directories
+        // Setup temp directories.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
         let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
 
-        // Add --datadir <temp_dir> --dump-config <temp_path> to cmd
+        // Add --datadir <temp_dir> --dump-config <temp_path> to cmd.
         self.cmd
             .arg("--datadir")
             .arg(tmp_dir.path().as_os_str())
             .arg(format!("--{}", DUMP_CONFIG_CMD))
             .arg(tmp_path.as_os_str());
 
-        // Run the command
+        // Run the command.
         let _output = output_result(&mut self.cmd).expect("Unable to run command");
 
-        // Grab the config
+        // Grab the config.
         let config: Config =
             from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
                 .expect("Unable to deserialize to ClientConfig");
@@ -88,21 +88,21 @@ impl CommandLineTest {
     }
 
     // In order to test custom validator and secrets directory flags,
-    // datadir cannot be defined
+    // datadir cannot be defined.
     fn run_with_no_datadir(&mut self) -> CompletedTest {
         // Setup temp directories
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
         let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
 
-        // Add --dump-config <temp_path> to cmd
+        // Add --dump-config <temp_path> to cmd.
         self.cmd
             .arg(format!("--{}", DUMP_CONFIG_CMD))
             .arg(tmp_path.as_os_str());
 
-        // Run the command
+        // Run the command.
         let _output = output_result(&mut self.cmd).expect("Unable to run command");
 
-        // Grab the config
+        // Grab the config.
         let config: Config =
             from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
                 .expect("Unable to deserialize to ClientConfig");
@@ -185,7 +185,7 @@ fn init_slashing_protections_flag() {
         .with_config(|config| assert!(config.init_slashing_protection));
 }
 
-// Tests for Graffiti flags
+// Tests for Graffiti flags.
 #[test]
 fn grafitti_flag() {
     CommandLineTest::new()
@@ -214,7 +214,7 @@ fn grafitti_file_flag() {
         )
         .run()
         .with_config(|config| {
-            // Public key not present so load default
+            // Public key not present so load default.
             assert_eq!(
                 config
                     .graffiti_file
@@ -258,7 +258,7 @@ fn grafitti_file_with_pk_flag() {
         });
 }
 
-// Tests for HTTP flags
+// Tests for HTTP flags.
 #[test]
 fn http_flag() {
     CommandLineTest::new()
@@ -293,7 +293,7 @@ fn http_allow_origin_all_flag() {
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
 
-// Tests for Metrics flags
+// Tests for Metrics flags.
 #[test]
 fn metrics_flag() {
     CommandLineTest::new()

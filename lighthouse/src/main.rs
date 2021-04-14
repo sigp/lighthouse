@@ -332,7 +332,6 @@ fn run<E: EthSpec>(
                         .shutdown_sender()
                         .try_send("Failed to start beacon node");
                 } else if shutdown_flag {
-                    // shutdown the beacon node
                     let _ = executor
                         .shutdown_sender()
                         .try_send("Beacon node immediate shutdown triggered.");

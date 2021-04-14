@@ -17,7 +17,7 @@ const CONFIG_NAME: &str = "bn_dump.json";
 const DUMP_CONFIG_CMD: &str = "dump-config";
 const IMMEDIATE_SHUTDOWN_CMD: &str = "immediate-shutdown";
 
-/// Returns the `lighthouse beacon_node --immediate-shutdown` command
+/// Returns the `lighthouse beacon_node --immediate-shutdown` command.
 fn base_cmd() -> Command {
     let target_dir = env!("CARGO_BIN_EXE_lighthouse");
     let path = target_dir
@@ -44,7 +44,7 @@ fn output_result(cmd: &mut Command) -> Result<Output, String> {
     }
 }
 
-// Framework for Command Line Testing
+// Wrapper around `Command` for easier Command Line Testing.
 struct CommandLineTest {
     cmd: Command,
 }
@@ -55,7 +55,7 @@ impl CommandLineTest {
     }
 
     fn flag(mut self, flag: &str, value: Option<&str>) -> Self {
-        // Build the command by adding the flag and any values
+        // Build the command by adding the flag and any values.
         self.cmd.arg(format!("--{}", flag));
         if let Some(value) = value {
             self.cmd.arg(value);
@@ -64,21 +64,21 @@ impl CommandLineTest {
     }
 
     fn run(&mut self) -> CompletedTest {
-        // Setup temp directories
+        // Setup temp directories.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
         let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
 
-        // Add --datadir <temp_dir> --dump-config <temp_path> to cmd
+        // Add --datadir <temp_dir> --dump-config <temp_path> to cmd.
         self.cmd
             .arg("--datadir")
             .arg(tmp_dir.path().as_os_str())
             .arg(format!("--{}", DUMP_CONFIG_CMD))
             .arg(tmp_path.as_os_str());
 
-        // Run the command
+        // Run the command.
         let _output = output_result(&mut self.cmd).expect("Unable to run command");
 
-        // Grab the config
+        // Grab the config.
         let config: Config =
             from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
                 .expect("Unable to deserialize to ClientConfig");
@@ -185,7 +185,7 @@ fn trusted_peers_flag() {
         });
 }
 
-// Tests for Eth1 flags
+// Tests for Eth1 flags.
 #[test]
 fn dummy_eth1_flag() {
     CommandLineTest::new()
@@ -233,7 +233,7 @@ fn eth1_purge_cache_flag() {
         .with_config(|config| assert!(config.eth1.purge_cache));
 }
 
-// Tests for Network flags
+// Tests for Network flags.
 #[test]
 fn network_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
@@ -328,7 +328,7 @@ fn boot_nodes_flag() {
             assert_eq!(config.network.boot_nodes_enr[1].to_base64(), enr[1]);
         });
 }
-// // TODO - Add test for MultiAddr
+// TODO - Add test for Boot Node using Multiaddr format.
 #[test]
 fn private_flag() {
     CommandLineTest::new()
@@ -345,14 +345,14 @@ fn zero_ports_flag() {
             assert_eq!(config.network.enr_address, None);
             assert_eq!(config.http_api.listen_port, 0);
             assert_eq!(config.http_metrics.listen_port, 0);
-            // Around 1/65535 chance it fails
+            // Around 1/65535 chance it fails.
             assert_ne!(config.network.libp2p_port, 9000);
-            // Around 1/65535 chance it fails
+            // Around 1/65535 chance it fails.
             assert_ne!(config.network.discovery_port, 9000);
         });
 }
 
-// Tests for ENR flags
+// Tests for ENR flags.
 #[test]
 fn enr_udp_port_flags() {
     CommandLineTest::new()
@@ -418,7 +418,7 @@ fn disable_enr_auto_update_flag() {
         .with_config(|config| assert!(config.network.discv5_config.enr_update));
 }
 
-// Tests for HTTP flags
+// Tests for HTTP flags.
 #[test]
 fn http_flag() {
     CommandLineTest::new()
@@ -458,7 +458,7 @@ fn http_allow_origin_all_flag() {
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
 
-// Tests for Metrics flags
+// Tests for Metrics flags.
 #[test]
 fn metrics_flag() {
     CommandLineTest::new()
@@ -501,7 +501,7 @@ fn metrics_allow_origin_all_flag() {
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
 }
 
-// Tests for Validator Monitor flags
+// Tests for Validator Monitor flags.
 #[test]
 fn validator_monitor_auto_flag() {
     CommandLineTest::new()
@@ -536,7 +536,7 @@ fn validator_monitor_file_flag() {
         });
 }
 
-// Tests for Store flags
+// Tests for Store flags.
 #[test]
 fn slots_per_restore_point_flag() {
     CommandLineTest::new()
@@ -567,7 +567,7 @@ fn compact_db_flag() {
         .with_config(|config| assert!(config.store.compact_on_init));
 }
 
-// Tests for Slasher flags
+// Tests for Slasher flags.
 #[test]
 fn slasher_flag() {
     CommandLineTest::new()
