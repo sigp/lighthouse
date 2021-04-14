@@ -6087,6 +6087,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_yaml",
+ "smallvec",
  "tree_hash",
  "tree_hash_derive",
  "types",

@@ -175,16 +175,15 @@ impl<T: EthSpec> OperationPool<T> {
             spec,
         );
 
-        let prev_epoch_limit = std::cmp::min(
-            T::MaxPendingAttestations::to_usize().saturating_sub(
-                state
-                    .as_base()
-                    .expect("FIXME(altair)")
-                    .previous_epoch_attestations
-                    .len(),
-            ),
-            T::MaxAttestations::to_usize(),
-        );
+        let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
+            std::cmp::min(
+                T::MaxPendingAttestations::to_usize()
+                    .saturating_sub(base_state.previous_epoch_attestations.len()),
+                T::MaxAttestations::to_usize(),
+            )
+        } else {
+            T::MaxAttestations::to_usize()
+        };
 
         let (prev_cover, curr_cover) = rayon::join(
             move || {

@@ -14,7 +14,18 @@ pub struct SyncAggregate<T: EthSpec> {
 }
 
 impl<T: EthSpec> SyncAggregate<T> {
+    /// New aggregate to be used as the seed for aggregating other signatures.
+    pub fn new() -> Self {
+        Self {
+            sync_committee_bits: BitVector::default(),
+            sync_committee_signature: AggregateSignature::infinity(),
+        }
+    }
+
     /// Empty aggregate to be used at genesis.
+    ///
+    /// Contains an empty signature and should *not* be used as the starting point for aggregation,
+    /// use `new` instead.
     pub fn empty() -> Self {
         Self {
             sync_committee_bits: BitVector::default(),
