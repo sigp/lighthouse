@@ -13,18 +13,12 @@ use std::result::Result;
 use std::thread;
 use std::time::Duration;
 
-/// If true, periodically call `malloc_trim`.
-const START_TRIMMER: bool = false;
-
 /// The value to be provided to `malloc_trim`.
 ///
 /// Value sourced from:
 ///
 /// - https://man7.org/linux/man-pages/man3/mallopt.3.html
 const OPTIMAL_TRIM: c_ulong = 1_024 * 128;
-
-/// The default interval between calls to `spawn_trimmer_thread`.
-const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60 * 5);
 
 /// The value to be provided to `malloc_mmap_threshold`.
 ///
@@ -41,6 +35,9 @@ const OPTIMAL_ARENA_MAX: c_int = 1;
 /// https://github.com/lattera/glibc/blob/895ef79e04a953cac1493863bcae29ad85657ee1/malloc/malloc.h#L115-L123
 const M_MMAP_THRESHOLD: c_int = -4;
 const M_ARENA_MAX: c_int = -8;
+
+/// The default interval between calls to `spawn_trimmer_thread`.
+const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60 * 5);
 
 /// Environment variables used to configure malloc.
 ///
@@ -129,10 +126,7 @@ pub fn configure_glibc_malloc() -> Result<(), String> {
         }
     }
 
-    if START_TRIMMER {
-        *TRIMMER_THREAD_HANDLE.lock() =
-            Some(spawn_trimmer_thread(OPTIMAL_TRIM_INTERVAL, OPTIMAL_TRIM));
-    }
+    *TRIMMER_THREAD_HANDLE.lock() = Some(spawn_trimmer_thread(OPTIMAL_TRIM_INTERVAL, OPTIMAL_TRIM));
 
     Ok(())
 }
