@@ -26,7 +26,7 @@ const OPTIMAL_TRIM: c_ulong = 1_024 * 128;
 const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 
 /// The maximum number of arenas allowed to be created by malloc.
-const OPTIMAL_ARENA_MAX: c_int = 1;
+const OPTIMAL_ARENA_MAX: c_int = 4;
 
 /// Constants used to configure malloc internals.
 ///
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn malloc_arena_max_does_not_panic() {
-        malloc_arena_max(1).unwrap();
+        malloc_arena_max(OPTIMAL_ARENA_MAX).unwrap();
     }
 
     #[test]
