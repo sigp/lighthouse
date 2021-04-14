@@ -723,13 +723,13 @@ impl<T: EthSpec> BeaconState<T> {
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
         let base_epoch = self.sync_committee_base_epoch(epoch, spec)?;
-        let current_base_epoch = self.sync_committee_base_epoch(self.current_epoch(), spec)?;
 
-        // Fail if attempting to compute the sync committee indices for anything other than
-        // the current or next sync period.
-        if base_epoch != current_base_epoch
-            && base_epoch != current_base_epoch.safe_add(spec.epochs_per_sync_committee_period)?
-        {
+        // Allow calculation of any sync committee with base epoch less than or equal to the
+        // next epoch. This allows calculating the sync committee for *two* periods after the
+        // current period, which is necessary for `process_sync_committee_updates`. It also
+        // allows calculation of historical periods, the current period, and the next period
+        // (which has a base epoch equal to the first epoch of the current period).
+        if base_epoch > self.next_epoch()? {
             return Err(Error::EpochOutOfBounds);
         }
 
